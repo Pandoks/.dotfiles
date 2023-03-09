@@ -1,4 +1,6 @@
 local lsp = require("lsp-zero")
+local cmp = require("cmp")
+local luasnip = require("luasnip")
 local lspconfig = require("lspconfig")
 local prettier = require("prettier")
 local null_ls = require("null-ls")
@@ -9,9 +11,9 @@ require("neodev").setup({
 		-- these settings will be used for your Neovim config directory
 		runtime = true, -- runtime path
 		types = true, -- full signature, docs and completion of vim.api, vim.treesitter, vim.lsp and others
-		plugins = true, -- installed opt or start plugins in packpath
+		-- plugins = true, -- installed opt or start plugins in packpath
 		-- you can also specify the list of plugins to make available as a workspace library
-		-- plugins = { "nvim-treesitter", "plenary.nvim", "telescope.nvim" },
+		plugins = { "nvim-treesitter", "plenary.nvim", "telescope.nvim", "nvim-dap-ui" },
 	},
 	setup_jsonls = true, -- configures jsonls to provide completion for project specific .luarc.json files
 	-- for your Neovim config directory, the config.library settings will be used as is
@@ -25,12 +27,6 @@ require("neodev").setup({
 	-- much faster, but needs a recent built of lua-language-server
 	-- needs lua-language-server >= 3.6.0
 	pathStrict = true,
-})
-
-lsp.preset({
-	manage_nvim_cmp = {
-		set_sources = "recommended",
-	},
 })
 
 lsp.on_attach(function(client, bufnr)
@@ -73,7 +69,7 @@ null_ls.setup({
 	},
 	on_attach = function(client, bufnr)
 		if client.supports_method("textDocument/formatting") then
-			vim.keymap.set("n", "<Leader>lf", function()
+			vim.keymap.set("n", "<leader>lf", function()
 				vim.lsp.buf.format({ bufnr = vim.api.nvim_get_current_buf() })
 			end, { buffer = bufnr, desc = "[lsp] format" })
 
@@ -95,6 +91,121 @@ null_ls.setup({
 			end, { buffer = bufnr, desc = "[lsp] format" })
 		end
 	end,
+})
+
+--   פּ ﯟ   some other good icons
+local kind_icons = {
+	Text = "",
+	Method = "m",
+	Function = "",
+	Constructor = "",
+	Field = "",
+	Variable = "",
+	Class = "",
+	Interface = "",
+	Module = "",
+	Property = "",
+	Unit = "",
+	Value = "",
+	Enum = "",
+	Keyword = "",
+	Snippet = "",
+	Color = "",
+	File = "",
+	Reference = "",
+	Folder = "",
+	EnumMember = "",
+	Constant = "",
+	Struct = "",
+	Event = "",
+	Operator = "",
+	TypeParameter = "",
+	Copilot = "",
+}
+-- find more here: https://www.nerdfonts.com/cheat-sheet
+
+vim.api.nvim_set_hl(0, "CmpItemKindCopilot", { fg = "#00ff00" })
+
+cmp.setup({
+	snippet = {
+		expand = function(args)
+			luasnip.lsp_expand(args.body) -- For `luasnip` users.
+		end,
+	},
+	mapping = {
+		["<C-k>"] = cmp.mapping.select_prev_item(),
+		["<C-j>"] = cmp.mapping.select_next_item(),
+		["<C-b>"] = cmp.mapping(cmp.mapping.scroll_docs(-1), { "i", "c" }),
+		["<C-f>"] = cmp.mapping(cmp.mapping.scroll_docs(1), { "i", "c" }),
+		["<C-Space>"] = cmp.mapping(cmp.mapping.complete(), { "i", "c" }),
+		["<C-y>"] = cmp.config.disable, -- Specify `cmp.config.disable` if you want to remove the default `<C-y>` mapping.
+		["<C-e>"] = cmp.mapping({
+			i = cmp.mapping.abort(),
+			c = cmp.mapping.close(),
+		}),
+		-- Accept currently selected item. If none selected, `select` first item.
+		-- Set `select` to `false` to only confirm explicitly selected items.
+		["<CR>"] = cmp.mapping.confirm({
+			behavior = cmp.ConfirmBehavior.Replace,
+			select = false,
+		}),
+		["<Tab>"] = cmp.mapping(function(fallback)
+			if cmp.visible() then
+				cmp.select_next_item()
+			elseif luasnip.expandable() then
+				luasnip.expand()
+			elseif luasnip.expand_or_jumpable() then
+				luasnip.expand_or_jump()
+			else
+				fallback()
+			end
+		end, {
+			"i",
+			"s",
+		}),
+		["<S-Tab>"] = cmp.mapping(function(fallback)
+			if cmp.visible() then
+				cmp.select_prev_item()
+			elseif luasnip.jumpable(-1) then
+				luasnip.jump(-1)
+			else
+				fallback()
+			end
+		end, {
+			"i",
+			"s",
+		}),
+	},
+	formatting = {
+		fields = { "menu", "abbr", "kind" },
+		format = function(_, vim_item)
+			local kind = vim_item.kind
+			vim_item.kind = kind
+			vim_item.menu = kind_icons[kind]
+			return vim_item
+		end,
+	},
+	sources = {
+		{ name = "nvim_lsp" },
+		{ name = "luasnip" },
+		-- { name = "buffer" },
+		{ name = "path" },
+		{ name = "copilot" },
+	},
+	confirm_opts = {
+		behavior = cmp.ConfirmBehavior.Replace,
+		select = false,
+	},
+	window = {
+		completion = {
+			col_offset = -2,
+		},
+		documentation = cmp.config.window.bordered(),
+	},
+	experimental = {
+		ghost_text = true,
+		native_menu = false,
+	},
 })
 
 lsp.setup()

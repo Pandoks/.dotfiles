@@ -1,9 +1,32 @@
---This file can be loaded by calling `lua require('plugins')` from your init.vim
+-- auto install packer if not installed
+local ensure_packer = function()
+	local fn = vim.fn
+	local install_path = fn.stdpath("data") .. "/site/pack/packer/start/packer.nvim"
+	if fn.empty(fn.glob(install_path)) > 0 then
+		fn.system({ "git", "clone", "--depth", "1", "https://github.com/wbthomason/packer.nvim", install_path })
+		vim.cmd([[packadd packer.nvim]])
+		return true
+	end
+	return false
+end
+local packer_bootstrap = ensure_packer() -- true if packer was just installed
 
--- Only required if you have packer configured as `opt`
-vim.cmd([[packadd packer.nvim]])
+-- autocommand that reloads neovim and installs/updates/removes plugins
+-- when file is saved
+vim.cmd([[
+  augroup packer_user_config
+    autocmd!
+    autocmd BufWritePost plugins-setup.lua source <afile> | PackerSync
+  augroup end
+]])
 
-return require("packer").startup(function(use)
+-- import packer safely
+local status, packer = pcall(require, "packer")
+if not status then
+	return
+end
+
+return packer.startup(function(use)
 	-- Packer can manage itself
 	use("wbthomason/packer.nvim")
 	use("nvim-lua/plenary.nvim")
@@ -18,10 +41,30 @@ return require("packer").startup(function(use)
 	use("windwp/nvim-ts-autotag")
 	use("mfussenegger/nvim-dap")
 	use("rcarriga/nvim-dap-ui")
-	use("nvim-neotest/neotest")
 	use("folke/neodev.nvim")
 	use("fgheng/winbar.nvim")
 	use("kdheepak/lazygit.nvim")
+	use("uga-rosa/ccc.nvim")
+	use("numToStr/FTerm.nvim")
+	use("laytan/cloak.nvim")
+	use("lewis6991/gitsigns.nvim")
+	use("rcarriga/nvim-notify")
+	use("kevinhwang91/promise-async")
+	use("ThePrimeagen/refactoring.nvim")
+	use("folke/trouble.nvim")
+	use("christoomey/vim-tmux-navigator")
+	use("szw/vim-maximizer")
+	use("vim-scripts/ReplaceWithRegister")
+	use("zbirenbaum/copilot.lua")
+	use("zbirenbaum/copilot-cmp")
+
+	use("nvim-neotest/neotest")
+	use("nvim-neotest/neotest-python")
+	use("nvim-neotest/neotest-plenary")
+	use("haydenmeade/neotest-jest")
+	use("olimorris/neotest-rspec")
+	use("nvim-neotest/neotest-vim-test")
+	use("vim-test/vim-test")
 
 	use({
 		-- carbon file explorer
@@ -58,13 +101,6 @@ return require("packer").startup(function(use)
 	})
 
 	use({
-		"lewis6991/gitsigns.nvim",
-		config = function()
-			require("gitsigns").setup()
-		end,
-	})
-
-	use({
 		"kylechui/nvim-surround",
 		tag = "*", -- Use for stability; omit to use `main` branch for the latest features
 		config = function()
@@ -81,28 +117,9 @@ return require("packer").startup(function(use)
 		end,
 	})
 
-	-- Lua
-	use({
-		"folke/zen-mode.nvim",
-		config = function()
-			require("zen-mode").setup({
-				-- your configuration comes here
-				-- or leave it empty to use the default settings
-				-- refer to the configuration section below
-			})
-		end,
-	})
-
 	use({
 		"nvim-treesitter/nvim-treesitter",
 		run = ":TSUpdate",
-	})
-
-	use({
-		"folke/trouble.nvim",
-		config = function()
-			require("trouble").setup({})
-		end,
 	})
 
 	use("theprimeagen/harpoon")
@@ -131,4 +148,8 @@ return require("packer").startup(function(use)
 			{ "rafamadriz/friendly-snippets" }, -- Optional
 		},
 	})
+
+	if packer_bootstrap then
+		require("packer").sync()
+	end
 end)
