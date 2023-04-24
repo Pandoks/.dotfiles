@@ -56,6 +56,7 @@ return packer.startup(function(use)
 	use("zbirenbaum/copilot.lua")
 	use("zbirenbaum/copilot-cmp")
 	use("nvim-tree/nvim-tree.lua")
+	use({ "akinsho/bufferline.nvim", tag = "*", requires = "nvim-tree/nvim-web-devicons" })
 
 	use("nvim-neotest/neotest")
 	use("nvim-neotest/neotest-python")

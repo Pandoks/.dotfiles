@@ -95,6 +95,11 @@ _G.packer_plugins = {
     path = "/Users/pandoks/.local/share/nvim/site/pack/packer/start/ReplaceWithRegister",
     url = "https://github.com/vim-scripts/ReplaceWithRegister"
   },
+  ["bufferline.nvim"] = {
+    loaded = true,
+    path = "/Users/pandoks/.local/share/nvim/site/pack/packer/start/bufferline.nvim",
+    url = "https://github.com/akinsho/bufferline.nvim"
+  },
   ["ccc.nvim"] = {
     loaded = true,
     path = "/Users/pandoks/.local/share/nvim/site/pack/packer/start/ccc.nvim",
