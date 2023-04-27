@@ -5,8 +5,7 @@ My dotfiles. Enjoy.
 ## Included:
 
 Neovim
-Yabai
-Skhd
+Tmux
 
 ## Upcoming:
 
