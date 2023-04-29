@@ -97,13 +97,13 @@ defaults write com.apple.Mail DisableReplyAnimations -bool true
 
 In order to reset to the defaults, just replace the `write` to `delete` and exclude the suffixes:
 
-- **Command:**
+- #### Command:
 
 ```
 defaults write -g NSAutomaticWindowAnimationsEnabled -bool false
 ```
 
-- **Reset:**
+- #### Reset:
 
 ```
 defaults delete -g NSAutomaticWindowAnimationsEnabled
