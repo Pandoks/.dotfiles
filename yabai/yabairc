@@ -1,0 +1,47 @@
+# to get window switching to work, make sure to turn of SIP and enter this command:
+# sudo nvram boot-args=-arm64_preview_abi
+
+# to give yabai sudo permissions, follow these instructions after each upgrade:
+# create a new file for writing - visudo uses the vim editor by default.
+# go read about this if you have no idea what is going on.
+
+# sudo visudo -f /private/etc/sudoers.d/yabai
+
+# input the line below into the file you are editing.
+#  replace <yabai> with the path to the yabai binary (output of: which yabai).
+#  replace <user> with your username (output of: whoami). 
+#  replace <hash> with the sha256 hash of the yabai binary (output of: shasum -a 256 $(which yabai)).
+#   this hash must be updated manually after running brew upgrade.
+
+# <user> ALL=(root) NOPASSWD: sha256:<hash> <yabai> --load-sa
+
+# load scriping capabilities
+sudo yabai --load-sa
+yabai -m signal --add event=dock_did_restart action="sudo yabai --load-sa"
+
+# bsp, stack, float
+yabai -m config layout float
+
+# yabai - config window_placement second_child
+
+# padding
+# yabai -m config top_padding 0
+# yabai -m config bottom_padding 0
+# yabai -m config left_padding 0
+# yabai -m config right_padding 0
+# yabai -m config window_gap 0
+
+# mouse settings
+# yabai -m config mouse_follows_focus on
+# yabai -m config mouse_modifier alt
+# left click + drag
+# yabai -m config mouse_action1 move
+# right click + drag
+# yabai -m config mouse_action2 resize
+# yabai -m mouse_drop_action swap
+
+# disabled specific apps
+# yabai -m rule --add app="^System Settings$" manage=off
+# yabai -m rule --add app="^Calculator$" manage=off
+
+
