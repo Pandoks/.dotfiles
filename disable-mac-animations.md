@@ -10,7 +10,7 @@ that you need to wait for every time you need to do something. SPEED SHIT UP!
   - [Window Animations](#disable-window-animations)
   - [Finder Animations](#disable-finder-animations)
   - [Rubber Band Scrolling](#disable-rubber-band-scrolling)
-  - [Smooth Scrolling](#disable-smoother-scrolling)
+  - [Smooth Scrolling](#disable-smooth-scrolling)
   - [Quick Look](#quicker-look-window-time)
   - [Fullscreen Menu Bar](#disable-fullscreen-menu-bar-wait)
   - [Scrolling Column Views](#disable-scrolling-column-views)
