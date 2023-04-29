@@ -15,7 +15,6 @@ that you need to wait for every time you need to do something. SPEED SHIT UP!
 
   ```
   defaults write -g NSWindowResizeTime .001
-
   ```
 
 - #### Disable window animations
@@ -71,7 +70,6 @@ defaults write com.apple.dock autohide-delay -float 0
 
   ```
   defaults write com.apple.dock expose-animation-duration -float 0
-
   ```
 
 - #### Disable messages animations
