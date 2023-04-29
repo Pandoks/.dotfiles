@@ -6,6 +6,20 @@ that you need to wait for every time you need to do something. SPEED SHIT UP!
 ## Table of Contents
 
 - [Commands](#commands)
+  - [Resize Time](#quicker-resize-time)
+  - [Window Animations](#disable-window-animations)
+  - [Finder Animations](#disable-finder-animations)
+  - [Rubber Band Scrolling](#disable-rubber-band-scrolling)
+  - [Smooth Scrolling](#disable-smoother-scrolling)
+  - [Quick Look](#quicker-look-window-time)
+  - [Fullscreen Menu Bar](#disable-fullscreen-menu-bar-wait)
+  - [Scrolling Column Views](#disable-scrolling-column-views)
+  - [Dock](#quicker-dock-time)
+  - [Showing and Hiding Animations](#disable-showing-and-hiding-animations)
+  - [iMessage Notification Animations](#disable-messages-animations)
+- [Resetting](#resetting)
+  - [Command Example](#command)
+  - [Reset Example](#reset)
 - [Others](#others)
   - [Repeating Keystrokes](#enable-repeating-keystrokes-when-holding-key)
 
