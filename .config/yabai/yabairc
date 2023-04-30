@@ -15,33 +15,21 @@
 
 # <user> ALL=(root) NOPASSWD: sha256:<hash> <yabai> --load-sa
 
+
 # load scriping capabilities
 sudo yabai --load-sa
 yabai -m signal --add event=dock_did_restart action="sudo yabai --load-sa"
+yabai -m config window_placement second_child
 
 # bsp, stack, float
-yabai -m config layout float
-
-# yabai - config window_placement second_child
+yabai -m config layout bsp
 
 # padding
-# yabai -m config top_padding 0
-# yabai -m config bottom_padding 0
-# yabai -m config left_padding 0
-# yabai -m config right_padding 0
-# yabai -m config window_gap 0
+yabai -m config top_padding 0
+yabai -m config bottom_padding 0
+yabai -m config left_padding 0
+yabai -m config right_padding 0
+yabai -m config window_gap 0
 
-# mouse settings
-# yabai -m config mouse_follows_focus on
-# yabai -m config mouse_modifier alt
-# left click + drag
-# yabai -m config mouse_action1 move
-# right click + drag
-# yabai -m config mouse_action2 resize
-# yabai -m mouse_drop_action swap
-
-# disabled specific apps
-# yabai -m rule --add app="^System Settings$" manage=off
-# yabai -m rule --add app="^Calculator$" manage=off
-
-
+# whitelist apps to be yabaied
+yabai -m rule --add app!="^(Safari|Arc|Brave|Terminal|iTerm2)$" manage=off
