@@ -1,0 +1,6 @@
+# MacOSX auto generated files
+Icon
+.DS_Store
+
+# nvim compiled files
+nvim/plugin/packer_compiled.lua
