@@ -32,4 +32,4 @@ yabai -m config right_padding 0
 yabai -m config window_gap 0
 
 # whitelist apps to be yabaied
-yabai -m rule --add app!="^(Safari|Arc|Brave|Terminal|iTerm2)$" manage=off
+yabai -m rule --add app!="^(Arc|Linear|Mail|iTerm2|Discord|Spotify)$" manage=off
