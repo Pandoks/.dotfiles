@@ -5,4 +5,7 @@ local mason_null_ls = require("mason-null-ls")
 mason.setup()
 masonlspconfig.setup()
 
-mason_null_ls.setup()
+mason_null_ls.setup({
+	automatic_setup = true,
+	automatic_installation = true,
+})

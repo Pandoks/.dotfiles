@@ -3,4 +3,4 @@ Icon
 .DS_Store
 
 # nvim compiled files
-nvim/plugin/packer_compiled.lua
+.config/nvim/plugin/

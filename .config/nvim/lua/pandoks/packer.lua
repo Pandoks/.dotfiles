@@ -57,7 +57,7 @@ return packer.startup(function(use)
 	use("zbirenbaum/copilot-cmp")
 	use("nvim-tree/nvim-tree.lua")
 	use({ "akinsho/bufferline.nvim", tag = "*", requires = "nvim-tree/nvim-web-devicons" })
-
+	use("folke/zen-mode.nvim")
 	use("nvim-neotest/neotest")
 	use("nvim-neotest/neotest-python")
 	use("nvim-neotest/neotest-plenary")
@@ -69,6 +69,13 @@ return packer.startup(function(use)
 	use({
 		"nvim-telescope/telescope.nvim",
 		tag = "0.1.x",
+	})
+
+	use({
+		"brenoprata10/nvim-highlight-colors",
+		config = function()
+			require("nvim-highlight-colors").setup()
+		end,
 	})
 
 	use({

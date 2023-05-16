@@ -29,10 +29,6 @@ null_ls.setup({
 				"html",
 				"vue",
 				"svelte",
-				"lua",
-				"ruby",
-				"java",
-				"xml",
 				"jsonc",
 			},
 		}), -- js/ts formatter
@@ -41,6 +37,7 @@ null_ls.setup({
 		formatting.google_java_format, -- google's java formatter
 		formatting.xmlformat, -- xml formatter
 		formatting.rustywind, -- tailwind css formatter
+		formatting.prismaFmt, -- prisma
 		diagnostics.eslint_d.with({ -- js/ts linter
 			-- only enable eslint if root has .eslintrc.js
 			condition = function(utils)
