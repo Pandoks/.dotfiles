@@ -36,11 +36,11 @@ require("material").setup({
 		-- "neorg",
 		"nvim-cmp",
 		-- "nvim-navic",
-		-- "nvim-tree",
+		"nvim-tree",
 		"nvim-web-devicons",
 		-- "sneak",
 		"telescope",
-		-- "trouble",
+		"trouble",
 		-- "which-key",
 	},
 	disable = {

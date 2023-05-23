@@ -18,3 +18,5 @@ vim.keymap.set("n", "<leader>t[", ":tabp<CR>") -- go to previous tab
 vim.keymap.set("n", "<leader>sm", ":MaximizerToggle<CR>") -- maximizes current split window
 vim.keymap.set("n", "<leader>z", ":ZenMode<CR>") -- toggles zen mode
 vim.keymap.set("n", "<leader>c", ":CloakToggle<CR>") -- toggles cloak mode
+
+vim.opt.fillchars:append("eob: ")

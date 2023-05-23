@@ -13,6 +13,8 @@ vim.cmd([[ highlight NvimTreeIndentMarker guifg=#3FC5FF ]])
 
 -- configure nvim-tree
 nvimtree.setup({
+	-- enables line numbers in the tree
+	view = { relativenumber = true, number = true },
 	-- change folder arrow icons
 	renderer = {
 		icons = {
