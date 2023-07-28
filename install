@@ -1,0 +1,62 @@
+#!/bin/zsh
+
+# Install Oh My Zsh
+sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+
+# Install Homebrew and packages
+echo "Make sure you are logged in to your Apple ID [press any to continue]:"
+read
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew bundle --file=./Brewfile
+
+# Add config files
+head -n 3 ./.gitignore > ~/.gitignore
+cp ./.gitconfig ~/.gitconfig
+cp ./.rtorrent.rc ~/.rtorrent.rc
+cp ./.tmux.conf ~/.tmux.conf
+cp ./.p10k.zsh ~/.p10k.zsh
+cp ./.zshrc ~/.zshrc
+cp -R ./.config ~/.config
+cp -R ./.tmux ~/.tmux
+cp -R ./.hammerspoon ~/.hammerspoon
+
+# Install tmux plugins
+tmux start-server
+tmux new-session -d -s Installation>/dev/null 2>&1 
+~/.tmux/plugins/tpm/bin/install_plugins
+
+# Setup GitHub CLI
+gh auth login
+
+# Setup rbenv
+rbenv init
+
+# Setup nvm
+nvm install node
+nvm use node
+nvm install 18
+nvm set-colors cgYmW
+
+# Setup neovim
+echo "If there are errors during the neovim installation, just spam :PackerSync [press any to continue]:"
+read
+nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua
+
+# Setup yabai
+echo "Make sure you have csrutil disabled [press any to continue]:"
+sudo nvram boot-args=-arm64e_preview_abi
+yabai_string="$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 $(which yabai) | cut -d " " -f 1) $(which yabai) --load-sa"
+echo "$yabai_string"| sudo tee /private/etc/sudoers.d/yabai > /dev/null
+
+# Setup your .zshrc
+echo "Set up your .zshrc [press any to continue]:"
+read
+nvim ~/.zshrc
+
+# Setup your .hammerspoon
+echo "Set up your .hammerspoon [press any to continue]:"
+read
+nvim ~/.hammerspoon/init.lua
+
+# Restart computer
+sudo shutdown -r now
