@@ -20,6 +20,59 @@ cp -R ./.config ~/.config
 cp -R ./.tmux ~/.tmux
 cp -R ./.hammerspoon ~/.hammerspoon
 
+# Symlink for easier updates
+echo "Do you want to hardlink files? [y/n]: "
+read hardlink
+if [[ $hardlink == "y" || $hardlink == "Y" ]]; then
+  echo "Creating symlinks..."
+  ln ~/.gitconfig ./.gitconfig
+  ln ~/.rtorrent.rc ./.rtorrent.rc
+  ln ~/.tmux.conf ./.tmux.conf
+  ln ~/.p10k.zsh ./.p10k.zsh
+  echo "Skipping .zshrc... due to it potentially having sensitive information"
+  # .config hard links
+  ln ~/.config/btop/btop.conf ./.config/btop/btop.conf
+  ln ~/.config/neofetch/config.conf ./.config/neofetch/config.conf
+  ln ~/.config/nvim/init.lua ./.config/nvim/init.lua
+  ln ~/.config/nvim/lua/pandoks/init.lua ./.config/nvim/lua/pandoks/init.lua
+  ln ~/.config/nvim/lua/pandoks/packer.lua ./.config/nvim/lua/pandoks/packer.lua
+  ln ~/.config/nvim/lua/pandoks/remap.lua ./.config/nvim/lua/pandoks/remap.lua
+  ln ~/.config/nvim/lua/pandoks/set.lua ./.config/nvim/lua/pandoks/set.lua
+  ln ~/.config/nvim/after/plugin/completion/autoclosing.lua ./.config/nvim/after/plugin/completion/autoclosing.lua
+  ln ~/.config/nvim/after/plugin/completion/cloak.lua ./.config/nvim/after/plugin/completion/cloak.lua
+  ln ~/.config/nvim/after/plugin/completion/cmp.lua ./.config/nvim/after/plugin/completion/cmp.lua
+  ln ~/.config/nvim/after/plugin/completion/colorpicker.lua ./.config/nvim/after/plugin/completion/colorpicker.lua
+  ln ~/.config/nvim/after/plugin/completion/indent.lua ./.config/nvim/after/plugin/completion/indent.lua
+  ln ~/.config/nvim/after/plugin/completion/null_ls.lua ./.config/nvim/after/plugin/completion/null_ls.lua
+  ln ~/.config/nvim/after/plugin/completion/treesitter.lua ./.config/nvim/after/plugin/completion/treesitter.lua
+  ln ~/.config/nvim/after/plugin/lsp/copilot.lua ./.config/nvim/after/plugin/lsp/copilot.lua
+  ln ~/.config/nvim/after/plugin/lsp/dap.lua ./.config/nvim/after/plugin/lsp/dap.lua
+  ln ~/.config/nvim/after/plugin/lsp/lspconfig.lua ./.config/nvim/after/plugin/lsp/lspconfig.lua
+  ln ~/.config/nvim/after/plugin/lsp/lspsaga.lua ./.config/nvim/after/plugin/lsp/lspsaga.lua
+  ln ~/.config/nvim/after/plugin/lsp/mason.lua ./.config/nvim/after/plugin/lsp/mason.lua
+  ln ~/.config/nvim/after/plugin/navigation/bufferline.lua ./.config/nvim/after/plugin/navigation/bufferline.lua
+  ln ~/.config/nvim/after/plugin/navigation/harpoon.lua ./.config/nvim/after/plugin/navigation/harpoon.lua
+  ln ~/.config/nvim/after/plugin/navigation/telescope.lua ./.config/nvim/after/plugin/navigation/telescope.lua
+  ln ~/.config/nvim/after/plugin/organization/filetree.lua ./.config/nvim/after/plugin/organization/filetree.lua
+  ln ~/.config/nvim/after/plugin/organization/fugitive.lua ./.config/nvim/after/plugin/organization/fugitive.lua
+  ln ~/.config/nvim/after/plugin/organization/git.lua ./.config/nvim/after/plugin/organization/git.lua
+  ln ~/.config/nvim/after/plugin/organization/refactor.lua ./.config/nvim/after/plugin/organization/refactor.lua
+  ln ~/.config/nvim/after/plugin/organization/undotree.lua ./.config/nvim/after/plugin/organization/undotree.lua
+  ln ~/.config/nvim/after/plugin/running/term.lua ./.config/nvim/after/plugin/running/term.lua
+  ln ~/.config/nvim/after/plugin/running/test.lua ./.config/nvim/after/plugin/running/test.lua
+  ln ~/.config/nvim/after/plugin/running/trouble.lua ./.config/nvim/after/plugin/running/trouble.lua
+  ln ~/.config/nvim/after/plugin/theme/color.lua ./.config/nvim/after/plugin/theme/color.lua
+  ln ~/.config/nvim/after/plugin/theme/lualine.lua ./.config/nvim/after/plugin/theme/lualine.lua
+  ln ~/.config/nvim/after/plugin/theme/winbar.lua ./.config/nvim/after/plugin/theme/winbar.lua
+  ln ~/.config/nvim/after/plugin/theme/zen.lua ./.config/nvim/after/plugin/theme/zen.lua
+  ln ~/.config/skhd/skhdrc ./.config/skhd/skhdrc
+  ln ~/.config/skhd/template.md ./.config/skhd/template.md
+  ln ~/.config/yabai/yabairc ./.config/yabai/yabairc
+  ln ~/.config/yabai/template.md ./.config/yabai/template.md
+  echo "Skipping .hammerspoon... due to it potentially having sensitive information"
+  echo "Finished linking"
+fi
+
 # Install tmux plugins
 tmux start-server
 tmux new-session -d -s Installation>/dev/null 2>&1 
