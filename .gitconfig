@@ -1,0 +1,33 @@
+[user]
+	name = Pandoks_
+	email = 35944715+Pandoks@users.noreply.github.com
+[core]
+	editor = nvim
+	excludesfile = /Users/pandoks_/.gitignore
+[init]
+	defaultBranch = master
+[pull]
+	rebase = true
+[fetch]
+	prune = true
+[diff]
+	colorMoved = zebra
+[pager]
+	branch = false
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[alias]
+  s = status
+  a = add -A
+	co = checkout
+  cm = commit -am
+  br = branch
+  lg = !git log --pretty=format:\"%C(magenta)%h%Creset -%C(red)%d%Creset %s %C(dim green)(%cr) [%an]\" 
+  cob = checkout -b
+  del = branch -D
+  res = !git clean -df && git reset --hard
+  dig = clean -Xfd
