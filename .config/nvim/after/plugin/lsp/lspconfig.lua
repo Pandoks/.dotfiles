@@ -33,7 +33,8 @@ for type, icon in pairs(signs) do
 	vim.fn.sign_define(hl, { text = icon, texthl = hl, numhl = "" })
 end
 
-local servers = { "solargraph", "arduino_language_server", "jdtls", "tsserver", "tailwindcss", "svelte", "prismals" }
+local servers =
+	{ "solargraph", "arduino_language_server", "jdtls", "tsserver", "tailwindcss", "svelte", "prismals", "clangd" }
 
 lspconfig["lua_ls"].setup({
 	capabilities = capabilities,

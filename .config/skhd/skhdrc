@@ -44,5 +44,6 @@ alt - 6 : yabai -m space --focus 6 # widgets
 alt - 7 : yabai -m space --focus 7 # music
 
 # starting and stopping yabai
-ctrl + alt - q : brew services stop yabai
-ctrl + alt - s : brew services start yabai
+ctrl + alt - q : yabai --stop-service
+ctrl + alt - s : yabai --start-service
+ctrl + alt - r : yabai --stop-service; skhd --stop-service; yabai --start-service; skhd --start-service;

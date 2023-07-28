@@ -37,7 +37,13 @@ null_ls.setup({
 		formatting.google_java_format, -- google's java formatter
 		formatting.xmlformat, -- xml formatter
 		formatting.rustywind, -- tailwind css formatter
-		formatting.prismaFmt, -- prisma
+		formatting.clang_format.with({
+			filetypes = {
+				"c",
+				"cpp",
+			},
+		}), -- clang formatter
+		diagnostics.hadolint, -- Dockerfile linter
 		diagnostics.eslint_d.with({ -- js/ts linter
 			-- only enable eslint if root has .eslintrc.js
 			condition = function(utils)

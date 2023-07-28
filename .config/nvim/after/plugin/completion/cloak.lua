@@ -15,7 +15,7 @@ require("cloak").setup({
 			cloak_pattern = "=.+",
 		},
 		{
-			file_pattern = "*****",
+			file_pattern = ".Settings.zk",
 			cloak_pattern = {
 				":.+",
 				"?.+",
