@@ -179,7 +179,7 @@ fi
 printf "Setup \033[33mneovim\033[0m? [\033[35my/n\033[0m] "
 read neovim
 if [[ $neovim == "y" || $neovim == "Y" ]]; then
-  printf "\033[33mNote:\033[0m If there are errors, go to packer.lua and spam :so and :PackerSync [\033[35mpress any to continue\033[0m]"
+  printf "\033[33mNote:\033[0m Type :qa to exit vim ;) [\033[35mpress any to continue\033[0m]"
   read
   nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua -c 'qall'
   nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua
