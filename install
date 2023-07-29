@@ -153,8 +153,8 @@ fi
 
 # Setup rbenv
 printf "Setup \033[33mrbenv\033[0m? [\033[35my/n\033[0m] "
-read rbenv
-if [[ $rbenv == "y" || $rbenv "Y" ]]; then
+read rbv
+if [[ $rbv == "y" || $rbv "Y" ]]; then
   rbenv init
   printf "\033[32mSuccessful setup\033[0m\n"
 else
