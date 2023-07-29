@@ -64,62 +64,62 @@ fi
 printf "Add config \033[33mdotfiles\033[0m? [\033[35my/n\033[0m] "
 read dot
 if [[ $dot == "y" || $dot == "Y" ]]; then
+  head -n 3 ./.gitignore > ~/.gitignore
+  cp ./.gitconfig ~/.gitconfig
+  cp ./.rtorrent.rc ~/.rtorrent.rc
+  cp ./.tmux.conf ~/.tmux.conf
+  cp ./.p10k.zsh ~/.p10k.zsh
+  cp ./.zshrc ~/.zshrc
+  cp -R ./.config ~/.config
+  cp -R ./.tmux ~/.tmux
+  cp -R ./.hammerspoon ~/.hammerspoon
+  printf "\033[32mConfig dotfiles added successfully\033[0m\n"
   printf "Create \033[33mhardlinks\033[0m? [\033[35my/n\033[0m] "
   read hard
-  head -n 3 ./.gitignore > ~/.gitignore
   if [[ $hard == "y" || $hard == "Y" ]]; then
-    ln ~/.gitconfig ./.gitconfig
-    ln ~/.rtorrent.rc ./.rtorrent.rc
-    ln ~/.tmux.conf ./.tmux.conf
-    ln ~/.p10k.zsh ./.p10k.zsh
-    ln ~/.zprofile ./.zprofile
-    ln ~/.config/btop/btop.conf ./.config/btop/btop.conf
-    ln ~/.config/neofetch/config.conf ./.config/neofetch/config.conf
-    ln ~/.config/nvim/init.lua ./.config/nvim/init.lua
-    ln ~/.config/nvim/lua/pandoks/init.lua ./.config/nvim/lua/pandoks/init.lua
-    ln ~/.config/nvim/lua/pandoks/packer.lua ./.config/nvim/lua/pandoks/packer.lua
-    ln ~/.config/nvim/lua/pandoks/remap.lua ./.config/nvim/lua/pandoks/remap.lua
-    ln ~/.config/nvim/lua/pandoks/set.lua ./.config/nvim/lua/pandoks/set.lua
-    ln ~/.config/nvim/after/plugin/completion/autoclosing.lua ./.config/nvim/after/plugin/completion/autoclosing.lua
-    ln ~/.config/nvim/after/plugin/completion/cloak.lua ./.config/nvim/after/plugin/completion/cloak.lua
-    ln ~/.config/nvim/after/plugin/completion/cmp.lua ./.config/nvim/after/plugin/completion/cmp.lua
-    ln ~/.config/nvim/after/plugin/completion/colorpicker.lua ./.config/nvim/after/plugin/completion/colorpicker.lua
-    ln ~/.config/nvim/after/plugin/completion/indent.lua ./.config/nvim/after/plugin/completion/indent.lua
-    ln ~/.config/nvim/after/plugin/completion/null_ls.lua ./.config/nvim/after/plugin/completion/null_ls.lua
-    ln ~/.config/nvim/after/plugin/completion/treesitter.lua ./.config/nvim/after/plugin/completion/treesitter.lua
-    ln ~/.config/nvim/after/plugin/lsp/copilot.lua ./.config/nvim/after/plugin/lsp/copilot.lua
-    ln ~/.config/nvim/after/plugin/lsp/dap.lua ./.config/nvim/after/plugin/lsp/dap.lua
-    ln ~/.config/nvim/after/plugin/lsp/lspconfig.lua ./.config/nvim/after/plugin/lsp/lspconfig.lua
-    ln ~/.config/nvim/after/plugin/lsp/lspsaga.lua ./.config/nvim/after/plugin/lsp/lspsaga.lua
-    ln ~/.config/nvim/after/plugin/lsp/mason.lua ./.config/nvim/after/plugin/lsp/mason.lua
-    ln ~/.config/nvim/after/plugin/navigation/bufferline.lua ./.config/nvim/after/plugin/navigation/bufferline.lua
-    ln ~/.config/nvim/after/plugin/navigation/harpoon.lua ./.config/nvim/after/plugin/navigation/harpoon.lua
-    ln ~/.config/nvim/after/plugin/navigation/telescope.lua ./.config/nvim/after/plugin/navigation/telescope.lua
-    ln ~/.config/nvim/after/plugin/organization/filetree.lua ./.config/nvim/after/plugin/organization/filetree.lua
-    ln ~/.config/nvim/after/plugin/organization/fugitive.lua ./.config/nvim/after/plugin/organization/fugitive.lua
-    ln ~/.config/nvim/after/plugin/organization/git.lua ./.config/nvim/after/plugin/organization/git.lua
-    ln ~/.config/nvim/after/plugin/organization/refactor.lua ./.config/nvim/after/plugin/organization/refactor.lua
-    ln ~/.config/nvim/after/plugin/organization/undotree.lua ./.config/nvim/after/plugin/organization/undotree.lua
-    ln ~/.config/nvim/after/plugin/running/term.lua ./.config/nvim/after/plugin/running/term.lua
-    ln ~/.config/nvim/after/plugin/running/test.lua ./.config/nvim/after/plugin/running/test.lua
-    ln ~/.config/nvim/after/plugin/running/trouble.lua ./.config/nvim/after/plugin/running/trouble.lua
-    ln ~/.config/nvim/after/plugin/theme/color.lua ./.config/nvim/after/plugin/theme/color.lua
-    ln ~/.config/nvim/after/plugin/theme/lualine.lua ./.config/nvim/after/plugin/theme/lualine.lua
-    ln ~/.config/nvim/after/plugin/theme/winbar.lua ./.config/nvim/after/plugin/theme/winbar.lua
-    ln ~/.config/nvim/after/plugin/theme/zen.lua ./.config/nvim/after/plugin/theme/zen.lua
-    ln ~/.config/skhd/skhdrc ./.config/skhd/skhdrc
-    ln ~/.config/skhd/template.md ./.config/skhd/template.md
-    ln ~/.config/yabai/yabairc ./.config/yabai/yabairc
-    ln ~/.config/yabai/template.md ./.config/yabai/template.md
-  else
-    cp ./.gitconfig ~/.gitconfig
-    cp ./.rtorrent.rc ~/.rtorrent.rc
-    cp ./.tmux.conf ~/.tmux.conf
-    cp ./.p10k.zsh ~/.p10k.zsh
-    cp ./.zshrc ~/.zshrc
-    cp -R ./.config ~/.config
-    cp -R ./.tmux ~/.tmux
-    cp -R ./.hammerspoon ~/.hammerspoon
+    ln -i ~/.gitconfig ./.gitconfig
+    ln -i ~/.rtorrent.rc ./.rtorrent.rc
+    ln -i ~/.tmux.conf ./.tmux.conf
+    ln -i ~/.p10k.zsh ./.p10k.zsh
+    ln -i ~/.zprofile ./.zprofile
+    ln -i ~/.config/btop/btop.conf ./.config/btop/btop.conf
+    ln -i ~/.config/neofetch/config.conf ./.config/neofetch/config.conf
+    ln -i ~/.config/nvim/init.lua ./.config/nvim/init.lua
+    ln -i ~/.config/nvim/lua/pandoks/init.lua ./.config/nvim/lua/pandoks/init.lua
+    ln -i ~/.config/nvim/lua/pandoks/packer.lua ./.config/nvim/lua/pandoks/packer.lua
+    ln -i ~/.config/nvim/lua/pandoks/remap.lua ./.config/nvim/lua/pandoks/remap.lua
+    ln -i ~/.config/nvim/lua/pandoks/set.lua ./.config/nvim/lua/pandoks/set.lua
+    ln -i ~/.config/nvim/after/plugin/completion/autoclosing.lua ./.config/nvim/after/plugin/completion/autoclosing.lua
+    ln -i ~/.config/nvim/after/plugin/completion/cloak.lua ./.config/nvim/after/plugin/completion/cloak.lua
+    ln -i ~/.config/nvim/after/plugin/completion/cmp.lua ./.config/nvim/after/plugin/completion/cmp.lua
+    ln -i ~/.config/nvim/after/plugin/completion/colorpicker.lua ./.config/nvim/after/plugin/completion/colorpicker.lua
+    ln -i ~/.config/nvim/after/plugin/completion/indent.lua ./.config/nvim/after/plugin/completion/indent.lua
+    ln -i ~/.config/nvim/after/plugin/completion/null_ls.lua ./.config/nvim/after/plugin/completion/null_ls.lua
+    ln -i ~/.config/nvim/after/plugin/completion/treesitter.lua ./.config/nvim/after/plugin/completion/treesitter.lua
+    ln -i ~/.config/nvim/after/plugin/lsp/copilot.lua ./.config/nvim/after/plugin/lsp/copilot.lua
+    ln -i ~/.config/nvim/after/plugin/lsp/dap.lua ./.config/nvim/after/plugin/lsp/dap.lua
+    ln -i ~/.config/nvim/after/plugin/lsp/lspconfig.lua ./.config/nvim/after/plugin/lsp/lspconfig.lua
+    ln -i ~/.config/nvim/after/plugin/lsp/lspsaga.lua ./.config/nvim/after/plugin/lsp/lspsaga.lua
+    ln -i ~/.config/nvim/after/plugin/lsp/mason.lua ./.config/nvim/after/plugin/lsp/mason.lua
+    ln -i ~/.config/nvim/after/plugin/navigation/bufferline.lua ./.config/nvim/after/plugin/navigation/bufferline.lua
+    ln -i ~/.config/nvim/after/plugin/navigation/harpoon.lua ./.config/nvim/after/plugin/navigation/harpoon.lua
+    ln -i ~/.config/nvim/after/plugin/navigation/telescope.lua ./.config/nvim/after/plugin/navigation/telescope.lua
+    ln -i ~/.config/nvim/after/plugin/organization/filetree.lua ./.config/nvim/after/plugin/organization/filetree.lua
+    ln -i ~/.config/nvim/after/plugin/organization/fugitive.lua ./.config/nvim/after/plugin/organization/fugitive.lua
+    ln -i ~/.config/nvim/after/plugin/organization/git.lua ./.config/nvim/after/plugin/organization/git.lua
+    ln -i ~/.config/nvim/after/plugin/organization/refactor.lua ./.config/nvim/after/plugin/organization/refactor.lua
+    ln -i ~/.config/nvim/after/plugin/organization/undotree.lua ./.config/nvim/after/plugin/organization/undotree.lua
+    ln -i ~/.config/nvim/after/plugin/running/term.lua ./.config/nvim/after/plugin/running/term.lua
+    ln -i ~/.config/nvim/after/plugin/running/test.lua ./.config/nvim/after/plugin/running/test.lua
+    ln -i ~/.config/nvim/after/plugin/running/trouble.lua ./.config/nvim/after/plugin/running/trouble.lua
+    ln -i ~/.config/nvim/after/plugin/theme/color.lua ./.config/nvim/after/plugin/theme/color.lua
+    ln -i ~/.config/nvim/after/plugin/theme/lualine.lua ./.config/nvim/after/plugin/theme/lualine.lua
+    ln -i ~/.config/nvim/after/plugin/theme/winbar.lua ./.config/nvim/after/plugin/theme/winbar.lua
+    ln -i ~/.config/nvim/after/plugin/theme/zen.lua ./.config/nvim/after/plugin/theme/zen.lua
+    ln -i ~/.config/skhd/skhdrc ./.config/skhd/skhdrc
+    ln -i ~/.config/skhd/template.md ./.config/skhd/template.md
+    ln -i ~/.config/yabai/yabairc ./.config/yabai/yabairc
+    ln -i ~/.config/yabai/template.md ./.config/yabai/template.md
   fi
   printf "\033[32mSuccessful install\033[0m\n"
 else
