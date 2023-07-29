@@ -120,6 +120,8 @@ if [[ $dot == "y" || $dot == "Y" ]]; then
     ln -f ~/.config/skhd/template.md ./.config/skhd/template.md
     ln -f ~/.config/yabai/yabairc ./.config/yabai/yabairc
     ln -f ~/.config/yabai/template.md ./.config/yabai/template.md
+    printf "\033[33mNote:\033[0m .zshrc and .hammerspoon cannot be hardlinked due to the possibility of private information being leaked [\033[35mpress any to continue\033[0m]"
+    read
   fi
   source ~/.zprofile
   printf "\033[32mSuccessful install\033[0m\n"
