@@ -85,6 +85,7 @@ tmux new-session -d -s Installation>/dev/null 2>&1
 
 # Setup GitHub CLI
 gh auth login
+gh auth setup-git
 
 # Setup rbenv
 rbenv init
