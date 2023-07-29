@@ -70,9 +70,9 @@ if [[ $dot == "y" || $dot == "Y" ]]; then
   cp ./.tmux.conf ~/.tmux.conf
   cp ./.p10k.zsh ~/.p10k.zsh
   cp ./.zshrc ~/.zshrc
-  cp -R ./.config ~/.config
-  cp -R ./.tmux ~/.tmux
-  cp -R ./.hammerspoon ~/.hammerspoon
+  cp -R ./.config ~
+  cp -R ./.tmux ~
+  cp -R ./.hammerspoon ~
   printf "\033[32mConfig dotfiles added successfully\033[0m\n"
   printf "Create \033[33mhardlinks\033[0m? [\033[35my/n\033[0m] "
   read hard
