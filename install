@@ -8,7 +8,7 @@ source ~/.zshrc
 echo "Make sure you are logged in to your Apple ID [press any to continue]:"
 read
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-echo "Are you on an ARM system [y/n]: "
+echo "Are you on an ARM system (there should be a warning in the Homebrew installation saying homebrew is not in your PATH) [y/n]: "
 read arm
 if [[ $arm == "y" || $arm == "Y" ]]; then
   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ./.zprofile
