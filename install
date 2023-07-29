@@ -165,6 +165,7 @@ fi
 printf "Setup \033[33mnvm\033[0m? [\033[35my/n\033[0m] "
 read nvm
 if [[ $nvm == "y" || $nvm == "Y" ]]; then
+  source ~/.zshrc
   nvm install node
   nvm use node
   nvm install 18
@@ -180,7 +181,9 @@ read neovim
 if [[ $neovim == "y" || $neovim == "Y" ]]; then
   printf "\033[33mNote:\033[0m If there are errors, go to packer.lua and spam :so and :PackerSync [\033[35mpress any to continue\033[0m]"
   read
+  nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua -c 'qall'
   nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua
+  nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua -c 'qall'
   printf "\033[32mSuccessful setup\033[0m\n"
 else
   printf "\033[32mSkipping...\033[0m\n"
@@ -190,6 +193,7 @@ fi
 printf "Setup \033[33mYabaiWM\033[0m? [\033[35my/n\033[0m] "
 read yabai
 if [[ $yabai == "y" || $yabai == "Y" ]]; then
+  printf "\033[31mWarning\033[0m: make sure csrutil is disabled [\033[35mpress any to continue\033[0m]"
   sudo nvram boot-args=-arm64e_preview_abi
   yabai_string="$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 $(which yabai) | cut -d " " -f 1) $(which yabai) --load-sa"
   echo "$yabai_string"| sudo tee /private/etc/sudoers.d/yabai > /dev/null
@@ -218,4 +222,4 @@ else
   printf "\033[32mSkipping...\033[0m\n"
 fi
 
-printf "\033[32mSUCCESS!\033[0m"
+printf "\033[32mSUCCESS!\033[0m\n"
