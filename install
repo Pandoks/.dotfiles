@@ -24,9 +24,9 @@ read omz
 if [[ $omz == "y" || $omz == "Y" ]]; then
   (sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended)
   source ~/.zshrc
-  printf "\033[32mSuccessful install\033[0m"
+  printf "\033[32mSuccessful install\033[0m\n"
 else
-  printf "\033[32mSkipping...\033[0m"
+  printf "\033[32mSkipping...\033[0m\n"
 fi
 
 # Install Homebrew and packages
@@ -54,10 +54,10 @@ if [[ $brew == "y" || $brew == "Y" ]]; then
     source ~/.zshrc
     printf "\033[32mSuccessful install\033[0m\n"
   else
-    printf "\033[32mSkipping...\033[0m"
+    printf "\033[32mSkipping...\033[0m\n"
   fi
 else
-  printf "\033[32mSkipping...\033[0m"
+  printf "\033[32mSkipping...\033[0m\n"
 fi
 
 # Add config files
@@ -123,7 +123,7 @@ if [[ $dot == "y" || $dot == "Y" ]]; then
   fi
   printf "\033[32mSuccessful install\033[0m\n"
 else
-  printf "\033[32mSkipping...\033[0m"
+  printf "\033[32mSkipping...\033[0m\n"
 fi
 
 
