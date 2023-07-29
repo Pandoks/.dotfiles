@@ -111,7 +111,7 @@ fi
 alias vim=nvim
 
 # CMU server aliases
-alias ='sshpass -p ssh '
+# alias ='sshpass -p ssh '
 
 # Homebrew aliases
 alias bupdate='brew update && brew upgrade && brew cu -a -y --include-mas && brew autoremove && brew cleanup && tldr --update && omz update && clear && neofetch'
