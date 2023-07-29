@@ -2,16 +2,16 @@
 
 # Install Oh My Zsh
 (sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended)
-source .zshrc
+source ~/.zshrc
 
 # Install Homebrew and packages
 echo "Make sure you are logged in to your Apple ID [press any to continue]:"
 read
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 cp ./.zprofile ~/.zprofile
-source .zprofile
+source ~/.zprofile
 brew bundle --file=./Brewfile
-source .zshrc
+source ~/.zshrc
 
 # Add config files
 head -n 3 ./.gitignore > ~/.gitignore
