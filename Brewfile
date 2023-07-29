@@ -83,6 +83,7 @@ mas "Logic Pro", id: 634148309
 mas "Motion", id: 434290957
 mas "Swiftify for Xcode", id: 1183412116
 mas "TestFlight", id: 899247664
+mas "Xcode", id: 497799835
 vscode "GitHub.copilot"
 vscode "tomoki1207.pdf"
 vscode "vscodevim.vim"
