@@ -44,7 +44,7 @@ lspconfig["lua_ls"].setup({
 		Lua = {
 			-- make the language server recognize "vim" global
 			diagnostics = {
-				globals = { "vim" },
+				globals = { "vim", "hs" },
 			},
 		},
 	},
