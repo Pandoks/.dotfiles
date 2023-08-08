@@ -218,7 +218,7 @@ fi
 printf "Setup \033[33mHammerspoon\033[0m? [\033[35my/n\033[0m] "
 read hammerspoon
 if [[ $hammerspoon == "y" || $hammerspoon == "Y" ]]; then
-  nvim ~/.hammerspoon/init.lua
+  nvim ~/.hammerspoon/shortcuts.lua
   printf "\033[32mSuccessful setup\033[0m\n"
 else
   printf "\033[32mSkipping...\033[0m\n"

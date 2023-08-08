@@ -1,3 +1,2 @@
-hs.hotkey.bind({}, , function()
-  hs.eventtap.keyStrokes()
-end)
+dofile(hs.configdir .. "/applications.lua")
+dofile(hs.configdir .. "/shortcuts.lua")
