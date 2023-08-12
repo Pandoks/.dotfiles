@@ -22,5 +22,11 @@ require("cloak").setup({
 				"%s[%a%d%p]+[^%s:?]$", --[[ Codes ]]
 			},
 		},
+		{
+			file_pattern = "shortcuts.lua",
+			cloak_pattern = {
+				'%(".+"',
+			},
+		},
 	},
 })
