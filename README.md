@@ -15,5 +15,3 @@ cd .dotfiles
 ## TODO:
 
 - Update `Brewfile`
-- Select between **ARM** and **Intel** paths for `hammerspoon`.
-  Currently, configs only work for **ARM** processors (Path for `yabai`).

@@ -41,8 +41,10 @@ if [[ $brew == "y" || $brew == "Y" ]]; then
   read arm
   if [[ $arm == "y" || $arm == "Y" ]]; then
     echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ./.zprofile
+    sed -i '' '4s|".*"|"/opt/homebrew/bin/yabai"|' ./.hammerspoon/yabai.lua
   else
     echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ./.zprofile
+    sed -i '' '4s|".*"|"/usr/local/bin/yabai"|' ./.hammerspoon/yabai.lua
   fi
   cp ./.zprofile ~/.zprofile
   source ~/.zprofile
