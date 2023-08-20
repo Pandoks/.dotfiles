@@ -15,3 +15,4 @@ cd .dotfiles
 ## TODO:
 
 - Update `Brewfile`
+- Hammerspoon `Apple Finder` shortcut to replace `Raycast`'s `Apple Finder` shortcut
