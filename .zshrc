@@ -95,6 +95,9 @@ else
   export EDITOR='nvim'
 fi
 
+# Use Vi keybindings for navigation
+bindkey -v
+
 # Compilation flags
 # export ARCHFLAGS="-arch x86_64"
 
