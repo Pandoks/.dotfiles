@@ -114,12 +114,34 @@ alias vim=nvim
 # alias ='sshpass -p ssh '
 
 # Homebrew aliases
-alias bupdate='brew update && brew upgrade && brew cu -a -y --include-mas && brew autoremove && brew cleanup && tldr --update && omz update && clear && neofetch'
-alias buninstall='brew uninstall --zap --force'
-alias yupdate='brew reinstall koekeishiya/formulae/yabai && codesign -fs "${YABAI_CERT:-yabai-cert}" "$(brew --prefix yabai)/bin/yabai"'
+alias b=brew
+bup() {
+  b update
+  b upgrade
+  b cu -a -y --include-mas
+  b autoremove
+  b cleanup
+  tldr --update
+  omz update
+  clear
+  neofetch
+}
+bi() {
+  b install "$1"
+  b bundle dump --force --file=~/Brewfile
+}
+bun() {
+  b uninstall --zap --force "$1"
+  b bundle dump --force --file=~/Brewfile
+}
+yup() {
+  b reinstall koekeishiya/formulae/yabai
+  codesign -fs "${YABAI_CERT:-yabia-cert}" "$(b --prefix yabai)/bin/yabai"
+}
 
 # yarn alias
 alias y=yarn
+alias yean='rm -rf yarn.lock **/node_modules'
 
 # powerlevel10k theme sourcing
 source /opt/homebrew/opt/powerlevel10k/powerlevel10k.zsh-theme
