@@ -72,6 +72,7 @@ if [[ $dot == "y" || $dot == "Y" ]]; then
   cp ./.tmux.conf ~/.tmux.conf
   cp ./.p10k.zsh ~/.p10k.zsh
   cp ./.zshrc ~/.zshrc
+  cp ./Brewfile ~/Brewfile
   cp -R ./.config ~
   cp -R ./.tmux ~
   cp -R ./.hammerspoon ~
@@ -84,6 +85,7 @@ if [[ $dot == "y" || $dot == "Y" ]]; then
     ln -f ~/.tmux.conf ./.tmux.conf
     ln -f ~/.p10k.zsh ./.p10k.zsh
     ln -f ~/.zprofile ./.zprofile
+    ln -f ~/Brewfile ./Brewfile
     ln -f ~/.config/btop/btop.conf ./.config/btop/btop.conf
     ln -f ~/.config/neofetch/config.conf ./.config/neofetch/config.conf
     ln -f ~/.hammerspoon/init.lua ./.hammerspoon/init.lua
