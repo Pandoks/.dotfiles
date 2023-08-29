@@ -128,11 +128,15 @@ bup() {
 }
 bi() {
   b install "$1"
+  echo 'Updating Brewfile...'
   b bundle dump --force --file=~/Brewfile
+  echo 'Brewfile updated'
 }
 bun() {
   b uninstall --zap --force "$1"
+  echo 'Updating Brewfile...'
   b bundle dump --force --file=~/Brewfile
+  echo 'Brewfile updated'
 }
 yup() {
   b reinstall koekeishiya/formulae/yabai
