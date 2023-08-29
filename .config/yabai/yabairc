@@ -11,12 +11,14 @@
 
 # input the line below into the file you are editing.
 #  replace <yabai> with the path to the yabai binary (output of: which yabai).
-#  replace <user> with your username (output of: whoami). 
+#  replace <user> with your username (output of: whoami).
 #  replace <hash> with the sha256 hash of the yabai binary (output of: shasum -a 256 $(which yabai)).
 #   this hash must be updated manually after running brew upgrade.
 #
 # you can also get the entire line by running this command:
 #  echo "$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 $(which yabai) | cut -d " " -f 1) $(which yabai) --load-sa"
+#
+# you must do this after each upgrade of yabai too
 
 # <user> ALL=(root) NOPASSWD: sha256:<hash> <yabai> --load-sa
 
