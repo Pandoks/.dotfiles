@@ -39,6 +39,7 @@ return {
       end
     },
   keys = {
+    "z",
     {"<leader>K", "<cmd>lua require('ufo').peekFoldedLinesUnderCursor()<cr>", mode = "n", desc = "Peek folded portion"},
   },
     config = function(_, opts)

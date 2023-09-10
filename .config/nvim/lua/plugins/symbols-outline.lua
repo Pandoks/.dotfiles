@@ -1,6 +1,5 @@
 return {
   "simrat39/symbols-outline.nvim",
-  lazy = false,
   opts = {
     keymaps = {
       focus_location = "<S-cr>",

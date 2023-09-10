@@ -1,8 +1,14 @@
 return {
 	{
+		"williamboman/mason.nvim",
+		lazy = true,
+		config = true,
+	},
+	{
 		"williamboman/mason-lspconfig.nvim",
+		lazy = true,
 		dependencies = {
-			{ "williamboman/mason.nvim", config = true },
+			"williamboman/mason.nvim",
 		},
 		opts = {
 			ensure_installed = {
@@ -21,9 +27,10 @@ return {
 	},
 	{
 		"jay-babu/mason-nvim-dap.nvim",
+    lazy = true,
 		dependencies = {
-			{ "williamboman/mason.nvim", config = true },
+			"williamboman/mason.nvim",
 		},
-		{ handlers = nil },
+		opts = { handlers = nil },
 	},
 }

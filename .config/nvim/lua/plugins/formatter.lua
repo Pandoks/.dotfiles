@@ -1,6 +1,6 @@
 return {
 	"mhartington/formatter.nvim",
-	lazy = false,
+	event = "BufWritePre",
 	keys = {
 		{ "<leader>F", "<cmd>Format<cr>", mode = "n", desc = "Format the file" },
 	},
