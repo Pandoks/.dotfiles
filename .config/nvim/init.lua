@@ -1,1 +1,1 @@
-require("pandoks")
+require("config")
