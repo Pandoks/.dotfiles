@@ -2,13 +2,13 @@
 
 # Installation introduction
 printf '\033[36m
-██████╗  █████╗ ███╗   ██╗██████╗  ██████╗ ██╗  ██╗███████╗     
-██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔═══██╗██║ ██╔╝██╔════╝     
-██████╔╝███████║██╔██╗ ██║██║  ██║██║   ██║█████╔╝ ███████╗     
-██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██║   ██║██╔═██╗ ╚════██║     
-██║     ██║  ██║██║ ╚████║██████╔╝╚██████╔╝██║  ██╗███████║     
-╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚══════╝     
-                                                                
+██████╗  █████╗ ███╗   ██╗██████╗  ██████╗ ██╗  ██╗███████╗
+██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔═══██╗██║ ██╔╝██╔════╝
+██████╔╝███████║██╔██╗ ██║██║  ██║██║   ██║█████╔╝ ███████╗
+██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██║   ██║██╔═██╗ ╚════██║
+██║     ██║  ██║██║ ╚████║██████╔╝╚██████╔╝██║  ██╗███████║
+╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚══════╝
+
    ██████╗  ██████╗ ████████╗███████╗██╗██╗     ███████╗███████╗
    ██╔══██╗██╔═══██╗╚══██╔══╝██╔════╝██║██║     ██╔════╝██╔════╝
    ██║  ██║██║   ██║   ██║   █████╗  ██║██║     █████╗  ███████╗
@@ -80,53 +80,22 @@ if [[ $dot == "y" || $dot == "Y" ]]; then
   printf "Create \033[33mhardlinks\033[0m? [\033[35my/n\033[0m] "
   read hard
   if [[ $hard == "y" || $hard == "Y" ]]; then
+    # ~/
     ln -f ~/.gitconfig ./.gitconfig
     ln -f ~/.rtorrent.rc ./.rtorrent.rc
     ln -f ~/.tmux.conf ./.tmux.conf
     ln -f ~/.p10k.zsh ./.p10k.zsh
     ln -f ~/.zprofile ./.zprofile
     ln -f ~/Brewfile ./Brewfile
-    ln -f ~/.config/btop/btop.conf ./.config/btop/btop.conf
-    ln -f ~/.config/neofetch/config.conf ./.config/neofetch/config.conf
-    ln -f ~/.hammerspoon/init.lua ./.hammerspoon/init.lua
-    ln -f ~/.hammerspoon/applications.lua ./.hammerspoon/applications.lua
-    ln -f ~/.hammerspoon/yabai.lua ./.hammerspoon/yabai.lua
-    ln -f ~/.config/nvim/init.lua ./.config/nvim/init.lua
-    ln -f ~/.config/nvim/lua/pandoks/init.lua ./.config/nvim/lua/pandoks/init.lua
-    ln -f ~/.config/nvim/lua/pandoks/packer.lua ./.config/nvim/lua/pandoks/packer.lua
-    ln -f ~/.config/nvim/lua/pandoks/remap.lua ./.config/nvim/lua/pandoks/remap.lua
-    ln -f ~/.config/nvim/lua/pandoks/set.lua ./.config/nvim/lua/pandoks/set.lua
-    ln -f ~/.config/nvim/after/plugin/completion/autoclosing.lua ./.config/nvim/after/plugin/completion/autoclosing.lua
-    ln -f ~/.config/nvim/after/plugin/completion/cloak.lua ./.config/nvim/after/plugin/completion/cloak.lua
-    ln -f ~/.config/nvim/after/plugin/completion/cmp.lua ./.config/nvim/after/plugin/completion/cmp.lua
-    ln -f ~/.config/nvim/after/plugin/completion/colorpicker.lua ./.config/nvim/after/plugin/completion/colorpicker.lua
-    ln -f ~/.config/nvim/after/plugin/completion/indent.lua ./.config/nvim/after/plugin/completion/indent.lua
-    ln -f ~/.config/nvim/after/plugin/completion/null_ls.lua ./.config/nvim/after/plugin/completion/null_ls.lua
-    ln -f ~/.config/nvim/after/plugin/completion/treesitter.lua ./.config/nvim/after/plugin/completion/treesitter.lua
-    ln -f ~/.config/nvim/after/plugin/lsp/copilot.lua ./.config/nvim/after/plugin/lsp/copilot.lua
-    ln -f ~/.config/nvim/after/plugin/lsp/dap.lua ./.config/nvim/after/plugin/lsp/dap.lua
-    ln -f ~/.config/nvim/after/plugin/lsp/lspconfig.lua ./.config/nvim/after/plugin/lsp/lspconfig.lua
-    ln -f ~/.config/nvim/after/plugin/lsp/lspsaga.lua ./.config/nvim/after/plugin/lsp/lspsaga.lua
-    ln -f ~/.config/nvim/after/plugin/lsp/mason.lua ./.config/nvim/after/plugin/lsp/mason.lua
-    ln -f ~/.config/nvim/after/plugin/navigation/bufferline.lua ./.config/nvim/after/plugin/navigation/bufferline.lua
-    ln -f ~/.config/nvim/after/plugin/navigation/harpoon.lua ./.config/nvim/after/plugin/navigation/harpoon.lua
-    ln -f ~/.config/nvim/after/plugin/navigation/telescope.lua ./.config/nvim/after/plugin/navigation/telescope.lua
-    ln -f ~/.config/nvim/after/plugin/organization/filetree.lua ./.config/nvim/after/plugin/organization/filetree.lua
-    ln -f ~/.config/nvim/after/plugin/organization/fugitive.lua ./.config/nvim/after/plugin/organization/fugitive.lua
-    ln -f ~/.config/nvim/after/plugin/organization/git.lua ./.config/nvim/after/plugin/organization/git.lua
-    ln -f ~/.config/nvim/after/plugin/organization/refactor.lua ./.config/nvim/after/plugin/organization/refactor.lua
-    ln -f ~/.config/nvim/after/plugin/organization/undotree.lua ./.config/nvim/after/plugin/organization/undotree.lua
-    ln -f ~/.config/nvim/after/plugin/running/term.lua ./.config/nvim/after/plugin/running/term.lua
-    ln -f ~/.config/nvim/after/plugin/running/test.lua ./.config/nvim/after/plugin/running/test.lua
-    ln -f ~/.config/nvim/after/plugin/running/trouble.lua ./.config/nvim/after/plugin/running/trouble.lua
-    ln -f ~/.config/nvim/after/plugin/theme/color.lua ./.config/nvim/after/plugin/theme/color.lua
-    ln -f ~/.config/nvim/after/plugin/theme/lualine.lua ./.config/nvim/after/plugin/theme/lualine.lua
-    ln -f ~/.config/nvim/after/plugin/theme/winbar.lua ./.config/nvim/after/plugin/theme/winbar.lua
-    ln -f ~/.config/nvim/after/plugin/theme/zen.lua ./.config/nvim/after/plugin/theme/zen.lua
-    ln -f ~/.config/skhd/skhdrc ./.config/skhd/skhdrc
-    ln -f ~/.config/skhd/template.md ./.config/skhd/template.md
-    ln -f ~/.config/yabai/yabairc ./.config/yabai/yabairc
-    ln -f ~/.config/yabai/template.md ./.config/yabai/template.md
+
+    # .config/
+    find ~/.config/btop -type f -exec basename {} \; | xargs -I {} ln -f ~/.config/btop/{} ./.config/btop/{}
+    find ~/.config/neofetch -type f -exec basename {} \; | xargs -I {} ln -f ~/.config/neofetch/{} ./.config/neofetch/{}
+    find ~/.config/yabai -type f -exec basename {} \; | xargs -I {} ln -f ~/.config/yabai/{} ./.config/yabai/{}
+    find ~/.config/nvim -type f -exec basename {} \; | xargs -I {} ln -f ~/.config/nvim/{} ./.config/nvim/{}
+
+    # .hammerspoon/
+    find ~/.hammerspoon -type f -exec basename {} \; | xargs -I {} ln -f ~/.hammerspoon/{} ./.hammerspoon/{}
     printf "\033[33mNote:\033[0m .zshrc cannot be hardlinked due to the possibility of private information being leaked [\033[35mpress any to continue\033[0m]"
     read
   fi
@@ -142,7 +111,7 @@ read tmux
 if [[ $tmux == "y" || $tmux == "Y" ]]; then
   tmux source-file ~/.tmux.conf
   tmux start-server
-  tmux new-session -d -s Installation>/dev/null 2>&1 
+  tmux new-session -d -s Installation>/dev/null 2>&1
   ~/.tmux/plugins/tpm/bin/install_plugins
   printf "\033[32mSuccessful setup\033[0m\n"
 else
@@ -190,9 +159,7 @@ read neovim
 if [[ $neovim == "y" || $neovim == "Y" ]]; then
   printf "\033[33mNote:\033[0m Type :qa to exit vim ;) [\033[35mpress any to continue\033[0m]"
   read
-  nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua -c 'qall'
-  nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua
-  nvim -c 'so' -c 'PackerSync' ~/.config/nvim/lua/pandoks/packer.lua -c 'qall'
+  nvim
   printf "\033[32mSuccessful setup\033[0m\n"
 else
   printf "\033[32mSkipping...\033[0m\n"
