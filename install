@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/sh
 
 # Installation introduction
 printf '\033[36m
@@ -40,10 +40,10 @@ if [[ $brew == "y" || $brew == "Y" ]]; then
   printf "Are you on an ARM system? [\033[35my/n\033[0m] "
   read arm
   if [[ $arm == "y" || $arm == "Y" ]]; then
-    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ./.zprofile
+    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >>./.zprofile
     sed -i '' '4s|".*"|"/opt/homebrew/bin/yabai"|' ./.hammerspoon/yabai.lua
   else
-    echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ./.zprofile
+    echo 'eval "$(/usr/local/bin/brew shellenv)"' >>./.zprofile
     sed -i '' '4s|".*"|"/usr/local/bin/yabai"|' ./.hammerspoon/yabai.lua
   fi
   cp ./.zprofile ~/.zprofile
@@ -66,7 +66,7 @@ fi
 printf "Add config \033[33mdotfiles\033[0m? [\033[35my/n\033[0m] "
 read dot
 if [[ $dot == "y" || $dot == "Y" ]]; then
-  head -n 3 ./.gitignore > ~/.gitignore
+  head -n 3 ./.gitignore >~/.gitignore
   cp ./.gitconfig ~/.gitconfig
   cp ./.rtorrent.rc ~/.rtorrent.rc
   cp ./.tmux.conf ~/.tmux.conf
@@ -88,14 +88,27 @@ if [[ $dot == "y" || $dot == "Y" ]]; then
     ln -f ~/.zprofile ./.zprofile
     ln -f ~/Brewfile ./Brewfile
 
+    link_directory() {
+      directory=$1
+      link=$2
+      shift 2
+
+      find_command="find $directory -type f"
+      for excluded_file in "$@"; do
+        find_command+=" ! -name $excluded_file"
+      done
+
+      eval $find_command | sed "s|^$directory/||" | xargs -I {} ln -f $directory/{} $link/{}
+    }
+
     # .config/
-    find ~/.config/btop -type f -exec basename {} \; | xargs -I {} ln -f ~/.config/btop/{} ./.config/btop/{}
-    find ~/.config/neofetch -type f -exec basename {} \; | xargs -I {} ln -f ~/.config/neofetch/{} ./.config/neofetch/{}
-    find ~/.config/yabai -type f -exec basename {} \; | xargs -I {} ln -f ~/.config/yabai/{} ./.config/yabai/{}
-    find ~/.config/nvim -type f -exec basename {} \; | xargs -I {} ln -f ~/.config/nvim/{} ./.config/nvim/{}
+    link_directory ~/.config/btop ./.config/btop
+    link_directory ~/.config/neofetch ./.config/neofetch
+    link_directory ~/.config/nvim ./.config/nvim
+    link_directory ~/.config/yabai ./.config/yabai
 
     # .hammerspoon/
-    find ~/.hammerspoon -type f -exec basename {} \; | xargs -I {} ln -f ~/.hammerspoon/{} ./.hammerspoon/{}
+    link_directory ~/.hammerspoon ./.hammerspoon
     printf "\033[33mNote:\033[0m .zshrc cannot be hardlinked due to the possibility of private information being leaked [\033[35mpress any to continue\033[0m]"
     read
   fi
@@ -111,7 +124,7 @@ read tmux
 if [[ $tmux == "y" || $tmux == "Y" ]]; then
   tmux source-file ~/.tmux.conf
   tmux start-server
-  tmux new-session -d -s Installation>/dev/null 2>&1
+  tmux new-session -d -s Installation >/dev/null 2>&1
   ~/.tmux/plugins/tpm/bin/install_plugins
   printf "\033[32mSuccessful setup\033[0m\n"
 else
@@ -172,7 +185,7 @@ if [[ $yabai == "y" || $yabai == "Y" ]]; then
   printf "\033[31mWarning\033[0m: make sure csrutil is disabled [\033[35mpress any to continue\033[0m]"
   sudo nvram boot-args=-arm64e_preview_abi
   yabai_string="$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 $(which yabai) | cut -d " " -f 1) $(which yabai) --load-sa"
-  echo "$yabai_string"| sudo tee /private/etc/sudoers.d/yabai > /dev/null
+  echo "$yabai_string" | sudo tee /private/etc/sudoers.d/yabai >/dev/null
   printf "\033[32mSuccessful setup\033[0m\n"
 else
   printf "\033[32mSkipping...\033[0m\n"

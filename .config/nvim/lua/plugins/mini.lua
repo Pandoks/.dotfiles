@@ -2,15 +2,16 @@ return {
 	{
 		"echasnovski/mini.comment",
 		version = "*",
+    lazy = false,
 		opts = {
 			mappings = {
 				comment = "gc",
 				comment_line = "gcc",
 			},
 		},
-		keys = {
-			"gc",
-		},
+    keys = {
+      "gcc",
+    },
 	},
 	{
 		"echasnovski/mini.move",

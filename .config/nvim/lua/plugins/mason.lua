@@ -13,6 +13,7 @@ return {
 		opts = {
 			ensure_installed = {
 				"clangd",
+        "bashls",
 				"lua_ls",
 				"pyright",
 				"ltex",

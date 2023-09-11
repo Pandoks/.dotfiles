@@ -5,11 +5,16 @@ return {
 		{ "<leader>F", "<cmd>Format<cr>", mode = "n", desc = "Format the file" },
 	},
 	config = function()
+		local mason = vim.fn.stdpath("data") .. "/mason/bin/"
 		local opts = {
 			logging = false,
 			filetype = {
 				lua = {
 					require("formatter.filetypes.lua").stylua,
+					ignore_exitcode = true,
+				},
+				sh = {
+					require("formatter.filetypes.sh").shfmt,
 					ignore_exitcode = true,
 				},
 				["*"] = {
