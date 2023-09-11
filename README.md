@@ -14,5 +14,4 @@ cd .dotfiles
 
 ## TODO:
 
-- Update `Installer`
 - Hammerspoon `Apple Finder` shortcut to replace `Raycast`'s `Apple Finder` shortcut
