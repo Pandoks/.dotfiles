@@ -1,6 +1,6 @@
 return {
 	"neovim/nvim-lspconfig",
-	event = "InsertEnter",
+	event = { "BufReadPre", "BufNewFile" },
 	dependencies = {
 		"williamboman/mason-lspconfig.nvim",
 		"hrsh7th/cmp-nvim-lsp",
@@ -70,7 +70,7 @@ return {
 			},
 		})
 
-		local servers = { "svelte", "tsserver", "bashls" }
+		local servers = { "svelte", "tsserver", "bashls", "pyright", "clangd" }
 		for _, lsp in ipairs(servers) do
 			lspconfig[lsp].setup({
 				capabilities = capabilities,

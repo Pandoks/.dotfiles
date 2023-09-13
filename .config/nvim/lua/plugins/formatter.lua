@@ -17,6 +17,18 @@ return {
 					require("formatter.filetypes.sh").shfmt,
 					ignore_exitcode = true,
 				},
+        c = {
+          require("formatter.filetypes.c").clangformat,
+          ignore_exitcode = true,
+        },
+				svelte = {
+					require("formatter.filetypes.svelte").prettier,
+					ignore_exitcode = true,
+				},
+				markdown = {
+					require("formatter.filetypes.markdown").prettier,
+					ignore_exitcode = true,
+				},
 				["*"] = {
 					require("formatter.filetypes.any").remove_trailing_whitespace,
 					ignore_exitcode = true,
