@@ -1,4 +1,5 @@
 {
+  "Comment.nvim": { "branch": "master", "commit": "0236521ea582747b58869cb72f70ccfa967d2e89" },
   "LuaSnip": { "branch": "master", "commit": "ea7d7ea510c641c4f15042becd27f35b3e5b3c2b" },
   "barbar.nvim": { "branch": "master", "commit": "f8d1b44bf56f754c9d9b4dd70fc041d94d676474" },
   "barbecue": { "branch": "main", "commit": "cd7e7da622d68136e13721865b4d919efd6325ed" },
@@ -20,7 +21,6 @@
   "mason-lspconfig.nvim": { "branch": "main", "commit": "20fd7f50f34b59031a7c3bbc2c207f4f60037628" },
   "mason-nvim-dap.nvim": { "branch": "main", "commit": "6148b51db945b55b3b725da39eaea6441e59dff8" },
   "mason.nvim": { "branch": "main", "commit": "ee6a7f179ebf8aa9da9d53b1cf1b57d292ea0182" },
-  "mini.comment": { "branch": "main", "commit": "877acea5b2a32ff55f808fc0ebe9aa898648318c" },
   "mini.move": { "branch": "main", "commit": "3afd39873eb9171684e554a214c055482444a47d" },
   "mini.surround": { "branch": "main", "commit": "9d1956b576d7051da3a483b251dfc778121c60db" },
   "multicursors.nvim": { "branch": "main", "commit": "1c97c10778804b9a57465663bc7082b751b5db4f" },

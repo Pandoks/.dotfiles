@@ -17,12 +17,24 @@ return {
 					require("formatter.filetypes.sh").shfmt,
 					ignore_exitcode = true,
 				},
-        c = {
-          require("formatter.filetypes.c").clangformat,
-          ignore_exitcode = true,
-        },
+				c = {
+					require("formatter.filetypes.c").clangformat,
+					ignore_exitcode = true,
+				},
+				javascript = {
+					require("formatter.filetypes.javascript").prettier,
+					ignore_exitcode = true,
+				},
+				typescript = {
+					require("formatter.filetypes.typescript").prettier,
+					ignore_exitcode = true,
+				},
 				svelte = {
 					require("formatter.filetypes.svelte").prettier,
+					ignore_exitcode = true,
+				},
+				yaml = {
+					require("formatter.filetypes.yaml").prettier,
 					ignore_exitcode = true,
 				},
 				markdown = {

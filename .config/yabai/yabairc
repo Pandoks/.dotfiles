@@ -18,6 +18,10 @@
 # you can also get the entire line by running this command:
 #  echo "$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 $(which yabai) | cut -d " " -f 1) $(which yabai) --load-sa"
 #
+# to automatically change it you can run this command:
+#  yabai_string="$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 $(which yabai) | cut -d " " -f 1) $(which yabai) --load-sa"
+#  echo "$yabai_string" | sudo tee /private/etc/sudoers.d/yabai >/dev/null
+#
 # you must do this after each upgrade of yabai too
 
 # <user> ALL=(root) NOPASSWD: sha256:<hash> <yabai> --load-sa
