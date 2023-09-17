@@ -12,6 +12,7 @@ return {
 			javascript = { "prettier" },
 			typescript = { "prettier" },
 			svelte = { "prettier" },
+			json = { "prettier" },
 			yaml = { "prettier" },
 			markdown = { "prettier" },
 			["*"] = { "trim_whitespace" },
