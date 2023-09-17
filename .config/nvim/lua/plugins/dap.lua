@@ -6,17 +6,27 @@ return {
 		},
 		opts = {},
 		keys = {
-			{ "<leader>db", "<cmd>lua require('dapui').toggle()<cr>", mode = "n", desc = "Toggle debugger mode" },
+			{
+				"<leader>db",
+				function()
+					require("dapui").toggle()
+				end,
+				mode = "n",
+				desc = "Toggle debugger mode",
+			},
 		},
 	},
 	{
 		"mfussenegger/nvim-dap",
-    lazy = true,
+		lazy = true,
 		config = function()
 			require("dap")
 
 			vim.fn.sign_define("DapBreakpoint", { text = "●", texthl = "DapBreakpoint", linehl = "", numhl = "" })
-			vim.fn.sign_define("DapBreakpointCondition", { text = "●", texthl = "DapBreakpointCondition", linehl = "", numhl = "" })
+			vim.fn.sign_define(
+				"DapBreakpointCondition",
+				{ text = "●", texthl = "DapBreakpointCondition", linehl = "", numhl = "" }
+			)
 			vim.fn.sign_define("DapLogPoint", { text = "◆", texthl = "DapLogPoint", linehl = "", numhl = "" })
 		end,
 	},

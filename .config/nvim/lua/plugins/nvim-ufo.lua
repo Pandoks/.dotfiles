@@ -28,7 +28,7 @@ end
 
 return {
 	"kevinhwang91/nvim-ufo",
-  lazy = false, -- too buggy to lazy load
+	lazy = false, -- too buggy to lazy load
 	dependencies = {
 		"kevinhwang91/promise-async",
 		"nvim-treesitter/nvim-treesitter",
@@ -42,7 +42,9 @@ return {
 	keys = {
 		{
 			"<leader>K",
-			"<cmd>lua require('ufo').peekFoldedLinesUnderCursor()<cr>",
+			function()
+				require("ufo").peekFoldedLinesUnderCursor()
+			end,
 			mode = "n",
 			desc = "Peek folded portion",
 		},

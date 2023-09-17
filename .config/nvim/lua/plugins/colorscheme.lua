@@ -25,12 +25,12 @@ return {
 				enabled = true,
 				enable_ui = true, -- enable nvim-dap-ui
 			},
+			flash = true,
 			gitsigns = true,
 			indent_blankline = {
 				enabled = false,
 				colored_indent_levels = false,
 			},
-			leap = true,
 			mason = true,
 			markdown = true,
 			mini = true,
