@@ -1,9 +1,6 @@
 return {
 	"stevearc/conform.nvim",
 	event = "BufWritePre",
-	keys = {
-		{ "<leader>F", "<cmd>Format<cr>", mode = "n", desc = "Format the file" },
-	},
 	opts = {
 		formatters_by_ft = {
 			lua = { "stylua" },
