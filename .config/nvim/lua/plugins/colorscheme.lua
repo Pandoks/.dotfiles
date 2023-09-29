@@ -28,7 +28,8 @@ return {
 			flash = true,
 			gitsigns = true,
 			indent_blankline = {
-				enabled = false,
+				enabled = true,
+				scope_color = "blue",
 				colored_indent_levels = false,
 			},
 			mason = true,
@@ -54,7 +55,6 @@ return {
 			},
 			nvimtree = true,
 			rainbow_delimiters = true,
-			symbols_outline = true,
 			telescope = { enabled = true },
 			treesitter = true,
 			ufo = true,

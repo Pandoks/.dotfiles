@@ -9,7 +9,7 @@ return {
 	end,
 	opts = {
 		animation = false,
-		auto_hide = true,
+		auto_hide = 0,
 
 		-- Hide inactive buffers and file extensions. Other options are `alternate`, `current`, and `visible`.
 		hide = {
@@ -45,6 +45,6 @@ return {
 	},
 	keys = {
 		{ "<leader>bb", "<cmd>BufferPick<cr>", mode = "n", desc = "Pick a buffer mode" },
-		{ "<leader>ba", "<cmd>BufferPin<cr>", mode = "n", desc = "Pin a buffer" },
+		{ "<leader>bp", "<cmd>BufferPin<cr>", mode = "n", desc = "Pin a buffer" },
 	},
 }
