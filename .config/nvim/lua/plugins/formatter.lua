@@ -23,6 +23,7 @@ return {
 			json = { "prettier" },
 			yaml = { "prettier" },
 			markdown = { "prettier" },
+			python = { "black" },
 			["*"] = { "trim_whitespace" },
 		},
 		format_on_save = function()
