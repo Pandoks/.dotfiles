@@ -4,9 +4,6 @@ return {
 	dependencies = {
 		"hrsh7th/cmp-path",
 		"L3MON4D3/LuaSnip",
-		"saadparwaiz1/cmp_luasnip",
-		"rafamadriz/friendly-snippets",
-		"onsails/lspkind.nvim",
 	},
 	config = function()
 		local cmp = require("cmp")
@@ -14,7 +11,42 @@ return {
 		require("luasnip.loaders.from_vscode").lazy_load()
 		vim.opt.completeopt = { "menu", "menuone", "noinsert", "noselect" }
 
+		local icons = {
+			Text = "󰉿",
+			Method = "󰆧",
+			Function = "󰊕",
+			Constructor = "",
+			Field = "󰜢",
+			Variable = "󰀫",
+			Class = "󰠱",
+			Interface = "",
+			Module = "",
+			Property = "󰜢",
+			Unit = "󰑭",
+			Value = "󰎠",
+			Enum = "",
+			Keyword = "󰌋",
+			Snippet = "",
+			Color = "󰏘",
+			File = "󰈙",
+			Reference = "󰈇",
+			Folder = "󰉋",
+			EnumMember = "",
+			Constant = "󰏿",
+			Struct = "󰙅",
+			Event = "",
+			Operator = "󰆕",
+			TypeParameter = "󰅲",
+			Copilot = "",
+			Cody = "",
+		}
+		vim.api.nvim_set_hl(0, "CmpItemKindCody", { bg = "NONE", fg = "orange" })
+		vim.api.nvim_set_hl(0, "CmpItemKindCopilot", { bg = "NONE", fg = "cyan" })
+
 		local opts = {
+			completion = {
+				keyword_length = 1,
+			},
 			snippet = {
 				expand = function(args)
 					luasnip.lsp_expand(args.body)
@@ -55,20 +87,28 @@ return {
 			},
 			sources = cmp.config.sources({
 				{ name = "nvim_lsp" },
-				{ name = "luasnip" },
+				{ name = "copilot" },
+				{ name = "cody" },
 				{ name = "path" },
 			}),
 			formatting = {
-				format = require("lspkind").cmp_format({
-					maxwidth = 50,
-					ellipsis_char = "...",
-				}),
+				format = function(entry, vim_item)
+					vim_item.kind = string.format("%s %s", icons[vim_item.kind], vim_item.kind)
+					vim_item.abbr = string.sub(vim_item.abbr, 1, 30)
+					return vim_item
+				end,
 			},
 			window = {
-				documentation = cmp.config.window.bordered(),
+				documentation = {
+					border = "rounded",
+				},
 			},
 			experimental = {
 				ghost_text = true,
+			},
+			filetype = {
+				{ "markdown", "help" },
+				enabled = false,
 			},
 		}
 

@@ -13,7 +13,7 @@ return {
 		opts = {
 			ensure_installed = {
 				"clangd",
-        "bashls",
+				"bashls",
 				"lua_ls",
 				"pyright",
 				"ltex",
@@ -28,7 +28,7 @@ return {
 	},
 	{
 		"jay-babu/mason-nvim-dap.nvim",
-    lazy = true,
+		lazy = true,
 		dependencies = {
 			"williamboman/mason.nvim",
 		},

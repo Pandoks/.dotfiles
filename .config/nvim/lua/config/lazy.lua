@@ -22,4 +22,7 @@ require("lazy").setup("plugins", {
 	change_detection = {
 		notify = false,
 	},
+	dev = {
+		path = "~/Documents/examples",
+	},
 })

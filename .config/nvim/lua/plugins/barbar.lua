@@ -45,6 +45,6 @@ return {
 	},
 	keys = {
 		{ "<leader>bb", "<cmd>BufferPick<cr>", mode = "n", desc = "Pick a buffer mode" },
-		{ "<leader>bp", "<cmd>BufferPin<cr>", mode = "n", desc = "Pin a buffer" },
+		{ "<leader>ba", "<cmd>BufferPin<cr>", mode = "n", desc = "Pin a buffer" },
 	},
 }

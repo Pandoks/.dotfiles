@@ -14,6 +14,14 @@ return {
 				mode = "n",
 				desc = "Toggle debugger mode",
 			},
+			{
+				"<leader>db", -- make sure dap-ui is loaded when starting debugger
+				function()
+					require("dap").continue()
+				end,
+				mode = "n",
+				desc = "Start debugging",
+			},
 		},
 		config = function()
 			local dap = require("dap")
@@ -51,14 +59,6 @@ return {
 				end,
 				mode = "n",
 				desc = "Stop debugging",
-			},
-			{
-				"<leader>db",
-				function()
-					require("dap").continue()
-				end,
-				mode = "n",
-				desc = "Start debugging",
 			},
 			{
 				"<leader>dr",

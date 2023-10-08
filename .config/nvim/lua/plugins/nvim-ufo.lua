@@ -28,7 +28,7 @@ end
 
 return {
 	"kevinhwang91/nvim-ufo",
-	lazy = false, -- too buggy to lazy load
+	lazy = false,
 	dependencies = {
 		"kevinhwang91/promise-async",
 		"nvim-treesitter/nvim-treesitter",
@@ -41,7 +41,7 @@ return {
 	},
 	keys = {
 		{
-			"<leader>K",
+			"zi",
 			function()
 				require("ufo").peekFoldedLinesUnderCursor()
 			end,
