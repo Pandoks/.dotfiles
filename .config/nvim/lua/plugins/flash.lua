@@ -12,7 +12,7 @@ return {
   },
   keys = {
     {
-      "f",
+      "se",
       function()
         require("flash").jump({
           search = {

@@ -19,6 +19,12 @@ return {
 
     local opts = {
       defaults = {
+        layout_strategy = "flex",
+        layout_config = {
+          vertical = {
+            prompt_position = "top",
+          },
+        },
         mappings = {
           i = {
             ["<esc>"] = actions.close,

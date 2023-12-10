@@ -71,7 +71,8 @@ return {
       },
     })
 
-    local servers = { "svelte", "tsserver", "bashls", "pyright", "clangd", "tailwindcss" }
+    local servers =
+      { "svelte", "tsserver", "bashls", "pyright", "clangd", "tailwindcss", "rust_analyzer" }
     for _, lsp in ipairs(servers) do
       lspconfig[lsp].setup({
         capabilities = capabilities,

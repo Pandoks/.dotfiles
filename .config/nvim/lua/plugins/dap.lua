@@ -42,6 +42,7 @@ return {
     "mfussenegger/nvim-dap",
     dependencies = {
       "mfussenegger/nvim-dap-python",
+      "williamboman/mason.nvim",
     },
     keys = {
       {
@@ -53,7 +54,7 @@ return {
         desc = "Toggle a debugging breakpoint",
       },
       {
-        "<leader>dd",
+        "<leader>dT",
         function()
           require("dap").terminate()
         end,
@@ -102,18 +103,58 @@ return {
       },
     },
     config = function()
+      local dap = require("dap")
       vim.fn.sign_define(
         "DapBreakpoint",
         { text = "●", texthl = "DapBreakpoint", linehl = "", numhl = "" }
       )
       vim.fn.sign_define(
         "DapBreakpointCondition",
-        { text = "●", texthl = "DapBreakpointCondition", linehl = "", numhl = "" }
+        { text = "", texthl = "DapBreakpointCondition", linehl = "", numhl = "" }
       )
       vim.fn.sign_define(
         "DapLogPoint",
-        { text = "◆", texthl = "DapLogPoint", linehl = "", numhl = "" }
+        { text = "󰸥", texthl = "DapLogPoint", linehl = "", numhl = "" }
       )
+      vim.fn.sign_define(
+        "DapBreakpointRejected",
+        { text = "", texthl = "DapLogPoint", linehl = "", numhl = "" }
+      )
+
+      -- js debugger
+      dap.adapters["pwa-node"] = {
+        type = "server",
+        host = "localhost",
+        port = "${port}",
+        executable = {
+          command = "node",
+          args = {
+            require("mason-registry").get_package("js-debug-adapter"):get_install_path()
+              .. "/js-debug/src/dapDebugServer.js",
+            "${port}",
+          },
+        },
+      }
+      for _, language in ipairs({ "javascript", "typescript", "javascriptreact", "typescriptreact" }) do
+        dap.configurations[language] = {
+          {
+            type = "pwa-node",
+            request = "launch",
+            name = "Launch File",
+            program = "${file}",
+            cwd = "${workspaceFolder}",
+            sourceMaps = true,
+          },
+          {
+            type = "pwa-node",
+            request = "attach",
+            name = "Attach Runtime (Remember --inspect)",
+            processId = require("dap.utils").pick_process,
+            cwd = "${workspaceFolder}",
+            sourceMaps = true,
+          },
+        }
+      end
     end,
   },
   {
@@ -127,7 +168,7 @@ return {
     "mfussenegger/nvim-dap-python",
     ft = "python",
     config = function()
-      require("dap-python").setup("~/.local/share/nvim/mason/packages/debugpy/venv/bin/python")
+      require("dap-python").setup("~/.pyenv/versions/3.9.18/bin/python3.9")
     end,
   },
 }

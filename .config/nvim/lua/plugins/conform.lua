@@ -22,8 +22,10 @@ return {
       svelte = { "prettier" },
       json = { "prettier" },
       yaml = { "prettier" },
+      css = { "prettier" },
       markdown = { "prettier" },
       python = { "black" },
+      rust = { "rustfmt" },
       ["_"] = { "trim_whitespace" },
     },
     formatters = {
