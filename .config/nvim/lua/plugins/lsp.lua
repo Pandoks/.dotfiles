@@ -45,7 +45,7 @@ return {
       opts.desc = "Go to next diagnostic"
       vim.keymap.set("n", "<leader>l", vim.diagnostic.goto_next, opts)
       opts.desc = "List of diagnostics"
-      vim.keymap.set("n", "<leader>dd", "<cmd>Telescope diagnostic bufnr=0<cr>", opts)
+      vim.keymap.set("n", "<leader>fd", "<cmd>Telescope diagnostics bufnr=0<cr>", opts)
 
       -- go tos
       opts.desc = "Go to declaration"
@@ -71,8 +71,17 @@ return {
       },
     })
 
-    local servers =
-      { "svelte", "tsserver", "bashls", "pyright", "clangd", "tailwindcss", "rust_analyzer" }
+    local servers = {
+      "svelte",
+      "tsserver",
+      "bashls",
+      "pyright",
+      "clangd",
+      "tailwindcss",
+      "rust_analyzer",
+      "dockerls",
+      "docker_compose_language_service",
+    }
     for _, lsp in ipairs(servers) do
       lspconfig[lsp].setup({
         capabilities = capabilities,

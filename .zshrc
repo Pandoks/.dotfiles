@@ -33,7 +33,7 @@ export ZSH="$HOME/.oh-my-zsh"
 # Uncomment one of the following lines to change the auto-update behavior
 # zstyle ':omz:update' mode disabled  # disable automatic updates
 # zstyle ':omz:update' mode auto      # update automatically without asking
-# zstyle ':omz:update' mode reminder  # just remind me to update when it's time
+zstyle ':omz:update' mode reminder  # just remind me to update when it's time
 
 # Uncomment the following line to change how often to auto-update (in days).
 # zstyle ':omz:update' frequency 13
@@ -110,20 +110,24 @@ bindkey -v
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
+# General aliases
+alias c=clear
+
 # Editor aliases
 alias vim=nvim
 
-# CMU server aliases
-# alias ='sshpass -p ssh '
+# Check localhost servers
+alias lsports='lsof -i -P -n | grep LISTEN'
 
 # Homebrew aliases
-alias b=brew
-bup() {
+alias b='arch -arm64 brew'
+bu() {
   b update
   b upgrade
   b cu -a -y --include-mas
   b autoremove
   b cleanup
+  b doctor
   tldr --update
   omz update
   clear
@@ -135,27 +139,34 @@ bi() {
   b bundle dump --force --file=~/Brewfile
   echo 'Brewfile updated'
 }
-bun() {
+bU() {
   b uninstall --zap --force "$1"
   echo 'Updating Brewfile...'
   b bundle dump --force --file=~/Brewfile
   echo 'Brewfile updated'
 }
-yup() {
-  b reinstall koekeishiya/formulae/yabai
-  codesign -fs "${YABAI_CERT:-yabia-cert}" "$(b --prefix yabai)/bin/yabai"
+
+# postgresql (psql)
+cleanpsql() {
+  brew services stop postgresql@$1
+  rm -f /opt/homebrew/var/postgresql@$1/postmaster.pid
+  brew services start postgresql@$1
 }
 
-# yarn alias
+# tmux aliases
+alias tm=tmux
+
+# yarn aliases
 alias y=yarn
 alias yean='rm -rf yarn.lock **/node_modules'
 
 # powerlevel10k theme sourcing
-source /opt/homebrew/opt/powerlevel10k/powerlevel10k.zsh-theme
+source /opt/homebrew/share/powerlevel10k/powerlevel10k.zsh-theme
 
 ####   Language path updates   ####
 # ruby (don't need to install ruby directly)
 eval "$(rbenv init - zsh)"
+
 # node version manager
 export NVM_DIR="$HOME/.nvm"
 [ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
@@ -170,10 +181,48 @@ alias pn=pnpm
 
 test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
+# tmux-sessionizer
+export PATH="/Users/pandoks/.local/bin:$PATH"
+bindkey -s ^f "tmux-sessionizer\n"
+
 # pnpm
-export PNPM_HOME="/Users/pandoks_/Library/pnpm"
+export PNPM_HOME="/Users/pandoks/Library/pnpm"
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 # pnpm end
+
+# selfcontrol
+export PATH="$PATH:/Applications/SelfControl.app/Contents/MacOS"
+
+# curl
+export PATH="/opt/homebrew/opt/curl/bin:$PATH"
+
+# aws
+alias aws='aws --profile pandoks'
+
+# pyenv
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)"
+
+# >>> conda initialize >>>
+# !! Contents within this block are managed by 'conda init' !!
+__conda_setup="$('/opt/homebrew/Caskroom/miniconda/base/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+else
+    if [ -f "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh" ]; then
+        . "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh"
+    else
+        export PATH="/opt/homebrew/Caskroom/miniconda/base/bin:$PATH"
+    fi
+fi
+unset __conda_setup
+# <<< conda initialize <<<
+
+# tabtab source for electron-forge package
+# uninstall by removing these lines or running `tabtab uninstall electron-forge`
+[[ -f /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh ]] && . /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh
+

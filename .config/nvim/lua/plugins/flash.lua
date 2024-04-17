@@ -33,13 +33,5 @@ return {
       mode = { "n", "x", "o" },
       desc = "Flash select a treesitter section",
     },
-    {
-      "<leader>T",
-      function()
-        require("flash").treesitter_search()
-      end,
-      mode = { "n", "x", "o" },
-      desc = "Flash search and select a treesitter section or word",
-    },
   },
 }

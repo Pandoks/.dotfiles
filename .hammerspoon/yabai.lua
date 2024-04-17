@@ -1,12 +1,17 @@
 local function yabai(args)
   -- Runs fast as fuck in background
   hs.task
-    .new("/opt/homebrew/bin/yabai", nil, function(_, ...)
-      print("stream", hs.inspect(table.pack(...)))
+    .new("/opt/homebrew/bin/yabai", nil, function(exitCode, stdOut, stdErr)
+      if stdErr then
+        print("yabai error: " .. stdErr)
+        return false
+      end
       return true
     end, args)
     :start()
 end
+local controlled_apps =
+  { "Arc", "Linear", "Mail", "iTerm2", "Discord", "Spotify", "Notion", "Figma" }
 
 -- toggle window float
 hs.hotkey.bind({ "shift", "alt" }, "f", function()
@@ -53,6 +58,49 @@ end
 -- move to fullscreened space
 hs.hotkey.bind({ "alt" }, "8", function()
   yabai({ "-m", "space", "--focus", "8" })
+end)
+
+-- resizing windows
+hs.hotkey.bind({ "cmd", "alt" }, "h", function()
+  for _, value in ipairs(controlled_apps) do
+    if hs.window.focusedWindow():application():name() == value then
+      if not yabai({ "-m", "window", "--resize", "left:-100:0" }) then
+        yabai({ "-m", "window", "--resize", "right:-100:0" })
+      end
+    end
+  end
+end)
+hs.hotkey.bind({ "cmd", "alt" }, "l", function()
+  for _, value in ipairs(controlled_apps) do
+    if hs.window.focusedWindow():application():name() == value then
+      if not yabai({ "-m", "window", "--resize", "right:100:0" }) then
+        yabai({ "-m", "window", "--resize", "left:100:0" })
+      end
+    end
+  end
+end)
+hs.hotkey.bind({ "cmd", "alt" }, "j", function()
+  for _, value in ipairs(controlled_apps) do
+    if hs.window.focusedWindow():application():name() == value then
+      if not yabai({ "-m", "window", "--resize", "bottom:0:100" }) then
+        yabai({ "-m", "window", "--resize", "top:0:100" })
+      end
+    end
+  end
+end)
+hs.hotkey.bind({ "cmd", "alt" }, "k", function()
+  for _, value in ipairs(controlled_apps) do
+    if hs.window.focusedWindow():application():name() == value then
+      if not yabai({ "-m", "window", "--resize", "top:0:-100" }) then
+        yabai({ "-m", "window", "--resize", "bottom:0:-100" })
+      end
+    end
+  end
+end)
+
+-- reset window sizing
+hs.hotkey.bind({ "cmd", "alt" }, "space", function()
+  yabai({ "-m", "space", "--balance" })
 end)
 
 -- starting and stopping yabai

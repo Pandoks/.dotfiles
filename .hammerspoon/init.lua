@@ -1,4 +1,3 @@
-require("hammer-control")
 require("applications")
 require("shortcuts")
 require("yabai")

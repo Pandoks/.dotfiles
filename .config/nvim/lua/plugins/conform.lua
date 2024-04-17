@@ -25,13 +25,15 @@ return {
       css = { "prettier" },
       markdown = { "prettier" },
       python = { "black" },
-      rust = { "rustfmt" },
       ["_"] = { "trim_whitespace" },
     },
     formatters = {
       prettier = {
         args = { "--stdin-filepath", "$FILENAME", "--ignore-path", ".prettierignore" },
       },
+      -- shfmt = {
+      --   command = "~/.local/share/nvim/mason/packages/shfmt/shfmt_v3.8.0_darwin_arm64",
+      -- },
     },
     format_on_save = function()
       if vim.g.disable_autoformat then
