@@ -1,5 +1,9 @@
 # .dotfiles
 
+> [!NOTICE]
+>
+> `install` script is outdated
+
 My dotfiles. Enjoy.
 
 ## Installation

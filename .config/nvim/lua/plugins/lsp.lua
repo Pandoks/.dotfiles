@@ -29,7 +29,9 @@ return {
       local opts = { noremap = true, silent = true, buffer = bufnr }
 
       opts.desc = "Show LSP references"
-      vim.keymap.set("n", "<leader>fr", "<cmd>Telescope lsp_references<cr>", opts)
+      vim.keymap.set("n", "<leader>fr", function()
+        require("telescope.builtin").lsp_references()
+      end, opts)
       opts.desc = "Show code actions"
       vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, opts)
       opts.desc = "Show documentation under cursor"
@@ -41,11 +43,13 @@ return {
       opts.desc = "Show line diagnostics"
       vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, opts)
       opts.desc = "Go to previous diagnostic"
-      vim.keymap.set("n", "<leader>h", vim.diagnostic.goto_prev, opts)
+      vim.keymap.set("n", "<leader>k", vim.diagnostic.goto_prev, opts)
       opts.desc = "Go to next diagnostic"
-      vim.keymap.set("n", "<leader>l", vim.diagnostic.goto_next, opts)
+      vim.keymap.set("n", "<leader>j", vim.diagnostic.goto_next, opts)
       opts.desc = "List of diagnostics"
       vim.keymap.set("n", "<leader>fd", "<cmd>Telescope diagnostics bufnr=0<cr>", opts)
+      opts.desc = "List functions calling function"
+      vim.keymap.set("n", "<leader>fo", "<cmd>Telescope lsp_incoming_calls<cr>", opts)
 
       -- go tos
       opts.desc = "Go to declaration"
@@ -54,7 +58,7 @@ return {
       vim.keymap.set("n", "gd", "<cmd>Telescope lsp_definitions<cr>", opts)
       opts.desc = "Show implementations"
       vim.keymap.set("n", "gi", "<cmd>Telescope lsp_implementations<cr>", opts)
-      opts.desc = "Show type definitions"
+      opts.desc = "Go to type definitions"
       vim.keymap.set("n", "gt", "<cmd>Telescope lsp_type_definitions<cr>", opts)
     end
     local capabilities = require("cmp_nvim_lsp").default_capabilities()
@@ -73,7 +77,8 @@ return {
 
     local servers = {
       "svelte",
-      "tsserver",
+      "astro",
+      "ts_ls",
       "bashls",
       "pyright",
       "clangd",

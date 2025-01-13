@@ -16,24 +16,24 @@ return {
     formatters_by_ft = {
       lua = { "stylua" },
       sh = { "shfmt" },
+      zsh = { "shfmt" },
       c = { "clang_format" },
       javascript = { "prettier" },
       typescript = { "prettier" },
       svelte = { "prettier" },
       json = { "prettier" },
+      html = { "prettier" },
       yaml = { "prettier" },
       css = { "prettier" },
       markdown = { "prettier" },
       python = { "black" },
+      go = { "goimports", "gofmt" },
       ["_"] = { "trim_whitespace" },
     },
     formatters = {
       prettier = {
         args = { "--stdin-filepath", "$FILENAME", "--ignore-path", ".prettierignore" },
       },
-      -- shfmt = {
-      --   command = "~/.local/share/nvim/mason/packages/shfmt/shfmt_v3.8.0_darwin_arm64",
-      -- },
     },
     format_on_save = function()
       if vim.g.disable_autoformat then

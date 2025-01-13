@@ -17,7 +17,7 @@ return {
         "lua_ls",
         "pyright",
         "ltex",
-        "tsserver",
+        "ts_ls",
         "svelte",
         "tailwindcss",
         "html",

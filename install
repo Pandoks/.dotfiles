@@ -69,6 +69,7 @@ if [[ $dot == "y" || $dot == "Y" ]]; then
 	head -n 3 ./.gitignore >~/.gitignore
 	cp ./.gitconfig ~/.gitconfig
 	cp ./.rtorrent.rc ~/.rtorrent.rc
+  cp ./.fzfignore ~/.fzfignore
 	cp ./.tmux.conf ~/.tmux.conf
 	cp ./.p10k.zsh ~/.p10k.zsh
 	cp ./.zshrc ~/.zshrc

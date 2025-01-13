@@ -48,6 +48,22 @@ return {
       mode = "n",
       desc = "Peek folded portion",
     },
+    {
+      "zC",
+      function()
+        require("ufo").closeAllFolds()
+      end,
+      mode = "n",
+      desc = "Close all folds",
+    },
+    {
+      "zO",
+      function()
+        require("ufo").openAllFolds()
+      end,
+      mode = "n",
+      desc = "Open all folds",
+    },
   },
   config = function(_, opts)
     vim.o.foldlevel = 99

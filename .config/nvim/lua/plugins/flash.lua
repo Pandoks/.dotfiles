@@ -26,7 +26,7 @@ return {
       desc = "Flash to location",
     },
     {
-      "<leader>t",
+      "<leader>st",
       function()
         require("flash").treesitter()
       end,

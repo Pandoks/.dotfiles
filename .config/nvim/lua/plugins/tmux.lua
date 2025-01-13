@@ -48,7 +48,7 @@ return {
       desc = "Move to right panel",
     },
     {
-      "<C-S-h>",
+      "<C-S-H>",
       function()
         require("tmux").resize_left()
       end,
@@ -56,7 +56,7 @@ return {
       desc = "Resize panel left",
     },
     {
-      "<C-S-j>",
+      "<C-S-J>",
       function()
         require("tmux").resize_bottom()
       end,
@@ -64,7 +64,7 @@ return {
       desc = "Resize panel down",
     },
     {
-      "<C-S-k>",
+      "<C-S-K>",
       function()
         require("tmux").resize_top()
       end,
@@ -72,7 +72,7 @@ return {
       desc = "Resize panel up",
     },
     {
-      "<C-S-l>",
+      "<C-S-L>",
       function()
         require("tmux").resize_right()
       end,

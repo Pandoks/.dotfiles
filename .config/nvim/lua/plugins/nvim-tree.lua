@@ -6,10 +6,11 @@ return {
     view = {
       number = true,
       relativenumber = true,
+      width = 40,
     },
     renderer = {
       indent_markers = {
-        enable = true,
+        enable = false,
       },
     },
     filters = {

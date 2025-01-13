@@ -62,39 +62,23 @@ end)
 
 -- resizing windows
 hs.hotkey.bind({ "cmd", "alt" }, "h", function()
-  for _, value in ipairs(controlled_apps) do
-    if hs.window.focusedWindow():application():name() == value then
-      if not yabai({ "-m", "window", "--resize", "left:-100:0" }) then
-        yabai({ "-m", "window", "--resize", "right:-100:0" })
-      end
-    end
+  if not yabai({ "-m", "window", "--resize", "left:-100:0" }) then
+    yabai({ "-m", "window", "--resize", "right:-100:0" })
   end
 end)
 hs.hotkey.bind({ "cmd", "alt" }, "l", function()
-  for _, value in ipairs(controlled_apps) do
-    if hs.window.focusedWindow():application():name() == value then
-      if not yabai({ "-m", "window", "--resize", "right:100:0" }) then
-        yabai({ "-m", "window", "--resize", "left:100:0" })
-      end
-    end
+  if not yabai({ "-m", "window", "--resize", "right:100:0" }) then
+    yabai({ "-m", "window", "--resize", "left:100:0" })
   end
 end)
 hs.hotkey.bind({ "cmd", "alt" }, "j", function()
-  for _, value in ipairs(controlled_apps) do
-    if hs.window.focusedWindow():application():name() == value then
-      if not yabai({ "-m", "window", "--resize", "bottom:0:100" }) then
-        yabai({ "-m", "window", "--resize", "top:0:100" })
-      end
-    end
+  if not yabai({ "-m", "window", "--resize", "bottom:0:100" }) then
+    yabai({ "-m", "window", "--resize", "top:0:100" })
   end
 end)
 hs.hotkey.bind({ "cmd", "alt" }, "k", function()
-  for _, value in ipairs(controlled_apps) do
-    if hs.window.focusedWindow():application():name() == value then
-      if not yabai({ "-m", "window", "--resize", "top:0:-100" }) then
-        yabai({ "-m", "window", "--resize", "bottom:0:-100" })
-      end
-    end
+  if not yabai({ "-m", "window", "--resize", "top:0:-100" }) then
+    yabai({ "-m", "window", "--resize", "bottom:0:-100" })
   end
 end)
 

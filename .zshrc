@@ -77,7 +77,12 @@ zstyle ':omz:update' mode reminder  # just remind me to update when it's time
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git)
+plugins=(git zsh-vi-mode)
+ZVM_CURSOR_STYLE_ENABLED=false
+function zvm_after_init() {
+  # Fuzzy finding key bindings for initial load
+  [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+}
 
 source $ZSH/oh-my-zsh.sh
 
@@ -96,7 +101,7 @@ else
 fi
 
 # Use Vi keybindings for navigation
-bindkey -v
+# bindkey -v
 
 # Compilation flags
 # export ARCHFLAGS="-arch x86_64"
@@ -131,7 +136,7 @@ bu() {
   tldr --update
   omz update
   clear
-  neofetch
+  fastfetch
 }
 bi() {
   b install "$1"
@@ -171,19 +176,15 @@ eval "$(rbenv init - zsh)"
 export NVM_DIR="$HOME/.nvm"
 [ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
 [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
-alias pn=pnpm
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-# Fuzzy finding key bindings
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-
-test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
-
-# tmux-sessionizer
+# local script paths
 export PATH="/Users/pandoks/.local/bin:$PATH"
-bindkey -s ^f "tmux-sessionizer\n"
+
+# Fuzzy finding key bindings for after load
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
 # pnpm
 export PNPM_HOME="/Users/pandoks/Library/pnpm"
@@ -192,9 +193,6 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 # pnpm end
-
-# selfcontrol
-export PATH="$PATH:/Applications/SelfControl.app/Contents/MacOS"
 
 # curl
 export PATH="/opt/homebrew/opt/curl/bin:$PATH"
@@ -225,4 +223,30 @@ unset __conda_setup
 # tabtab source for electron-forge package
 # uninstall by removing these lines or running `tabtab uninstall electron-forge`
 [[ -f /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh ]] && . /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh
+export PATH="/opt/homebrew/opt/pnpm@8/bin:$PATH"
 
+encrypt() {
+  local fileName="$1"
+  openssl enc -aes-256-cbc -pbkdf2 -in $1 -out "${fileName%.*}.enc"
+  printf "Delete original file? [y/n] "
+  read answer
+  if [[ $answer == "y" || $answer == "Y" ]] then
+    rm -rf $fileName
+  fi
+}
+decrypt() {
+  local fileName="$1"
+  openssl enc -d -aes-256-cbc -pbkdf2 -in $1 -out "${fileName%.*}.zk"
+  printf "Delete encrypted file? [y/n] "
+  read answer
+  if [[ $answer == "y" || $answer == "Y" ]] then
+    rm -rf $fileName
+  fi
+}
+
+export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export PATH=$PATH:$ANDROID_HOME/emulator
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+
+source ~/.secrets

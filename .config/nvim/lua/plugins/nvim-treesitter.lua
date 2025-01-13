@@ -10,6 +10,8 @@ return {
       "markdown_inline",
       "javascript",
       "typescript",
+      "html",
+      "css",
       "svelte",
       "comment",
     },

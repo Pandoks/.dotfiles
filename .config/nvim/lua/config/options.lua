@@ -38,3 +38,4 @@ vim.opt.iskeyword:append("-") -- treats "-" as part of a word
 -- window management
 vim.opt.splitright = true
 vim.opt.splitbelow = true
+vim.g.tmux_navigator_no_wrap = 1

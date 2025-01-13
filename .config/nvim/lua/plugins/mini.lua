@@ -26,23 +26,17 @@ return {
     opts = {
       mappings = {
         -- Move visual selection in Visual mode. Defaults are Alt (Meta) + hjkl. left = '<C-S-M-h>',
-        left = "<C-S-M-h>",
-        down = "<C-S-M-j>",
-        up = "<C-S-M-k>",
-        right = "<C-S-M-l>",
+        left = "<C-M-H>",
+        down = "<C-M-J>",
+        up = "<C-M-K>",
+        right = "<C-M-L>",
 
         -- Move current line in Normal mode line_left = '<C-S-M-h>',
-        line_left = "<C-S-M-h>",
-        line_down = "<C-S-M-j>",
-        line_up = "<C-S-M-k>",
-        line_right = "<C-S-M-l>",
+        line_left = "<C-M-H>",
+        line_down = "<C-M-J>",
+        line_up = "<C-M-K>",
+        line_right = "<C-M-L>",
       },
-    },
-    keys = {
-      "<C-S-M-h>",
-      "<C-S-M-j>",
-      "<C-S-M-k>",
-      "<C-S-M-l>",
     },
   },
   {

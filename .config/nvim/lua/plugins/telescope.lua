@@ -10,7 +10,22 @@ return {
   keys = {
     { "<leader>ff", "<cmd>Telescope find_files<cr>", mode = "n", desc = "Find files" },
     { "<leader>fg", "<cmd>Telescope live_grep<cr>", mode = "n", desc = "Grep through files" },
-    { "<leader>fu", "<cmd>Telescope undo<cr>", mode = "n", desc = "test2" },
+    { "<leader>fu", "<cmd>Telescope undo<cr>", mode = "n", desc = "History of edits" },
+    { "<leader>fm", "<cmd>Telescope marks<cr>", mode = "n", desc = "Find marks" },
+    {
+      "<leader>fc",
+      "<cmd>Telescope current_buffer_fuzzy_find<cr>",
+      mode = "n",
+      desc = "Find in current buffer",
+    },
+    {
+      "<leader>fb",
+      function()
+        require("telescope.builtin").buffers({ sort_mru = true })
+      end,
+      mode = "n",
+      desc = "Recent buffers",
+    },
   },
   config = function()
     local telescope = require("telescope")
@@ -21,8 +36,16 @@ return {
       defaults = {
         layout_strategy = "flex",
         layout_config = {
+          flex = {
+            flip_columns = 106,
+            flip_lines = 40,
+          },
           vertical = {
             prompt_position = "top",
+            preview_cutoff = 0,
+          },
+          horizontal = {
+            preview_cutoff = 0,
           },
         },
         mappings = {

@@ -1,0 +1,41 @@
+quick-terminal-screen = mouse
+mouse-hide-while-typing = true
+mouse-scroll-multiplier = 1
+
+window-decoration = false
+confirm-close-surface = false
+
+shell-integration-features = no-cursor
+
+quit-after-last-window-closed = true
+quit-after-last-window-closed-delay = 30s
+
+cursor-style = block
+cursor-style-blink = false
+cursor-click-to-move = true
+
+font-family = "Hack Nerd Font Mono"
+font-thicken = true
+theme = iTerm2 Default
+background = 020004
+background-opacity = 0.92
+background-blur-radius = 25
+bold-is-bright = true
+window-padding-x = 5
+
+macos-icon = custom-style
+macos-icon-frame = beige
+macos-icon-ghost-color = green
+macos-icon-screen-color = 020004
+macos-option-as-alt = true
+
+keybind = ctrl+shift+h=esc:[72;6u
+keybind = ctrl+shift+alt+h=esc:[72;8u
+keybind = ctrl+shift+j=esc:[74;6u
+keybind = ctrl+shift+alt+j=esc:[74;8u
+keybind = ctrl+shift+k=esc:[75;6u
+keybind = ctrl+shift+alt+k=esc:[75;8u
+keybind = ctrl+shift+l=esc:[76;6u
+keybind = ctrl+shift+alt+l=esc:[76;8u
+
+auto-update = off

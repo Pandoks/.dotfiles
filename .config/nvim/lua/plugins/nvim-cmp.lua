@@ -104,7 +104,7 @@ return {
         ghost_text = true,
       },
       filetype = {
-        { "markdown", "help" },
+        { "help" },
         enabled = false,
       },
     }
