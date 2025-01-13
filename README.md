@@ -1,6 +1,6 @@
 # .dotfiles
 
-> [!NOTICE]
+> [!IMPORTANT]
 >
 > `install` script is outdated
 
