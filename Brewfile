@@ -61,7 +61,7 @@ brew "mkcert"
 brew "mysql-client"
 brew "neovim"
 brew "nvm"
-brew "ollama", restart_service: true
+brew "ollama", restart_service: :changed
 brew "protobuf"
 brew "openai-whisper"
 brew "tree"
