@@ -10,8 +10,6 @@ local function yabai(args)
     end, args)
     :start()
 end
-local controlled_apps =
-  { "Arc", "Linear", "Mail", "iTerm2", "Discord", "Spotify", "Notion", "Figma" }
 
 -- toggle window float
 hs.hotkey.bind({ "shift", "alt" }, "f", function()
