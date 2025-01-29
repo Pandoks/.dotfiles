@@ -93,7 +93,6 @@ goto-git-worktree() {
   fi
   return
 }
-alias gtw="goto-git-worktree"
 
 bindkey -s ^t "goto-directories\n"
 bindkey -s ^o "find-open\n"
