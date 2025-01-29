@@ -16,6 +16,7 @@ return {
     filters = {
       git_ignored = false,
     },
+    update_cwd = true,
   },
   keys = {
     { "<leader>e", "<cmd>NvimTreeToggle<cr>", mode = "n", desc = "Toggle file explorer" },
