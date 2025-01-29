@@ -54,7 +54,7 @@ tmux-sessionizer() {
   if [[ $# -eq 1 ]]; then
     selected=$1
   else
-    search_dirs=(~ ~/Projects ~/Projects/examples ~/.config ~/Sieve)
+    search_dirs=(~ ~/Projects ~/Projects/examples ~/.config)
     selected=$(find -L "${search_dirs[@]}" -mindepth 1 -maxdepth 1 -type d | fzf)
   fi
 
@@ -77,7 +77,26 @@ tmux-sessionizer() {
   tmux switch-client -t "$selected_name"
 }
 
+goto-git-worktree() {
+  base_git_dir=$(git rev-parse --show-toplevel)
+
+  worktrees=$(git worktree list --porcelain | awk '
+    /^worktree/ {worktree=$2}
+    /^branch/ {branch=$2; sub("refs/heads/", "", branch); print branch " - \033[90m" worktree "\033[0m"}
+  ')
+
+  selected=$(echo "$worktrees" | fzf --ansi)
+
+  if [ -n "$selected" ]; then
+    worktree_path=$(echo "$selected" | awk -F ' - ' '{print $2}')
+    cd "$worktree_path"
+  fi
+  return
+}
+alias gtw="goto-git-worktree"
+
 bindkey -s ^t "goto-directories\n"
 bindkey -s ^o "find-open\n"
 bindkey -s ^g "goto-git\n"
 bindkey -s ^f "tmux-sessionizer\n"
+bindkey -s ^w "goto-git-worktree\n"
