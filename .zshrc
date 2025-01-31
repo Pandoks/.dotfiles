@@ -121,6 +121,9 @@ alias c=clear
 # Editor aliases
 alias vim=nvim
 
+# Lazy git alias
+alias lg=lazygit
+
 # Check localhost servers
 alias lsports='lsof -i -P -n | grep LISTEN'
 
