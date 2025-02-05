@@ -13,18 +13,24 @@ return {
     { "<leader>fu", "<cmd>Telescope undo<cr>", mode = "n", desc = "History of edits" },
     { "<leader>fm", "<cmd>Telescope marks<cr>", mode = "n", desc = "Find marks" },
     {
+      "<leader>fs",
+      function()
+        -- TODO: work in progress
+        require("telescope.builtin").lsp_workspace_symbols({
+          ignore_symbols = {
+            "variable",
+            "property",
+          },
+        })
+      end,
+      mode = "n",
+      desc = "Find all symbols in workspace",
+    },
+    {
       "<leader>fc",
       "<cmd>Telescope current_buffer_fuzzy_find<cr>",
       mode = "n",
       desc = "Find in current buffer",
-    },
-    {
-      "<leader>fb",
-      function()
-        require("telescope.builtin").buffers({ sort_mru = true })
-      end,
-      mode = "n",
-      desc = "Recent buffers",
     },
   },
   config = function()
