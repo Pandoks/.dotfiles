@@ -1,3 +1,4 @@
+-- TODO: Add minimized window support
 local yabai = require("yabai")
 local function openOrFocusApplication(application, space, open)
   open = open or application
@@ -64,6 +65,6 @@ end)
 hs.hotkey.bind({ "alt" }, "q", function()
   openOrFocusApplication("Notion", 1)
 end)
-hs.hotkey.bind({ "alt" }, "v", function()
-  openOrFocusApplication("Fey", 7)
+hs.hotkey.bind({ "alt" }, "b", function()
+  openOrFocusApplication("thinkorswim", 7)
 end)
