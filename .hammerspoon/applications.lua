@@ -1,24 +1,32 @@
--- TODO: Add minimized window support
 local yabai = require("yabai")
-local function openOrFocusApplication(application, space, open)
-  open = open or application
+local function openOrFocusApplication(application, space)
   space = space or nil
   local app = hs.application.find(application, true)
-  if app then
-    -- focus the already open application
-    app:activate(true)
-    print("Focused", app)
-  elseif space then
-    -- app isn't opened and space is included
+  if not app then
+    if not space then
+      hs.application.open(application)
+      print("Opened " .. application)
+      return
+    end
+
     yabai({ "-m", "space", "--focus", tostring(space) })
     print("Focused space", space)
-    hs.application.open(open)
+    hs.application.open(application)
     print("Opened " .. application)
-  else
-    -- app isn't opened without a space
-    hs.application.open(open)
-    print("Opened " .. application)
+    return
   end
+
+  local appWindow = app:mainWindow()
+  if not appWindow then
+    appWindow = app:allWindows()[1]
+    if appWindow:isMinimized() then
+      appWindow:unminimize()
+      print("Unminimized", app)
+    end
+  end
+
+  appWindow:focus()
+  print("Focused", app)
 end
 
 hs.hotkey.bind({ "alt" }, "s", function()
@@ -41,17 +49,14 @@ end)
 hs.hotkey.bind({ "alt" }, "r", function()
   openOrFocusApplication("Reminders", 6)
 end)
-hs.hotkey.bind({ "alt" }, "c", function()
-  openOrFocusApplication("com.apple.iCal", 6)
-end)
 hs.hotkey.bind({ "alt" }, "b", function()
   openOrFocusApplication("BambuStudio", 6)
 end)
-hs.hotkey.bind({ "alt" }, "t", function()
-  openOrFocusApplication("Ghostty", 2, "Ghostty")
+hs.hotkey.bind({ "alt" }, "c", function()
+  openOrFocusApplication("com.apple.iCal", 6)
 end)
-hs.hotkey.bind({ "alt" }, "v", function()
-  openOrFocusApplication("Davinci Resolve", 7)
+hs.hotkey.bind({ "alt" }, "t", function()
+  openOrFocusApplication("Ghostty", 2)
 end)
 hs.hotkey.bind({ "alt" }, "g", function()
   openOrFocusApplication("Figma", 7)
