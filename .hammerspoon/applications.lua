@@ -1,4 +1,5 @@
 local yabai = require("yabai")
+-- TODO: remember if minimized and minimize minimized window after unfocus
 local function openOrFocusApplication(application, space)
   space = space or nil
   local app = hs.application.find(application, true)
@@ -25,7 +26,8 @@ local function openOrFocusApplication(application, space)
     end
   end
 
-  appWindow:focus()
+  -- use activate... makes it fast asf instead of window:focus()
+  app:activate(true)
   print("Focused", app)
 end
 
