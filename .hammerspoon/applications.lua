@@ -3,13 +3,14 @@ local yabai = require("yabai")
 NeedsToBeHidden = nil
 -- needs to be a global variable or else it will get garbage collected and lose scope
 ApplicationWatcher = hs.application.watcher.new(function(app, event, object)
+  -- deactivated will happen before unhidden event when switching between 2 apps
   if event == hs.application.watcher.deactivated and app == NeedsToBeHidden then
     object:hide()
     NeedsToBeHidden = nil
     print("Hid", app)
   elseif event == hs.application.watcher.unhidden then
     NeedsToBeHidden = app
-    print("Set hidden toggle")
+    print("Set hidden toggle", app)
   end
 end)
 ApplicationWatcher:start()
