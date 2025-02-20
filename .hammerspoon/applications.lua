@@ -1,5 +1,19 @@
 local yabai = require("yabai")
--- TODO: remember if minimized and minimize minimized window after unfocus
+
+NeedsToBeHidden = nil
+-- needs to be a global variable or else it will get garbage collected and lose scope
+ApplicationWatcher = hs.application.watcher.new(function(app, event, object)
+  if event == hs.application.watcher.deactivated and app == NeedsToBeHidden then
+    object:hide()
+    NeedsToBeHidden = nil
+    print("Hid", app)
+  elseif event == hs.application.watcher.unhidden then
+    NeedsToBeHidden = app
+    print("Set hidden toggle")
+  end
+end)
+ApplicationWatcher:start()
+
 local function openOrFocusApplication(application, space)
   space = space or nil
   local app = hs.application.find(application, true)
@@ -17,20 +31,15 @@ local function openOrFocusApplication(application, space)
     return
   end
 
-  local appWindow = app:mainWindow()
-  if not appWindow then
-    appWindow = app:allWindows()[1]
-    if appWindow:isMinimized() then
-      appWindow:unminimize()
-      print("Unminimized", app)
-    end
-  end
-
   -- use activate... makes it fast asf instead of window:focus()
   app:activate(true)
   print("Focused", app)
 end
 
+hs.hotkey.bind({ "cmd", "shift" }, "h", function()
+  NeedsToBeHidden = nil
+  print("Clear hidden toggle")
+end)
 hs.hotkey.bind({ "alt" }, "s", function()
   openOrFocusApplication("Safari", 3)
 end)
