@@ -5,6 +5,7 @@ return {
     "williamboman/mason-lspconfig.nvim",
     "hrsh7th/cmp-nvim-lsp",
     { "antosha417/nvim-lsp-file-operations", config = true },
+    "artemave/workspace-diagnostics.nvim",
   },
   config = function()
     local lspconfig = require("lspconfig")
@@ -25,7 +26,8 @@ return {
       },
     })
 
-    local on_attach = function(_, bufnr)
+    local on_attach = function(client, bufnr)
+      require("workspace-diagnostics").populate_workspace_diagnostics(client, bufnr)
       local opts = { noremap = true, silent = true, buffer = bufnr }
 
       opts.desc = "Show LSP references"
@@ -61,6 +63,7 @@ return {
       opts.desc = "Go to type definitions"
       vim.keymap.set("n", "gt", "<cmd>Telescope lsp_type_definitions<cr>", opts)
     end
+
     local capabilities = require("cmp_nvim_lsp").default_capabilities()
 
     lspconfig["lua_ls"].setup({
