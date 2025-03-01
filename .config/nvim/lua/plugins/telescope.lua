@@ -82,6 +82,21 @@ return {
         hierarchy = {
           initial_multi_expand = true,
           multi_depth = 5,
+          layout_strategy = "flex",
+          layout_config = {
+            flex = {
+              flip_columns = 120,
+              flip_lines = 40,
+            },
+            vertical = {
+              prompt_position = "top",
+              preview_cutoff = 0,
+            },
+            horizontal = {
+              preview_cutoff = 0,
+              preview_width = 0.62,
+            },
+          },
         },
         undo = {
           use_delta = true,
