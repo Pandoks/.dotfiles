@@ -3,8 +3,9 @@ return {
   branch = "0.1.x",
   dependencies = {
     "nvim-lua/plenary.nvim",
-    "debugloop/telescope-undo.nvim",
     "nvim-tree/nvim-web-devicons",
+    "debugloop/telescope-undo.nvim",
+    "jmacadie/telescope-hierarchy.nvim",
     { "nvim-telescope/telescope-fzf-native.nvim", build = "make" },
   },
   keys = {
@@ -15,7 +16,6 @@ return {
     {
       "<leader>fs",
       function()
-        -- TODO: work in progress
         require("telescope.builtin").lsp_workspace_symbols({
           ignore_symbols = {
             "variable",
@@ -27,10 +27,10 @@ return {
       desc = "Find all symbols in workspace",
     },
     {
-      "<leader>fc",
-      "<cmd>Telescope current_buffer_fuzzy_find<cr>",
+      "<leader>fo",
+      "<cmd>Telescope hierarchy outgoing_calls<cr>",
       mode = "n",
-      desc = "Find in current buffer",
+      desc = "Find outgoing calls",
     },
   },
   config = function()
@@ -79,7 +79,12 @@ return {
         lsp_references = { fname_width = 50 },
       },
       extensions = {
+        hierarchy = {
+          initial_multi_expand = true,
+          multi_depth = 5,
+        },
         undo = {
+          use_delta = true,
           mappings = {
             i = {
               ["<cr>"] = undo.restore,
@@ -92,5 +97,6 @@ return {
     telescope.setup(opts)
     telescope.load_extension("fzf")
     telescope.load_extension("undo")
+    telescope.load_extension("hierarchy")
   end,
 }
