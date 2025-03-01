@@ -48,10 +48,6 @@ return {
       vim.keymap.set("n", "<leader>k", vim.diagnostic.goto_prev, opts)
       opts.desc = "Go to next diagnostic"
       vim.keymap.set("n", "<leader>j", vim.diagnostic.goto_next, opts)
-      opts.desc = "List of diagnostics"
-      vim.keymap.set("n", "<leader>fd", "<cmd>Telescope diagnostics bufnr=0<cr>", opts)
-      opts.desc = "List functions calling function"
-      vim.keymap.set("n", "<leader>fo", "<cmd>Telescope lsp_incoming_calls<cr>", opts)
 
       -- go tos
       opts.desc = "Go to declaration"
