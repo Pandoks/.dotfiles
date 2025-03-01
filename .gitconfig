@@ -3,6 +3,7 @@
 	email = 35944715+Pandoks@users.noreply.github.com
 [core]
 	editor = nvim
+  pager = delta
 	excludesfile = /Users/pandoks_/.gitignore
 [init]
 	defaultBranch = master
@@ -12,13 +13,20 @@
 	prune = true
 [diff]
 	colorMoved = zebra
+[merge]
+  conflictstyle = zdiff3
 [pager]
 	branch = false
+[interactive]
+  diffFilter = delta --color-only
+[delta]
+  navigate = true
+  line-numbers = true
 [credential "https://github.com"]
-	helper = 
+	helper =
 	helper = !/opt/homebrew/bin/gh auth git-credential
 [credential "https://gist.github.com"]
-	helper = 
+	helper =
 	helper = !/opt/homebrew/bin/gh auth git-credential
 [alias]
   s = status
@@ -26,7 +34,7 @@
 	co = checkout
   cm = commit -am
   br = branch
-  lg = !git log --pretty=format:\"%C(magenta)%h%Creset -%C(red)%d%Creset %s %C(dim green)(%cr) [%an]\" 
+  gl = !git log --pretty=format:\"%C(magenta)%h%Creset -%C(red)%d%Creset %s %C(dim green)(%cr) [%an]\"
   cob = checkout -b
   del = branch -D
   res = !git clean -df && git reset --hard
