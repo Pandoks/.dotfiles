@@ -43,5 +43,5 @@ yabai -m config right_padding 0
 yabai -m config window_gap 0
 
 # whitelist apps to be yabaied
-yabai -m rule --add app!="^(Safari|Mail|Ghostty|Discord|Notion|Slack|Cursor|Figma|thinkorswim)$" manage=off
+yabai -m rule --add app!="^(Safari|Mail|Ghostty|Discord|Notion|Slack|Cursor|Figma|thinkorswim|Calendar)$" manage=off
 yabai -m rule --add app=".*" sub-layer=normal
