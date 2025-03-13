@@ -39,7 +39,7 @@ for direction, key in pairs(directions) do
   end)
 end
 
-for i = 1, 7 do
+for i = 1, 9 do
   local number = tostring(i)
 
   -- move to space
@@ -53,10 +53,6 @@ for i = 1, 7 do
     yabai({ "-m", "space", "--focus", number })
   end)
 end
--- move to fullscreened space
-hs.hotkey.bind({ "alt" }, "8", function()
-  yabai({ "-m", "space", "--focus", "8" })
-end)
 
 -- resizing windows
 hs.hotkey.bind({ "cmd", "alt" }, "h", function()
