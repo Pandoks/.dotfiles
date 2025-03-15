@@ -1,1 +1,2 @@
 directory.default.set = ~/Desktop/
+session.path.set = ~/.rtorrent/
