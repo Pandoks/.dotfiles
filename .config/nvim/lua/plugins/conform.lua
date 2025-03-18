@@ -23,7 +23,7 @@ return {
       svelte = { "prettier" },
       json = { "prettier" },
       html = { "prettier" },
-      yaml = { "prettier" },
+      yaml = { "yamlfmt" },
       css = { "prettier" },
       markdown = { "prettier" },
       python = { "black" },
