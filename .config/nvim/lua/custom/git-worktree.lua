@@ -67,10 +67,11 @@ function M.goto_git_worktree()
       finder = finders.new_table({
         results = worktrees,
         entry_maker = function(entry)
+          local branch = entry.branch or "detached"
           return {
             value = entry,
-            display = entry.branch .. " - " .. entry.path,
-            ordinal = entry.branch .. " " .. entry.path,
+            display = branch .. " - " .. entry.path,
+            ordinal = branch .. " " .. entry.path,
           }
         end,
       }),
