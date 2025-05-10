@@ -37,9 +37,9 @@ return {
       Event = "",
       Operator = "󰆕",
       TypeParameter = "󰅲",
-      Copilot = "",
+      Supermaven = "",
     }
-    vim.api.nvim_set_hl(0, "CmpItemKindCopilot", { bg = "NONE", fg = "cyan" })
+    vim.api.nvim_set_hl(0, "CmpItemKindSupermaven", { fg = "cyan" })
 
     local opts = {
       completion = {
@@ -84,6 +84,7 @@ return {
         end, { "i", "s" }),
       },
       sources = cmp.config.sources({
+        -- { name = "supermaven" },
         { name = "nvim_lsp" },
         { name = "path" },
       }),

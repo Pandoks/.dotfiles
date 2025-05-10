@@ -22,7 +22,6 @@ return {
   {
     "echasnovski/mini.move",
     version = "*",
-    event = "ModeChanged",
     opts = {
       mappings = {
         -- Move visual selection in Visual mode. Defaults are Alt (Meta) + hjkl. left = '<C-S-M-h>',
