@@ -18,7 +18,7 @@ font-family = "Hack Nerd Font Mono"
 font-thicken = true
 theme = iTerm2 Default
 background = 020004
-background-opacity = 0.92
+background-opacity = 0.90
 background-blur-radius = 25
 bold-is-bright = true
 window-padding-x = 5
@@ -28,6 +28,8 @@ macos-icon-frame = beige
 macos-icon-ghost-color = green
 macos-icon-screen-color = 020004
 macos-option-as-alt = true
+
+keybind = shift+enter=esc:[13;2u
 
 keybind = ctrl+shift+h=esc:[72;6u
 keybind = ctrl+shift+alt+h=esc:[72;8u
