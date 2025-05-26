@@ -73,6 +73,8 @@ return {
       "rust_analyzer",
       "dockerls",
       "docker_compose_language_service",
+      "gopls",
+      "zls",
     }
     for _, lsp in ipairs(servers) do
       lspconfig[lsp].setup({
