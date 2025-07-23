@@ -23,7 +23,7 @@ return {
         "html",
         "cssls",
       },
-      automatic_installation = false, -- if you manually setup the server in lsp.lua, this should be false or else it will attach two lsp servers
+      automatic_enable = false,
     },
   },
   {
