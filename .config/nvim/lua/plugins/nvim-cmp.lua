@@ -89,16 +89,14 @@ return {
         { name = "path" },
       }),
       formatting = {
-        format = function(entry, vim_item)
+        format = function(_, vim_item)
           vim_item.kind = string.format("%s %s", icons[vim_item.kind], vim_item.kind)
           vim_item.abbr = string.sub(vim_item.abbr, 1, 30)
           return vim_item
         end,
       },
       window = {
-        documentation = {
-          border = "rounded",
-        },
+        documentation = cmp.config.window.bordered(),
       },
       experimental = {
         ghost_text = true,

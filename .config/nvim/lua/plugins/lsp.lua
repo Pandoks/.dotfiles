@@ -16,10 +16,6 @@ return {
       vim.fn.sign_define(hl, { text = icon, texthl = hl, numhl = "" })
     end
 
-    vim.lsp.handlers["textDocument/hover"] =
-      vim.lsp.with(vim.lsp.handlers.hover, { border = "rounded" })
-    vim.lsp.handlers["textDocument/signatureHelp"] =
-      vim.lsp.with(vim.lsp.handlers.signature_help, { border = "rounded" })
     vim.diagnostic.config({
       float = {
         border = "rounded",
@@ -37,7 +33,9 @@ return {
       opts.desc = "Show code actions"
       vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, opts)
       opts.desc = "Show documentation under cursor"
-      vim.keymap.set("n", "K", vim.lsp.buf.hover, opts)
+      vim.keymap.set("n", "K", function()
+        vim.lsp.buf.hover({ border = "rounded" })
+      end, opts)
       opts.desc = "Rename"
       vim.keymap.set("n", "<leader>r", vim.lsp.buf.rename, opts)
 
