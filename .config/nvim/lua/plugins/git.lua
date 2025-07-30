@@ -7,9 +7,12 @@ return {
       },
     },
   },
-
   {
     "kdheepak/lazygit.nvim",
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+      "nvim-tree/nvim-tree.lua",
+    },
     lazy = true,
     cmd = {
       "LazyGit",
@@ -18,14 +21,15 @@ return {
       "LazyGitFilter",
       "LazyGitFilterCurrentFile",
     },
-    -- optional for floating window border decoration
-    dependencies = {
-      "nvim-lua/plenary.nvim",
-    },
-    -- setting the keybinding for LazyGit with 'keys' is recommended in
-    -- order to load the plugin when the command is run for the first time
     keys = {
       { "<leader>g", "<cmd>LazyGit<cr>", desc = "LazyGit" },
     },
+    config = function()
+      vim.g.lazygit_on_exit_callback = function()
+        if require("nvim-tree.api").tree.is_visible() then
+          require("nvim-tree.api").tree.reload()
+        end
+      end
+    end,
   },
 }
