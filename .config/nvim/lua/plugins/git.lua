@@ -26,9 +26,7 @@ return {
     },
     config = function()
       vim.g.lazygit_on_exit_callback = function()
-        if require("nvim-tree.api").tree.is_visible() then
-          require("nvim-tree.api").tree.reload()
-        end
+        require("nvim-tree.api").tree.reload()
       end
     end,
   },
