@@ -93,6 +93,18 @@ return {
         },
       },
     })
+
+    lspconfig["helm_ls"].setup({
+      capabilities = capabilities,
+      on_attach = on_attach,
+      filetypes = { "helm" },
+      settings = {
+        ["helm-ls"] = {
+          yamlls = { enabled = false },
+        },
+      },
+    })
+
     lspconfig["yamlls"].setup({
       filetypes = { "yaml", "yml" },
       capabilities = capabilities,
@@ -102,7 +114,9 @@ return {
           format = {
             enable = false,
           },
-          validate = false,
+          validate = true,
+          hover = true,
+          completion = true,
           schemas = {
             kubernetes = "*.yaml",
             ["http://json.schemastore.org/github-workflow"] = ".github/workflows/*",

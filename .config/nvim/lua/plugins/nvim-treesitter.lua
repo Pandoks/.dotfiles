@@ -14,6 +14,7 @@ return {
       "css",
       "svelte",
       "comment",
+      "helm",
     },
     auto_install = true,
     highlight = {
