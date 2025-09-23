@@ -12,6 +12,9 @@ return {
         }
       end,
     },
+    float = {
+      transparent = true,
+    },
     integrations = {
       barbar = true,
       barbecue = {
