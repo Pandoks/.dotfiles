@@ -13,6 +13,8 @@ return {
       "html",
       "css",
       "svelte",
+      "latex",
+      "typst",
       "comment",
       "yaml",
       "helm",
