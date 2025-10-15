@@ -82,6 +82,8 @@ ZVM_CURSOR_STYLE_ENABLED=false
 function zvm_after_init() {
   # Fuzzy finding key bindings for initial load
   [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+  [ -f /opt/homebrew/opt/fzf/shell/completion.zsh ] && source /opt/homebrew/opt/fzf/shell/completion.zsh
+  [ -f /opt/homebrew/opt/fzf/shell/key-bindings.zsh ] && source /opt/homebrew/opt/fzf/shell/key-bindings.zsh
 }
 
 source $ZSH/oh-my-zsh.sh
