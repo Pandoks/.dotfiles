@@ -12,6 +12,14 @@ return {
       indent_markers = {
         enable = false,
       },
+      icons = {
+        glyphs = {
+          folder = {
+            arrow_closed = "",
+            arrow_open = "",
+          },
+        },
+      },
     },
     filters = {
       git_ignored = false,
