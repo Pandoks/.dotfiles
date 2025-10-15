@@ -120,6 +120,7 @@ alias c=clear
 
 # Editor aliases
 alias vim=nvim
+alias pvim="uv run nvim"
 
 # Lazy git alias
 alias lg=lazygit
@@ -136,7 +137,6 @@ bu() {
   b autoremove
   b cleanup
   b doctor
-  tldr --update
   omz update
   clear
   fastfetch
@@ -168,6 +168,9 @@ alias tm=tmux
 alias y=yarn
 alias yean='rm -rf yarn.lock **/node_modules'
 
+# opencode
+alias code=opencode
+
 # powerlevel10k theme sourcing
 source /opt/homebrew/share/powerlevel10k/powerlevel10k.zsh-theme
 
@@ -188,6 +191,8 @@ export PATH="/Users/pandoks/.local/bin:$PATH"
 
 # Fuzzy finding key bindings for after load
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+source "/opt/homebrew/opt/fzf/shell/completion.zsh"
+source "/opt/homebrew/opt/fzf/shell/key-bindings.zsh"
 
 # pnpm
 export PNPM_HOME="/Users/pandoks/Library/pnpm"
@@ -218,11 +223,6 @@ fi
 unset __conda_setup
 # <<< conda initialize <<<
 
-# pyenv
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init -)"
-
 # tabtab source for electron-forge package
 # uninstall by removing these lines or running `tabtab uninstall electron-forge`
 [[ -f /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh ]] && . /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh
@@ -233,7 +233,7 @@ encrypt() {
   openssl enc -aes-256-cbc -pbkdf2 -in $1 -out "${fileName%.*}.enc"
   printf "Delete original file? [y/n] "
   read answer
-  if [[ $answer == "y" || $answer == "Y" ]] then
+  if [[ $answer == "y" || $answer == "Y" ]]; then
     rm -rf $fileName
   fi
 }
@@ -242,7 +242,7 @@ decrypt() {
   openssl enc -d -aes-256-cbc -pbkdf2 -in $1 -out "${fileName%.*}.zk"
   printf "Delete encrypted file? [y/n] "
   read answer
-  if [[ $answer == "y" || $answer == "Y" ]] then
+  if [[ $answer == "y" || $answer == "Y" ]]; then
     rm -rf $fileName
   fi
 }
