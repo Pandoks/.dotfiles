@@ -39,3 +39,6 @@ vim.opt.iskeyword:append("-") -- treats "-" as part of a word
 vim.opt.splitright = true
 vim.opt.splitbelow = true
 vim.g.tmux_navigator_no_wrap = 1
+
+-- markdown
+vim.g.markdown_recommended_style = 0
