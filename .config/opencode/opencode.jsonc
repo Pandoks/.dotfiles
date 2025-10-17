@@ -8,7 +8,7 @@
 
     "theme_list": "<leader>t",
     "project_init": "<leader>i",
-    "tool_details": "<leader>d",
+    "tool_details": "ctrl+d",
     "thinking_blocks": "<leader>b",
 
     "session_export": "<leader>x",
