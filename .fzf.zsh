@@ -94,8 +94,20 @@ goto-git-worktree() {
   return
 }
 
+kube-context-switcher() {
+  selected_context=$(kubectl config get-contexts --output=name | fzf --prompt="Select Kubernetes Context: ")
+
+  if [[ -z $selected_context ]]; then
+    return
+  fi
+
+  kubectl config use-context "$selected_context"
+}
+
 bindkey -s ^t "goto-directories\n"
 bindkey -s ^o "find-open\n"
 bindkey -s ^g "goto-git\n"
 bindkey -s ^f "tmux-sessionizer\n"
 bindkey -s ^w "goto-git-worktree\n"
+
+alias ks=kube-context-switcher
