@@ -156,13 +156,6 @@ bU() {
   echo 'Brewfile updated'
 }
 
-# postgresql (psql)
-cleanpsql() {
-  brew services stop postgresql@$1
-  rm -f /opt/homebrew/var/postgresql@$1/postmaster.pid
-  brew services start postgresql@$1
-}
-
 # tmux aliases
 alias tm=tmux
 
