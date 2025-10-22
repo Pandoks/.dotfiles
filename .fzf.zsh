@@ -95,13 +95,44 @@ goto-git-worktree() {
 }
 
 kube-context-switcher() {
-  selected_context=$(kubectl config get-contexts --output=name | fzf --prompt="Select Kubernetes Context: ")
+  current_context=$(kubectl config current-context 2>/dev/null)
+  current_cluster=$(kubectl config view --minify -o jsonpath='{.contexts[0].context.cluster}' 2>/dev/null)
 
-  if [[ -z $selected_context ]]; then
+  prompt="Select Kubernetes Context: "
+
+  header=''
+  if [[ -n $current_cluster ]]; then
+    header="Current cluster: $current_cluster"
+  fi
+
+  contexts_with_clusters=$(kubectl config view -o jsonpath='{range .contexts[*]}{.name}{"\t"}{.context.cluster}{"\n"}{end}' 2>/dev/null)
+
+  if [[ -z $contexts_with_clusters ]]; then
+    echo "No Kubernetes contexts found." >&2
+    return 1
+  fi
+
+  selected_line=$(
+    printf "%s\n" "$contexts_with_clusters" |
+      fzf --prompt="$prompt" --header="$header" --delimiter=$'\t' --with-nth=1
+  )
+
+  if [[ -z $selected_line ]]; then
     return
   fi
 
-  kubectl config use-context "$selected_context"
+  selected_context=$(printf "%s" "$selected_line" | cut -f1)
+  selected_cluster=$(printf "%s" "$selected_line" | cut -f2)
+
+  if kubectl config use-context "$selected_context" >/dev/null; then
+    echo "Switched to context: $selected_context"
+    if [[ -n $selected_cluster ]]; then
+      echo "Cluster: $selected_cluster"
+    fi
+  else
+    echo "Failed to switch Kubernetes context." >&2
+    return 1
+  fi
 }
 
 bindkey -s ^t "goto-directories\n"
