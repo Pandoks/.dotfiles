@@ -27,7 +27,7 @@ return {
     require("nvim-treesitter.configs").setup(opts)
 
     vim.filetype.add({
-      pattern = { [".*/charts/.*/templates/.*%.ya?ml"] = "helm" },
+      pattern = { [".*/charts?/.*/templates/.*%.ya?ml"] = "helm" },
       extension = { tpl = "helm" },
     })
   end,
