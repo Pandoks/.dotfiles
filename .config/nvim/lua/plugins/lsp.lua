@@ -8,8 +8,6 @@ return {
     "artemave/workspace-diagnostics.nvim",
   },
   config = function()
-    local lspconfig = require("lspconfig")
-
     local signs = { Error = " ", Warn = " ", Hint = "", Info = " " }
     for type, icon in pairs(signs) do
       local hl = "DiagnosticSign" .. type
@@ -75,14 +73,15 @@ return {
       "zls",
     }
     for _, lsp in ipairs(servers) do
-      lspconfig[lsp].setup({
+      vim.lsp.config[lsp] = {
         capabilities = capabilities,
         on_attach = on_attach,
-      })
+      }
+      vim.lsp.enable(lsp)
     end
 
     -- custom lsp configs
-    lspconfig["lua_ls"].setup({
+    vim.lsp.config.lua_ls = {
       capabilities = capabilities,
       on_attach = on_attach,
       settings = {
@@ -92,9 +91,10 @@ return {
           },
         },
       },
-    })
+    }
+    vim.lsp.enable("lua_ls")
 
-    lspconfig["helm_ls"].setup({
+    vim.lsp.config.helm_ls = {
       capabilities = capabilities,
       on_attach = on_attach,
       filetypes = { "helm" },
@@ -103,9 +103,10 @@ return {
           yamlls = { enabled = false },
         },
       },
-    })
+    }
+    vim.lsp.enable("helm_ls")
 
-    lspconfig["yamlls"].setup({
+    vim.lsp.config.yamlls = {
       filetypes = { "yaml", "yml" },
       capabilities = capabilities,
       on_attach = on_attach,
@@ -134,6 +135,7 @@ return {
           },
         },
       },
-    })
+    }
+    vim.lsp.enable("yamlls")
   end,
 }
