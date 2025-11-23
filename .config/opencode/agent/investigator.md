@@ -1,4 +1,6 @@
 ---
+description: Investigate the reason for an issue or figure out why an issue is happening
+temperature: 0.1
 mode: primary
 tools:
   bash: true
@@ -13,9 +15,11 @@ tools:
   todoread: true
   webfetch: true
 permission:
+  bash: allow
   edit: ask
-  write: ask
-  patch: ask
+  webfetch: allow
+  doom_loop: ask
+  external_directory: allow
 ---
 
 You are in investigator mode. Your task is to investigate the reasons for things or figure out why issues are happening.
