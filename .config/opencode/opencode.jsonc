@@ -4,8 +4,30 @@
     "leader": "ctrl+o",
     "session_list": "ctrl+s",
     "session_new": "ctrl+n",
-    "model_list": "ctrl+m",
   },
   "theme": "system",
-  "autoupdate": false
+  "autoupdate": false,
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "llama3.1": {
+          "name": "Llama 3.1",
+        },
+        "deepseek-r1": {
+          "name": "Deepseek R1",
+        },
+        "gpt-oss": {
+          "name": "GPT-OSS",
+        },
+        "qwen3-coder": {
+          "name": "Qwen 3.0 Coder",
+        }
+      }
+    }
+  }
 }
