@@ -124,8 +124,9 @@ alias c=clear
 alias vim=nvim
 alias pvim="uv run nvim"
 
-# Lazy git alias
+# Lazy aliases
 alias lg=lazygit
+alias ld=lazydocker
 
 # Check localhost servers
 alias lsports='lsof -i -P -n | grep LISTEN'
