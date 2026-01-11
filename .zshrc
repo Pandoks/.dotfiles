@@ -128,6 +128,24 @@ alias pvim="uv run nvim"
 alias lg=lazygit
 alias ld=lazydocker
 
+# Tailscale
+# NOTE: run this so that you won't need sudo every time (indentation matters):
+# echo "$(whoami) ALL=(ALL) NOPASSWD: /bin/mkdir -p /etc/resolver
+# $(whoami) ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/resolver/ts.net
+# $(whoami) ALL=(ALL) NOPASSWD: /bin/rm -f /etc/resolver/ts.net" | sudo tee /etc/sudoers.d/tailscale >/dev/null && sudo chmod 440 /etc/sudoers.d/tailscale
+ts() {
+  if [[ "$1" == "up" ]]; then
+    sudo mkdir -p /etc/resolver
+    echo "nameserver 100.100.100.100" | sudo tee /etc/resolver/ts.net > /dev/null
+    tailscale "$@"
+  elif [[ "$1" == "down" ]]; then
+    tailscale "$@"
+    sudo rm -f /etc/resolver/ts.net
+  else
+    tailscale "$@"
+  fi
+}
+
 # Check localhost servers
 alias lsports='lsof -i -P -n | grep LISTEN'
 
