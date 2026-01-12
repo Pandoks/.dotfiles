@@ -29,4 +29,6 @@ configs() {
   create_symlink "${REPO_ROOT}/.vimrc" "${HOME}/.vimrc"
   create_symlink "${REPO_ROOT}/.zprofile" "${HOME}/.zprofile"
   create_symlink "${REPO_ROOT}/.zshrc" "${HOME}/.zshrc"
+
+  create_symlink "${REPO_ROOT}/Brewfile" "${HOME}/Brewfile"
 }
