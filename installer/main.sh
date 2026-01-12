@@ -40,6 +40,9 @@ setup() {
 install_brew() {
   eval "$(/opt/homebrew/bin/brew shellenv)"
   brew bundle install --file="${REPO_ROOT}/Brewfile"
+
+  yabai_string="$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 "$(which yabai)" | cut -d " " -f 1) $(which yabai) --load-sa"
+  echo "$yabai_string" | sudo tee /private/etc/sudoers.d/yabai > /dev/null
 }
 
 main() {
