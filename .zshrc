@@ -242,4 +242,4 @@ export PATH=$PATH:$ANDROID_HOME/emulator
 export PATH=$PATH:$ANDROID_HOME/platform-tools
 export XDG_CONFIG_HOME="$HOME/.config"
 
-source ~/.secrets
+[ -f ~/.secrets ] && source ~/.secrets
