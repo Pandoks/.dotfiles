@@ -15,7 +15,7 @@ return {
         },
       },
       {
-        file_pattern = "shortcuts.lua",
+        file_pattern = "secrets.lua",
         cloak_pattern = {
           '%(".+"',
         },
