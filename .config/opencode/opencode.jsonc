@@ -5,7 +5,7 @@
     "session_list": "ctrl+s",
     "session_new": "ctrl+n",
   },
-  "theme": "system",
+  "theme": "pandoks",
   "autoupdate": false,
   "provider": {
     "ollama": {
