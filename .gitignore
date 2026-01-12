@@ -4,3 +4,6 @@ Icon
 
 # nvim compiled files
 .config/nvim/plugin/
+
+# hammerspoon files that contain private data
+.hammerspoon/secrets.lua
