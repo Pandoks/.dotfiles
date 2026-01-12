@@ -48,9 +48,14 @@ main() {
     apps) install_brew ;;
     configs) install_configs ;;
     all) setup && install_configs && install_brew ;;
-    -h|--help|help) usage 0 ;;
-    *) echo "Error: Unknown command '${cmd}'" >&2; usage 1 ;;
+    -h | --help | help) usage 0 ;;
+    *)
+      echo "Error: Unknown command '${cmd}'" >&2
+      usage 1
+      ;;
   esac
+
+  exec zsh
 }
 
 main "$@"
