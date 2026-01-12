@@ -60,7 +60,7 @@ brew "kubernetes-cli"
 brew "kustomize"
 brew "lazydocker"
 brew "lazygit"
-brew "libtorrent-rasterbar"
+brew "libtorrent-rasterbar", link: false
 brew "lua"
 brew "luarocks"
 brew "mas"
@@ -102,6 +102,7 @@ brew "tcpdump"
 brew "telnet"
 brew "tlrc"
 brew "tmux"
+brew "tpm"
 brew "transmission-cli"
 brew "tree-sitter-cli"
 brew "typescript"
@@ -186,7 +187,7 @@ cask "yubico-authenticator"
 cask "zoom"
 cask "zulu"
 cask "zulu@17"
-mas "AdGuard for Safari", id: 1440147259
+mas "AdGuard Mini", id: 1440147259
 mas "Cursor Pro", id: 1447043133
 mas "Developer", id: 640199958
 mas "Proton Pass for Safari", id: 6502835663

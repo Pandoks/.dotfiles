@@ -19,8 +19,6 @@ install_configs() {
   create_symlink "${REPO_ROOT}/.local/bin/tailscale-startup.sh" "${HOME}/.local/bin/tailscale-startup.sh"
   create_symlink "${REPO_ROOT}/Library/LaunchAgents/com.tailscale.startup.plist" "${HOME}/Library/LaunchAgents/com.tailscale.startup.plist"
 
-  create_symlink "${REPO_ROOT}/.tmux" "${HOME}/.tmux"
-
   create_symlink "${REPO_ROOT}/.fzf.zsh" "${HOME}/.fzf.zsh"
   create_symlink "${REPO_ROOT}/.fzfignore" "${HOME}/.fzfignore"
   create_symlink "${REPO_ROOT}/.gitconfig" "${HOME}/.gitconfig"
