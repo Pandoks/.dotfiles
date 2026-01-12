@@ -26,7 +26,13 @@ usage() {
 }
 
 setup() {
-  xcode-select --install
+  xcode-select --install 2>&1 | grep -q "already installed" || {
+    echo "Waiting for Xcode Command Line Tools installation to complete..."
+    until xcode-select -p > /dev/null 2>&1; do
+      sleep 5
+    done
+    echo "Xcode Command Line Tools installed successfully"
+  }
   RUNZSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   eval "$(/opt/homebrew/bin/brew shellenv)"
