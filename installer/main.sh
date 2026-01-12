@@ -37,6 +37,16 @@ setup() {
   else
     echo "Xcode Command Line Tools already installed"
   fi
+  if [ "$(uname -m)" = "arm64" ]; then
+    if ! /usr/bin/pgrep -q oahd; then
+      echo "Installing Rosetta 2..."
+      softwareupdate --install-rosetta --agree-to-license
+      echo "Rosetta 2 installed successfully"
+    else
+      echo "Rosetta 2 already installed"
+    fi
+  fi
+
   RUNZSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 }
