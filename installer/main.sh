@@ -37,6 +37,7 @@ setup() {
   else
     echo "Xcode Command Line Tools already installed"
   fi
+
   if [ "$(uname -m)" = "arm64" ]; then
     if ! /usr/bin/pgrep -q oahd; then
       echo "Installing Rosetta 2..."
@@ -47,8 +48,21 @@ setup() {
     fi
   fi
 
-  RUNZSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  if [ ! -d "$HOME/.oh-my-zsh" ]; then
+    echo "Installing Oh My Zsh..."
+    RUNZSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+    echo "Oh My Zsh installed successfully"
+  else
+    echo "Oh My Zsh already installed"
+  fi
+
+  if ! command -v brew > /dev/null 2>&1; then
+    echo "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    echo "Homebrew installed successfully"
+  else
+    echo "Homebrew already installed"
+  fi
 }
 
 install_brew() {
