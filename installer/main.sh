@@ -43,6 +43,11 @@ install_brew() {
 }
 
 main() {
+  if [ -n "${SUDO_USER:-}" ] || [ "$(id -u)" -eq 0 ]; then
+    echo "Error: This script should not be run with sudo" >&2
+    exit 1
+  fi
+
   if [ $# -eq 0 ]; then
     usage 1
   fi
