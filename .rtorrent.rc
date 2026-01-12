@@ -1,2 +1,5 @@
-directory.default.set = ~/Desktop/
-session.path.set = ~/.rtorrent/
+directory.default.set = ~/Documents/rTorrent/Media
+
+# Workaround for v0.16.6 bug: tilde expansion broken, use absolute path
+# Can revert to ~/.rtorrent/ once v0.16.7 is released
+session.path.set = /Users/pandoks/.rtorrent/
