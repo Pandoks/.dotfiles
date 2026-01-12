@@ -1,6 +1,5 @@
 tap "buo/cask-upgrade"
 tap "chase/tap"
-tap "homebrew/core"
 tap "koekeishiya/formulae"
 tap "localstack/tap"
 tap "oven-sh/bun"
