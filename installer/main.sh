@@ -39,6 +39,7 @@ setup() {
 }
 
 install_brew() {
+  eval "$(/opt/homebrew/bin/brew shellenv)"
   brew bundle --file="${REPO_ROOT}/Brewfile"
 }
 
