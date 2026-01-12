@@ -33,6 +33,14 @@ create_symlink() {
     esac
   fi
 
+  create_symlink_dest_dir="$(dirname "${create_symlink_dest_path}")"
+  if [ ! -d "${create_symlink_dest_dir}" ]; then
+    if ! mkdir -p "${create_symlink_dest_dir}"; then
+      echo "Error: Failed to create directory ${create_symlink_dest_dir}" >&2
+      return 1
+    fi
+  fi
+
   if ! ln -s "${create_symlink_source_path}" "${create_symlink_dest_path}"; then
     echo "Error: Failed to create symlink from ${create_symlink_source_path} to ${create_symlink_dest_path}" >&2
     return 1
