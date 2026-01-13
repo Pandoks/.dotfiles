@@ -146,6 +146,8 @@ ts() {
     tailscale "$@"
   fi
 }
+compdef ts=tailscale
+
 
 # Check localhost servers
 alias lsports='lsof -i -P -n | grep LISTEN'
