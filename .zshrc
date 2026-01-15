@@ -168,13 +168,13 @@ bu() {
 bi() {
   b install "$1"
   echo 'Updating Brewfile...'
-  b bundle dump --force --file=~/Brewfile
+  b bundle dump --force --file=~/Projects/.dotfiles/Brewfile
   echo 'Brewfile updated'
 }
 bU() {
   b uninstall --zap --force "$1"
   echo 'Updating Brewfile...'
-  b bundle dump --force --file=~/Brewfile
+  b bundle dump --force --file=~/Projects/.dotfiles/Brewfile
   echo 'Brewfile updated'
 }
 
