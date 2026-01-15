@@ -13,3 +13,27 @@ usage_macos() {
   return "${1:-0}"
 }
 
+cmd_apply() {
+}
+
+cmd_export() {
+}
+
+cmd_diff() {
+}
+
+macos_configs() {
+  macos_configs_cmd="${1:-apply}"
+  shift 2> /dev/null || true
+
+  case "${macos_configs_cmd}" in
+    apply) cmd_apply "$@" ;;
+    export) cmd_export "$@" ;;
+    diff) cmd_diff "$@" ;;
+    help | --help | -h) usage_macos ;;
+    *)
+      printf "%bError:%b Unknown command '%s'\n" "${RED}" "${NORMAL}" "${macos_configs_cmd}" >&2
+      usage_macos 1
+      ;;
+  esac
+}
