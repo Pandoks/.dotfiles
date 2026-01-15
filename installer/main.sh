@@ -41,7 +41,7 @@ setup_git() {
   git -C "${REPO_ROOT}" init
   git -C "${REPO_ROOT}" remote add origin "${DOTFILES_REPO}"
   git -C "${REPO_ROOT}" fetch origin
-  git -C "${REPO_ROOT}" branch --set-upstream-to=origin/master master 2>/dev/null || true
+  git -C "${REPO_ROOT}" branch --set-upstream-to=origin/master master 2> /dev/null || true
   printf "%b✓ Git repository initialized and connected to %s%b\n" "${GREEN}" "${DOTFILES_REPO}" "${NORMAL}"
 }
 
@@ -115,7 +115,7 @@ main() {
     bootstrap) setup && exec zsh ;;
     apps) install_brew && exec zsh ;;
     configs) install_configs && exec zsh ;;
-    macos) macos_defaults "$@" ;;
+    macos) macos_configs "$@" ;;
     all) setup && install_configs && install_brew && macos_defaults apply && exec zsh ;;
     -h | --help | help) usage 0 ;;
     *)
