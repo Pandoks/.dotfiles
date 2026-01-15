@@ -116,7 +116,7 @@ main() {
     apps) install_brew && exec zsh ;;
     configs) install_configs && exec zsh ;;
     macos) macos_configs "$@" ;;
-    all) setup && install_configs && install_brew && macos_defaults apply && exec zsh ;;
+    all) setup && install_configs && install_brew && macos_configs apply && exec zsh ;;
     -h | --help | help) usage 0 ;;
     *)
       printf "%bError:%b Unknown command '%s'\n" "${RED}" "${NORMAL}" "${main_cmd}" >&2
