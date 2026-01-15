@@ -1,6 +1,6 @@
 # shellcheck shell=sh
 
-MACOS_CONFIG="${REPO_ROOT}/config/macos-defaults.yaml"
+MACOS_CONFIG="${REPO_ROOT}/macos-defaults.yaml"
 readonly MACOS_CONFIG
 
 usage_macos() {
