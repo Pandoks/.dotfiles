@@ -12,6 +12,9 @@ readonly REPO_ROOT
 . "${SCRIPT_DIR}/lib/configs.sh"
 . "${SCRIPT_DIR}/lib/macos.sh"
 
+DOTFILES_REPO="https://github.com/Pandoks/.dotfiles.git"
+readonly DOTFILES_REPO
+
 usage() {
   printf "%bUsage:%b %s <command>\n\n" "${BOLD}" "${NORMAL}" "$0" >&2
   printf "Install and configure dotfiles.\n\n" >&2
@@ -28,7 +31,23 @@ usage() {
   exit "${1:-0}"
 }
 
+setup_git() {
+  if [ -d "${REPO_ROOT}/.git" ]; then
+    printf "%b✓ Git repository already initialized%b\n" "${GREEN}" "${NORMAL}"
+    return 0
+  fi
+
+  printf "Initializing git repository...\n"
+  git -C "${REPO_ROOT}" init
+  git -C "${REPO_ROOT}" remote add origin "${DOTFILES_REPO}"
+  git -C "${REPO_ROOT}" fetch origin
+  git -C "${REPO_ROOT}" branch --set-upstream-to=origin/master master 2>/dev/null || true
+  printf "%b✓ Git repository initialized and connected to %s%b\n" "${GREEN}" "${DOTFILES_REPO}" "${NORMAL}"
+}
+
 setup() {
+  setup_git
+
   if ! xcode-select -p > /dev/null 2>&1; then
     printf "Installing Xcode Command Line Tools...\n"
     xcode-select --install
