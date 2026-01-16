@@ -13,6 +13,12 @@ usage_macos() {
   return "${1:-0}"
 }
 
+check_config() {
+  if [ ! -f "${MACOS_CONFIG}" ]; then
+    printf "%bError:%b Config file not found: %s\n" "${RED}" "${NORMAL}" "${MACOS_CONFIG}" >&2
+    return 1
+  fi
+}
 cmd_apply() {
 }
 
