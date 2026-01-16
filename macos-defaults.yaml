@@ -1,0 +1,138 @@
+appearance:
+  NSGlobalDomain:
+    AppleInterfaceStyle: Dark
+    AppleShowScrollBars: WhenScrolling
+    _HIHideMenuBar: true
+
+dock:
+  com.apple.dock:
+    tilesize: 60
+    autohide: true
+    mineffect: scale
+    show-recents: false
+    launchanim: false
+    mru-spaces: false
+
+hot_corners:
+  com.apple.dock:
+    wvous-br-corner: 1
+    wvous-br-modifier: 0
+
+stage_manager:
+  com.apple.WindowManager:
+    AutoHide: false
+    HideDesktop: true
+    StageManagerHideWidgets: false
+    EnableStandardClickToShowDesktop: false
+
+finder:
+  com.apple.finder:
+    AppleShowAllFiles: true
+    ShowPathbar: true
+    ShowStatusBar: true
+    FXPreferredViewStyle: clmv
+    NewWindowTarget: PfAF
+    FXDefaultSearchScope: SCcf
+    FXEnableExtensionChangeWarning: false
+    WarnOnEmptyTrash: false
+    ShowExternalHardDrivesOnDesktop: true
+    ShowHardDrivesOnDesktop: false
+    ShowRemovableMediaOnDesktop: true
+  NSGlobalDomain:
+    AppleShowAllExtensions: true
+    com.apple.springing.enabled: true
+    com.apple.springing.delay: 0.5
+
+keyboard:
+  NSGlobalDomain:
+    ApplePressAndHoldEnabled: false
+    AppleKeyboardUIMode: 0
+    NSAutomaticCapitalizationEnabled: false
+    NSAutomaticPeriodSubstitutionEnabled: false
+    NSAutomaticQuoteSubstitutionEnabled: false
+    NSAutomaticDashSubstitutionEnabled: false
+    NSAutomaticSpellingCorrectionEnabled: false
+  com.apple.HIToolbox:
+    AppleDictationAutoEnable: true
+
+trackpad:
+  com.apple.AppleMultitouchTrackpad:
+    Clicking: false
+    TrackpadRightClick: true
+    TrackpadThreeFingerDrag: false
+    FirstClickThreshold: 1
+    SecondClickThreshold: 1
+    ActuateDetents: true
+    ForceSuppressed: false
+    TrackpadPinch: true
+    TrackpadTwoFingerDoubleTapGesture: true
+    TrackpadRotate: true
+    TrackpadThreeFingerHorizSwipeGesture: 2
+    TrackpadFourFingerHorizSwipeGesture: 2
+    TrackpadThreeFingerVertSwipeGesture: 2
+    TrackpadFourFingerVertSwipeGesture: 2
+    TrackpadFourFingerPinchGesture: 0
+    TrackpadFiveFingerPinchGesture: 0
+  com.apple.driver.AppleBluetoothMultitouch.trackpad:
+    Clicking: false
+    TrackpadThreeFingerDrag: false
+
+mouse:
+  com.apple.AppleMultitouchMouse:
+    MouseButtonMode: OneButton
+    MouseOneFingerDoubleTapGesture: 0
+    MouseTwoFingerHorizSwipeGesture: 2
+
+sound:
+  NSGlobalDomain:
+    com.apple.sound.uiaudio.enabled: false
+
+menu_bar_clock:
+  com.apple.menuextra.clock:
+    Show24Hour: true
+    ShowAMPM: true
+    ShowDate: true
+    ShowDayOfWeek: true
+    ShowSeconds: true
+    FlashDateSeparators: true
+
+control_center:
+  com.apple.controlcenter:
+    "NSStatusItem Visible WiFi": false
+    "NSStatusItem Visible Display": false
+    "NSStatusItem Visible Sound": false
+    "NSStatusItem Visible Battery": true
+
+airdrop:
+  com.apple.sharingd:
+    DiscoverableMode: "Contacts Only"
+
+siri:
+  com.apple.Siri:
+    StatusMenuVisible: false
+    VoiceTriggerUserEnabled: false
+
+accessibility:
+  com.apple.Accessibility:
+    ReduceMotionEnabled: false
+
+locale:
+  NSGlobalDomain:
+    AppleLanguages:
+      - en-US
+      - zh-Hans-US
+    AppleLocale: en_US
+    AppleICUForce24HourTime: true
+
+login:
+  com.apple.loginwindow:
+    TALLogoutSavesState: false
+
+safari:
+  com.apple.Safari:
+    ShowFullURLInSmartSearchField: true
+    IncludeDevelopMenu: true
+    WebKitDeveloperExtrasEnabledPreferenceKey: true
+    AutoFillPasswords: false
+    AutoFillCreditCardData: false
+    AlwaysRestoreSessionAtLaunch: true
