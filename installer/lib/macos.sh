@@ -19,6 +19,45 @@ check_config() {
     return 1
   fi
 }
+
+# Args: $1 = yaml tag, $2 = value
+# Output: prints type to stdout (bool, int, float, string, array)
+get_value_type() {
+  if [ "$1" = "!!seq" ]; then
+    printf "array"
+    return
+  fi
+
+  case "$2" in
+    true | false) printf "bool" ;;
+    *)
+      if printf "%s" "$2" | grep -qE '^-?[0-9]+$'; then
+        printf "int"
+      elif printf "%s" "$2" | grep -qE '^-?[0-9]*\.[0-9]+$'; then
+        printf "float"
+      else
+        printf "string"
+      fi
+      ;;
+  esac
+}
+
+# Args: $1 = value
+# Output: prints escaped/quoted string for yaml
+format_yaml_string() {
+  if printf "%s" "$1" | grep -qE '^[a-zA-Z0-9_./-]+$'; then
+    printf "%s" "$1"
+  else
+    printf "\"%s\"" "$(printf "%s" "$1" | sed 's/"/\\"/g')"
+  fi
+}
+
+# Args: $1 = category, $2 = domain, $3 = key
+# Output: prints yq path
+yq_path() {
+  printf '.[\"%s\"][\"%s\"][\"%s\"]' "$1" "$2" "$3"
+}
+
 cmd_apply() {
 }
 
