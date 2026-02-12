@@ -44,7 +44,7 @@ setup() {
   fi
 
   echo "Initializing git repository..."
-  git -C "${REPO_ROOT}" init
+  git -C "${REPO_ROOT}" init -b master
   git -C "${REPO_ROOT}" remote add origin "https://github.com/Pandoks/.dotfiles.git"
   git -C "${REPO_ROOT}" fetch origin
   git -C "${REPO_ROOT}" branch --set-upstream-to=origin/master master 2> /dev/null || true
