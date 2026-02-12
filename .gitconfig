@@ -34,7 +34,7 @@
 	co = checkout
   cm = commit -am
   br = branch
-  lg = !git log --pretty=format:\"%C(magenta)%h%Creset -%C(red)%d%Creset %s %C(dim green)(%cr) [%an]\"
+  lg = !git log --pretty=format:'%C(magenta)%h%Creset -%C(red)%d%Creset %s %C(dim green)(%cr) [%an]'
   cob = checkout -b
   del = branch -D
   res = !git clean -df && git reset --hard
