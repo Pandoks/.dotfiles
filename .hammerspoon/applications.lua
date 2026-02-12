@@ -32,7 +32,33 @@ local function openOrFocusApplication(application, space)
     return
   end
 
-  -- use activate... makes it fast asf instead of window:focus()
+  local currentSpace = hs.spaces.focusedSpace()
+  local mainWindow = app:mainWindow()
+
+  -- focus on previously focused window if it's in the same space
+  if mainWindow then
+    local spaces = hs.spaces.windowSpaces(mainWindow:id())
+    for _, spaceId in ipairs(spaces) do
+      if spaceId == currentSpace then
+        app:activate(true)
+        print("Focused", app)
+        return
+      end
+    end
+  end
+
+  -- focus on application window in the current space
+  for _, window in ipairs(app:allWindows()) do
+    local spaces = hs.spaces.windowSpaces(window:id())
+    for _, spaceId in ipairs(spaces) do
+      if spaceId == currentSpace then
+        window:focus()
+        print("Focused", app, "on current space")
+        return
+      end
+    end
+  end
+
   app:activate(true)
   print("Focused", app)
 end
