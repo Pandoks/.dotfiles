@@ -166,13 +166,13 @@ bu() {
   fastfetch
 }
 bi() {
-  b install "$1"
+  b install "$@"
   echo 'Updating Brewfile...'
   b bundle dump --force --file=~/Brewfile
   echo 'Brewfile updated'
 }
 bU() {
-  b uninstall --zap --force "$1"
+  b uninstall --zap --force "$@"
   echo 'Updating Brewfile...'
   b bundle dump --force --file=~/Brewfile
   echo 'Brewfile updated'
