@@ -38,6 +38,18 @@ setup() {
     echo "Xcode Command Line Tools already installed"
   fi
 
+  if [ -d "${REPO_ROOT}/.git" ]; then
+    echo "Git repository already initialized"
+    return 0
+  fi
+
+  echo "Initializing git repository..."
+  git -C "${REPO_ROOT}" init
+  git -C "${REPO_ROOT}" remote add origin "https://github.com/Pandoks/.dotfiles.git"
+  git -C "${REPO_ROOT}" fetch origin
+  git -C "${REPO_ROOT}" branch --set-upstream-to=origin/master master 2> /dev/null || true
+  echo "Git repository initialized"
+
   if [ "$(uname -m)" = "arm64" ]; then
     if ! /usr/bin/pgrep -q oahd; then
       echo "Installing Rosetta 2..."
