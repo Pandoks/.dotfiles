@@ -1,8 +1,11 @@
 return {
   "nvim-treesitter/nvim-treesitter",
   build = ":TSUpdate",
-  opts = {
-    ensure_installed = {
+  lazy = false,
+  config = function()
+    require("nvim-treesitter").setup()
+
+    require("nvim-treesitter").install({
       "c",
       "lua",
       "python",
@@ -18,13 +21,24 @@ return {
       "comment",
       "yaml",
       "helm",
-    },
-    auto_install = true,
-    highlight = { enable = true },
-    indent = { enable = true, disable = { "yaml", "helm" } },
-  },
-  config = function(_, opts)
-    require("nvim-treesitter.configs").setup(opts)
+    })
+
+    local disabled_indent = { yaml = true, helm = true }
+
+    vim.api.nvim_create_autocmd("FileType", {
+      callback = function(event)
+        local lang = vim.treesitter.language.get_lang(event.match)
+        if not pcall(vim.treesitter.language.add, lang or event.match) then
+          return
+        end
+
+        pcall(vim.treesitter.start, event.buf)
+
+        if not disabled_indent[lang or event.match] then
+          vim.bo[event.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+        end
+      end,
+    })
 
     vim.filetype.add({
       pattern = { [".*/charts?/.*templates/.*%.ya?ml"] = "helm" },
