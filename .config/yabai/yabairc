@@ -2,6 +2,7 @@
 
 # to get window switching to work, make sure to turn off SIP and enter this command:
 # sudo nvram boot-args=-arm64e_preview_abi
+# make sure to restart after running nvram
 
 # to give yabai sudo permissions, follow these instructions after each upgrade:
 # create a new file for writing - visudo uses the vim editor by default.
