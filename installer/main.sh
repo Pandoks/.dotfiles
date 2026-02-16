@@ -93,6 +93,7 @@ install_ssh() {
   mkdir -p "${HOME}/.ssh"
   create_symlink --sudo "${REPO_ROOT}/private/etc/ssh/sshd_config" "/private/etc/ssh/sshd_config"
   create_symlink "${REPO_ROOT}/.ssh/authorized_keys" "${HOME}/.ssh/authorized_keys"
+  create_symlink "${REPO_ROOT}/.ssh/config" "${HOME}/.ssh/config"
 
   sudo ssh-keygen -A
   sudo launchctl kickstart -k system/com.openssh.sshd
