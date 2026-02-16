@@ -86,6 +86,12 @@ install_brew() {
   echo "$yabai_string" | sudo tee /private/etc/sudoers.d/yabai > /dev/null
 }
 
+install_ssh() {
+  mkdir -p "${HOME}/.ssh"
+  create_symlink --sudo "${REPO_ROOT}/private/etc/ssh/sshd_config" "/private/etc/ssh/sshd_config"
+  create_symlink "${REPO_ROOT}/.ssh/authorized_keys" "${HOME}/.ssh/authorized_keys"
+}
+
 main() {
   if [ -n "${SUDO_USER:-}" ] || [ "$(id -u)" -eq 0 ]; then
     echo "Error: This script should not be run with sudo" >&2
@@ -103,6 +109,7 @@ main() {
     bootstrap) setup ;;
     apps) install_brew ;;
     configs) install_configs ;;
+    ssh) install_ssh ;;
     all) setup && install_configs && install_brew ;;
     -h | --help | help) usage 0 ;;
     *)
