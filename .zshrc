@@ -77,7 +77,7 @@ zstyle ':omz:update' mode reminder  # just remind me to update when it's time
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git)
+plugins=(git sudo)
 ZVM_CURSOR_STYLE_ENABLED=false
 function zvm_after_init() {
   # Fuzzy finding key bindings for initial load
@@ -128,9 +128,6 @@ alias pvim="uv run nvim"
 # Lazy aliases
 alias lg=lazygit
 alias ld=lazydocker
-
-# Tailscale
-alias ts=tailscale
 
 # Check localhost servers
 alias lsports='lsof -i -P -n | grep LISTEN'
