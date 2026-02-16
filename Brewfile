@@ -204,6 +204,7 @@ cask "zoom"
 cask "zulu"
 cask "zulu@17"
 mas "AdGuard Mini", id: 1440147259
+mas "Amphetamine", id: 937984704
 mas "Cursor Pro", id: 1447043133
 mas "Developer", id: 640199958
 mas "Proton Pass for Safari", id: 6502835663
