@@ -18,6 +18,7 @@ usage() {
   printf "  bootstrap    Initial system setup (Xcode CLI tools, Homebrew, Oh My Zsh)\n" >&2
   printf "  apps         Install applications via Homebrew bundle\n" >&2
   printf "  configs      Symlink configuration files\n" >&2
+  printf "  ssh          Install SSH keys and configure SSH daemon\n" >&2
   printf "  all          Run all setup steps (bootstrap, configs, apps)\n\n" >&2
 
   printf "Run '%s <command>' to execute a command.\n\n" "$0" >&2
@@ -92,6 +93,9 @@ install_ssh() {
   mkdir -p "${HOME}/.ssh"
   create_symlink --sudo "${REPO_ROOT}/private/etc/ssh/sshd_config" "/private/etc/ssh/sshd_config"
   create_symlink "${REPO_ROOT}/.ssh/authorized_keys" "${HOME}/.ssh/authorized_keys"
+
+  sudo ssh-keygen -A
+  sudo launchctl kickstart -k system/com.openssh.sshd
 }
 
 main() {
