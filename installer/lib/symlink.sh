@@ -1,6 +1,12 @@
 # shellcheck shell=sh
 
 create_symlink() {
+  create_symlink_sudo=""
+  if [ "${1:-}" = "--sudo" ]; then
+    create_symlink_sudo="sudo"
+    shift
+  fi
+
   create_symlink_source_path="$1"
   create_symlink_dest_path="$2"
 
@@ -21,7 +27,7 @@ create_symlink() {
     case "${create_symlink_response}" in
     y | Y | yes | Yes | YES)
       echo "Removing existing file: ${create_symlink_dest_path}"
-      if ! rm -rf "${create_symlink_dest_path}"; then
+      if ! ${create_symlink_sudo} rm -rf "${create_symlink_dest_path}"; then
         echo "Error: Failed to remove ${create_symlink_dest_path}" >&2
         return 1
       fi
@@ -35,13 +41,13 @@ create_symlink() {
 
   create_symlink_dest_dir="$(dirname "${create_symlink_dest_path}")"
   if [ ! -d "${create_symlink_dest_dir}" ]; then
-    if ! mkdir -p "${create_symlink_dest_dir}"; then
+    if ! ${create_symlink_sudo} mkdir -p "${create_symlink_dest_dir}"; then
       echo "Error: Failed to create directory ${create_symlink_dest_dir}" >&2
       return 1
     fi
   fi
 
-  if ! ln -s "${create_symlink_source_path}" "${create_symlink_dest_path}"; then
+  if ! ${create_symlink_sudo} ln -s "${create_symlink_source_path}" "${create_symlink_dest_path}"; then
     echo "Error: Failed to create symlink from ${create_symlink_source_path} to ${create_symlink_dest_path}" >&2
     return 1
   fi
