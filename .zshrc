@@ -192,6 +192,9 @@ case ":$PATH:" in
 esac
 # pnpm end
 
+# rust
+export PATH="$HOME/.cargo/bin:$PATH"
+
 # curl
 export PATH="/opt/homebrew/opt/curl/bin:$PATH"
 
