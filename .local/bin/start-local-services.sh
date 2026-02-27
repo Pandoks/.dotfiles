@@ -40,6 +40,17 @@ else
   echo "[startup] Service scripts completed"
 fi
 
+if [ ! -d "$compose_modules_dir" ]; then
+  echo "[startup] No compose.d directory found at $compose_modules_dir; skipping docker compose startup"
+  exit 0
+fi
+
+compose_module_paths="$(find "$compose_modules_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)"
+if [ -z "$compose_module_paths" ]; then
+  echo "[startup] No compose module files found in $compose_modules_dir; skipping docker compose startup"
+  exit 0
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "[startup] docker is not installed or not in PATH"
   exit 1
@@ -69,17 +80,6 @@ cleanup_generated_files() {
   fi
 }
 trap cleanup_generated_files EXIT INT TERM
-
-if [ ! -d "$compose_modules_dir" ]; then
-  echo "[startup] No compose.d directory found at $compose_modules_dir; skipping docker compose startup"
-  exit 0
-fi
-
-compose_module_paths="$(find "$compose_modules_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)"
-if [ -z "$compose_module_paths" ]; then
-  echo "[startup] No compose module files found in $compose_modules_dir; skipping docker compose startup"
-  exit 0
-fi
 
 generated_compose_file="$(mktemp "${TMPDIR:-/tmp}/host-services-compose.XXXXXX.yaml")"
 {
