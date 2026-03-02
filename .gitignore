@@ -1,5 +1,5 @@
 # MacOSX auto generated files
-Icon
+Icon
 .DS_Store
 
 # nvim compiled files
@@ -7,3 +7,5 @@ Icon
 
 # hammerspoon files that contain private data
 .hammerspoon/secrets.lua
+
+.env
