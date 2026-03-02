@@ -10,7 +10,7 @@ set -eu
 
 PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
-HOST_SERVICES_HOME="${HOST_SERVICES_HOME:-$HOME/.config/host-services}"
+HOST_SERVICES_HOME="${HOST_SERVICES_HOME:-$HOME/.config/local-services}"
 service_dir="$HOST_SERVICES_HOME/local-service.d"
 compose_modules_dir="$HOST_SERVICES_HOME/compose.d"
 DOCKER_TIMEOUT="${DOCKER_TIMEOUT:-90}"
@@ -51,19 +51,19 @@ if [ -z "$compose_module_paths" ]; then
   exit 0
 fi
 
-if ! command -v docker >/dev/null 2>&1; then
+if ! command -v docker > /dev/null 2>&1; then
   echo "[startup] docker is not installed or not in PATH"
   exit 1
 fi
 
-if ! docker info >/dev/null 2>&1; then
-  if command -v open >/dev/null 2>&1; then
+if ! docker info > /dev/null 2>&1; then
+  if command -v open > /dev/null 2>&1; then
     echo "[startup] Docker daemon is not ready; opening Docker Desktop"
-    open -a Docker >/dev/null 2>&1 || true
+    open -a Docker > /dev/null 2>&1 || true
   fi
 
   wait_for_docker_time_elapsed=0
-  while ! docker info >/dev/null 2>&1; do
+  while ! docker info > /dev/null 2>&1; do
     if [ "$wait_for_docker_time_elapsed" -ge "$DOCKER_TIMEOUT" ]; then
       echo "[startup] Docker daemon did not become ready after ${DOCKER_TIMEOUT}s"
       exit 1
@@ -85,13 +85,13 @@ generated_compose_file="$(mktemp "${TMPDIR:-/tmp}/host-services-compose.XXXXXX.y
 {
   echo "name: host-services"
   echo "include:"
-  printf '%s\n' "$compose_module_paths" |
-    while IFS= read -r module_path; do
+  printf '%s\n' "$compose_module_paths" \
+    | while IFS= read -r module_path; do
       [ -n "$module_path" ] || continue
       escaped_module_path="$(printf '%s' "$module_path" | sed 's/\\/\\\\/g; s/"/\\"/g')"
       printf '  - "%s"\n' "$escaped_module_path"
     done
-} >"$generated_compose_file"
+} > "$generated_compose_file"
 
 echo "[startup] Generated compose entrypoint from $compose_modules_dir"
 
