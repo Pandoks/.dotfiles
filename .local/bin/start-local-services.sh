@@ -28,16 +28,17 @@ else
       continue
     fi
 
-    echo "[startup] Running: $service_script"
-    if "$service_script"; then
-      echo "[startup] Completed: $service_script"
-    else
-      echo "[startup] ERROR: $service_script failed"
-      exit 1
-    fi
+    echo "[startup] Launching: $service_script (detached)"
+    /usr/bin/perl -e '
+      use POSIX qw(setsid);
+      fork and exit;
+      setsid();
+      open STDIN, "<", "/dev/null";
+      exec @ARGV or die "exec: $!";
+    ' -- "$service_script"
   done
 
-  echo "[startup] Service scripts completed"
+  echo "[startup] Service scripts launched"
 fi
 
 if [ ! -d "$compose_modules_dir" ]; then
