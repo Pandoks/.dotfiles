@@ -1,5 +1,5 @@
 [app]
-overall = { bg = "#24273a" }
+overall = { bg = "reset" }
 
 [mgr]
 cwd = { fg = "#8bd5ca" }
@@ -36,13 +36,14 @@ unset_main  = { fg = "#24273a", bg = "#f0c6c6", bold = true }
 unset_alt   = { fg = "#f0c6c6", bg = "#363a4f"}
 
 [indicator]
+padding = { open = "█", close = "█" }
 parent = { fg = "#24273a", bg = "#cad3f5" }
 current = { fg = "#24273a", bg = "#c6a0f6" }
 preview = { fg = "#24273a", bg = "#cad3f5" }
 
 [status]
-sep_left  = { open = "", close = "" }
-sep_right = { open = "", close = "" }
+sep_left  = { open = "", close = "" }
+sep_right = { open = "", close = "" }
 
 progress_label  = { fg = "#ffffff", bold = true }
 progress_normal = { fg = "#a6da95", bg = "#494d64" }
