@@ -13,6 +13,7 @@ install_configs() {
   create_symlink "${REPO_ROOT}/.config/nvim" "${HOME}/.config/nvim"
   create_symlink "${REPO_ROOT}/.config/opencode" "${HOME}/.config/opencode"
   create_symlink "${REPO_ROOT}/.config/yabai" "${HOME}/.config/yabai"
+  create_symlink "${REPO_ROOT}/.config/yazi" "${HOME}/.config/yazi"
 
   create_symlink "${REPO_ROOT}/.hammerspoon" "${HOME}/.hammerspoon"
 
