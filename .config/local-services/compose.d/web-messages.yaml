@@ -1,3 +1,4 @@
+# .env file is needed at the base of local-services with TS_AUTHKEY
 services:
   tailscale:
     image: tailscale/tailscale:latest
