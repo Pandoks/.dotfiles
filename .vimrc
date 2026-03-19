@@ -29,3 +29,7 @@ set noswapfile
 set nobackup
 set undofile
 set clipboard+=unnamed
+
+" --- Clipboard over SSH (OSC 52) ---
+packadd osc52
+set clipmethod+=osc52

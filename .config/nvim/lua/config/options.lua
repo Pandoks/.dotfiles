@@ -31,8 +31,9 @@ vim.opt.swapfile = false
 vim.opt.backup = false
 vim.opt.undofile = true
 
--- editing
-vim.opt.clipboard:append("unnamedplus") -- use system clipboard
+-- clipboard
+vim.g.clipboard = 'osc52'
+vim.opt.clipboard:append("unnamedplus")
 vim.opt.iskeyword:append("-") -- treats "-" as part of a word
 
 -- window management
