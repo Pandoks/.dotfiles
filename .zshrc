@@ -124,6 +124,7 @@ alias c=clear
 # Editor aliases
 alias vim=nvim
 alias pvim="uv run nvim"
+alias vi="$HOMEBREW_PREFIX/bin/vim"
 
 # Lazy aliases
 alias lg=lazygit
