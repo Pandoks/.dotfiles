@@ -8,13 +8,15 @@ return {
     "artemave/workspace-diagnostics.nvim",
   },
   config = function()
-    local signs = { Error = " ", Warn = " ", Hint = "", Info = " " }
-    for type, icon in pairs(signs) do
-      local hl = "DiagnosticSign" .. type
-      vim.fn.sign_define(hl, { text = icon, texthl = hl, numhl = "" })
-    end
-
     vim.diagnostic.config({
+      signs = {
+        text = {
+          [vim.diagnostic.severity.ERROR] = " ",
+          [vim.diagnostic.severity.WARN] = " ",
+          [vim.diagnostic.severity.HINT] = "",
+          [vim.diagnostic.severity.INFO] = " ",
+        },
+      },
       float = {
         border = "rounded",
       },
@@ -41,9 +43,9 @@ return {
       opts.desc = "Show line diagnostics"
       vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, opts)
       opts.desc = "Go to previous diagnostic"
-      vim.keymap.set("n", "<leader>k", vim.diagnostic.goto_prev, opts)
+      vim.keymap.set("n", "<leader>k", function() vim.diagnostic.jump({ count = -1 }) end, opts)
       opts.desc = "Go to next diagnostic"
-      vim.keymap.set("n", "<leader>j", vim.diagnostic.goto_next, opts)
+      vim.keymap.set("n", "<leader>j", function() vim.diagnostic.jump({ count = 1 }) end, opts)
 
       -- go tos
       opts.desc = "Go to declaration"

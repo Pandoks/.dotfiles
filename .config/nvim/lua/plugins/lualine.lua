@@ -1,9 +1,10 @@
 return {
   {
     "nvim-lualine/lualine.nvim",
+    dependencies = { "catppuccin/nvim" },
     opts = {
       options = {
-        theme = "catppuccin",
+        theme = "catppuccin-mocha",
         component_separators = "",
         section_separators = "",
         disabled_filetypes = {
