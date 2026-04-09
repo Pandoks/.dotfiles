@@ -81,20 +81,6 @@ hs.hotkey.bind({ "cmd", "alt" }, "space", function()
   yabai({ "-m", "space", "--balance" })
 end)
 
--- starting and stopping yabai
-hs.hotkey.bind({ "ctrl", "alt" }, "q", function()
-  yabai({ "--stop-service" })
-  hs.alert.show("yabai stopped", 2)
-end)
-hs.hotkey.bind({ "ctrl", "alt" }, "s", function()
-  hs.execute("/opt/homebrew/bin/yabai --start-service")
-  hs.alert.show("yabai started", 2)
-end)
-hs.hotkey.bind({ "ctrl", "alt" }, "r", function()
-  yabai({ "--restart-service" })
-  hs.alert.show("yabai restarted", 2)
-end)
-
 -- notifies when yabai starts
 hs.timer.waitUntil(function()
   local yabai_app = hs.application.get("yabai")
