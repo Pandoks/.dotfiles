@@ -59,7 +59,7 @@
   },
   "permissions": {
     "defaultMode": "dontAsk",
-    "allow": [],
+    "allow": ["WebSearch", "Bash(mdfind:*)", "Bash(docker compose *)", "Bash(log show *)"],
     "ask": [],
     "deny": [
       "Bash(rm -rf /:*)",
@@ -158,16 +158,7 @@
     "notion@claude-plugins-official": true
   },
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/session-start.sh"
-          }
-        ]
-      }
-    ],
+    "SessionStart": [],
     "Setup": [],
     "UserPromptSubmit": [],
     "UserPromptExpansion": [],
@@ -184,12 +175,7 @@
     ],
     "PermissionRequest": [],
     "PermissionDenied": [],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": []
-      }
-    ],
+    "PostToolUse": [],
     "PostToolUseFailure": [],
     "PostToolBatch": [],
     "Notification": [],
@@ -219,15 +205,6 @@
     "PostCompact": [],
     "Elicitation": [],
     "ElicitationResult": [],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/session-end.sh"
-          }
-        ]
-      }
-    ]
+    "SessionEnd": []
   }
 }
