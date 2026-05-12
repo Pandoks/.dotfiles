@@ -1,19 +1,19 @@
 ---
 name: grounding-claims
-description: Use before stating any technical claim, recommendation, code snippet, or factual assertion in a final answer — including side-questions buried in a multi-part message. Symptoms include — about to recommend code without having run it, about to cite a library option or function signature from memory, about to claim (or deny) that a config key / flag / feature exists without having seen the schema or docs, about to describe what a function does without having Read it, about to state a "latest" version or release date, about to hedge ("where did you see that?") instead of doing the lookup, or thinking "I already verified something this turn". Skip during clearly-framed speculation ("I think... let me check") or for universally stable surface area (basic git, POSIX, long-stable language built-ins).
+description: Use before stating ANY factual claim, technical answer, advice, recommendation, or code in a final answer — code task or plain Q&A, including side-questions in a multi-part message. Symptoms — about to answer "does X support Y / which version / how does Z behave" from memory, give advice resting on an unchecked fact, recommend code you haven't run, cite a library option or signature from memory, claim/deny a config key or flag exists without seeing the schema/docs, describe what a function does without Reading it, state a "latest" version or release date, hedge ("where did you see that?") instead of looking it up, or think "I already verified something this turn". Skip for clearly-framed speculation ("I think... let me check") or universally stable surface (basic git, POSIX, long-stable built-ins).
 ---
 
 # Grounding Claims
 
 ## Overview
 
-A final recommendation must be **doubly verified**: against a primary source (reference check) AND by actually running it (empirical check). Memory does not count as a source. Documentation can be wrong or out of date — only execution closes the loop.
+Any factual claim, technical answer, advice, recommendation, or code you put in a final answer must be **doubly verified**: against a primary source (reference check) AND, where something is runnable, by actually running it (empirical check). This applies to plain Q&A and advice, not just code changes — "does Vite 5 need Node 18?", "is this flag still supported?", "which approach is faster?" are all in scope. Memory does not count as a source. Documentation can be wrong or out of date — when there's something to run, only execution closes the loop.
 
 **Core principle:** If you haven't run it, you don't know if it works.
 
-**Grounding is per-claim, not per-turn.** Verifying one thing earlier in a response does NOT cover a *different* claim later in the same response. Each verifiable assertion gets its own check — including the side-question buried as item (b) in a multi-part user message. The "main" task getting rigor is not a substitute for the throwaway sub-question getting it too.
+**Grounding is per-claim, not per-turn.** Verifying one thing earlier in a response does NOT cover a _different_ claim later in the same response. Each verifiable assertion gets its own check — including the side-question buried as item (b) in a multi-part user message. The "main" task getting rigor is not a substitute for the throwaway sub-question getting it too.
 
-**Hedging is not a substitute for verification.** "I don't recognize that — where did you see it?" / "I'm pretty sure X, but..." / labeling something "inferred" — none of these discharge the grounding obligation when a primary source is one `WebFetch` away. Hedge *after* the lookup comes back inconclusive, never *instead of* it. A confident-sounding hedge wrapped around a false claim is still a false claim shipped to the user.
+**Hedging is not a substitute for verification.** "I don't recognize that — where did you see it?" / "I'm pretty sure X, but..." / labeling something "inferred" — none of these discharge the grounding obligation when a primary source is one `WebFetch` away. Hedge _after_ the lookup comes back inconclusive, never _instead of_ it. A confident-sounding hedge wrapped around a false claim is still a false claim shipped to the user.
 
 ## The Two Checks
 
@@ -61,7 +61,7 @@ Both required. Reference alone gets fooled by stale docs. Empirical alone gets f
 - The user already stated the claim as a premise in their prompt.
 - Pure judgment calls ("this naming is clearer") — no fact to verify.
 
-**NOT valid skip reasons** (these are the traps): "it's only one of three sub-answers", "the conversation has momentum", "I already did my grounding for this turn", "I'll just ask the user where they saw it", "I'll label it as inferred so it's fine", "the user probably typo'd it / it's probably not a real thing". If there's a verifiable claim and a reachable source, the claim gets checked — full stop.
+**NOT valid skip reasons** (these are the traps): "it's only one of three sub-answers", "the conversation has momentum", "I already did my grounding for this turn", "I'll just ask the user where they saw it", "I'll label it as inferred so it's fine", "the user probably typo'd it / it's probably not a real thing", "this is just a quick question, not a code task" (the skill is not code-only — a wrong fact in casual advice is still a wrong fact the user will act on). If there's a verifiable claim and a reachable source, the claim gets checked — full stop.
 
 ## Red Flags — STOP and verify
 
@@ -73,22 +73,23 @@ Both required. Reference alone gets fooled by stale docs. Empirical alone gets f
 - About to say a config key / flag / option "isn't a real thing" or "doesn't exist" without having opened the schema or docs page
 - A verifiable claim is buried in a multi-part answer and you're tempted to skim past it because the "main" task is done
 - About to hedge ("where'd you see that?", "I don't recognize it") instead of doing the 30-second lookup that would settle it
+- "It's just a quick question / casual advice, not a coding task" → grounding is not code-only. A wrong fact in a one-line answer is still wrong.
 - "I already verified something this turn" → that was a different claim. This one needs its own check.
 - "I'm pretty sure..." → not sure enough. Verify.
 
 ## Common Mistakes
 
-| Mistake                                            | Fix                                                                           |
-| -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Reference check but skip empirical                 | Docs lie. Run it.                                                             |
-| Empirical check but using wrong version            | `npm view <pkg> version` first; pin in the workspace.                         |
-| Reproducer too complex (full project setup)        | Strip to the smallest snippet that triggers the claim. 5 lines beats 50.      |
-| Verifying in the user's project directory          | Use `mktemp -d`. Never pollute the real codebase with verification artifacts. |
-| Verifying then ignoring conflicting output         | If the run contradicts the claim, the claim is wrong. Don't rationalize.      |
-| Presenting unverifiable inference as verified fact | Separate "verified: X" from "inferred: Y" explicitly.                         |
-| Treating one verification as covering the whole turn | Each claim gets its own check. Per-claim, not per-turn.                        |
-| Hedging on a config/API claim instead of fetching the docs | A reachable primary source means you check it, then state the fact. Hedge only if the source is inconclusive. |
-| Skimming past a verifiable sub-question because it's "minor" | "Minor" claims get repeated by the user and become wrong facts. Check it. |
+| Mistake                                                      | Fix                                                                                                           |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Reference check but skip empirical                           | Docs lie. Run it.                                                                                             |
+| Empirical check but using wrong version                      | `npm view <pkg> version` first; pin in the workspace.                                                         |
+| Reproducer too complex (full project setup)                  | Strip to the smallest snippet that triggers the claim. 5 lines beats 50.                                      |
+| Verifying in the user's project directory                    | Use `mktemp -d`. Never pollute the real codebase with verification artifacts.                                 |
+| Verifying then ignoring conflicting output                   | If the run contradicts the claim, the claim is wrong. Don't rationalize.                                      |
+| Presenting unverifiable inference as verified fact           | Separate "verified: X" from "inferred: Y" explicitly.                                                         |
+| Treating one verification as covering the whole turn         | Each claim gets its own check. Per-claim, not per-turn.                                                       |
+| Hedging on a config/API claim instead of fetching the docs   | A reachable primary source means you check it, then state the fact. Hedge only if the source is inconclusive. |
+| Skimming past a verifiable sub-question because it's "minor" | "Minor" claims get repeated by the user and become wrong facts. Check it.                                     |
 
 ## Example
 
@@ -116,6 +117,14 @@ $ npx tsx example.ts
 Then in the answer: _"On Zod v3.23.8 (verified at `/tmp/claude-verify-XXXXXX`), `z.object({...}).strict()` makes `safeParse` return `{ success: false }` with `code: 'unrecognized_keys'` when extra keys are present."_
 
 The user gets the answer + the receipts. No room for hallucination.
+
+## Example — plain advice, no code change
+
+User (casual, not editing anything): _"does Vite 5 still run on Node 16, or do I need to bump our CI image?"_
+
+**Wrong** (memory-only): _"Vite 5 needs Node 18+, so yeah, bump it."_ — probably right, but you didn't check, and "probably" isn't an answer the user should reconfigure CI on.
+
+**Right**: `WebFetch https://v5.vite.dev/guide/migration "minimum Node version"` → confirms 18/20+ required; then `npm view vite@5 engines` → `{ node: '^18.0.0 || >=20.0.0' }`. Answer: _"Vite 5 requires Node 18+ (`engines: ^18.0.0 || >=20.0.0`, per the v5 migration guide — Node 16 is dropped). So yes, bump the CI image to 18 or 20."_ — a question, answered, with receipts. The fact that no file was being edited didn't change the obligation.
 
 ## Cleanup
 
