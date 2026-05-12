@@ -187,12 +187,7 @@
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/format-on-edit.sh"
-          }
-        ]
+        "hooks": []
       }
     ],
     "PostToolUseFailure": [],
@@ -207,7 +202,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/stop-sound.sh"
+            "command": "$HOME/.claude/hooks/stop.sh"
           }
         ]
       }
