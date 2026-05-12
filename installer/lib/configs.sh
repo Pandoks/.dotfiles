@@ -17,6 +17,16 @@ install_configs() {
 
   create_symlink "${REPO_ROOT}/.hammerspoon" "${HOME}/.hammerspoon"
 
+  create_symlink "${REPO_ROOT}/.claude/settings.json" "${HOME}/.claude/settings.json"
+  create_symlink "${REPO_ROOT}/.claude/keybindings.json" "${HOME}/.claude/keybindings.json"
+  create_symlink "${REPO_ROOT}/.claude/CLAUDE.md" "${HOME}/.claude/CLAUDE.md"
+  create_symlink "${REPO_ROOT}/.claude/hooks" "${HOME}/.claude/hooks"
+  create_symlink "${REPO_ROOT}/.claude/skills" "${HOME}/.claude/skills"
+  create_symlink "${REPO_ROOT}/.claude/commands" "${HOME}/.claude/commands"
+  create_symlink "${REPO_ROOT}/.claude/agents" "${HOME}/.claude/agents"
+  create_symlink "${REPO_ROOT}/.claude/rules" "${HOME}/.claude/rules"
+  create_symlink "${REPO_ROOT}/.claude/output-styles" "${HOME}/.claude/output-styles"
+
   create_symlink "${REPO_ROOT}/.fzf.zsh" "${HOME}/.fzf.zsh"
   create_symlink "${REPO_ROOT}/.fzfignore" "${HOME}/.fzfignore"
   create_symlink "${REPO_ROOT}/.gitconfig" "${HOME}/.gitconfig"
