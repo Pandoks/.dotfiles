@@ -1,0 +1,238 @@
+{
+  "model": "claude-opus-4-7",
+  "availableModels": [],
+  "modelOverrides": {},
+  "outputStyle": "Terse",
+  "theme": "dark-daltonized",
+  "effortLevel": "high",
+  "alwaysThinkingEnabled": false,
+  "showThinkingSummaries": true,
+  "editorMode": "vim",
+  "language": "en",
+  "tui": "default",
+  "viewMode": "focus",
+  "teammateMode": "auto",
+  "preferredNotifChannel": "auto",
+  "defaultShell": "bash",
+  "autoUpdatesChannel": "stable",
+  "autoScrollEnabled": true,
+  "autoMemoryEnabled": true,
+  "awaySummaryEnabled": true,
+  "spinnerTipsEnabled": true,
+  "showTurnDuration": true,
+  "showClearContextOnPlanAccept": false,
+  "terminalProgressBarEnabled": true,
+  "syntaxHighlightingDisabled": false,
+  "prefersReducedMotion": false,
+  "includeGitInstructions": true,
+  "useAutoModeDuringPlan": true,
+  "disableAllHooks": false,
+  "disableAgentView": false,
+  "disableRemoteControl": false,
+  "disableSkillShellExecution": false,
+  "skipWebFetchPreflight": false,
+  "fastModePerSessionOptIn": false,
+  "attribution": {
+    "commit": "Co-Authored-By: Claude <noreply@anthropic.com>",
+    "pr": "Generated with Claude Code"
+  },
+  "respectGitignore": true,
+  "claudeMdExcludes": [],
+  "cleanupPeriodDays": 90,
+  "plansDirectory": "~/.claude/plans",
+  "skillListingBudgetFraction": 0.01,
+  "maxSkillDescriptionChars": 1536,
+  "skillOverrides": {},
+  "agentPushNotifEnabled": true,
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true,
+  "enableAllProjectMcpServers": false,
+  "allowedMcpServers": [],
+  "deniedMcpServers": [],
+  "enabledMcpjsonServers": [],
+  "disabledMcpjsonServers": [],
+  "allowedHttpHookUrls": [],
+  "httpHookAllowedEnvVars": [],
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1"
+  },
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [],
+    "ask": [],
+    "deny": [
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf $HOME:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)"
+    ],
+    "additionalDirectories": []
+  },
+  "worktree": {
+    "baseRef": "head",
+    "symlinkDirectories": [],
+    "sparsePaths": []
+  },
+  "voice": {
+    "enabled": true,
+    "mode": "hold",
+    "autoSubmit": false
+  },
+  "sandbox": {
+    "enabled": false,
+    "failIfUnavailable": false,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "excludedCommands": [],
+    "enableWeakerNestedSandbox": false,
+    "enableWeakerNetworkIsolation": false,
+    "filesystem": {
+      "allowWrite": [],
+      "denyWrite": [],
+      "allowRead": [],
+      "denyRead": [],
+      "allowManagedReadPathsOnly": false
+    },
+    "network": {
+      "allowUnixSockets": [],
+      "allowAllUnixSockets": false,
+      "allowLocalBinding": false,
+      "allowMachLookup": [],
+      "allowedDomains": [],
+      "deniedDomains": [],
+      "allowManagedDomainsOnly": false
+    }
+  },
+  "spinnerTipsOverride": {
+    "tips": [],
+    "excludeDefault": false
+  },
+  "spinnerVerbs": {
+    "mode": "append",
+    "verbs": []
+  },
+  "sshConfigs": [],
+  "allowedChannelPlugins": [],
+  "allowManagedHooksOnly": false,
+  "allowManagedMcpServersOnly": false,
+  "allowManagedPermissionRulesOnly": false,
+  "blockedMarketplaces": [],
+  "channelsEnabled": false,
+  "companyAnnouncements": [],
+  "forceRemoteSettingsRefresh": false,
+  "strictKnownMarketplaces": [],
+  "wslInheritsWindowsSettings": false,
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/hooks/statusline.sh"
+  },
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true,
+    "clangd-lsp@claude-plugins-official": true,
+    "swift-lsp@claude-plugins-official": true,
+    "lua-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": true,
+    "learning-output-style@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "figma@claude-plugins-official": false,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "playground@claude-plugins-official": true,
+    "stripe@claude-plugins-official": false,
+    "firecrawl@claude-plugins-official": false,
+    "posthog@claude-plugins-official": false,
+    "semgrep@claude-plugins-official": false,
+    "notion@claude-plugins-official": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "Setup": [],
+    "UserPromptSubmit": [],
+    "UserPromptExpansion": [],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/guard-bash.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [],
+    "PermissionDenied": [],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/format-on-edit.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [],
+    "PostToolBatch": [],
+    "Notification": [],
+    "SubagentStart": [],
+    "SubagentStop": [],
+    "TaskCreated": [],
+    "TaskCompleted": [],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/stop-sound.sh"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [],
+    "TeammateIdle": [],
+    "InstructionsLoaded": [],
+    "ConfigChange": [],
+    "CwdChanged": [],
+    "FileChanged": [],
+    "WorktreeCreate": [],
+    "WorktreeRemove": [],
+    "PreCompact": [],
+    "PostCompact": [],
+    "Elicitation": [],
+    "ElicitationResult": [],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/session-end.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
