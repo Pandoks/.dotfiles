@@ -1,6 +1,6 @@
 ---
 name: trying-everything
-description: Use when about to ask the user to choose between 2+ substantive implementation approaches — architecture, algorithm, data structure, library, or design pattern choices where the answer benefits from a side-by-side comparison of real implementations. Symptoms include drafting a message like "Option A or Option B — which do you prefer?", listing trade-offs in the abstract, or recommending a path while uncertain whether an alternative would be cleaner. Do NOT use for trivial choices (variable names, formatting, single-line refactors, choices the user already specified).
+description: Use when about to ask the user to choose between 2+ substantive implementation approaches — architecture, algorithm, data structure, library, or design pattern choices where the answer benefits from a side-by-side comparison of real implementations — OR when undecided between competing hypotheses, interpretations of an ambiguous request, or research directions where pursuing each branch would settle which is right. Symptoms include drafting a message like "Option A or Option B — which do you prefer?", listing trade-offs in the abstract, recommending a path while uncertain whether an alternative would be cleaner, or picking the likelier of two explanations and moving on. Do NOT use for trivial choices (variable names, formatting, single-line refactors, choices the user already specified). For non-code forks (competing explanations, interpretations, research directions), the comparison happens via investigation rather than worktrees — see `leaving-no-stone-unturned`.
 ---
 
 # Trying Everything
@@ -14,6 +14,7 @@ Instead of asking the user to pick between approaches in the abstract, implement
 **REQUIRED SUB-SKILL:** Use `superpowers:using-git-worktrees` for worktree creation.
 **REQUIRED SUB-SKILL:** Use `superpowers:dispatching-parallel-agents` for the parallel implementation step.
 **RELATED:** When a worktree has no test command, each subagent improvises an exercise per `testing-implementations` — a comparison is only meaningful if both sides actually ran.
+**RELATED:** This skill is for competing *code implementations*. When the fork is between competing explanations, interpretations, or research directions — not code — pursue every branch by investigation, not worktrees: `leaving-no-stone-unturned`.
 
 ## When to Use
 

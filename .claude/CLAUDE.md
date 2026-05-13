@@ -12,6 +12,10 @@
 - Run dedicated tools (Read/Edit/Write) instead of shelling out to cat/sed/echo.
 - When tempted to ask the user "option A or option B?" for a substantive implementation choice, implement both and compare instead — `trying-everything` skill.
 
+## Research depth
+
+- When the literal answer to a question isn't pre-published (no dataset, no doc, no direct comparison), don't stop at "that isn't reported" / "it depends" / "send me the code" — decompose it into individually-findable parts, gather each with the right tool (web search, `Read`/`Grep` the source, run the test), dispatch a parallel-agent team when there are many strands, and reconstruct the answer from first principles with per-figure sources, confidence, and stated assumptions. Only the literal join is "unreported" — that's a footnote, never a reason to bail. Applies to plain Q&A as much as code. Full procedure: `leaving-no-stone-unturned` skill.
+
 ## Grounding
 
 - Verify any technical claim, answer, or recommendation against a primary source (docs / source / installed version) AND, where runnable, empirically before stating it — training-data memory is not a source, and anything "latest" or version-sensitive is stale. Separate "verified" from "inferred" when something can't be run. Skip only for clearly-framed speculation, long-stable surface (basic git, POSIX shell, built-ins), or facts the user already stated. Full procedure: `grounding-claims` skill.
