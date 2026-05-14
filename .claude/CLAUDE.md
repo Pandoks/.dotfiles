@@ -18,7 +18,7 @@
 
 ## Grounding
 
-- Verify any technical claim, answer, or recommendation against a primary source (docs / source / installed version) AND, where runnable, empirically before stating it — training-data memory is not a source, and anything "latest" or version-sensitive is stale. Separate "verified" from "inferred" when something can't be run. Skip only for clearly-framed speculation, long-stable surface (basic git, POSIX shell, built-ins), or facts the user already stated. Full procedure: `grounding-claims` skill.
+- Verify any factual claim, answer, advice, or recommendation — code or non-code, including fitness, medical, historical, biomechanical, or other domain Q&A — against a primary source (docs / source / installed version / authoritative reference) AND, where runnable, empirically before stating it — training-data memory is not a source, and anything "latest" or version-sensitive is stale. Separate "verified" from "inferred" when something can't be run. Skip only for clearly-framed speculation, long-stable surface (basic git, POSIX shell, built-ins), or facts the user already stated. Full procedure: `grounding-claims` skill.
 
 ## Testing implementations
 
