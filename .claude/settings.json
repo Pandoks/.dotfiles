@@ -39,7 +39,7 @@
   "respectGitignore": true,
   "claudeMdExcludes": [],
   "cleanupPeriodDays": 90,
-  "plansDirectory": "~/.claude/plans",
+  "plansDirectory": ".claude/plans",
   "skillListingBudgetFraction": 0.01,
   "maxSkillDescriptionChars": 1536,
   "skillOverrides": {},
@@ -55,7 +55,8 @@
   "httpHookAllowedEnvVars": [],
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1"
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_SANDBOXED": "1"
   },
   "permissions": {
     "defaultMode": "dontAsk",
