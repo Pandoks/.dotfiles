@@ -1,5 +1,5 @@
 ---
-name: testing-implementations
+name: confirm
 description: Use after implementing any code or config change in a project, before claiming the work complete. Especially for projects with no documented test setup — no test script in package.json/Makefile/pyproject.toml/Cargo.toml, no testing section in README/CONTRIBUTING/AGENTS.md. Symptoms — about to claim work complete without running anything, about to commit code that hasn't been exercised, project has no apparent test command. Skip for pure documentation/comment edits.
 ---
 
@@ -44,7 +44,7 @@ Pick the pattern matching the project type. Always run a **real** exercise, not 
 | **Config (tmux, nvim, yabai, hammerspoon, zsh)** | Reload the config (`tmux source-file`, `yabai --restart-service`, `:source $MYVIMRC`, etc.). Trigger the behavior the change affects. Inspect logs (`tail ~/.hammerspoon/console.log`, etc.).                                                                                 |
 | **Shell script / dotfile**                       | Source it in a subshell to catch syntax errors. Invoke the affected function/alias with realistic input.                                                                                                                                                                      |
 | **Database migration**                           | Apply to a dev/local DB. Query to confirm schema. Reverse if reversible to confirm symmetry.                                                                                                                                                                                  |
-| **Pure logic / algorithm**                       | Write 3–5 assertion lines in a tmp file, run them. Cover happy path + at least one edge case (empty input, boundary value). If you already wrote a reproducer for this exact code while grounding a claim about it (see `grounding-claims`), that run counts — don't redo it. |
+| **Pure logic / algorithm**                       | Write 3–5 assertion lines in a tmp file, run them. Cover happy path + at least one edge case (empty input, boundary value). If you already wrote a reproducer for this exact code while grounding a claim about it (see `verify`), that run counts — don't redo it. |
 
 If the change touches a UI, also run a build/typecheck — visual verification doesn't catch type errors.
 

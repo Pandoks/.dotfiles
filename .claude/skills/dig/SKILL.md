@@ -1,5 +1,5 @@
 ---
-name: leaving-no-stone-unturned
+name: dig
 description: Use when about to tell the user something "isn't reported" / "no data exists" / "I couldn't find a direct comparison" / "it depends, I can't say without more info" — or about to hand back a thin answer to a question whose answer could be reconstructed from findable parts, or stop investigating before running the tests, reading the source, or searching the web. Symptoms — declaring something unknown without having decomposed it, bailing on a niche cross-cut question because nobody pre-published the exact join, recommending against a path you never actually tried, asking the user to supply something a `WebSearch`/`Read`/test run would get you, prefacing a non-answer with "the honest answer is I can't". Skip only when the question genuinely has no decomposable answer, or the user explicitly asked for a quick off-the-cuff take.
 ---
 
@@ -13,7 +13,7 @@ The absence of a pre-packaged answer is not the absence of an answer. Niche cros
 
 This applies to plain Q&A and advice exactly as much as to code tasks. A wrong-because-lazy non-answer in casual conversation is still the user not getting the answer they could have had.
 
-**RELATED:** Verify each piece you gather per `grounding-claims`. Exercise code claims per `testing-implementations`. Scale up per `superpowers:dispatching-parallel-agents`. For competing _code implementations_ specifically, `trying-everything` (worktrees).
+**RELATED:** Verify each piece you gather per `verify`. Exercise code claims per `confirm`. Scale up per `superpowers:dispatching-parallel-agents`. For competing _code implementations_ specifically, `try-all` (worktrees).
 
 ## When to Use
 
@@ -33,11 +33,11 @@ This applies to plain Q&A and advice exactly as much as to code tasks. A wrong-b
 
 1. **Decompose.** Break the question into sub-facts that _are_ individually findable. "X across A, B, C" → "X in A", "X in B", "X in C". "How does our code do X" → "what does `foo.ts` do", "what does `bar.ts` do". "How big is X" → estimable factors whose product is X.
 
-2. **Gather each part with the right tool.** Facts/prices/stats → `WebSearch` / `WebFetch` (multiple sources per figure). Codebase behavior → `Read` / `Grep` the actual files; for runtime behavior, _run it_ (`testing-implementations`). Versions → `npm view` / `pip show` / `--version`.
+2. **Gather each part with the right tool.** Facts/prices/stats → `WebSearch` / `WebFetch` (multiple sources per figure). Codebase behavior → `Read` / `Grep` the actual files; for runtime behavior, _run it_ (`confirm`). Versions → `npm view` / `pip show` / `--version`.
 
 3. **Scale up when the search is large.** Many independent strands (several regions, several subsystems, several sources to chase) → dispatch a team, one agent per strand, per `superpowers:dispatching-parallel-agents`. For strands that won't finish in one turn, use `TaskCreate` so they survive across turns. You synthesize their findings — don't just relay them.
 
-4. **When forked between answers, pursue every branch.** Two plausible explanations for a bug? Two readings of an ambiguous question? Two candidate root causes? Don't pick the likelier one and move on — pursue each far enough to tell which is right, then report the comparison. (Competing code _implementations_ → `trying-everything`.)
+4. **When forked between answers, pursue every branch.** Two plausible explanations for a bug? Two readings of an ambiguous question? Two candidate root causes? Don't pick the likelier one and move on — pursue each far enough to tell which is right, then report the comparison. (Competing code _implementations_ → `try-all`.)
 
 5. **Synthesize and report with provenance.** Reconstruct the answer the user asked for. Every figure gets a source and a confidence; label clearly what's _measured_ vs. _estimated_ vs. _genuinely unknown_. State your assumptions. Say "the literal co-reported dataset doesn't exist — here it is reconstructed", not "this isn't reported, sorry".
 

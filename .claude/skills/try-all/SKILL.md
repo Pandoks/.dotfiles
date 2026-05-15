@@ -1,6 +1,6 @@
 ---
-name: trying-everything
-description: Use when about to ask the user to choose between 2+ substantive implementation approaches — architecture, algorithm, data structure, library, or design pattern choices where the answer benefits from a side-by-side comparison of real implementations — OR when undecided between competing hypotheses, interpretations of an ambiguous request, or research directions where pursuing each branch would settle which is right. Symptoms include drafting a message like "Option A or Option B — which do you prefer?", listing trade-offs in the abstract, recommending a path while uncertain whether an alternative would be cleaner, or picking the likelier of two explanations and moving on. Do NOT use for trivial choices (variable names, formatting, single-line refactors, choices the user already specified). For non-code forks (competing explanations, interpretations, research directions), the comparison happens via investigation rather than worktrees — see `leaving-no-stone-unturned`.
+name: try-all
+description: Use when about to ask the user to choose between 2+ substantive implementation approaches — architecture, algorithm, data structure, library, or design pattern choices where the answer benefits from a side-by-side comparison of real implementations — OR when undecided between competing hypotheses, interpretations of an ambiguous request, or research directions where pursuing each branch would settle which is right. Symptoms include drafting a message like "Option A or Option B — which do you prefer?", listing trade-offs in the abstract, recommending a path while uncertain whether an alternative would be cleaner, or picking the likelier of two explanations and moving on. Do NOT use for trivial choices (variable names, formatting, single-line refactors, choices the user already specified). For non-code forks (competing explanations, interpretations, research directions), the comparison happens via investigation rather than worktrees — see `dig`.
 ---
 
 # Trying Everything
@@ -13,8 +13,8 @@ Instead of asking the user to pick between approaches in the abstract, implement
 
 **REQUIRED SUB-SKILL:** Use `superpowers:using-git-worktrees` for worktree creation.
 **REQUIRED SUB-SKILL:** Use `superpowers:dispatching-parallel-agents` for the parallel implementation step.
-**RELATED:** When a worktree has no test command, each subagent improvises an exercise per `testing-implementations` — a comparison is only meaningful if both sides actually ran.
-**RELATED:** This skill is for competing *code implementations*. When the fork is between competing explanations, interpretations, or research directions — not code — pursue every branch by investigation, not worktrees: `leaving-no-stone-unturned`.
+**RELATED:** When a worktree has no test command, each subagent improvises an exercise per `confirm` — a comparison is only meaningful if both sides actually ran.
+**RELATED:** This skill is for competing *code implementations*. When the fork is between competing explanations, interpretations, or research directions — not code — pursue every branch by investigation, not worktrees: `dig`.
 
 ## When to Use
 
@@ -23,7 +23,7 @@ Instead of asking the user to pick between approaches in the abstract, implement
 - You identified 2–4 meaningfully different implementation approaches.
 - Each approach would touch real code (not just a rename).
 - The user hasn't pre-committed to one approach.
-- The approaches can be validated quickly — a test command, a build, or an improvisable real exercise (per `testing-implementations`). If you genuinely can't exercise _any_ of them, fall back to a single quick prototype + one round-trip with the user instead of N un-exercised worktrees.
+- The approaches can be validated quickly — a test command, a build, or an improvisable real exercise (per `confirm`). If you genuinely can't exercise _any_ of them, fall back to a single quick prototype + one round-trip with the user instead of N un-exercised worktrees.
 
 **Do NOT use when:**
 
@@ -72,7 +72,7 @@ Instead of asking the user to pick between approaches in the abstract, implement
 6. **Dispatch one subagent per worktree** via `superpowers:dispatching-parallel-agents`. Each agent receives:
    - Its worktree path
    - **Only its assigned approach** (never the alternative list — prevents cross-contamination)
-   - Instruction to implement; then **verify it** — run the project's test command if one exists, otherwise improvise a real exercise per `testing-implementations` (a "comparison" where neither side was actually run is just two untested diffs); then return: files changed, test/exercise result, one-line trade-off note
+   - Instruction to implement; then **verify it** — run the project's test command if one exists, otherwise improvise a real exercise per `confirm` (a "comparison" where neither side was actually run is just two untested diffs); then return: files changed, test/exercise result, one-line trade-off note
    - Instruction that **"this approach turns out to be infeasible / its tests fail and I can't fix them" is a valid result to return** — report it, don't silently drop the row, don't retry forever, don't fake green. An approach that doesn't work is a finding the user wants.
 
 7. **Collect and report.** Markdown table — keep every row, including failed/infeasible ones (mark the result cell ❌ or "infeasible" and one line on why):

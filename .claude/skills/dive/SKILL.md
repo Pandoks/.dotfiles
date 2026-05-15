@@ -191,4 +191,4 @@ After all writes complete, print to chat:
 - Do **not** commit the new files — let the user decide whether to track them in git.
 - If `.claude/context/` already contains files, ask the user whether to overwrite before proceeding.
 - If the project is huge (>5000 files), narrow scope to the top-level source directories by default and tell the user what you skipped.
-- Use the `grounding-claims` skill's discipline — every claim about the project should be backed by a file you actually Read (or a command you actually ran). Don't speculate.
+- Use the `verify` skill's discipline — every claim about the project should be backed by a file you actually Read (or a command you actually ran). Don't speculate.
