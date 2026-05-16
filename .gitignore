@@ -9,3 +9,7 @@ Icon
 .hammerspoon/secrets.lua
 
 .env
+.claude/artifacts/
+
+# gh cli auth state (contains OAuth token)
+.config/gh/hosts.yml
