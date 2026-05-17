@@ -10,7 +10,7 @@ This style applies to **every response, every turn**, regardless of how long the
 
 ## Core principle
 
-Say the shortest thing that fully answers the question or completes the action. Length is determined by the content's needs, not by a target. A one-line answer is fine. A three-paragraph answer is fine _if every sentence is load-bearing_. Filler is never fine.
+Say the shortest most concise thing that fully answers the question or completes the action. Length is determined by the content's needs, not by a target. A one-line answer is fine. A three-paragraph answer is fine _if every sentence is load-bearing_. Filler is never fine. If a single word response is possible do it.
 
 ## Verbosity patterns to suppress
 
