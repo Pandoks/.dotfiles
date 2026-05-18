@@ -22,7 +22,7 @@
 
 ## Testing implementations
 
-- After any code or config change (not pure docs/comments), exercise it before claiming complete — the project's declared test setup first, then its documented manual steps, then an improvised real exercise (start+curl the server, run the CLI on real input, reload the config). On failure, loop: diagnose root cause, fix, re-test; bail only when genuinely impossible (missing credentials/hardware, external service down, contradictory requirements, same error after many _distinct_ attempts) and report exactly what's impossible. Full procedure: `confirm` skill.
+- After any code or config change (not pure docs/comments), exercise it before claiming complete — the project's declared test setup first, then its documented manual steps, then an improvised real exercise (start+curl the server, run the CLI on real input, reload the config). On failure, loop: diagnose root cause, fix, re-test; bail only when genuinely impossible (missing credentials/hardware, external service down, contradictory requirements, same error after many _distinct_ attempts) and report exactly what's impossible. Full procedure: `test` skill.
 
 ## Memory
 

@@ -1,5 +1,5 @@
 ---
-name: confirm
+name: test
 description: Use after implementing any code or config change in a project, before claiming the work complete. Especially for projects with no documented test setup — no test script in package.json/Makefile/pyproject.toml/Cargo.toml, no testing section in README/CONTRIBUTING/AGENTS.md. Symptoms — about to claim work complete without running anything, about to commit code that hasn't been exercised, project has no apparent test command. Skip for pure documentation/comment edits.
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: defacto
-description: Use when about to recommend "the standard way" / "the idiomatic way" / "the canonical way" / "the de facto way" / "best practice" to use a specific tool, library, framework, or workflow — OR when the user invokes `/defacto <tool-or-question>` explicitly — OR when auditing/reviewing the user's existing setup against industry conventions. Triggers include any phrasing like "what's the standard way to use X", "how do most teams configure Y", "is my [workflow/Dockerfile/config/setup] following best practice", "audit my use of Z against industry conventions", "what's the idiomatic [trigger / schedule / structure] for X", "how should I set up X in CI". Symptoms — about to type "industry standard is..." / "everyone does..." / "most teams use..." / "the convention for X is..." without having checked the tool's own docs **this session**; about to attribute a community pattern to the vendor ("Trivy recommends cron" when actually Trivy docs don't, even though Trivy's own CI runs it); about to recommend a pattern from training-data memory; about to claim something is "the standard" without naming the source; about to recommend a pattern that's been deprecated in the current major version; about to fuse multiple sub-questions (auth + schedule + structure) into one answer; about to flatten a 3-way community split into a single convention; about to invent community-de-facto when all "adopters" are just vendor demo forks. Skip ONLY when — the user has cited a specific source/convention to follow ("do it the way the X docs say"), the user explicitly wants their own subjective preference rather than industry convention, the topic is universally stable (basic POSIX, git plumbing, ECMAScript core) and has no convention drift to research.
+description: Use when about to recommend "the standard / idiomatic / canonical / de facto way" or "best practice" for a tool, library, framework, or workflow — OR when user invokes /defacto — OR when auditing the user's setup (workflow, Dockerfile, config) against industry convention. Triggers: "standard way to X", "how do most teams configure Y", "is my setup best practice", "audit my use of Z", "idiomatic structure for X", "set up X in CI". Symptoms: about to say "industry standard..." / "everyone does..." / "the convention is..." without checking the tool's docs this session; attributing community patterns to the vendor; recommending from memory; claiming "the standard" with no source; recommending a pattern deprecated in the current major; fusing multi-part questions into one answer; flattening a multi-way community split; inventing community-de-facto from demo forks. Skip ONLY when user cited a source, wants subjective preference over convention, or topic is universally stable (POSIX, git, ECMAScript) with no drift.
 ---
 
 # Researching De Facto Standard Use of a Tool
@@ -31,7 +31,7 @@ When someone asks "how should I use tool X" — or asks you to audit their setup
 
 **RELATED: `[[dig]]`** — when neither vendor docs nor adopter examples have a pre-published answer to a *sub-question* (partial coverage is normal), invoke `dig` for that sub-question only. Label the reconstruction `Inferred:` with named parts and confidence.
 
-**RELATED: `[[confirm]]`** — when the question is "does this tool actually work this way" rather than "how do people use it", `confirm` is the right tool.
+**RELATED: `[[test]]`** — when the question is "does this tool actually work this way" rather than "how do people use it", `test` is the right tool.
 
 **NOT RELATED (do not invoke): `[[try-all]]`** — `try-all` is for implementing 2+ competing code approaches in worktrees. `defacto` is research-only.
 
@@ -50,7 +50,7 @@ When someone asks "how should I use tool X" — or asks you to audit their setup
 - User has explicitly cited a specific source to follow ("do it the way the X docs say").
 - User is asking about their own subjective preference, not the industry.
 - Topic is universally stable (POSIX shell builtins, basic `git`, ECMAScript core) — no convention drift exists.
-- The question is "does this work" rather than "is this conventional" — use `confirm` directly.
+- The question is "does this work" rather than "is this conventional" — use `test` directly.
 
 ## Procedure
 
