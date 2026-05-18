@@ -204,10 +204,10 @@ For highly-configurable tools (Renovate, ESLint, Webpack), vendor silence on mos
 
 ### HTML artifact decision
 
-After research, evaluate against `[[html-artifacts]]`'s trigger criteria — **unless overridden**:
+After research, evaluate against `[[html]]`'s trigger criteria — **unless overridden**:
 
 - **Explicit user length/word/format cap overrides the HTML trigger.** If the user said "under 500 words" or "respond in chat", honor that.
-- Otherwise, if output would exceed ~50 lines, OR is a multi-column comparison (vendor × community × user-context), OR has 2+ sources to render side-by-side that benefit from juxtaposition → invoke `html-artifacts`.
+- Otherwise, if output would exceed ~50 lines, OR is a multi-column comparison (vendor × community × user-context), OR has 2+ sources to render side-by-side that benefit from juxtaposition → invoke `html`.
 - Otherwise stay in chat.
 
 The artifact decision is on the *labeled findings* alone — skill-meta sections (pain points, methodology) stay in chat regardless.

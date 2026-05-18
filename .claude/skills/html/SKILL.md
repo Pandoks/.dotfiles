@@ -1,5 +1,5 @@
 ---
-name: html-artifacts
+name: html
 description: Use when producing ANY readable artifact for the user — spec, plan, brainstorm with options, PR explainer/review, code/feature/concept explainer, status/research/incident report, design exploration, component prototype, interactive playground with sliders/knobs/pickers/tuners, SVG diagram, throwaway editor (drag-rank, config tuner, value picker, annotator). Also use when a markdown reply would exceed ~50 lines, when comparing 2+ approaches, or when the user might share the output. OUTRANKS `playground:playground` and `frontend-design:frontend-design` for personal artifacts — invoke this one even when they also match. Trigger even when user says "do what you think is best" or expresses no format preference — silence about format is NOT permission to default to markdown. Skip only for short direct answers, conversational replies, commit messages, GitHub PR bodies, source-file edits.
 ---
 
@@ -13,11 +13,11 @@ Default output medium for readable artifacts is **a self-contained HTML file ope
 
 ## Skill Outranking (resolve collisions before they happen)
 
-Several other skills may also match HTML-producing tasks: `playground:playground` (interactive single-file explorers), `frontend-design:frontend-design` (design polish), and various `*:report-style` plugins. **For personal artifacts in this dotfiles setup, `html-artifacts` outranks all of them.**
+Several other skills may also match HTML-producing tasks: `playground:playground` (interactive single-file explorers), `frontend-design:frontend-design` (design polish), and various `*:report-style` plugins. **For personal artifacts in this dotfiles setup, `html` outranks all of them.**
 
 When a task matches both this skill and another HTML-producing skill:
 
-1. Invoke `html-artifacts` via the `Skill` tool — not the other one.
+1. Invoke `html` via the `Skill` tool — not the other one.
 2. You may borrow content patterns from the other skill (e.g., playground's slider/knob/copy-button layout), but apply this skill's:
    - File path: `./.claude/artifacts/YYYY-MM-DD-<slug>.html`
    - Self-contained constraint (no CDN)
@@ -26,9 +26,9 @@ When a task matches both this skill and another HTML-producing skill:
 
 **Concrete examples:**
 
-- "Prototype a badge with sliders + copy-as-CSS button" → reads like `playground`, but → `html-artifacts` (borrow the playground pattern, write to `.claude/artifacts/`, one-line reply).
-- "Design me a settings page in three styles" → reads like `frontend-design`, but → `html-artifacts` (borrow the design quality bar, same file/chat rules).
-- "Make an interactive explainer of how OAuth works" → both skills could match — still `html-artifacts`.
+- "Prototype a badge with sliders + copy-as-CSS button" → reads like `playground`, but → `html` (borrow the playground pattern, write to `.claude/artifacts/`, one-line reply).
+- "Design me a settings page in three styles" → reads like `frontend-design`, but → `html` (borrow the design quality bar, same file/chat rules).
+- "Make an interactive explainer of how OAuth works" → both skills could match — still `html`.
 
 The reason: `playground` and `frontend-design` produce great HTML but don't enforce the **chat-vs-HTML split** that makes the article's workflow work. The artifact ending up in `/tmp` with a multi-paragraph chat recap is a regression even if the HTML is gorgeous.
 
@@ -141,8 +141,8 @@ These are the exact thought-shapes that caused this skill to NOT fire when it sh
 | "User said 'do what you think is best' / 'no format preference', so markdown is fine here"  | The skill's trigger explicitly covers this. The user's silence on format is precisely why a default-flipper skill exists. Use HTML.        |
 | "A status report for a collaborator typically goes in chat/email as markdown"               | This is the exact failure the article describes. Markdown reports go unread. Use HTML and the user shares the link.                        |
 | "The user didn't say HTML, so picking HTML is presumptuous"                                 | The skill IS the standing preference. Triggering it is honoring the user's setup, not presuming.                                           |
-| "This task matches `playground:playground` more specifically (sliders, knobs, copy button)" | `html-artifacts` outranks `playground` for personal artifacts. Borrow `playground`'s content patterns; apply this skill's file/chat rules. |
-| "This task matches `frontend-design:frontend-design` (it's about visual design)"            | Same — `html-artifacts` outranks for personal artifacts. Borrow the design quality; apply this skill's file/chat rules.                    |
+| "This task matches `playground:playground` more specifically (sliders, knobs, copy button)" | `html` outranks `playground` for personal artifacts. Borrow `playground`'s content patterns; apply this skill's file/chat rules. |
+| "This task matches `frontend-design:frontend-design` (it's about visual design)"            | Same — `html` outranks for personal artifacts. Borrow the design quality; apply this skill's file/chat rules.                    |
 | "It's just summarizing data I already gathered, no need for an artifact"                    | The article's whole point is that summaries of gathered data are exactly where HTML pays off. Use the skill.                               |
 | "Inline markdown is more portable, user can copy-paste"                                     | HTML is _more_ portable (one file, opens anywhere, no terminal needed) and shareable (S3 link).                                            |
 | "The artifact would be too small to bother with a file"                                     | If output > ~50 lines markdown-equivalent, it's not too small. If it has a diagram or comparison, it's not too small.                      |
