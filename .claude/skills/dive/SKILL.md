@@ -1,4 +1,5 @@
 ---
+name: dive
 description: Deep-dive the current project and write durable context files for future Claude sessions
 allowed-tools: Bash, Read, Glob, Grep, Write, Edit, Agent, WebFetch, Skill, TodoWrite
 ---
