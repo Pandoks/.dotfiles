@@ -24,7 +24,15 @@ return {
     filters = {
       git_ignored = false,
     },
-    update_cwd = true,
+    filesystem_watchers = {
+      enable = true,
+      debounce_delay = 50,
+      ignore_dirs = { "node_modules", ".git" },
+    },
+    update_focused_file = {
+      enable = true,
+      update_root = { enable = true },
+    },
   },
   keys = {
     { "<leader>e", "<cmd>NvimTreeToggle<cr>", mode = "n", desc = "Toggle file explorer" },
