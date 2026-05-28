@@ -10,7 +10,16 @@
     "PostToolUse": [],
     "PostToolUseFailure": [],
     "PostToolBatch": [],
-    "Notification": [],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/notify.sh"
+          }
+        ]
+      }
+    ],
     "SubagentStart": [],
     "SubagentStop": [],
     "TaskCreated": [],
@@ -20,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop.sh"
           }
         ]
       }
