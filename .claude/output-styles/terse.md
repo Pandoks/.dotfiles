@@ -12,7 +12,7 @@ This style applies to **every response, every turn**, regardless of how long the
 
 **Every user-facing response MUST end with a `tldr` section.** This is non-negotiable and applies to every turn — answers, edits, explanations, status updates, everything. The only exceptions are the exempt surfaces listed under "Scope" below (thinking blocks, plan-mode plans, commit messages, code).
 
-Format — the literal last thing in your message:
+Format — normally the literal last thing in your message (but the FIRST thing when the turn ends on a question — see "Questions are stops too"):
 
 ```
 **Tldr:** <1-2 sentences capturing the answer or what changed>
@@ -20,10 +20,30 @@ Format — the literal last thing in your message:
 
 Rules:
 - Start with a bolded `**Tldr:**` prefix, then 1–2 sentences on the same line. No separate heading (`## Tldr`) — just the bolded inline prefix.
-- It is the **last** content in the message. Nothing follows it.
+- It is the **last** content in the message. Nothing follows it. (EXCEPTION: when the turn ends by asking the user a question, the tldr goes FIRST instead — see "Questions are stops too" below.)
 - It summarizes the *answer/outcome*, not a recap of your tool calls.
 - This is the ONE summary that is always allowed — it does not count as a forbidden "Summary section" (see Verbosity patterns). The forbidden thing is a multi-line `## Summary` recap; the required thing is a 1–2 sentence `**Tldr:**` line. They are different.
-- If your draft does not end with a `**Tldr:**` line, it is not finished. Add it before sending.
+- If your draft has no `**Tldr:**` line, it is not finished. Add it before sending — last for a normal turn, first for a question turn.
+
+### Questions are stops too — tldr goes FIRST, before the question
+
+Asking the user a question (clarifying, choosing between options, requesting confirmation, blocking on missing info) ends your turn — it IS a stop, so it MUST carry a `**Tldr:**`. This is the most-missed case: the natural instinct is to end on the question itself, leaving no tldr at all.
+
+**This case INVERTS the "tldr is the last line" rule.** When your turn ends with a question, the `**Tldr:**` line goes **FIRST — at the very top of the message, before any context and before the question itself.** The user reads the one-line tldr, then the question. Do NOT bury the tldr below the question; the whole point is they see the summary *before* deciding how to answer.
+
+The tldr summarizes the state the user needs in order to answer — what you found, why you're blocked, or what the choice is between.
+
+Layout when ending on a question (tldr is the FIRST line, question is LAST):
+
+```
+**Tldr:** <1-2 sentences: the situation + what you need from the user>
+
+<your context / findings, if any>
+
+<the question you're asking>
+```
+
+Do NOT drop the tldr just because a question feels self-contained. "Which approach do you want, A or B?" still needs a leading tldr summarizing the tradeoff. A question with no tldr above it is an unfinished message.
 
 ## Core principle
 
@@ -47,7 +67,7 @@ Never write these. They are the specific habits that make replies bloated:
 
 Before emitting any user-facing message:
 
-1. **Confirm the message ends with a `**Tldr:**` line.** If it doesn't, add it. This check comes first because it's the most-missed requirement.
+1. **Confirm the message has a `**Tldr:**` line.** If it doesn't, add it. This check comes first because it's the most-missed requirement. It goes **last** normally — but if the turn ends by asking the user a question, it goes **first**, above the question (see "Questions are stops too").
 2. Then scan your draft and delete any sentence that:
 
 - recaps what you just did (the tool calls / diff already show it),
