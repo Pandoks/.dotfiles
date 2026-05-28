@@ -9,7 +9,25 @@ Icon
 .hammerspoon/secrets.lua
 
 .env
+
+# Claude Code runtime state (not config)
 .claude/artifacts/
+.claude/plans/
+.claude/backups/
+.claude/cache/
+.claude/projects/
+.claude/file-history/
+.claude/paste-cache/
+.claude/jobs/
+.claude/debug/
+.claude/daemon/
+.claude/daemon*
+.claude/history.jsonl
+.claude/*.log
+.claude/.last-cleanup
+.claude/gh-pr-status-cache.json
+.claude/mcp-needs-auth-cache.json
+.claude/policy-limits.json
 
 # gh cli auth state (contains OAuth token)
 .config/gh/hosts.yml

@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "SessionStart": [],
+    "Setup": [],
+    "UserPromptSubmit": [],
+    "UserPromptExpansion": [],
+    "PreToolUse": [],
+    "PermissionRequest": [],
+    "PermissionDenied": [],
+    "PostToolUse": [],
+    "PostToolUseFailure": [],
+    "PostToolBatch": [],
+    "Notification": [],
+    "SubagentStart": [],
+    "SubagentStop": [],
+    "TaskCreated": [],
+    "TaskCompleted": [],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop.sh"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [],
+    "TeammateIdle": [],
+    "InstructionsLoaded": [],
+    "ConfigChange": [],
+    "CwdChanged": [],
+    "FileChanged": [],
+    "WorktreeCreate": [],
+    "WorktreeRemove": [],
+    "PreCompact": [],
+    "PostCompact": [],
+    "Elicitation": [],
+    "ElicitationResult": [],
+    "SessionEnd": []
+  }
+}

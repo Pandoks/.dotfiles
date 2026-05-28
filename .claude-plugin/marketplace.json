@@ -1,0 +1,13 @@
+{
+  "name": "pandoks",
+  "owner": {
+    "name": "Jason Kwok"
+  },
+  "plugins": [
+    {
+      "name": "tools",
+      "source": "./.claude",
+      "description": "Pandoks' personal Claude Code toolkit: skills, output styles, and (future) agents."
+    }
+  ]
+}

@@ -125,10 +125,18 @@
   "companyAnnouncements": [],
   "forceRemoteSettingsRefresh": false,
   "strictKnownMarketplaces": [],
+  "extraKnownMarketplaces": {
+    "pandoks": {
+      "source": {
+        "source": "github",
+        "repo": "Pandoks/.dotfiles"
+      }
+    }
+  },
   "wslInheritsWindowsSettings": false,
   "statusLine": {
     "type": "command",
-    "command": "$HOME/.claude/hooks/statusline.sh"
+    "command": "$HOME/.claude/statusline.sh"
   },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true,
@@ -156,46 +164,7 @@
     "firecrawl@claude-plugins-official": false,
     "posthog@claude-plugins-official": false,
     "semgrep@claude-plugins-official": false,
-    "notion@claude-plugins-official": true
-  },
-  "hooks": {
-    "SessionStart": [],
-    "Setup": [],
-    "UserPromptSubmit": [],
-    "UserPromptExpansion": [],
-    "PreToolUse": [],
-    "PermissionRequest": [],
-    "PermissionDenied": [],
-    "PostToolUse": [],
-    "PostToolUseFailure": [],
-    "PostToolBatch": [],
-    "Notification": [],
-    "SubagentStart": [],
-    "SubagentStop": [],
-    "TaskCreated": [],
-    "TaskCompleted": [],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/stop.sh"
-          }
-        ]
-      }
-    ],
-    "StopFailure": [],
-    "TeammateIdle": [],
-    "InstructionsLoaded": [],
-    "ConfigChange": [],
-    "CwdChanged": [],
-    "FileChanged": [],
-    "WorktreeCreate": [],
-    "WorktreeRemove": [],
-    "PreCompact": [],
-    "PostCompact": [],
-    "Elicitation": [],
-    "ElicitationResult": [],
-    "SessionEnd": []
+    "notion@claude-plugins-official": true,
+    "tools@pandoks": true
   }
 }
