@@ -25,7 +25,7 @@ When someone asks "how should I use tool X" — or asks you to audit their setup
 
 `defacto` orchestrates other skills; it does not re-implement them.
 
-**REQUIRED SUB-SKILL: `[[verify]]`** — every claim must be primary-source-grounded. No memory-only quotes, no Stack Overflow as primary source, no hedging in place of fetching.
+**REQUIRED SUB-SKILL: `[[ground]]`** — every claim must be primary-source-grounded. No memory-only quotes, no Stack Overflow as primary source, no hedging in place of fetching.
 
 **REQUIRED SUB-SKILL (conditional): `[[superpowers:dispatching-parallel-agents]]`** — dispatch sub-agents *only when each source needs reasoning* (reading + summarizing many files, traversing a docs tree). For 3 single `gh api` calls of ~1 second each, **parallel Bash calls in one tool block are cheaper and faster** than dispatching agents. Rule of thumb: file-or-page fetch → parallel Bash; "read this repo and tell me what they do" → sub-agent.
 
@@ -92,7 +92,7 @@ The "⚠️ DEGRADED MODE" banner is non-optional and must be the **first line**
 
 ### Step 2 — Vendor-official check (parallel if multi-page)
 
-Fetch the vendor's own primary sources. Each fetch is grounded per `[[verify]]`.
+Fetch the vendor's own primary sources. Each fetch is grounded per `[[ground]]`.
 
 **Source selection by tool type:**
 

@@ -13,7 +13,7 @@ The absence of a pre-packaged answer is not the absence of an answer. Niche cros
 
 This applies to plain Q&A and advice exactly as much as to code tasks. A wrong-because-lazy non-answer in casual conversation is still the user not getting the answer they could have had.
 
-**RELATED:** Verify each piece you gather per `verify`. Exercise code claims per `test`. Scale up per `superpowers:dispatching-parallel-agents`. For competing _code implementations_ specifically, `try-all` (worktrees).
+**RELATED:** Verify each piece you gather per `ground`. Exercise code claims per `test`. Scale up per `superpowers:dispatching-parallel-agents`. For competing _code implementations_ specifically, `try-all` (worktrees).
 
 ## When to Use
 

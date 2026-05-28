@@ -1,5 +1,5 @@
 ---
-name: verify
+name: ground
 description: ALWAYS invoke BEFORE any answer with a factual claim, recommendation, or advice — code or non-code, including fitness, lifting, biomechanics, medical, nutrition, historical, legal, financial, software, library, API, version Q&A. Triggers: questions like "why / how / what causes / is it true / should I / compare / does X support / how long / what's the difference / is it safe / side effects / dose / interactions"; "someone told me X" framing; answers naming a specific number, version, dose, threshold, or named entity the user might act on; unrun code recommendations. Symptoms: answering from memory; advice on unchecked facts; citing library options or claiming config keys without checking; hedging instead of looking up. DO NOT skip because the question feels casual, well-known, "just opinion", or you grounded something else this turn — each claim gets its own check. Skip ONLY for explicitly-framed speculation, premises the user stated, or long-stable built-ins (POSIX, git plumbing, ECMAScript core).
 ---
 
