@@ -9,7 +9,6 @@
   "showThinkingSummaries": true,
   "editorMode": "vim",
   "language": "en",
-  "tui": "default",
   "viewMode": "focus",
   "teammateMode": "auto",
   "preferredNotifChannel": "auto",
@@ -165,4 +164,5 @@
     "notion@claude-plugins-official": true,
     "tools@pandoks": true
   }
+  "tui": "fullscreen",
 }
