@@ -13,6 +13,7 @@ jqf() { printf '%s' "$payload" | "$JQ" -r "$1 // empty" 2> /dev/null || true; }
 
 cwd="$(jqf '.workspace.current_dir')"
 model="$(jqf '.model.display_name // .model.id')"
+effort="$(jqf '.effort.level')"
 style="$(jqf '.output_style.name')"
 ctx_pct="$(jqf '.context_window.used_percentage')"
 cost="$(jqf '.cost.total_cost_usd')"
@@ -32,6 +33,7 @@ fi
 out="[$dir]"
 [ -n "$branch" ] && out="$out ($branch)"
 [ -n "$model" ] && out="$out $model"
+[ -n "$effort" ] && out="$out @$effort"
 [ -n "$style" ] && [ "$style" != "default" ] && out="$out · $style"
 
 extras=""
