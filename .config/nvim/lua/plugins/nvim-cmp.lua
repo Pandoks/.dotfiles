@@ -85,6 +85,7 @@ return {
       },
       sources = cmp.config.sources({
         -- { name = "supermaven" },
+        { name = "lazydev", group_index = 0 },
         { name = "nvim_lsp" },
         { name = "path" },
       }),
