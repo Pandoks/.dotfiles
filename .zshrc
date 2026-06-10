@@ -31,9 +31,9 @@ export ZSH="$HOME/.oh-my-zsh"
 # HYPHEN_INSENSITIVE="true"
 
 # Uncomment one of the following lines to change the auto-update behavior
-# zstyle ':omz:update' mode disabled  # disable automatic updates
+zstyle ':omz:update' mode disabled  # disable automatic updates
 # zstyle ':omz:update' mode auto      # update automatically without asking
-zstyle ':omz:update' mode reminder  # just remind me to update when it's time
+# zstyle ':omz:update' mode reminder  # just remind me to update when it's time
 
 # Uncomment the following line to change how often to auto-update (in days).
 # zstyle ':omz:update' frequency 13
@@ -143,6 +143,7 @@ bu() {
   b cleanup
   b doctor
   omz update
+  shellclear find
   clear
   fastfetch
 }
@@ -167,23 +168,25 @@ source /opt/homebrew/share/powerlevel10k/powerlevel10k.zsh-theme
 
 ####   Language path updates   ####
 # ruby (don't need to install ruby directly)
-eval "$(rbenv init - zsh)"
+export PATH="$HOME/.rbenv/shims:$PATH"
+export RBENV_SHELL=zsh
+rbenv() { unfunction rbenv; eval "$(command rbenv init - zsh)"; rbenv "$@"; }
 
 # node version manager
 export NVM_DIR="$HOME/.nvm"
-[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
+[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh" --no-use  # This loads nvm
 [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
+if [[ -r "$NVM_DIR/alias/default" ]]; then
+  _nvm_default=("$NVM_DIR"/versions/node/v${$(<"$NVM_DIR/alias/default")#v}*(Nn[-1]))
+  [[ -n "$_nvm_default" ]] && export PATH="$_nvm_default/bin:$PATH"
+  unset _nvm_default
+fi
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 # local script paths
 export PATH="/Users/pandoks/.local/bin:$PATH"
-
-# Fuzzy finding key bindings for after load
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-source "/opt/homebrew/opt/fzf/shell/completion.zsh"
-source "/opt/homebrew/opt/fzf/shell/key-bindings.zsh"
 
 # pnpm
 export PNPM_HOME="/Users/pandoks/Library/pnpm"
