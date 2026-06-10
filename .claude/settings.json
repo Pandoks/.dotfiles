@@ -1,10 +1,8 @@
 {
-  "model": "claude-opus-4-7",
-  "availableModels": [],
   "modelOverrides": {},
   "outputStyle": "Terse",
   "theme": "dark-daltonized",
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "alwaysThinkingEnabled": false,
   "showThinkingSummaries": true,
   "editorMode": "vim",
@@ -163,6 +161,6 @@
     "semgrep@claude-plugins-official": false,
     "notion@claude-plugins-official": true,
     "tools@pandoks": true
-  }
-  "tui": "fullscreen",
+  },
+  "tui": "fullscreen"
 }
