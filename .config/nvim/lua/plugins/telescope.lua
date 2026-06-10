@@ -37,9 +37,17 @@ return {
     local telescope = require("telescope")
     local actions = require("telescope.actions")
     local undo = require("telescope-undo.actions")
+    local default_previewer_maker = require("telescope.config").values.buffer_previewer_maker
 
     local opts = {
       defaults = {
+        buffer_previewer_maker = function(filepath, bufnr, maker_opts)
+          if Snacks and Snacks.image.supports_file(filepath) then
+            Snacks.image.buf.attach(bufnr, { src = filepath })
+          else
+            default_previewer_maker(filepath, bufnr, maker_opts)
+          end
+        end,
         layout_strategy = "flex",
         layout_config = {
           flex = {
