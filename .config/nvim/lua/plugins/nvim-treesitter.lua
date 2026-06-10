@@ -22,6 +22,10 @@ return {
       "comment",
       "yaml",
       "helm",
+      "ruby",
+      "swift",
+      "groovy",
+      "kotlin",
     })
 
     local disabled_indent = { yaml = true, helm = true }
@@ -43,7 +47,8 @@ return {
 
     vim.filetype.add({
       pattern = { [".*/charts?/.*templates/.*%.ya?ml"] = "helm" },
-      extension = { tpl = "helm" },
+      extension = { tpl = "helm", podspec = "ruby" },
+      filename = { Podfile = "ruby" },
     })
   end,
 }

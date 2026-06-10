@@ -43,9 +43,13 @@ return {
       opts.desc = "Show line diagnostics"
       vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, opts)
       opts.desc = "Go to previous diagnostic"
-      vim.keymap.set("n", "<leader>k", function() vim.diagnostic.jump({ count = -1 }) end, opts)
+      vim.keymap.set("n", "<leader>k", function()
+        vim.diagnostic.jump({ count = -1 })
+      end, opts)
       opts.desc = "Go to next diagnostic"
-      vim.keymap.set("n", "<leader>j", function() vim.diagnostic.jump({ count = 1 }) end, opts)
+      vim.keymap.set("n", "<leader>j", function()
+        vim.diagnostic.jump({ count = 1 })
+      end, opts)
 
       -- go tos
       opts.desc = "Go to declaration"
@@ -73,6 +77,9 @@ return {
       "docker_compose_language_service",
       "gopls",
       "zls",
+      "ruby_lsp",
+      "kotlin_lsp",
+      "gradle_ls",
     }
     for _, lsp in ipairs(servers) do
       vim.lsp.config[lsp] = {
@@ -95,6 +102,13 @@ return {
       },
     }
     vim.lsp.enable("lua_ls")
+
+    vim.lsp.config.sourcekit = {
+      capabilities = capabilities,
+      on_attach = on_attach,
+      filetypes = { "swift", "objc", "objcpp" },
+    }
+    vim.lsp.enable("sourcekit")
 
     vim.lsp.config.helm_ls = {
       capabilities = capabilities,

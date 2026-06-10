@@ -25,6 +25,7 @@ return {
         "gopls",
         "ruff",
         "stylua",
+        "gradle_ls",
       },
       automatic_enable = false,
     },
