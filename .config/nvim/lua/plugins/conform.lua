@@ -29,7 +29,7 @@ return {
       markdown = { "prettier" },
       python = { "ruff" },
       go = { "goimports", "gofmt" },
-      swift = { "swiftformat" },
+      swift = { "swift_format" },
       ["_"] = { "trim_whitespace" },
     },
     formatters = {
