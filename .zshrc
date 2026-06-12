@@ -233,3 +233,4 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 export XDG_CONFIG_HOME="$HOME/.config"
 
 [ -f ~/.secrets ] && source ~/.secrets
+eval "$(mise activate zsh)"
