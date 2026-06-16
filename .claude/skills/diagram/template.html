@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>__TITLE__</title>
+<style>
+  /* Light palette = default. Dark palette applies via the OS media query OR an
+     explicit data-theme="dark" on <html>; data-theme="light" forces light even on
+     a dark OS. The 🌓 button toggles data-theme. */
+  :root{
+    --bg:#fbfbfa; --fg:#1c1c1a; --muted:#6b6b66; --line:#d3d3ce; --card:#fff;
+    --accent:#7c4dff; --green:#0a8f6b; --orange:#c2410c; --red:#b91c1c; --blue:#1d6fd6; --gold:#b8860b;
+    --code-bg:#f1f1ee; --pill-bg:#efeafc; --flow:#7c4dff; --grpc:#c2410c; --json:#1d6fd6;
+    --grid:rgba(0,0,0,.006);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --bg:#121216; --fg:#e8e8e4; --muted:#9a9a92; --line:#34343c; --card:#1e1e25;
+      --accent:#a78bfa; --green:#34d399; --orange:#fb923c; --red:#f87171; --blue:#60a5fa; --gold:#d4a017;
+      --code-bg:#26262d; --pill-bg:#2a2440; --flow:#a78bfa; --grpc:#fb923c; --json:#60a5fa; --grid:rgba(255,255,255,.008); }
+  }
+  :root[data-theme="dark"]{ --bg:#121216; --fg:#e8e8e4; --muted:#9a9a92; --line:#34343c; --card:#1e1e25;
+    --accent:#a78bfa; --green:#34d399; --orange:#fb923c; --red:#f87171; --blue:#60a5fa; --gold:#d4a017;
+    --code-bg:#26262d; --pill-bg:#2a2440; --flow:#a78bfa; --grpc:#fb923c; --json:#60a5fa; --grid:rgba(255,255,255,.008); }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+
+  /* top bar with tabs */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:14px;
+    padding:10px 16px;background:color-mix(in srgb,var(--bg) 88%, transparent);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);}
+  .topbar .brand{font-weight:700;font-size:.95rem;white-space:nowrap;letter-spacing:-.01em;}
+  .topbar .brand span{color:var(--accent);}
+  .tabs{display:flex;gap:7px;flex-wrap:wrap;overflow-x:auto;}
+  .tabs button{font:600 12.5px -apple-system,sans-serif;cursor:pointer;border:1px solid var(--line);
+    background:var(--card);color:var(--fg);padding:6px 12px;border-radius:8px;white-space:nowrap;transition:.12s;}
+  .tabs button:hover{border-color:var(--accent);}
+  .tabs button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .hint{margin-left:auto;font-size:.74rem;color:var(--muted);white-space:nowrap;}
+  .hint b{color:var(--fg);}
+
+  /* canvas viewport — the grid is painted HERE (on the fixed-size screen container),
+     NOT inside the zoomable scene, so it ALWAYS fills the viewport at any zoom/pan.
+     apply() updates --gx/--gy/--gs to pan+scale the grid with the content. */
+  #viewport{position:fixed;inset:0;top:0;cursor:grab;
+    --gx:0px; --gy:0px; --gs:48px;
+    background-image:
+      linear-gradient(to right, var(--grid) 1.5px, transparent 1.5px),
+      linear-gradient(to bottom, var(--grid) 1.5px, transparent 1.5px);
+    background-size: var(--gs) var(--gs);
+    background-position: var(--gx) var(--gy);}
+  #viewport.drag{cursor:grabbing;}
+  /* Promote the scene to its own GPU compositor layer so a zoom is a bitmap scale
+     of one layer, NOT a per-frame re-rasterize of every SVG glyph. This kills the
+     text flicker / jitter that CSS-transformed SVG text otherwise shows. */
+  #scene{position:absolute;top:0;left:0;transform-origin:0 0;
+    will-change:transform;backface-visibility:hidden;}
+  svg{display:block;transform:translateZ(0);}
+  /* stable text rendering during transforms */
+  text{text-rendering:geometricPrecision;}
+
+  /* floating scenario panel */
+  .panel{position:fixed;left:16px;bottom:16px;z-index:15;max-width:430px;width:min(430px,calc(100% - 32px));
+    background:color-mix(in srgb,var(--card) 94%, transparent);backdrop-filter:blur(12px);
+    border:1px solid var(--line);border-radius:14px;padding:14px 18px;box-shadow:0 8px 30px rgba(0,0,0,.18);}
+  .panelHead{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;}
+  .panelHead:hover .chev{color:var(--accent);}
+  .panel h3{margin:0;font-size:1.05rem;flex:1;}
+  .chev{font-size:.8rem;color:var(--muted);transition:transform .2s;line-height:1;}
+  .panel.collapsed .chev{transform:rotate(-90deg);}
+  .panelMin{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--line);
+    background:var(--card);color:var(--muted);font-size:1rem;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:.12s;}
+  .panelMin:hover{border-color:var(--accent);color:var(--accent);}
+  /* grid 0fr→1fr collapse: animates to EXACT content height, no flicker, no JS measuring */
+  .panelBody{display:grid;grid-template-rows:1fr;transition:grid-template-rows .25s ease, opacity .2s;opacity:1;}
+  .panelBodyInner{overflow:hidden;min-height:0;max-height:46vh;overflow-y:auto;margin-top:10px;}
+  .panel.collapsed .panelBody{grid-template-rows:0fr;opacity:0;}
+  .panel .d{color:var(--muted);font-size:.86rem;margin:0 0 12px;}
+  .panel ol{list-style:none;margin:0;padding:0;}
+  .panel li{position:relative;padding:6px 6px 6px 34px;font-size:.84rem;margin-bottom:2px;line-height:1.45;border-radius:8px;}
+  .panel li.step{cursor:pointer;transition:background .12s,opacity .12s;}
+  .panel li.step:hover{background:color-mix(in srgb,var(--accent) 12%, transparent);}
+  .panel li.step.iso{background:color-mix(in srgb,var(--accent) 18%, transparent);box-shadow:inset 0 0 0 1.5px var(--accent);}
+  .panel li.step.faded{opacity:.42;}
+  .panel .isohint{font-size:.72rem;color:var(--muted);margin:0 0 8px;}
+  .flowItem{transition:opacity .2s;}
+  .panel li .b{position:absolute;left:2px;top:6px;width:22px;height:22px;border-radius:50%;
+    background:var(--flow);color:#fff;font:700 11px ui-monospace,monospace;display:flex;align-items:center;justify-content:center;}
+  .panel li.ret .b{background:var(--green);}
+  .panel code{font-family:ui-monospace,Menlo,monospace;font-size:.8em;background:var(--code-bg);padding:1px 5px;border-radius:4px;}
+  .panel .note{margin-top:10px;font-size:.8rem;color:var(--muted);border-left:3px solid var(--accent);padding:6px 10px;border-radius:0 6px 6px 0;}
+  .panel .note.warn{border-color:var(--orange);}
+  .zoomctl{position:fixed;right:16px;bottom:16px;z-index:15;display:flex;flex-direction:column;gap:6px;}
+  .zoomctl button{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);
+    color:var(--fg);font-size:1.2rem;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.12);}
+  .zoomctl button:hover{border-color:var(--accent);}
+
+  /* svg node + arrow styling */
+  .zoneRect{stroke-width:2;rx:24;}
+  .zoneLabel{font:800 22px -apple-system,sans-serif;letter-spacing:.04em;text-transform:uppercase;opacity:.7;}
+
+  .node{fill:var(--card);stroke:var(--line);stroke-width:2;}
+  .node.edge{stroke:var(--blue);stroke-width:3;}
+  .node.auth{stroke:var(--green);stroke-width:3.5;}
+  .node.store{stroke:var(--gold);stroke-width:2.5;}
+  .node.backend{stroke:var(--orange);stroke-width:2.5;}
+  .nIcon{font-size:30px;}
+  .nTitle{font:800 22px -apple-system,sans-serif;fill:var(--fg);}
+  .nKind{font:700 12px ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;}
+  .nKind.edge{fill:var(--blue);} .nKind.auth{fill:var(--green);} .nKind.store{fill:var(--gold);} .nKind.backend{fill:var(--orange);}
+  .nLine{font:400 15px ui-monospace,Menlo,monospace;fill:var(--muted);}
+  .nLine .em{fill:var(--fg);font-weight:600;}
+  .nPort{font:700 13px ui-monospace,monospace;fill:var(--fg);}
+  .nodeG.dim{opacity:.2;transition:opacity .3s;}
+  .nodeG{transition:opacity .3s;}
+
+  .farrow{fill:none;stroke:var(--flow);stroke-width:4;}
+  .farrow.ret{stroke:var(--green);stroke-width:3.4;stroke-dasharray:11 7;}
+  .fbadge circle{fill:var(--flow);stroke:var(--card);stroke-width:3;}
+  .fbadge.ret circle{fill:var(--green);}
+  .fbadge text{fill:#fff;font:800 16px ui-monospace,monospace;}
+  /* arrow label = protocol chip + payload */
+  .alabel{font:800 14px ui-monospace,monospace;pointer-events:none;}
+  .alabel.http{fill:var(--json);} .alabel.grpc{fill:var(--grpc);} .alabel.pg{fill:var(--gold);} .alabel.resp{fill:var(--green);} .alabel.compute{fill:var(--accent);}
+  .albg{fill:var(--card);stroke:var(--line);stroke-width:1.5;rx:7;opacity:.97;}
+  .albg.http{stroke:var(--json);} .albg.grpc{stroke:var(--grpc);} .albg.pg{stroke:var(--gold);} .albg.resp{stroke:var(--green);} .albg.compute{stroke:var(--accent);stroke-dasharray:6 3;}
+  .apay{font:600 13px ui-monospace,Menlo,monospace;fill:var(--fg);pointer-events:none;}
+  /* draggable labels */
+  .dragLabel{cursor:grab;}
+  .dragLabel:hover .albg{stroke-width:2.5;filter:brightness(1.08);}
+  .dragLabel.dragging{cursor:grabbing;}
+  .dragLabel.dragging .albg{stroke-width:3;}
+  .dragLabel.pinned .albg{stroke-dasharray:none;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">__BRAND__</div>
+  <div class="tabs" id="tabs"></div>
+  <div class="hint">drag canvas to pan · scroll to zoom · drag a label to reposition it · <b id="scenName"></b></div>
+</div>
+
+<div id="viewport">
+  <div id="scene">
+    <!-- The grid is a CSS background on #viewport (always fills the screen, see CSS).
+         This SVG holds ONLY the diagram content; its size is resized to the content by
+         render() so fit()'s transform math (content coords == CSS px) stays exact. -->
+    <svg id="map" width="3800" height="2500" viewBox="0 0 3800 2500">
+      <defs>
+        <marker id="ah" markerWidth="10" markerHeight="10" refX="8" refY="3.2" orient="auto"><path d="M0,0 L9,3.2 L0,6.4 Z" fill="var(--flow)"/></marker>
+        <marker id="ahr" markerWidth="10" markerHeight="10" refX="8" refY="3.2" orient="auto"><path d="M0,0 L9,3.2 L0,6.4 Z" fill="var(--green)"/></marker>
+      </defs>
+
+      <!-- ZONES, NODES, ARROWS all rendered by JS per scenario -->
+      <g id="zones"></g>
+      <g id="nodes"></g>
+      <g id="flow"></g>
+    </svg>
+  </div>
+</div>
+
+<div class="panel" id="panel">
+  <div class="panelHead" id="panelHead">
+    <span class="chev" id="panelChev">▾</span>
+    <h3 id="pTitle"></h3>
+    <button class="panelMin" id="panelMin" title="minimize / expand steps" aria-label="toggle steps">–</button>
+  </div>
+  <div class="panelBody" id="panelBody">
+    <div class="panelBodyInner">
+      <p class="d" id="pDesc"></p>
+      <p class="isohint">click a step to isolate it on the canvas · click again to reset</p>
+      <ol id="pSteps"></ol>
+      <div class="note" id="pNote"></div>
+    </div>
+  </div>
+</div>
+
+<div class="zoomctl">
+  <button id="zin">+</button>
+  <button id="zout">−</button>
+  <button id="zfit" title="fit to screen" style="font-size:.7rem">fit</button>
+  <button id="zreset" title="reset dragged labels for this scenario" style="font-size:1.1rem">↺</button>
+  <button id="ztheme" title="toggle light / dark" style="font-size:1.05rem">🌓</button>
+</div>
+
+<script>
+/* ---------- NODE DEFINITIONS — widely spaced columns so arrows have room ----------
+   Columns (x):  clients 160 | edge 900 | auth 1640 | backends 2560 | stores 2560(lower)
+   Big vertical gaps within each column. Canvas is 3800 x 2500.                       */
+/* ====================================================================
+   GRID LAYOUT ENGINE
+   - Node CONTENT is fixed; node POSITION is computed per scenario from a
+     grid {nodeId:[col,row]}.  Cells never overlap (fixed col x / row y).
+   - `zone` tells which container (net|cluster) each node lives in.
+   - Only nodes used by a scenario are placed + drawn (no dimmed ghosts).
+   ==================================================================== */
+const COLW=560, COLGAP=320, ROWH=300, ROWGAP=120;   // cell metrics
+const COL_X = c => 120 + c*(COLW+COLGAP);            // left x of column c
+const ROW_Y = r => 220 + r*(ROWH+ROWGAP);           // top y of row r
+
+/*__NODES__*/
+
+// Place a scenario's nodes from its grid into pixel cells (centered within the cell).
+function layout(grid){
+  LIVE={};
+  for(const id in grid){
+    const [c,r]=grid[id];
+    const n=NODES[id];
+    LIVE[id]={x:COL_X(c)+(COLW-n.w)/2, y:ROW_Y(r)+(ROWH-n.h)/2, w:n.w, h:n.h};
+  }
+}
+
+function nodeSVG(id){
+  const n=NODES[id], L=LIVE[id];
+  let y=L.y+92;
+  const linesSVG=n.lines.map(l=>{
+    const row=`<text class="nLine" x="${L.x+30}" y="${y}">${l[0]?`<tspan class="em">${l[0]}</tspan>  `:''}${l[1]}</text>`;
+    y+=32; return row;
+  }).join('');
+  return `<g class="nodeG" id="node_${id}">
+    <rect class="node ${n.kind}" x="${L.x}" y="${L.y}" width="${n.w}" height="${n.h}" rx="18"/>
+    <text class="nIcon" x="${L.x+30}" y="${L.y+52}">${n.icon}</text>
+    <text class="nTitle" x="${L.x+82}" y="${L.y+48}">${n.title}</text>
+    <text class="nKind ${n.kind}" x="${L.x+82}" y="${L.y+72}">${n.sub}</text>
+    ${linesSVG}
+  </g>`;
+}
+
+// Compute & draw zone boxes tightly wrapping the visible nodes of each zone.
+// Generic zones: discover every distinct `zone` among the scenario's nodes, wrap each
+// in a tight box, colour from a cycling palette, label from ZONE_LABELS.
+const ZONE_COLORS=['var(--blue)','var(--green)','var(--gold)','var(--orange)','var(--accent)'];
+function zonesSVG(activeIds){
+  const M=46, LBLPAD=58;
+  function bbox(ids){
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    ids.forEach(id=>{const L=LIVE[id];if(!L)return;
+      x0=Math.min(x0,L.x);y0=Math.min(y0,L.y);x1=Math.max(x1,L.x+L.w);y1=Math.max(y1,L.y+L.h);});
+    return {x0,y0,x1,y1};
+  }
+  // distinct, non-empty zones in declared order of first appearance
+  const seen=[]; activeIds.forEach(id=>{const z=NODES[id].zone; if(z && !seen.includes(z)) seen.push(z);});
+  let out='';
+  seen.forEach((z,i)=>{
+    const ids=activeIds.filter(id=>NODES[id].zone===z); if(!ids.length) return;
+    const b=bbox(ids), col=ZONE_COLORS[i%ZONE_COLORS.length];
+    const label=(typeof ZONE_LABELS!=='undefined' && ZONE_LABELS[z])||z;
+    out+=`<rect class="zoneRect" x="${b.x0-M}" y="${b.y0-M-LBLPAD}" width="${b.x1-b.x0+2*M}" height="${b.y1-b.y0+2*M+LBLPAD}" rx="30"
+            fill="color-mix(in srgb, ${col} 5%, transparent)" stroke="${col}" stroke-dasharray="2 7" stroke-linecap="round"/>
+          <text class="zoneLabel" x="${b.x0-M+24}" y="${b.y0-M-LBLPAD+34}" fill="${col}">${label}</text>`;
+  });
+  return out;
+}
+
+/* ---------- port helper (reads LIVE positions) ---------- */
+function port(id,side,frac=0.5){
+  const n=LIVE[id]; if(!n) return {x:0,y:0};
+  if(side==='r')return{x:n.x+n.w,y:n.y+n.h*frac};
+  if(side==='l')return{x:n.x,y:n.y+n.h*frac};
+  if(side==='t')return{x:n.x+n.w*frac,y:n.y};
+  if(side==='b')return{x:n.x+n.w*frac,y:n.y+n.h};
+  return {x:n.x+n.w/2, y:n.y+n.h/2};   // no/unknown side → node center (never undefined)
+}
+function pp(s){const[id,side,frac]=s.split(':');return port(id,side,frac!==undefined?+frac:0.5);}
+function nodeOf(s){return s.split(':')[0];}
+
+/* ---------- arrow rendering with automatic label-collision avoidance ---------- */
+const NETLABEL={http:'HTTP',grpc:'gRPC',pg:'Postgres',resp:'RESP',compute:'compute'};
+const PAD=16;            // min gap between label boxes
+const CHARW=8.4;         // px per monospace char at our font size
+
+function rectsOverlap(a,b){
+  return !(a.x+a.w+PAD<=b.x || b.x+b.w+PAD<=a.x || a.y+a.h+PAD<=b.y || b.y+b.h+PAD<=a.y);
+}
+function rectHitsNode(r){
+  for(const id in LIVE){const n=LIVE[id];
+    if(!(r.x+r.w<=n.x-8 || n.x+n.w+8<=r.x || r.y+r.h<=n.y-8 || n.y+n.h+8<=r.y)) return true;}
+  return false;
+}
+
+// Build all arrows for a flow. Nodes are now widely spaced, so labels sit ON the
+// curve; a gentle resolver only nudges the rare residual overlap.
+// Per-scenario manual label overrides: LABELPOS[scenarioKey][stepIndex] = {x,y}
+const LABELPOS={};
+
+function buildFlow(flow, scKey){
+  const manual=LABELPOS[scKey]||{};
+  // point on a quadratic Bézier at parameter t
+  function bez(a,cx,cy,b,t){const u=1-t;
+    return {x:u*u*a.x+2*u*t*cx+t*t*b.x, y:u*u*a.y+2*u*t*cy+t*t*b.y};}
+  const items=flow.map((f,i)=>{
+    const n=i+1, o=Object.assign({},f[3]);   // number = array order, always sequential
+    const net=o.net||'http', ep=o.ep||'';
+    const m=manual[i];            // user-dragged position, if any
+    // COMPUTE / in-place step: drawn as a badge ON the node (no arrow). Triggered by
+    // net:'compute' OR any same-node ref (from===to) — so a self-loop never degenerates.
+    const sameNode = f[0].split(':')[0]===f[1].split(':')[0];
+    if(net==='compute' || sameNode){
+      const node=NODES[f[0].split(':')[0]] && LIVE[f[0].split(':')[0]];
+      const cxn=node?node.x+node.w/2:0, cyn=node?node.y+node.h+70:0;   // below the node
+      const titleTxt=`${n}. COMPUTE`;
+      const w=Math.max(titleTxt.length+1, ep.length)*CHARW + 28, h=ep?50:30;
+      return {compute:true, ret:false, net, ep, titleTxt, w, h, stepGroup:o.stepGroup!=null?o.stepGroup:i, idx:i,
+              ax:cxn, ay:node?node.y+node.h:cyn, pinned:!!m, lcx:m?m.x:cxn, lcy:m?m.y:cyn};
+    }
+    const a=pp(f[0]), b=pp(f[1]);
+    const ret=o.ret, bow=o.bow||0;
+    const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
+    const px=-dy/len, py=dx/len;
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    const cx=mx+px*bow, cy=my+py*bow;
+    const lp=bez(a,cx,cy,b,0.5);
+    const titleTxt=`${n}. ${NETLABEL[net]||net.toUpperCase()}`;   // e.g. "2. RESP"
+    const w=Math.max(titleTxt.length+1, ep.length)*CHARW + 28;
+    const h=ep?50:30;
+    return {a,b,n,ret,net,ep,titleTxt,px,py,cx,cy,
+            w,h, stepGroup:o.stepGroup!=null?o.stepGroup:i, idx:i,
+            ax:lp.x, ay:lp.y,
+            pinned:!!m,
+            lcx:m?m.x:lp.x, lcy:m?m.y:lp.y };
+  });
+
+  // resolver: label box avoids nodes and other label boxes (no badges to dodge anymore)
+  function colliding(i){
+    const it=items[i], r={x:it.lcx-it.w/2,y:it.lcy-it.h/2,w:it.w,h:it.h};
+    if(rectHitsNode(r)) return {hit:true,fx:0,fy:-1};
+    let fx=0,fy=0,hit=false;
+    for(let j=0;j<items.length;j++){ if(j===i) continue;
+      const o=items[j], ro={x:o.lcx-o.w/2,y:o.lcy-o.h/2,w:o.w,h:o.h};
+      if(rectsOverlap(r,ro)){ hit=true;
+        let vx=it.lcx-o.lcx, vy=it.lcy-o.lcy; if(vx===0&&vy===0) vy=-1;
+        const m=Math.hypot(vx,vy)||1; fx+=vx/m; fy+=vy/m; }
+    }
+    return {hit,fx,fy};
+  }
+  for(let pass=0; pass<300; pass++){
+    let moved=false;
+    for(let i=0;i<items.length;i++){
+      if(items[i].pinned) continue;          // user-placed labels are not auto-moved
+      const c=colliding(i);
+      if(c.hit){ const m=Math.hypot(c.fx,c.fy)||1;
+        items[i].lcx += (c.fx/m)*8; items[i].lcy += (c.fy/m)*8 - 1; moved=true; }
+    }
+    if(!moved) break;
+  }
+
+  const colOf=net=>`var(--${net==='http'?'json':net==='grpc'?'grpc':net==='resp'?'green':net==='compute'?'accent':'gold'})`;
+  return items.map(it=>{
+    const lx=it.lcx, ly=it.lcy, rx=lx-it.w/2, ry=ly-it.h/2;
+    const epLine=it.ep?`<text class="apay" x="${lx}" y="${ly+14}" text-anchor="middle">${it.ep}</text>`:'';
+    const titleY=it.ep?ly-5:ly+5;
+    const dist=Math.hypot(lx-it.ax, ly-it.ay);
+    const ex=Math.max(rx, Math.min(it.ax, rx+it.w));
+    const ey=Math.max(ry, Math.min(it.ay, ry+it.h));
+    const leadColor=colOf(it.net);
+    // COMPUTE step: no arrow path, just the label tethered to its node with a dotted line.
+    if(it.compute){
+      const tether=`<line class="leader" x1="${lx}" y1="${ry}" x2="${it.ax}" y2="${it.ay}" stroke="${leadColor}" stroke-width="2" stroke-dasharray="4 4" opacity=".7"/>
+                    <circle class="leadDot" cx="${it.ax}" cy="${it.ay}" r="5" fill="${leadColor}"/>`;
+      return `<g class="flowItem" data-step="${it.stepGroup}">
+        ${tether}
+        <g class="dragLabel${it.pinned?' pinned':''}" data-idx="${it.idx}" data-ax="${it.ax}" data-ay="${it.ay}"
+           data-w="${it.w}" data-h="${it.h}" data-net="${it.net}" data-haspay="${it.ep?1:0}">
+          <rect class="albg compute" x="${rx}" y="${ry}" width="${it.w}" height="${it.h}" rx="8"/>
+          <text class="alabel compute" x="${lx}" y="${titleY}" text-anchor="middle">${it.titleTxt}</text>
+          ${epLine}
+        </g>
+      </g>`;
+    }
+    const cls=it.ret?'farrow ret':'farrow', mk=it.ret?'url(#ahr)':'url(#ah)';
+    const leader= dist>24
+      ? `<line class="leader" x1="${ex}" y1="${ey}" x2="${it.ax}" y2="${it.ay}" stroke="${leadColor}" stroke-width="2.5" opacity=".9"/>
+         <circle class="leadDot" cx="${it.ax}" cy="${it.ay}" r="5" fill="${leadColor}"/>`
+      : '';
+    return `<g class="flowItem" data-step="${it.stepGroup}">
+      <path class="${cls}" d="M ${it.a.x} ${it.a.y} Q ${it.cx} ${it.cy} ${it.b.x} ${it.b.y}" marker-end="${mk}"/>
+      ${leader}
+      <g class="dragLabel${it.pinned?' pinned':''}" data-idx="${it.idx}" data-ax="${it.ax}" data-ay="${it.ay}"
+         data-w="${it.w}" data-h="${it.h}" data-net="${it.net}" data-haspay="${it.ep?1:0}">
+        <rect class="albg ${it.net}" x="${rx}" y="${ry}" width="${it.w}" height="${it.h}" rx="8"/>
+        <text class="alabel ${it.net}" x="${lx}" y="${titleY}" text-anchor="middle">${it.titleTxt}</text>
+        ${epLine}
+      </g>
+    </g>`;
+  }).join('');
+}
+
+/* ====================================================================
+   SCENARIOS — each declares a GRID {nodeId:[col,row]} for clean placement.
+   Arrows go between grid-adjacent nodes, so bows stay small and nothing
+   crosses through a node.  Columns: 0 clients · 1 edge · 2 auth · 3 stores.
+   ==================================================================== */
+/*__SCENARIOS__*/
+
+const order=Object.keys(SC);   // tab order = order scenarios are declared
+
+let CUR=null;            // current scenario key
+let ISO=null;            // isolated step index (null = show all)
+
+function render(key){
+  CUR=key; ISO=null;
+  const sc=SC[key];
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.k===key));
+  document.getElementById('scenName').textContent=sc.title;
+  // 1. place this scenario's nodes on the grid
+  layout(sc.grid);
+  const activeIds=Object.keys(sc.grid);
+  // 2. draw zones (wrap the live nodes) and the nodes themselves
+  document.getElementById('zones').innerHTML = zonesSVG(activeIds);
+  document.getElementById('nodes').innerHTML = activeIds.map(nodeSVG).join('');
+  // 3. arrows, tagged by flow index for isolation
+  const taggedFlow = sc.flow.map((f,i)=>[f[0],f[1],f[2],Object.assign({},f[3],{stepGroup:i})]);
+  document.getElementById('flow').innerHTML = buildFlow(taggedFlow, key);
+  wireLabelDrag(key);
+  // 4. panel
+  document.getElementById('pTitle').textContent=sc.title;
+  document.getElementById('pDesc').textContent=sc.desc;
+  document.getElementById('pSteps').innerHTML=sc.steps.map((s,i)=>{
+    const num=i+1;   // sequential, matches the arrow labels
+    return `<li class="step ${s[1]?'ret':''}" data-i="${i}"><span class="b">${num}</span>${s[0]}</li>`;
+  }).join('');
+  document.querySelectorAll('#pSteps .step').forEach(li=>{
+    li.onclick=()=>{ const i=+li.dataset.i; isolate(i===ISO?null:i); };
+  });
+  const note=document.getElementById('pNote');
+  note.className='note'+(sc.note[0]?' '+sc.note[0]:'');
+  note.innerHTML=sc.note[1];
+  applyDim();
+  resizeCanvas();  // size SVG+grid to content (with big margin) BEFORE fitting
+  fit();           // re-center on the new scenario's content
+}
+
+// Size the SVG element to wrap the drawn content (plus padding) so a wide diagram
+// never clips. The grid is independent (CSS background on #viewport), so this only
+// affects the content canvas. 0,0 origin keeps content coords == CSS px → fit() exact.
+function resizeCanvas(){
+  let bb; try{ bb=document.getElementById('nodes').getBBox(); }catch(e){ bb=null; }
+  if(!bb || !bb.width){ return; }
+  const W=Math.ceil(bb.x+bb.width+400);
+  const H=Math.ceil(bb.y+bb.height+400);
+  const svg=document.getElementById('map');
+  svg.setAttribute('width',W); svg.setAttribute('height',H);
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+}
+
+function isolate(i){ ISO=i; applyDim(); }
+
+function applyDim(){
+  const sc=SC[CUR];
+  const activeIds=Object.keys(sc.grid);
+  let liveNodes, liveSteps;
+  if(ISO==null){ liveNodes=new Set(activeIds); liveSteps=null; }
+  else{ const f=sc.flow[ISO]; liveNodes=new Set([nodeOf(f[0]),nodeOf(f[1])]); liveSteps=new Set([String(ISO)]); }
+  activeIds.forEach(n=>{const el=document.getElementById('node_'+n);if(el)el.classList.toggle('dim',!liveNodes.has(n));});
+  document.querySelectorAll('.flowItem').forEach(g=>{
+    g.style.opacity = (liveSteps==null || liveSteps.has(g.dataset.step)) ? '1' : '0.06';
+  });
+  document.querySelectorAll('#pSteps .step').forEach(li=>{
+    li.classList.toggle('iso', ISO!=null && +li.dataset.i===ISO);
+    li.classList.toggle('faded', ISO!=null && +li.dataset.i!==ISO);
+  });
+}
+
+/* tabs */
+const tabs=document.getElementById('tabs');
+tabs.innerHTML=order.map(k=>`<button data-k="${k}">${SC[k].btn}</button>`).join('');
+tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>render(b.dataset.k));
+
+/* collapsible steps panel */
+function togglePanel(){
+  const p=document.getElementById('panel');
+  const c=p.classList.toggle('collapsed');
+  document.getElementById('panelMin').textContent=c?'+':'–';
+}
+document.getElementById('panelHead').addEventListener('click',togglePanel);
+document.getElementById('panelMin').addEventListener('click',e=>{ e.stopPropagation(); togglePanel(); });
+
+/* ---------- pan + zoom ---------- */
+const vp=document.getElementById('viewport'), scene=document.getElementById('scene');
+let scale=0.62, tx=40, ty=70, panning=false, sx=0, sy=0;
+function apply(){
+  scene.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;
+  // pan + scale the viewport's background grid to match the content (grid cell = 48 units)
+  const gs=48*scale;
+  vp.style.setProperty('--gs', gs+'px');
+  vp.style.setProperty('--gx', (tx%gs)+'px');
+  vp.style.setProperty('--gy', (ty%gs)+'px');
+}
+function fit(){
+  // fit to the ACTUAL rendered content bounds for the current scenario
+  let bb; try{ bb=document.getElementById('nodes').getBBox(); }catch(e){ bb=null; }
+  const z=document.getElementById('zones');
+  let zb=null; try{ zb=z.getBBox(); }catch(e){}
+  let x0=80,y0=80,x1=3720,y1=2420;
+  if(zb){ x0=zb.x; y0=zb.y; x1=zb.x+zb.width; y1=zb.y+zb.height; }
+  else if(bb){ x0=bb.x; y0=bb.y; x1=bb.x+bb.width; y1=bb.y+bb.height; }
+  const pad=120, W=(x1-x0)+pad*2, H=(y1-y0)+pad*2;
+  const vw=window.innerWidth, vh=window.innerHeight-60;
+  scale=Math.min(vw/W, vh/H)*0.98;
+  tx=(vw - W*scale)/2 - (x0-pad)*scale;
+  ty=60 + (vh - H*scale)/2 - (y0-pad)*scale;
+  apply();
+}
+vp.addEventListener('mousedown',e=>{panning=true;sx=e.clientX-tx;sy=e.clientY-ty;vp.classList.add('drag');});
+window.addEventListener('mousemove',e=>{if(!panning)return;tx=e.clientX-sx;ty=e.clientY-sy;apply();});
+window.addEventListener('mouseup',()=>{panning=false;vp.classList.remove('drag');});
+vp.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const f=e.deltaY<0?1.12:0.893;
+  const r=vp.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const nx=(mx-tx)/scale, ny=(my-ty)/scale;
+  scale=Math.max(0.2,Math.min(3,scale*f));
+  tx=mx-nx*scale; ty=my-ny*scale; apply();
+},{passive:false});
+/* touch */
+let lastTouch=null,lastDist=null;
+vp.addEventListener('touchstart',e=>{if(e.touches.length===1){lastTouch={x:e.touches[0].clientX-tx,y:e.touches[0].clientY-ty};}else if(e.touches.length===2){lastDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}},{passive:false});
+vp.addEventListener('touchmove',e=>{e.preventDefault();
+  if(e.touches.length===1&&lastTouch){tx=e.touches[0].clientX-lastTouch.x;ty=e.touches[0].clientY-lastTouch.y;apply();}
+  else if(e.touches.length===2&&lastDist){const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);scale=Math.max(0.2,Math.min(3,scale*d/lastDist));lastDist=d;apply();}
+},{passive:false});
+document.getElementById('zin').onclick=()=>{scale=Math.min(3,scale*1.2);apply();};
+document.getElementById('zout').onclick=()=>{scale=Math.max(0.2,scale/1.2);apply();};
+document.getElementById('zfit').onclick=fit;
+
+/* ---------- draggable arrow labels ---------- */
+let dragLbl=null, dragStart=null, dragOrig=null, dragMoved=false;
+function wireLabelDrag(scKey){
+  document.querySelectorAll('#flow .dragLabel').forEach(g=>{
+    g.addEventListener('mousedown',e=>{
+      e.stopPropagation();             // don't start a canvas pan
+      e.preventDefault();
+      dragLbl={g, scKey, idx:+g.dataset.idx};
+      dragStart={x:e.clientX, y:e.clientY};
+      // current label center from the rect
+      const rect=g.querySelector('rect');
+      dragOrig={x:+rect.getAttribute('x')+(+rect.getAttribute('width'))/2,
+                y:+rect.getAttribute('y')+(+rect.getAttribute('height'))/2};
+      dragMoved=false;
+      g.classList.add('dragging');
+    });
+  });
+}
+window.addEventListener('mousemove',e=>{
+  if(!dragLbl) return;
+  const dx=(e.clientX-dragStart.x)/scale, dy=(e.clientY-dragStart.y)/scale;   // screen→SVG
+  if(Math.abs(e.clientX-dragStart.x)+Math.abs(e.clientY-dragStart.y)>3) dragMoved=true;
+  moveLabelTo(dragLbl.g, dragOrig.x+dx, dragOrig.y+dy);
+});
+window.addEventListener('mouseup',()=>{
+  if(!dragLbl) return;
+  const g=dragLbl.g;
+  if(dragMoved){
+    const rect=g.querySelector('rect');
+    const cx=+rect.getAttribute('x')+(+rect.getAttribute('width'))/2;
+    const cy=+rect.getAttribute('y')+(+rect.getAttribute('height'))/2;
+    (LABELPOS[dragLbl.scKey]=LABELPOS[dragLbl.scKey]||{})[dragLbl.idx]={x:cx,y:cy};
+    g.classList.add('pinned');
+  }
+  g.classList.remove('dragging');
+  dragLbl=null;
+});
+// Reposition a label group (rect + both texts) to a new CENTER, and update its leader line.
+function moveLabelTo(g, cx, cy){
+  const rect=g.querySelector('rect'), w=+g.dataset.w, h=+g.dataset.h, hasPay=g.dataset.haspay==='1';
+  rect.setAttribute('x', cx-w/2); rect.setAttribute('y', cy-h/2);
+  const texts=g.querySelectorAll('text');
+  // title text
+  texts[0].setAttribute('x', cx); texts[0].setAttribute('y', hasPay?cy-5:cy+5);
+  if(hasPay && texts[1]){ texts[1].setAttribute('x', cx); texts[1].setAttribute('y', cy+14); }
+  // leader line + dot live inside the SAME flowItem, as siblings of this dragLabel
+  const fi=g.parentNode;
+  let line=fi.querySelector('line.leader'), dot=fi.querySelector('circle.leadDot');
+  const ax=+g.dataset.ax, ay=+g.dataset.ay;
+  const rx=cx-w/2, ry=cy-h/2;
+  const ex=Math.max(rx, Math.min(ax, rx+w)), ey=Math.max(ry, Math.min(ay, ry+h));
+  const dist=Math.hypot(cx-ax, cy-ay);
+  const net=g.dataset.net;
+  const col=`var(--${net==='http'?'json':net==='grpc'?'grpc':net==='resp'?'green':'gold'})`;
+  if(dist>24){
+    if(!line){ line=document.createElementNS('http://www.w3.org/2000/svg','line'); line.setAttribute('class','leader');
+      line.setAttribute('stroke',col); line.setAttribute('stroke-width','2.5'); line.setAttribute('opacity','.9');
+      fi.insertBefore(line, g); }
+    if(!dot){ dot=document.createElementNS('http://www.w3.org/2000/svg','circle'); dot.setAttribute('class','leadDot');
+      dot.setAttribute('r','5'); dot.setAttribute('fill',col); fi.insertBefore(dot, g); }
+    line.setAttribute('x1',ex); line.setAttribute('y1',ey); line.setAttribute('x2',ax); line.setAttribute('y2',ay);
+    dot.setAttribute('cx',ax); dot.setAttribute('cy',ay);
+  } else { if(line) line.remove(); if(dot) dot.remove(); }
+}
+// Reset-label-positions button
+document.getElementById('zreset').onclick=()=>{ if(CUR){ delete LABELPOS[CUR]; render(CUR); } };
+
+/* light / dark toggle — flips data-theme relative to the currently-effective theme */
+document.getElementById('ztheme').onclick=()=>{
+  const html=document.documentElement;
+  const explicit=html.getAttribute('data-theme');
+  const osDark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const effectiveDark = explicit ? explicit==='dark' : osDark;
+  html.setAttribute('data-theme', effectiveDark?'light':'dark');
+  apply();   // refresh the CSS grid background with the new --grid value
+};
+window.addEventListener('resize',fit);
+
+render(order[0]);   // open the first scenario
+</script>
+</body>
+</html>
