@@ -42,7 +42,13 @@ Use `diagram` (not `html`) when the thing being explained is **a system of parts
    - `__BRAND__` → the top-left brand line (e.g. `📦 order fulfillment · flow map`)
    Use the Read tool to get the template, then Write the filled result. (Or `cp` + Edit the placeholders — either way, the engine code is copied verbatim, never retyped.)
 
-4. **Open it** with `open <path>`, then reply with one line.
+4. **VERIFY — mandatory, not optional.** Run the harness on the file you just wrote:
+   ```
+   node <skill-dir>/verify.mjs <your-output-file>
+   ```
+   (`<skill-dir>` is where this SKILL.md + `template.html` live — the "Base directory for this skill" printed when the skill loaded.) It checks node overlaps, arrows passing through boxes, label collisions, flow/steps parity, AND opens the file in a headless browser to catch runtime crashes that silently drop arrows. **If it reports ANY problem, FIX the data (grids/bows/step-counts/malformed arrows) and re-run — loop until it prints `ALL CHECKS PASSED`. Do NOT proceed to step 5 until it passes.** (If it prints "render check skipped — Playwright not installed", the static checks still ran; that's fine, just be extra careful to eyeball the result.)
+
+5. **Open it** with `open <path>`, then reply with one line.
 
 ## Data Contract
 
@@ -144,9 +150,9 @@ If you're unsure, prefer MORE columns/rows and SHORTER hops — spread the nodes
 - **Channel labels are consistent** within a domain (don't mix `HTTP` and `https` and `REST` for the same hop type).
 - **Correctness counts.** If you draw a flow, draw the steps it MUST actually perform — don't skip the storage read, the validation, the return. A diagram that omits a required step is wrong, not just incomplete.
 
-## Verifying your output (optional but recommended for complex diagrams)
+## Verifying your output
 
-After writing, you can sanity-check geometry with a quick Node script that reads your file, extracts `NODES`/`SC`, replays the grid math, and asserts: no node-overlaps, no arrow passes through a node, every label clears every other label, and `flow.length === steps.length` per scenario. (The engine's own functions — `layout`, `port`, `bez` — can be copied into the check.) For simple diagrams, a visual glance after `open` is enough.
+This is **step 4 of the workflow and is mandatory** — `node <skill-dir>/verify.mjs <your-file>` must print `ALL CHECKS PASSED` before you finish. It reads your file, extracts `NODES`/`SC`, replays the grid math (no node-overlaps, no arrow through a node, no label collisions, `flow.length === steps.length`, no orphan nodes), and — if Playwright is available — opens the file headless and clicks every tab to catch runtime crashes that silently drop arrows. Fix-and-re-run until clean. A passing verify proves the diagram is well-formed and renders; it does NOT prove the *content* is correct — so still glance at the opened diagram.
 
 ## Common Mistakes
 
