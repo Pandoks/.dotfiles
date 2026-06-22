@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+bin="/path/to/your/binary"
+port="8080"
+
+# Don't start a duplicate.
+if lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+  exit 0
+fi
+
+exec "${bin}" serve --host 127.0.0.1 --port "${port}"

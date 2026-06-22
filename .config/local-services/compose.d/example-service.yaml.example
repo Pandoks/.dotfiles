@@ -1,8 +1,8 @@
-# .env file is needed at the base of local-services with TS_AUTHKEY
 services:
   tailscale:
+    container_name: my-service-tailscale
     image: tailscale/tailscale:latest
-    hostname: web-messages
+    hostname: my-service
     environment:
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_SERVE_CONFIG=/config/serve.json
@@ -14,7 +14,8 @@ services:
     configs:
       - source: tailscale-serve
         target: /config/serve.json
-    restart: unless-stopped
+    # "no" so only start-local-services.sh brings it up, never the daemon on its own startup.
+    restart: "no"
 
 configs:
   tailscale-serve:
@@ -26,10 +27,10 @@ configs:
           }
         },
         "Web": {
-          "web-messages.tailb2c81d.ts.net:443": {
+          "my-service.<tailnet>.ts.net:443": {
             "Handlers": {
               "/": {
-                "Proxy": "http://host.docker.internal:55001"
+                "Proxy": "http://host.docker.internal:<host-port>"
               }
             }
           }
