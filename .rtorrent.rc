@@ -1,5 +1,7 @@
 directory.default.set = ~/Documents/rTorrent/Media
 
-# Workaround for v0.16.6 bug: tilde expansion broken, use absolute path
-# Can revert to ~/.rtorrent/ once v0.16.7 is released
-session.path.set = /Users/pandoks/.rtorrent/
+session.path.set = ~/.rtorrent/
+
+# Local SCGI/XMLRPC socket so external tools can control rtorrent.
+# Unix socket only (not exposed on the network); restart rtorrent to apply.
+network.scgi.open_local = /Users/pandoks/.rtorrent/rpc.socket
