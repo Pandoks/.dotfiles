@@ -205,7 +205,9 @@ main() {
       ;;
   esac
 
-  exec zsh
+  if command -v zsh > /dev/null 2>&1; then
+    exec zsh
+  fi
 }
 
 main "$@"
