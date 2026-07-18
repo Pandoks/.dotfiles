@@ -142,7 +142,11 @@ setup() {
 
 install_apps() {
   if is_macos; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
+    if [ -x /opt/homebrew/bin/brew ]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -x /usr/local/bin/brew ]; then
+      eval "$(/usr/local/bin/brew shellenv)"
+    fi
     brew bundle install -v --file="${REPO_ROOT}/Brewfile"
 
     yabai_string="$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 "$(which yabai)" | cut -d " " -f 1) $(which yabai) --load-sa"
