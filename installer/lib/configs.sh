@@ -10,12 +10,9 @@ install_configs() {
   create_symlink "${REPO_ROOT}/.config/k9s" "${HOME}/.config/k9s"
   create_symlink "${REPO_ROOT}/.config/lazydocker" "${HOME}/.config/lazydocker"
   create_symlink "${REPO_ROOT}/.config/lazygit" "${HOME}/.config/lazygit"
+  create_symlink "${REPO_ROOT}/.config/mise" "${HOME}/.config/mise"
   create_symlink "${REPO_ROOT}/.config/nvim" "${HOME}/.config/nvim"
-  create_symlink "${REPO_ROOT}/.config/opencode" "${HOME}/.config/opencode"
-  create_symlink "${REPO_ROOT}/.config/yabai" "${HOME}/.config/yabai"
   create_symlink "${REPO_ROOT}/.config/yazi" "${HOME}/.config/yazi"
-
-  create_symlink "${REPO_ROOT}/.hammerspoon" "${HOME}/.hammerspoon"
 
   create_symlink "${REPO_ROOT}/.claude/settings.json" "${HOME}/.claude/settings.json"
   create_symlink "${REPO_ROOT}/.claude/keybindings.json" "${HOME}/.claude/keybindings.json"
@@ -33,5 +30,9 @@ install_configs() {
   create_symlink "${REPO_ROOT}/.zprofile" "${HOME}/.zprofile"
   create_symlink "${REPO_ROOT}/.zshrc" "${HOME}/.zshrc"
 
-  create_symlink "${REPO_ROOT}/Brewfile" "${HOME}/Brewfile"
+  if is_macos; then
+    create_symlink "${REPO_ROOT}/.config/yabai" "${HOME}/.config/yabai"
+    create_symlink "${REPO_ROOT}/.hammerspoon" "${HOME}/.hammerspoon"
+    create_symlink "${REPO_ROOT}/Brewfile" "${HOME}/Brewfile"
+  fi
 }

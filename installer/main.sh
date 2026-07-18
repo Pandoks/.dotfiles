@@ -7,6 +7,7 @@ REPO_ROOT="${SCRIPT_DIR}/.."
 readonly SCRIPT_DIR
 readonly REPO_ROOT
 
+. "${SCRIPT_DIR}/lib/os.sh"
 . "${SCRIPT_DIR}/lib/symlink.sh"
 . "${SCRIPT_DIR}/lib/configs.sh"
 
@@ -15,8 +16,8 @@ usage() {
   printf "Install and configure dotfiles.\n\n" >&2
 
   printf "Commands:\n" >&2
-  printf "  bootstrap    Initial system setup (Xcode CLI tools, Homebrew, Oh My Zsh)\n" >&2
-  printf "  apps         Install applications via Homebrew bundle\n" >&2
+  printf "  bootstrap    Initial system setup (build tools, package manager, Oh My Zsh)\n" >&2
+  printf "  apps         Install applications (Homebrew bundle on macOS, mise everywhere)\n" >&2
   printf "  configs      Symlink configuration files\n" >&2
   printf "  ssh          Install SSH keys and configure SSH daemon\n" >&2
   printf "  all          Run all setup steps (bootstrap, configs, apps)\n\n" >&2
@@ -26,7 +27,7 @@ usage() {
   exit "${1:-0}"
 }
 
-setup() {
+setup_macos() {
   if ! xcode-select -p > /dev/null 2>&1; then
     echo "Installing Xcode Command Line Tools..."
     xcode-select --install
@@ -39,19 +40,6 @@ setup() {
     echo "Xcode Command Line Tools already installed"
   fi
 
-  if [ -d "${REPO_ROOT}/.git" ]; then
-    echo "Git repository already initialized"
-    return 0
-  fi
-
-  echo "Initializing git repository..."
-  git -C "${REPO_ROOT}" init -b master
-  git -C "${REPO_ROOT}" remote add origin "https://github.com/Pandoks/.dotfiles.git"
-  git -C "${REPO_ROOT}" fetch origin
-  git -C "${REPO_ROOT}" reset origin/master
-  git -C "${REPO_ROOT}" branch --set-upstream-to=origin/master master
-  echo "Git repository initialized"
-
   if [ "$(uname -m)" = "arm64" ]; then
     if ! /usr/bin/pgrep -q oahd; then
       echo "Installing Rosetta 2..."
@@ -60,14 +48,6 @@ setup() {
     else
       echo "Rosetta 2 already installed"
     fi
-  fi
-
-  if [ ! -d "$HOME/.oh-my-zsh" ]; then
-    echo "Installing Oh My Zsh..."
-    RUNZSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-    echo "Oh My Zsh installed successfully"
-  else
-    echo "Oh My Zsh already installed"
   fi
 
   if ! command -v brew > /dev/null 2>&1; then
@@ -79,24 +59,120 @@ setup() {
   fi
 }
 
-install_brew() {
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-  brew bundle install -v --file="${REPO_ROOT}/Brewfile"
+setup_linux() {
+  echo "Installing system packages..."
+  linux_install_packages
+  echo "System packages installed successfully"
 
-  yabai_string="$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 "$(which yabai)" | cut -d " " -f 1) $(which yabai) --load-sa"
-  echo "$yabai_string" | sudo tee /private/etc/sudoers.d/yabai > /dev/null
+  if ! command -v mise > /dev/null 2>&1 && [ ! -x "${HOME}/.local/bin/mise" ]; then
+    echo "Installing mise..."
+    curl -fsSL https://mise.run | sh
+    echo "mise installed successfully"
+  else
+    echo "mise already installed"
+  fi
+}
 
-  tailscale completion zsh > "$(brew --prefix)/share/zsh/site-functions/_tailscale"
+setup_git_repo() {
+  if [ -e "${REPO_ROOT}/.git" ]; then
+    echo "Git repository already initialized"
+    return 0
+  fi
+
+  echo "Initializing git repository..."
+  git -C "${REPO_ROOT}" init -b master
+  git -C "${REPO_ROOT}" remote add origin "https://github.com/Pandoks/.dotfiles.git"
+  git -C "${REPO_ROOT}" fetch origin
+  git -C "${REPO_ROOT}" reset origin/master
+  git -C "${REPO_ROOT}" branch --set-upstream-to=origin/master master
+  echo "Git repository initialized"
+}
+
+setup_zsh_addons() {
+  setup_zsh_addons_custom_dir="${ZSH_CUSTOM:-${HOME}/.oh-my-zsh/custom}"
+
+  if [ ! -d "${setup_zsh_addons_custom_dir}/themes/powerlevel10k" ]; then
+    echo "Installing Powerlevel10k..."
+    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git \
+      "${setup_zsh_addons_custom_dir}/themes/powerlevel10k"
+    echo "Powerlevel10k installed successfully"
+  else
+    echo "Powerlevel10k already installed"
+  fi
+
+  if [ ! -d "${setup_zsh_addons_custom_dir}/plugins/zsh-vi-mode" ]; then
+    echo "Installing zsh-vi-mode..."
+    git clone --depth=1 https://github.com/jeffreytse/zsh-vi-mode.git \
+      "${setup_zsh_addons_custom_dir}/plugins/zsh-vi-mode"
+    echo "zsh-vi-mode installed successfully"
+  else
+    echo "zsh-vi-mode already installed"
+  fi
+
+  if [ ! -d "${HOME}/.tmux/plugins/tpm" ]; then
+    echo "Installing tpm..."
+    git clone --depth=1 https://github.com/tmux-plugins/tpm.git "${HOME}/.tmux/plugins/tpm"
+    echo "tpm installed successfully"
+  else
+    echo "tpm already installed"
+  fi
+}
+
+setup() {
+  if is_macos; then
+    setup_macos
+  else
+    setup_linux
+  fi
+
+  setup_git_repo
+
+  if [ ! -d "$HOME/.oh-my-zsh" ]; then
+    echo "Installing Oh My Zsh..."
+    RUNZSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+    echo "Oh My Zsh installed successfully"
+  else
+    echo "Oh My Zsh already installed"
+  fi
+
+  if is_linux; then
+    setup_zsh_addons
+  fi
+}
+
+install_apps() {
+  if is_macos; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+    brew bundle install -v --file="${REPO_ROOT}/Brewfile"
+
+    yabai_string="$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 "$(which yabai)" | cut -d " " -f 1) $(which yabai) --load-sa"
+    echo "$yabai_string" | sudo tee /private/etc/sudoers.d/yabai > /dev/null
+
+    tailscale completion zsh > "$(brew --prefix)/share/zsh/site-functions/_tailscale"
+  fi
+
+  PATH="${HOME}/.local/bin:${PATH}"
+  mise install --yes
 }
 
 install_ssh() {
   mkdir -p "${HOME}/.ssh"
-  create_symlink --sudo "${REPO_ROOT}/private/etc/ssh/sshd_config" "/private/etc/ssh/sshd_config"
+  if is_macos; then
+    create_symlink --sudo "${REPO_ROOT}/private/etc/ssh/sshd_config" "/private/etc/ssh/sshd_config"
+  else
+    create_symlink --sudo "${REPO_ROOT}/private/etc/ssh/sshd_config" "/etc/ssh/sshd_config"
+  fi
   create_symlink "${REPO_ROOT}/.ssh/authorized_keys" "${HOME}/.ssh/authorized_keys"
   create_symlink "${REPO_ROOT}/.ssh/config" "${HOME}/.ssh/config"
 
   sudo ssh-keygen -A
-  sudo launchctl kickstart -k system/com.openssh.sshd
+  if is_macos; then
+    sudo launchctl kickstart -k system/com.openssh.sshd
+  elif command -v systemctl > /dev/null 2>&1; then
+    sudo systemctl restart sshd 2> /dev/null || sudo systemctl restart ssh
+  else
+    echo "Warning: Restart the SSH daemon manually to apply the new configuration" >&2
+  fi
 }
 
 main() {
@@ -114,10 +190,10 @@ main() {
 
   case "${cmd}" in
     bootstrap) setup ;;
-    apps) install_brew ;;
+    apps) install_apps ;;
     configs) install_configs ;;
     ssh) install_ssh ;;
-    all) setup && install_configs && install_brew ;;
+    all) setup && install_configs && install_apps ;;
     -h | --help | help) usage 0 ;;
     *)
       echo "Error: Unknown command '${cmd}'" >&2

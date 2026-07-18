@@ -1,0 +1,89 @@
+# Global mise config — cross-platform CLI toolset (symlinked to ~/.config/mise)
+#
+# Stays in brew (macOS-only or better served by system package manager):
+#   casks/mas/fonts, yabai, hammerspoon, mas, cocoapods, xcbeautify, swift-format
+#   ffmpeg, imagemagick, vim, make, coreutils, mysql-client, clang-format (conda/source builds)
+#   rust (rustup already manages toolchains), watchman, podman, postgresql, valkey (services)
+#   powerlevel10k, zsh-vi-mode, tpm (shell/tmux plugins)
+
+[settings]
+trusted_config_paths = ["/"]
+pin = true # `mise use` writes exact versions
+
+[tools]
+# pinned
+aws-cli = { version = "2.36.2", symlink_bins = "true" }
+claude-code = "2.1.212"
+codex = "0.144.4"
+gh = "2.96.0"
+jq = "1.8.2"
+
+# runtimes
+node = "24"
+go = "latest"
+bun = "latest"
+zig = "latest"
+ruby = "3.2"
+uv = "latest"
+pnpm = "latest"
+
+# cli staples
+btop = { version = "latest", os = ["linux"] } # aqua build is linux-only; brew on macos
+fastfetch = "latest"
+fd = "latest"
+fzf = "latest"
+ripgrep = "latest"
+yazi = "latest"
+lazygit = "latest"
+lazydocker = "latest"
+delta = "latest"
+tree-sitter = "latest"
+hyperfine = "latest"
+yq = "latest"
+tlrc = "latest"
+yt-dlp = "latest"
+oha = "latest"
+dive = "latest"
+neovim = "latest"
+pandoc = "latest"
+tmux = "latest"
+
+# lint / format / build
+shellcheck = "latest"
+shfmt = "latest"
+actionlint = "latest"
+action-validator = "latest"
+act = "latest"
+hadolint = "latest"
+stylua = "latest"
+ruff = "latest"
+golangci-lint = "latest"
+ktlint = "latest"
+sqlc = "latest"
+protobuf = "latest"
+cmake = "latest"
+gradle = "latest"
+"npm:prettier" = "latest"
+"npm:typescript" = "latest"
+"npm:pyright" = "latest"
+"go:golang.org/x/vuln/cmd/govulncheck" = "latest"
+
+# k8s / cloud / infra
+kubectl = "latest"
+helm = "latest"
+kustomize = "latest"
+k9s = "latest"
+k3d = "latest"
+k6 = "latest"
+argocd = "latest"
+kubeconform = "latest"
+kube-linter = "latest"
+kubebuilder = "latest"
+trivy = "latest"
+mkcert = "latest"
+supabase = "latest"
+opencode = "latest"
+sst = "latest"
+"npm:portless" = "latest"
+"npm:vite" = "latest"
+"npm:ccusage" = "latest"

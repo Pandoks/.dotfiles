@@ -82,12 +82,20 @@ ZVM_CURSOR_STYLE_ENABLED=false
 function zvm_after_init() {
   # Fuzzy finding key bindings for initial load
   [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-  [ -f /opt/homebrew/opt/fzf/shell/completion.zsh ] && source /opt/homebrew/opt/fzf/shell/completion.zsh
-  [ -f /opt/homebrew/opt/fzf/shell/key-bindings.zsh ] && source /opt/homebrew/opt/fzf/shell/key-bindings.zsh
+  if [ -f /opt/homebrew/opt/fzf/shell/completion.zsh ]; then
+    source /opt/homebrew/opt/fzf/shell/completion.zsh
+    source /opt/homebrew/opt/fzf/shell/key-bindings.zsh
+  elif command -v fzf > /dev/null 2>&1; then
+    source <(fzf --zsh)
+  fi
 }
 
 source $ZSH/oh-my-zsh.sh
-source $(brew --prefix)/opt/zsh-vi-mode/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
+if [[ -n $HOMEBREW_PREFIX && -f $HOMEBREW_PREFIX/opt/zsh-vi-mode/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh ]]; then
+  source $HOMEBREW_PREFIX/opt/zsh-vi-mode/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
+elif [[ -f ${ZSH_CUSTOM:-$ZSH/custom}/plugins/zsh-vi-mode/zsh-vi-mode.plugin.zsh ]]; then
+  source ${ZSH_CUSTOM:-$ZSH/custom}/plugins/zsh-vi-mode/zsh-vi-mode.plugin.zsh
+fi
 
 # User configuration
 
@@ -124,7 +132,7 @@ alias c=clear
 # Editor aliases
 alias vim=nvim
 alias pvim="uv run nvim"
-alias vi="$HOMEBREW_PREFIX/bin/vim"
+[[ -x $HOMEBREW_PREFIX/bin/vim ]] && alias vi="$HOMEBREW_PREFIX/bin/vim"
 
 # Lazy aliases
 alias lg=lazygit
@@ -133,7 +141,8 @@ alias ld=lazydocker
 # Check localhost servers
 alias lsports='lsof -i -P -n | grep LISTEN'
 
-# Homebrew aliases
+# Homebrew aliases (macOS only)
+if command -v brew > /dev/null 2>&1; then
 alias b='arch -arm64 brew'
 bu() {
   b update
@@ -159,18 +168,25 @@ bU() {
   b bundle dump --force --file=~/Brewfile
   echo 'Brewfile updated'
 }
+fi
 
 # opencode
 alias code=opencode
 
 # powerlevel10k theme sourcing
-source /opt/homebrew/share/powerlevel10k/powerlevel10k.zsh-theme
+if [[ -f /opt/homebrew/share/powerlevel10k/powerlevel10k.zsh-theme ]]; then
+  source /opt/homebrew/share/powerlevel10k/powerlevel10k.zsh-theme
+elif [[ -f ${ZSH_CUSTOM:-$ZSH/custom}/themes/powerlevel10k/powerlevel10k.zsh-theme ]]; then
+  source ${ZSH_CUSTOM:-$ZSH/custom}/themes/powerlevel10k/powerlevel10k.zsh-theme
+fi
 
 ####   Language path updates   ####
 # ruby (don't need to install ruby directly)
-export PATH="$HOME/.rbenv/shims:$PATH"
-export RBENV_SHELL=zsh
-rbenv() { unfunction rbenv; eval "$(command rbenv init - zsh)"; rbenv "$@"; }
+if [[ -d $HOME/.rbenv/shims ]]; then
+  export PATH="$HOME/.rbenv/shims:$PATH"
+  export RBENV_SHELL=zsh
+  rbenv() { unfunction rbenv; eval "$(command rbenv init - zsh)"; rbenv "$@"; }
+fi
 
 # node version manager
 export NVM_DIR="$HOME/.nvm"
@@ -186,10 +202,14 @@ fi
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 # local script paths
-export PATH="/Users/pandoks/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 # pnpm
-export PNPM_HOME="/Users/pandoks/Library/pnpm"
+if [[ $OSTYPE == darwin* ]]; then
+  export PNPM_HOME="$HOME/Library/pnpm"
+else
+  export PNPM_HOME="$HOME/.local/share/pnpm"
+fi
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
   *) export PATH="$PNPM_HOME:$PATH" ;;
@@ -200,12 +220,12 @@ esac
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # curl
-export PATH="/opt/homebrew/opt/curl/bin:$PATH"
+[[ -d /opt/homebrew/opt/curl/bin ]] && export PATH="/opt/homebrew/opt/curl/bin:$PATH"
 
 # tabtab source for electron-forge package
 # uninstall by removing these lines or running `tabtab uninstall electron-forge`
-[[ -f /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh ]] && . /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh
-export PATH="/opt/homebrew/opt/pnpm@8/bin:$PATH"
+[[ -f $HOME/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh ]] && . $HOME/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh
+[[ -d /opt/homebrew/opt/pnpm@8/bin ]] && export PATH="/opt/homebrew/opt/pnpm@8/bin:$PATH"
 
 encrypt() {
   local fileName="$1"
@@ -228,11 +248,13 @@ decrypt() {
 
 ulimit -Sn 4096
 
-export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
-export ANDROID_HOME=$HOME/Library/Android/sdk
-export PATH=$PATH:$ANDROID_HOME/emulator
-export PATH=$PATH:$ANDROID_HOME/platform-tools
+[[ -d /Library/Java/JavaVirtualMachines/zulu-17.jdk ]] && export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
+if [[ -d $HOME/Library/Android/sdk ]]; then
+  export ANDROID_HOME=$HOME/Library/Android/sdk
+  export PATH=$PATH:$ANDROID_HOME/emulator
+  export PATH=$PATH:$ANDROID_HOME/platform-tools
+fi
 export XDG_CONFIG_HOME="$HOME/.config"
 
 [ -f ~/.secrets ] && source ~/.secrets
-eval "$(mise activate zsh)"
+command -v mise > /dev/null 2>&1 && eval "$(mise activate zsh)"
