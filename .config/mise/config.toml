@@ -40,7 +40,7 @@ delta = "latest"
 tree-sitter = "latest"
 hyperfine = "latest"
 yq = "latest"
-tlrc = "latest"
+tlrc = { version = "latest", os = ["macos"] } # aqua build lacks linux-arm64; linux-amd64 works if re-enabled
 yt-dlp = "latest"
 oha = "latest"
 dive = "latest"
