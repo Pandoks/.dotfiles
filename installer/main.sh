@@ -168,7 +168,7 @@ install_ssh() {
   sudo ssh-keygen -A
   if is_macos; then
     sudo launchctl kickstart -k system/com.openssh.sshd
-  elif command -v systemctl > /dev/null 2>&1; then
+  elif [ -d /run/systemd/system ]; then
     sudo systemctl restart sshd 2> /dev/null || sudo systemctl restart ssh
   else
     echo "Warning: Restart the SSH daemon manually to apply the new configuration" >&2
