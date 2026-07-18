@@ -92,17 +92,9 @@
     "firecrawl@claude-plugins-official": false,
     "posthog@claude-plugins-official": false,
     "semgrep@claude-plugins-official": false,
-    "notion@claude-plugins-official": true,
-    "tools@pandoks": true
+    "notion@claude-plugins-official": true
   },
-  "extraKnownMarketplaces": {
-    "pandoks": {
-      "source": {
-        "source": "github",
-        "repo": "Pandoks/.dotfiles"
-      }
-    }
-  },
+  "extraKnownMarketplaces": {},
   "strictKnownMarketplaces": [],
   "blockedMarketplaces": [],
   "forceRemoteSettingsRefresh": false,
