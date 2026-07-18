@@ -4,7 +4,7 @@
 [core]
 	editor = nvim
   pager = delta
-	excludesfile = /Users/pandoks_/.gitignore
+	excludesfile = ~/.gitignore
 [init]
 	defaultBranch = master
 [pull]
@@ -24,10 +24,10 @@
   line-numbers = true
 [credential "https://github.com"]
 	helper =
-	helper = !/opt/homebrew/bin/gh auth git-credential
+	helper = !gh auth git-credential
 [credential "https://gist.github.com"]
 	helper =
-	helper = !/opt/homebrew/bin/gh auth git-credential
+	helper = !gh auth git-credential
 [alias]
   s = status
   a = add -A
