@@ -1,23 +1,30 @@
 local openOrFocusWindow = require("window_profiles")
 
-NeedsToBeHidden = nil
--- needs to be a global variable or else it will get garbage collected and lose scope
-ApplicationWatcher = hs.application.watcher.new(function(app, event, object)
-  -- deactivated will happen before unhidden event when switching between 2 apps
-  if event == hs.application.watcher.deactivated and app == NeedsToBeHidden then
-    object:hide()
-    NeedsToBeHidden = nil
-    print("Hid", app)
+NeedsToBeHiddenPids = {}
+ApplicationWatcher = hs.application.watcher.new(function(_, event, application)
+  if not application then
+    return
+  end
+  local pid = application:pid()
+  local bundleId = application:bundleID()
+
+  if event == hs.application.watcher.deactivated and NeedsToBeHiddenPids[pid] then
+    application:hide()
+    NeedsToBeHiddenPids[pid] = nil
+    print("Hid", bundleId)
   elseif event == hs.application.watcher.unhidden then
-    NeedsToBeHidden = app
-    print("Set hidden toggle", app)
+    NeedsToBeHiddenPids[pid] = true
+    print("Set hidden toggle", bundleId)
   end
 end)
 ApplicationWatcher:start()
 
 hs.hotkey.bind({ "cmd", "shift" }, "h", function()
-  NeedsToBeHidden = nil
-  print("Clear hidden toggle")
+  local app = hs.application.frontmostApplication()
+  if app then
+    NeedsToBeHiddenPids[app:pid()] = nil
+    print("Clear hidden toggle", app:bundleID())
+  end
 end)
 
 hs.hotkey.bind({ "alt" }, "s", function()
