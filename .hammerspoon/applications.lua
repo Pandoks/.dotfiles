@@ -1,4 +1,4 @@
-local yabai = require("yabai")
+local openOrFocusWindow = require("window_profiles")
 
 NeedsToBeHidden = nil
 -- needs to be a global variable or else it will get garbage collected and lose scope
@@ -15,93 +15,32 @@ ApplicationWatcher = hs.application.watcher.new(function(app, event, object)
 end)
 ApplicationWatcher:start()
 
-local function openOrFocusApplication(application, space)
-  space = space or nil
-  local app = hs.application.find(application, true)
-  if not app then
-    if not space then
-      hs.application.open(application)
-      print("Opened " .. application)
-      return
-    end
-
-    yabai({ "-m", "space", "--focus", tostring(space) })
-    print("Focused space", space)
-    hs.application.open(application)
-    print("Opened " .. application)
-    return
-  end
-
-  local currentSpace = hs.spaces.focusedSpace()
-  local mainWindow = app:mainWindow()
-
-  -- focus on previously focused window if it's in the same space
-  if mainWindow then
-    local spaces = hs.spaces.windowSpaces(mainWindow:id())
-    for _, spaceId in ipairs(spaces) do
-      if spaceId == currentSpace then
-        app:activate(true)
-        print("Focused", app)
-        return
-      end
-    end
-  end
-
-  -- focus on application window in the current space
-  for _, window in ipairs(app:allWindows()) do
-    local spaces = hs.spaces.windowSpaces(window:id())
-    for _, spaceId in ipairs(spaces) do
-      if spaceId == currentSpace then
-        window:focus()
-        print("Focused", app, "on current space")
-        return
-      end
-    end
-  end
-
-  app:activate(true)
-  print("Focused", app)
-end
-
 hs.hotkey.bind({ "cmd", "shift" }, "h", function()
   NeedsToBeHidden = nil
   print("Clear hidden toggle")
 end)
+
 hs.hotkey.bind({ "alt" }, "s", function()
-  openOrFocusApplication("Helium", 3)
-end)
-hs.hotkey.bind({ "alt" }, "d", function()
-  openOrFocusApplication("Discord", 5)
-end)
-hs.hotkey.bind({ "alt" }, "m", function()
-  -- For some reason, hammerspoon is more stable when using the bundle id for native apple apps
-  -- Can find the bundle if by doing: osascript -e 'id of app "<app>"'
-  openOrFocusApplication("com.apple.mail", 4)
+  openOrFocusWindow({ bundleId = "net.imput.helium" })
 end)
 hs.hotkey.bind({ "alt" }, "n", function()
-  openOrFocusApplication("com.apple.MobileSMS", 6)
+  openOrFocusWindow({ bundleId = "com.apple.MobileSMS" })
 end)
 hs.hotkey.bind({ "alt" }, "b", function()
-  openOrFocusApplication("BambuStudio", 6)
-end)
-hs.hotkey.bind({ "alt" }, "c", function()
-  openOrFocusApplication("Notion Calendar", 6)
-end)
-hs.hotkey.bind({ "alt" }, "t", function()
-  openOrFocusApplication("Ghostty", 2)
+  openOrFocusWindow({ bundleId = "com.bambulab.bambu-studio" })
 end)
 hs.hotkey.bind({ "alt" }, "p", function()
-  openOrFocusApplication("Proton Pass")
+  openOrFocusWindow({ bundleId = "me.proton.pass.electron" })
 end)
 hs.hotkey.bind({ "alt" }, "w", function()
-  openOrFocusApplication("Slack", 5)
+  openOrFocusWindow({ bundleId = "com.tinyspeck.slackmacgap" })
 end)
 hs.hotkey.bind({ "alt" }, "q", function()
-  openOrFocusApplication("Notion", 1)
+  openOrFocusWindow({ bundleId = "notion.id" })
 end)
 hs.hotkey.bind({ "alt" }, "i", function()
-  openOrFocusApplication("Claude", 1)
+  openOrFocusWindow({ bundleId = "com.t3tools.t3code" })
 end)
 hs.hotkey.bind({ "alt" }, "v", function()
-  openOrFocusApplication("Davinci Resolve", 7)
+  openOrFocusWindow({ bundleId = "com.blackmagic-design.DaVinciResolve" })
 end)
