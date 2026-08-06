@@ -2,5 +2,5 @@
   "workspace.library": ["Spoons/EmmyLua.spoon/annotations"],
   "workspace.ignoreDir": ["Spoons"],
   "diagnostics.libraryFiles": "Disable",
-  "diagnostics.globals": ["NeedsToBeHidden", "ApplicationWatcher", "WarmupTimer"]
+  "diagnostics.globals": ["NeedsToBeHidden", "ApplicationWatcher"]
 }
