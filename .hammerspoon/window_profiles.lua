@@ -8,9 +8,9 @@ local YABAI = "/opt/homebrew/bin/yabai"
 ---@class WindowProfile
 ---@field bundleId string bundle id, e.g. "com.mitchellh.ghostty" (osascript -e 'id of app "<app>"'); one lookup returns every running instance
 ---@field match? WindowMatcher which window of the app; omit = any window
----@field spawnArgs string[] args for /usr/bin/open when no window matched, e.g. { "-b", bundle }
+---@field launchArgs string[] args for /usr/bin/open when no window matched, e.g. { "-b", bundle }
 
----Focus the profile's window, spawning it if it doesn't exist anywhere.
+---Focus the profile's window, launching it if it doesn't exist anywhere.
 ---
 ---Search order:
 --- 1. last-focused window of each running instance, current space first
@@ -77,11 +77,11 @@ local function openOrFocusWindow(profile)
   end
 
   ---nothing found
-  local spawnKey = profile.bundleId
+  local launchKey = profile.bundleId
     .. "/"
     .. (type(profile.match) == "string" and profile.match or "*")
-  if spawning[spawnKey] then
-    print("Already spawning", spawnKey)
+  if launching[launchKey] then
+    print("Already launching", launchKey)
     return
   end
   spawning[spawnKey] = true
@@ -96,12 +96,14 @@ local function openOrFocusWindow(profile)
     .new("/usr/bin/open", function(exitCode)
       if exitCode ~= 0 then
         ---launch request itself failed (e.g. app not installed): retry instantly
-        spawning[spawnKey] = nil
-        print("Spawn failed", spawnKey)
+        launching[launchKey] = nil
+        print("Launch failed", launchKey)
+        return
       end
-    end, profile.spawnArgs)
+      clearWhenLaunched(1, 0)
+    end, profile.launchArgs)
     :start()
-  print("Spawned window", profile.bundleId)
+  print("Launching window", profile.bundleId)
 end
 
 return openOrFocusWindow
