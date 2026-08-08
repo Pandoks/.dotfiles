@@ -27,6 +27,10 @@ apt_is_available() {
   command -v apt-get >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1
 }
 
+pacman_is_available() {
+  command -v pacman >/dev/null 2>&1
+}
+
 configure_apt_repository() (
   repository_name="$1"
   signing_key_url="$2"

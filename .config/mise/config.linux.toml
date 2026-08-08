@@ -1,0 +1,33 @@
+[bootstrap.hooks.pre-packages]
+run = '''
+script="$HOME/.config/mise/scripts/pre-packages.linux.sh"
+
+if [ ! -f "$script" ]; then
+  script="$PWD/.config/mise/scripts/pre-packages.linux.sh"
+fi
+
+sh "$script"
+'''
+
+[bootstrap.packages]
+"apt:zsh" = "latest"
+"apt:curl" = "latest"
+"apt:git" = "latest"
+"apt:extrepo" = "latest"
+"apt:ca-certificates" = "latest"
+"apt:tree" = "latest"
+"apt:docker-ce" = "latest"
+"apt:docker-ce-cli" = "latest"
+"apt:containerd.io" = "latest"
+"apt:docker-buildx-plugin" = "latest"
+"apt:docker-compose-plugin" = "latest"
+
+"pacman:zsh" = "latest"
+"pacman:curl" = "latest"
+"pacman:git" = "latest"
+"pacman:ca-certificates" = "latest"
+"pacman:tree" = "latest"
+"pacman:docker" = "latest"
+"pacman:containerd" = "latest"
+"pacman:docker-buildx" = "latest"
+"pacman:docker-compose" = "latest"
