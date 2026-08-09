@@ -14,6 +14,13 @@
   considered a pivot to implementation.
 - Every user facing response that is greater than 3 paragraphs MUST END with a `tldr` section that
   is only 1-2 sentences capturing the answer or what changed.
+- There should always be a `proof` section right before the `tldr` section if it exists that is a
+  concise bullet point list of everything that you did, especially if you tried multiple options.
+  - If there is no `tldr` section, the `proof` section is the last section of the response.
+  - You should include things like documentation, code, forums, sentiment, papers, tests, and other
+    evidence that you used.
+  - If you did run multiple options, you should include the results of each option and why you did
+    or did not go with it.
 
 ## Workflow
 
