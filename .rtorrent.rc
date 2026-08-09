@@ -1,7 +1,7 @@
-directory.default.set = ~/Documents/rTorrent/Media
+directory.default.set = ~/rtorrent/media
 
 session.path.set = ~/.rtorrent/
 
 # Local SCGI/XMLRPC socket so external tools can control rtorrent.
 # Unix socket only (not exposed on the network); restart rtorrent to apply.
-network.scgi.open_local = /Users/pandoks/.rtorrent/rpc.socket
+network.scgi.open_local = ~/.rtorrent/rpc.socket
