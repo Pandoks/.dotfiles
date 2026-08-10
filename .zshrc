@@ -121,6 +121,7 @@ alias lg=lazygit
 alias vim=nvim
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
+P10K_SSH_FOREGROUND='#0050D5'
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 # >>> mise:activate >>> managed by mise — do not edit between markers
