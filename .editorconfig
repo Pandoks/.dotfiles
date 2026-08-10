@@ -9,6 +9,10 @@ charset = utf-8
 trim_trailing_whitespace = true
 insert_final_newline = true
 
+[.gitconfig]
+indent_style = tab
+indent_size = tab
+
 [*.sh]
 shell_variant = posix
 simplify = true
