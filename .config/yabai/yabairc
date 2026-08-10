@@ -44,5 +44,23 @@ yabai -m config right_padding 0
 yabai -m config window_gap 0
 
 # whitelist apps to be yabaied
-yabai -m rule --add app!="^(Helium|Mail|Claude|Ghostty|Discord|Notion|Slack|Figma|thinkorswim|Notion Calendar)$" manage=off
+yabai -m rule --add app!="^(Helium|Ghostty|Slack|Notion Calendar|T3 Code \(Nightly\))$" manage=off
 yabai -m rule --add app=".*" sub-layer=normal
+
+# label spaces (4, 8, 9 unlabeled)
+yabai -m space 1 --label ai
+yabai -m space 2 --label terminals
+yabai -m space 3 --label personal-browser
+yabai -m space 5 --label communication
+yabai -m space 6 --label management
+yabai -m space 7 --label work
+
+# pin apps to their space at creation
+yabai -m rule --add label=ghostty-profiles app="^Ghostty$" title="^(sieve|dev|local)$" space="^terminals"
+yabai -m rule --add label=space-t3 app="^T3 Code \(Nightly\)$" space="^ai"
+yabai -m rule --add label=space-helium app="^Helium$" space="^personal-browser"
+yabai -m rule --add label=space-slack app="^Slack$" space="^communication"
+yabai -m rule --add label=space-messages app="^Messages$" space="^management"
+yabai -m rule --add label=space-bambu app="^BambuStudio$" space="^management"
+yabai -m rule --add label=space-notion-calendar app="^Notion Calendar$" space="^management"
+yabai -m rule --add label=space-davinci app="^DaVinci Resolve$" space="^work"
