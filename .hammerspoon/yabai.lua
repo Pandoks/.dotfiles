@@ -1,7 +1,11 @@
+local isAppleSilicon = hs.processInfo.arch == "arm64" or hs.processInfo.isRosetta
+local homebrewPrefix = isAppleSilicon and "/opt/homebrew" or "/usr/local"
+local yabaiPath = homebrewPrefix .. "/bin/yabai"
+
 local function yabai(args)
   -- Runs fast as fuck in background
   hs.task
-    .new("/opt/homebrew/bin/yabai", nil, function(exitCode, stdOut, stdErr)
+    .new(yabaiPath, nil, function(exitCode, stdOut, stdErr)
       if stdErr then
         print("yabai error: " .. stdErr)
         return false
