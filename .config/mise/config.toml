@@ -1,0 +1,69 @@
+[tools]
+claude-code = "latest"
+gh = "latest"
+neovim = "0.12.4"
+codex = "latest"
+node = "latest"
+lazygit = "latest"
+vim = "latest"
+aws-cli = { version = "latest", symlink_bins = "true" }
+jq = "latest"
+tmux = "latest"
+"npm:t3" = { version = "0.0", prerelease = true, trust_policy_excludes = ["@effect/platform-bun", "@effect/platform-node", "@effect/platform-node-shared", "@effect/sql-sqlite-bun", "effect", "@pierre/theme"], allow_builds = ["node-pty"] }
+tree-sitter = "latest"
+ripgrep = "latest"
+fastfetch = "latest"
+btop = "latest"
+fzf = "latest"
+fd = "latest"
+kubectl = "latest"
+delta = "latest"
+"npm:@moonshot-ai/kimi-code" = "latest"
+opencode = "latest"
+
+[settings]
+minimum_release_age_excludes = ["npm:t3", "claude-code", "codex"]
+
+[bootstrap.repos]
+"~/.oh-my-zsh" = { url = "https://github.com/ohmyzsh/ohmyzsh.git" }
+"~/.oh-my-zsh/custom/themes/powerlevel10k" = { url = "https://github.com/romkatv/powerlevel10k.git" }
+"~/.oh-my-zsh/custom/plugins/zsh-vi-mode" = { url = "https://github.com/jeffreytse/zsh-vi-mode.git" }
+"~/.tmux/plugins/tpm" = { url = "https://github.com/tmux-plugins/tpm.git" }
+
+[bootstrap.user]
+login_shell = "/bin/zsh"
+
+[dotfiles]
+"~/.config/mise" = "." # mise directory
+"~/.miserc.toml" = "../../.miserc.toml"
+
+"~/.zshrc" = "../../.zshrc"
+"~/.fzf.zsh" = "../../.fzf.zsh"
+"~/.p10k.zsh" = "../../.p10k.zsh"
+"~/.tmux.conf" = "../../.tmux.conf"
+"~/.vimrc" = "../../.vimrc"
+"~/.gitconfig" = "../../.gitconfig"
+
+"~/.aws/config" = "../../.aws/config"
+
+"~/.config/fd/ignore" = "../git/ignore"
+"~/.config/git/ignore" = "../git/ignore"
+"~/.config/gh/config.yml" = "../gh/config.yml"
+"~/.config/ghostty/config" = "../ghostty/config"
+"~/.config/k9s/aliases.yaml" = "../k9s/aliases.yaml"
+"~/.config/lazygit/config.yml" = "../lazygit/config.yml"
+"~/.config/nvim" = "../nvim"
+"~/.config/yazi" = "../yazi"
+
+"~/.ssh/config" = "../../.ssh/config"
+"~/.ssh/authorized_keys" = "../../.ssh/authorized_keys"
+
+"~/.claude/settings.json" = "../../.claude/settings.json"
+"~/.claude/statusline.sh" = "../../.claude/statusline.sh"
+"~/.claude/CLAUDE.md" = "../../AGENTS.md"
+
+"~/.codex/AGENTS.md" = "../../AGENTS.md"
+
+"~/.kimi-code/AGENTS.md" = "../../AGENTS.md"
+
+"~/.config/opencode/AGENTS.md" = "../../AGENTS.md"
