@@ -1,0 +1,15 @@
+[bootstrap.brew.taps]
+"koekeishiya/formulae" = "https://github.com/koekeishiya/homebrew-formulae.git"
+
+[bootstrap.packages]
+"brew:koekeishiya/formulae/yabai" = "latest"
+"brew-cask:ghostty" = "latest"
+"brew-cask:hammerspoon" = "latest"
+"brew-cask:helium-browser" = "latest"
+"brew-cask:docker-desktop" = "latest"
+"brew-cask:font-hack-nerd-font" = "latest"
+
+[dotfiles]
+"~/.zprofile" = "../../.zprofile"
+"~/.hammerspoon" = "../../.hammerspoon"
+"~/.config/yabai" = "../yabai"
