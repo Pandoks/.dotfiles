@@ -6,16 +6,16 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
 fi
 
 # If you come from bash you might have to change your $PATH.
-# export PATH=$HOME/bin:/usr/local/bin:$PATH
+# export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
-# Path to your oh-my-zsh installation.
+# Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
 # Set name of the theme to load --- if set to "random", it will
-# load a random theme each time oh-my-zsh is loaded, in which case,
+# load a random theme each time Oh My Zsh is loaded, in which case,
 # to know which specific one was loaded, run: echo $RANDOM_THEME
 # See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
-# ZSH_THEME="robbyrussell"
+ZSH_THEME="powerlevel10k/powerlevel10k"
 
 # Set list of themes to pick from when loading at random
 # Setting this variable when ZSH_THEME=random will cause zsh to load
@@ -31,7 +31,7 @@ export ZSH="$HOME/.oh-my-zsh"
 # HYPHEN_INSENSITIVE="true"
 
 # Uncomment one of the following lines to change the auto-update behavior
-zstyle ':omz:update' mode disabled  # disable automatic updates
+# zstyle ':omz:update' mode disabled  # disable automatic updates
 # zstyle ':omz:update' mode auto      # update automatically without asking
 # zstyle ':omz:update' mode reminder  # just remind me to update when it's time
 
@@ -77,17 +77,14 @@ zstyle ':omz:update' mode disabled  # disable automatic updates
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git sudo)
+plugins=(git sudo zsh-vi-mode)
 ZVM_CURSOR_STYLE_ENABLED=false
 function zvm_after_init() {
-  # Fuzzy finding key bindings for initial load
+  source <(fzf --zsh)
   [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-  [ -f /opt/homebrew/opt/fzf/shell/completion.zsh ] && source /opt/homebrew/opt/fzf/shell/completion.zsh
-  [ -f /opt/homebrew/opt/fzf/shell/key-bindings.zsh ] && source /opt/homebrew/opt/fzf/shell/key-bindings.zsh
 }
 
 source $ZSH/oh-my-zsh.sh
-source $(brew --prefix)/opt/zsh-vi-mode/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
 
 # User configuration
 
@@ -97,142 +94,35 @@ source $(brew --prefix)/opt/zsh-vi-mode/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
 # export LANG=en_US.UTF-8
 
 # Preferred editor for local and remote sessions
-if [[ -n $SSH_CONNECTION ]]; then
-  export EDITOR='vim'
-else
-  export EDITOR='nvim'
-fi
-
-# Use Vi keybindings for navigation
-# bindkey -v
+# if [[ -n $SSH_CONNECTION ]]; then
+#   export EDITOR='vim'
+# else
+#   export EDITOR='nvim'
+# fi
+export EDITOR='nvim'
+export VISUAL='nvim'
 
 # Compilation flags
-# export ARCHFLAGS="-arch x86_64"
+# export ARCHFLAGS="-arch $(uname -m)"
 
-# Set personal aliases, overriding those provided by oh-my-zsh libs,
-# plugins, and themes. Aliases can be placed here, though oh-my-zsh
-# users are encouraged to define aliases within the ZSH_CUSTOM folder.
+# Set personal aliases, overriding those provided by Oh My Zsh libs,
+# plugins, and themes. Aliases can be placed here, though Oh My Zsh
+# users are encouraged to define aliases within a top-level file in
+# the $ZSH_CUSTOM folder, with .zsh extension. Examples:
+# - $ZSH_CUSTOM/aliases.zsh
+# - $ZSH_CUSTOM/macos.zsh
 # For a full list of active aliases, run `alias`.
 #
 # Example aliases
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
-
-# General aliases
 alias c=clear
-
-# Editor aliases
-alias vim=nvim
-alias pvim="uv run nvim"
-alias vi="$HOMEBREW_PREFIX/bin/vim"
-
-# Lazy aliases
 alias lg=lazygit
-alias ld=lazydocker
-
-# Check localhost servers
-alias lsports='lsof -i -P -n | grep LISTEN'
-
-# Homebrew aliases
-alias b='arch -arm64 brew'
-bu() {
-  b update
-  b upgrade
-  b cu -a -y --include-mas
-  b autoremove
-  b cleanup
-  b doctor
-  omz update
-  shellclear find
-  clear
-  fastfetch
-}
-bi() {
-  b install "$@"
-  echo 'Updating Brewfile...'
-  b bundle dump --force --file=~/Brewfile
-  echo 'Brewfile updated'
-}
-bU() {
-  b uninstall --zap --force "$@"
-  echo 'Updating Brewfile...'
-  b bundle dump --force --file=~/Brewfile
-  echo 'Brewfile updated'
-}
-
-# opencode
-alias code=opencode
-
-# powerlevel10k theme sourcing
-source /opt/homebrew/share/powerlevel10k/powerlevel10k.zsh-theme
-
-####   Language path updates   ####
-# ruby (don't need to install ruby directly)
-export PATH="$HOME/.rbenv/shims:$PATH"
-export RBENV_SHELL=zsh
-rbenv() { unfunction rbenv; eval "$(command rbenv init - zsh)"; rbenv "$@"; }
-
-# node version manager
-export NVM_DIR="$HOME/.nvm"
-[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh" --no-use  # This loads nvm
-[ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
-if [[ -r "$NVM_DIR/alias/default" ]]; then
-  _nvm_default=("$NVM_DIR"/versions/node/v${$(<"$NVM_DIR/alias/default")#v}*(Nn[-1]))
-  [[ -n "$_nvm_default" ]] && export PATH="$_nvm_default/bin:$PATH"
-  unset _nvm_default
-fi
+alias vim=nvim
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-# local script paths
-export PATH="/Users/pandoks/.local/bin:$PATH"
-
-# pnpm
-export PNPM_HOME="/Users/pandoks/Library/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PNPM_HOME:$PATH" ;;
-esac
-# pnpm end
-
-# rust
-export PATH="$HOME/.cargo/bin:$PATH"
-
-# curl
-export PATH="/opt/homebrew/opt/curl/bin:$PATH"
-
-# tabtab source for electron-forge package
-# uninstall by removing these lines or running `tabtab uninstall electron-forge`
-[[ -f /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh ]] && . /Users/pandoks/Projects/whisper/node_modules/tabtab/.completions/electron-forge.zsh
-export PATH="/opt/homebrew/opt/pnpm@8/bin:$PATH"
-
-encrypt() {
-  local fileName="$1"
-  openssl enc -aes-256-cbc -pbkdf2 -in $1 -out "${fileName%.*}.enc"
-  printf "Delete original file? [y/n] "
-  read answer
-  if [[ $answer == "y" || $answer == "Y" ]]; then
-    rm -rf $fileName
-  fi
-}
-decrypt() {
-  local fileName="$1"
-  openssl enc -d -aes-256-cbc -pbkdf2 -in $1 -out "${fileName%.*}.zk"
-  printf "Delete encrypted file? [y/n] "
-  read answer
-  if [[ $answer == "y" || $answer == "Y" ]]; then
-    rm -rf $fileName
-  fi
-}
-
-ulimit -Sn 4096
-
-export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
-export ANDROID_HOME=$HOME/Library/Android/sdk
-export PATH=$PATH:$ANDROID_HOME/emulator
-export PATH=$PATH:$ANDROID_HOME/platform-tools
-export XDG_CONFIG_HOME="$HOME/.config"
-
-[ -f ~/.secrets ] && source ~/.secrets
+# >>> mise:activate >>> managed by mise — do not edit between markers
 eval "$(mise activate zsh)"
+# <<< mise:activate <<<
