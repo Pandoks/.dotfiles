@@ -1,5 +1,5 @@
 goto-directories() {
-  selected=$(find . \( -name .git -o -name node_modules \) -prune -o -type d -print | fzf)
+  selected=$(fd --type directory --hidden --exclude .git | fzf)
 
   if [[ -z $selected ]]; then
     return
@@ -8,16 +8,7 @@ goto-directories() {
 }
 
 find-open() {
-  local home_ignore_file="$HOME/.fzfignore"
-  local directory_ignore_file="$(pwd)/.fzfignore"
-
-  if [[ -f $directory_ignore_file ]]; then
-    selected=$(find -L . -type f -print | grep -vFf $directory_ignore_file | fzf)
-  elif [[ -f $home_ignore_file ]]; then
-    selected=$(find -L . -type f -print | grep -vFf $home_ignore_file | fzf)
-  else
-    selected=$(find -L . -type f -print | fzf)
-  fi
+  selected=$(fd --type file --hidden --follow --exclude .git | fzf)
 
   if [[ -z $selected ]]; then
     return
@@ -28,18 +19,8 @@ find-open() {
 goto-git() {
   base_git_dir=$(git rev-parse --show-toplevel)
 
-  ignored_dirs=(.git node_modules .sst)
-  ignore_conditions=""
-  for dir in "${ignored_dirs[@]}"; do
-    if [[ -z "$ignore_conditions" ]]; then
-      ignore_conditions="-name $dir"
-    else
-      ignore_conditions="$ignore_conditions -o -name $dir"
-    fi
-  done
-
   selected=$(
-    eval "find $base_git_dir \( $ignore_conditions \) -prune -o -type d -print" |
+    fd --type directory --hidden --exclude .git . "$base_git_dir" |
       sed "s|^$base_git_dir/||" |
       fzf
   )
@@ -55,7 +36,7 @@ tmux-sessionizer() {
     selected=$1
   else
     search_dirs=(~ ~/Projects ~/Projects/examples ~/.config)
-    selected=$(find -L "${search_dirs[@]}" -mindepth 1 -maxdepth 1 -type d | fzf)
+    selected=$(fd --type directory --hidden --follow --min-depth 1 --max-depth 1 . "${search_dirs[@]}" | fzf)
   fi
 
   if [[ -z $selected ]]; then
