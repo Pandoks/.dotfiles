@@ -31,7 +31,7 @@
   Investigate the options, write the plan, and verify it with the user before modifying the user's
   working tree.
 - Investigation should include fully implementing and testing every plausible architecture or
-  implementation in `/tmp`, disposable worktrees, or other isolated environments.
+  implementation in `/var/tmp`, disposable worktrees, or other isolated environments.
   - Do not impose a self-selected limit on time, compute, expense, or number of experiments.
   - Experiments that are externally visible or destructive are NEVER allowed.
   - By the time the plan is presented, the implementations should have been tested and their
@@ -42,7 +42,7 @@
   destructive nor externally visible in parallel.
   - Actually implement and test each option.
   - Keep the user's original working tree, resources, code, and configuration unaffected, preferably
-    by using `/tmp`, disposable worktrees, or newly created experimental resources.
+    by using `/var/tmp`, disposable worktrees, or newly created experimental resources.
   - Continue until every option has been tested or a concrete external blocker prevents testing it.
   - If the evidence clearly favors one option, choose it without asking.
   - If the options remain materially ambiguous, ask the user to choose and report all experimental
@@ -81,7 +81,7 @@
   even if it's well known and standard. You should run your own logical reasoning, thought
   experiments, and analysis methods to verify your claims.
   - For certain questions, you may be able to test it yourself (ie. code, math, etc.). If you can,
-    do so in `/tmp`. Actually run the code, not just reading the docs to verify your answer is
+    do so in `/var/tmp`. Actually run the code, not just reading the docs to verify your answer is
     valid.
   - Sometimes looking at anecdotes, personal experiences, and opinions of experts/first hand users
     is helpful, but it should never replace looking at primary sources and thinking from first
