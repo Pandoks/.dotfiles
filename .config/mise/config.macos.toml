@@ -1,6 +1,7 @@
 [bootstrap.brew.taps]
 
 [bootstrap.packages]
+"brew:btop" = "latest"
 "brew-cask:ghostty" = "latest"
 "brew-cask:hammerspoon" = "latest"
 "brew-cask:helium-browser" = "latest"

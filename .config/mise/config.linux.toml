@@ -1,3 +1,6 @@
+[tools]
+btop = "latest"
+
 [bootstrap.hooks.pre-packages]
 run = '''
 script="$HOME/.config/mise/scripts/pre-packages.linux.sh"
