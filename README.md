@@ -65,7 +65,7 @@ Bootstrap the machine:
 ```sh
 git clone https://github.com/Pandoks/.dotfiles.git "$HOME/.dotfiles"
 cd "$HOME/.dotfiles"
-mise bootstrap --yes
+sudo -v && mise bootstrap --yes
 ```
 
 Bootstrap is idempotent and refuses to overwrite conflicting files. Start a
