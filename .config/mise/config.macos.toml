@@ -1,8 +1,8 @@
 [bootstrap.brew.taps]
-"koekeishiya/formulae" = "https://github.com/koekeishiya/homebrew-formulae.git"
+"asmvik/formulae" = "https://github.com/asmvik/homebrew-formulae.git"
 
 [bootstrap.packages]
-"brew:koekeishiya/formulae/yabai" = "latest"
+"brew:asmvik/formulae/yabai" = "latest"
 "brew-cask:ghostty" = "latest"
 "brew-cask:hammerspoon" = "latest"
 "brew-cask:helium-browser" = "latest"
