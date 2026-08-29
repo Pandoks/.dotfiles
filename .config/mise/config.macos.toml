@@ -1,8 +1,6 @@
 [bootstrap.brew.taps]
-"asmvik/formulae" = "https://github.com/asmvik/homebrew-formulae.git"
 
 [bootstrap.packages]
-"brew:asmvik/formulae/yabai" = "latest"
 "brew-cask:ghostty" = "latest"
 "brew-cask:hammerspoon" = "latest"
 "brew-cask:helium-browser" = "latest"
@@ -12,4 +10,3 @@
 [dotfiles]
 "~/.zprofile" = "../../.zprofile"
 "~/.hammerspoon" = "../../.hammerspoon"
-"~/.config/yabai" = "../yabai"

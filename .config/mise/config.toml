@@ -65,6 +65,7 @@ login_shell = "/bin/zsh"
 "~/.claude/CLAUDE.md" = "../../AGENTS.md"
 
 "~/.codex/AGENTS.md" = "../../AGENTS.md"
+"~/.codex/config.toml" = "../../.codex/config.toml"
 
 "~/.kimi-code/AGENTS.md" = "../../AGENTS.md"
 
