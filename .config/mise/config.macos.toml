@@ -2,11 +2,35 @@
 
 [bootstrap.packages]
 "brew:btop" = "latest"
+
 "brew-cask:ghostty" = "latest"
 "brew-cask:hammerspoon" = "latest"
 "brew-cask:helium-browser" = "latest"
 "brew-cask:docker-desktop" = "latest"
 "brew-cask:font-hack-nerd-font" = "latest"
+"brew-cask:tailscale-app" = "latest"
+"brew-cask:space-rabbit" = "latest"
+"brew-cask:betterdisplay" = "latest"
+"brew-cask:t3-code@nightly" = "latest"
+"brew-cask:gifox" = "latest"
+"brew-cask:grok-bot" = "latest"
+"brew-cask:notion-calendar" = "latest"
+"brew-cask:proton-drive" = "latest"
+"brew-cask:proton-pass" = "latest"
+"brew-cask:protonvpn" = "latest"
+"brew-cask:slack" = "latest"
+"brew-cask:stats" = "latest"
+"brew-cask:telegram" = "latest"
+"brew-cask:vlc" = "latest"
+"brew-cask:yubico-authenticator" = "latest"
+
+# Installs that mise can't handle itself
+[bootstrap.hooks.post-packages]
+run = '''
+for cask in logi-options+ raycast; do
+  brew list --cask "$cask" &>/dev/null || brew install --cask "$cask"
+done
+'''
 
 [dotfiles]
 "~/.zprofile" = "../../.zprofile"
