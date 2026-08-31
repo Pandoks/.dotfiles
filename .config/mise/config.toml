@@ -24,6 +24,7 @@ lazydocker = "latest"
 k9s = "latest"
 yazi = "latest"
 ffmpeg = "latest"
+go = "latest"
 
 [settings]
 minimum_release_age_excludes = ["npm:t3", "claude-code", "codex", "npm:@moonshot-ai/kimi-code", "opencode", "grok"]
