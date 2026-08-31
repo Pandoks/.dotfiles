@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+# shellcheck shell=sh
+
+yabai -m config layout bsp                       # bsp|stack|float
+yabai -m config window_insertion_point last      # focused|first|last
+
+yabai -m rule --add app!="^(Helium|Ghostty|Slack|Notion Calendar|T3 Code \(Nightly\))$" manage=off
+yabai -m rule --add title="^Picture in Picture$" manage=off
+
+yabai -m rule --apply
