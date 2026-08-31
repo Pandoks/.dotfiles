@@ -28,6 +28,18 @@
 "brew-cask:vlc" = "latest"
 "brew-cask:yubico-authenticator" = "latest"
 
+[bootstrap.macos.dock]
+autohide = true
+show_recents = false
+mru_spaces = false
+
+[bootstrap.macos.trackpad]
+tap_to_click = true
+three_finger_drag = false
+
+[bootstrap.macos.keyboard]
+press_and_hold = false
+
 # Installs that mise can't handle itself
 [bootstrap.hooks.post-packages]
 run = '''
