@@ -25,5 +25,7 @@ hs.hotkey.bind({ "alt" }, "r", function()
   openOrFocusWindow(ghosttyProfile("dev", "ssh -t dev tmux new-session -A -s Dev"))
 end)
 hs.hotkey.bind({ "alt" }, "t", function()
-  openOrFocusWindow(ghosttyProfile("local", [[/bin/zsh -lc 'exec tmux new-session -A -s Pandoks']]))
+  openOrFocusWindow(
+    ghosttyProfile("local", [[/bin/zsh -lc 'exec mise exec -- tmux new-session -A -s Pandoks']])
+  )
 end)
