@@ -2,6 +2,10 @@
 
 [bootstrap.packages]
 "brew:btop" = "latest"
+"brew:mas" = "latest"
+"brew:rtorrent" = "latest"
+
+"mas:937984704" = "latest" # Amphetamine
 
 "brew-cask:ghostty" = "latest"
 "brew-cask:hammerspoon" = "latest"
@@ -27,11 +31,29 @@
 # Installs that mise can't handle itself
 [bootstrap.hooks.post-packages]
 run = '''
+brew list --formula yabai &>/dev/null || brew install asmvik/formulae/yabai
+
 for cask in logi-options+ raycast; do
   brew list --cask "$cask" &>/dev/null || brew install --cask "$cask"
 done
 '''
 
+[bootstrap.repos]
+"~/.hammerspoon/Spoons/SkyRocket.spoon" = { url = "https://github.com/dbalatero/SkyRocket.spoon.git" }
+
+[bootstrap.hooks.final]
+run = '''
+spoons="$HOME/.hammerspoon/Spoons"
+mkdir -p "$spoons"
+test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoon/Spoons/raw/master/Spoons/SpoonInstall.spoon.zip | bsdtar -xf - -C "$spoons"
+'''
+
 [dotfiles]
 "~/.zprofile" = "../../.zprofile"
-"~/.hammerspoon" = "../../.hammerspoon"
+"~/.hammerspoon/.luarc.json" = "../../.hammerspoon/.luarc.json"
+"~/.hammerspoon/.stylua.toml" = "../../.hammerspoon/.stylua.toml"
+"~/.hammerspoon/applications.lua" = "../../.hammerspoon/applications.lua"
+"~/.hammerspoon/ghostty.lua" = "../../.hammerspoon/ghostty.lua"
+"~/.hammerspoon/init.lua" = "../../.hammerspoon/init.lua"
+"~/.hammerspoon/window_profiles.lua" = "../../.hammerspoon/window_profiles.lua"
+"~/.rtorrent.rc" = "../../.rtorrent.rc"
