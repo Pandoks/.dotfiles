@@ -122,6 +122,8 @@ alias c=clear
 alias lg=lazygit
 alias vim=nvim
 
+ulimit -n 1024
+
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 P10K_SSH_FOREGROUND='#0050D5'
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
