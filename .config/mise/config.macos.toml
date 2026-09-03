@@ -27,6 +27,7 @@
 "brew-cask:telegram" = "latest"
 "brew-cask:vlc" = "latest"
 "brew-cask:yubico-authenticator" = "latest"
+"brew-cask:libreoffice" = "latest"
 
 [bootstrap.macos.dock]
 autohide = true
@@ -49,9 +50,6 @@ for cask in logi-options+ raycast; do
   brew list --cask "$cask" &>/dev/null || brew install --cask "$cask"
 done
 '''
-
-[bootstrap.repos]
-"~/.hammerspoon/Spoons/SkyRocket.spoon" = { url = "https://github.com/dbalatero/SkyRocket.spoon.git" }
 
 [bootstrap.hooks.final]
 run = '''
