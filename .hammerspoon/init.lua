@@ -1,3 +1,4 @@
+require("lib.logger").install()
 require("hs.ipc") -- `hs` CLI access for debugging
 hs.loadSpoon("SpoonInstall")
 
@@ -6,9 +7,7 @@ local install = spoon.SpoonInstall
 -- Generates hs.* type annotations for lua_ls when they are missing or stale.
 install:andUse("EmmyLua")
 
--- SkyRocket does not publish the repository metadata/zip structure SpoonInstall requires.
-hs.loadSpoon("SkyRocket")
-
+require("yabai")
 require("applications")
 require("ghostty")
 
