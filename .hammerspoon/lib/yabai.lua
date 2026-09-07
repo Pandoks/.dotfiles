@@ -6,9 +6,8 @@ local path = (hs.processInfo.arch == "arm64" or hs.processInfo.isRosetta)
 ---@class YabaiClient
 local yabai = {}
 
----@alias YabaiCallback fun(ok: boolean, stdout: string, stderr: string)
 ---@param args string[]
----@param done YabaiCallback
+---@param done fun(ok: boolean, stdout: string, stderr: string)
 function yabai.run(args, done)
   local argv = { "-m" }
   for i = 1, #args do
