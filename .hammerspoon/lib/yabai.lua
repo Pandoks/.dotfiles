@@ -8,17 +8,32 @@ local yabai = {}
 
 ---@param args string[]
 ---@param done fun(ok: boolean, stdout: string, stderr: string)
-function yabai.run(args, done)
+---@param timeout? number seconds; defaults to 10
+function yabai.run(args, done, timeout)
   local argv = { "-m" }
   for i = 1, #args do
     argv[#argv + 1] = args[i]
   end
 
-  local task = hs.task.new(path, function(code, out, err)
-    done(code == 0, out or "", err or "")
-  end, argv)
+  local task = hs.task.new(path, nil, argv)
+  if not task then
+    done(false, "", "could not start yabai")
+    return
+  end
 
-  if not task or task:start() == false then
+  local timedOut = false
+  local timer = hs.timer.doAfter(timeout or 10, function()
+    timedOut = true
+    task:terminate()
+  end)
+
+  task:setCallback(function(code, out, err)
+    timer:stop()
+    done(code == 0, out or "", timedOut and "timed out" or (err or ""))
+  end)
+
+  if task:start() == false then
+    timer:stop()
     done(false, "", "could not start yabai")
   end
 end
