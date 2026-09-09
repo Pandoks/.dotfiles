@@ -63,6 +63,8 @@ function yabai.run(args, done, timeout)
   end
 end
 
+---@type table<integer, fun(ok: boolean, message?: string)>
+local pendingSpaceChanges = {} -- native Space ID -> completion callback
 
 local function spaceChangedHandler()
   local focusedSpaceId = hs.spaces.focusedSpace()
