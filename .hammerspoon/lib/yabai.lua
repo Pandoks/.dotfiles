@@ -64,22 +64,49 @@ function yabai.run(args, done, timeout)
 end
 
 ---@type table<integer, fun(ok: boolean, message?: string)>
-local pendingSpaceChanges = {} -- native Space ID -> completion callback
+yabai._pendingSpaceChanges = {} -- native Space ID -> completion callback
 
-local function spaceChangedHandler()
-  local focusedSpaceId = hs.spaces.focusedSpace()
-  local callback = pendingSpaceChanges[focusedSpaceId]
-  if not callback then
+---@param spaceIndex integer yabai Mission Control index
+---@param done fun(ok: boolean, errorMessage: string?)
+---@param timeout? number seconds; defaults to 10
+function yabai.switchSpace(spaceIndex, done, timeout)
+  local spaceList, err = spaces()
+  if not spaceList then
+    done(false, err)
     return
   end
-  pendingSpaceChanges[focusedSpaceId] = nil
-  callback(true)
-end
+  local space = spaceList[spaceIndex]
+  if not space then
+    done(false, "space " .. spaceIndex .. " does not exist")
+    return
+  end
+  local spaceID = space.ManagedSpaceID
+  if type(spaceID) ~= "number" then
+    done(false, "invalid Space id")
+    return
+  end
 
-    end
+  if hs.spaces.focusedSpace() == spaceID then
+    done(true)
+    return
+  elseif yabai._pendingSpaceChanges[spaceID] then
+    return
   end
 
   return result
 end
+
+yabai.spaceWatcher = hs.spaces.watcher
+  .new(function()
+    local focusedSpaceId = hs.spaces.focusedSpace()
+    local callback = yabai._pendingSpaceChanges[focusedSpaceId]
+    if not callback then
+      return
+    end
+    yabai._pendingSpaceChanges[focusedSpaceId] = nil
+    callback(true)
+  end)
+  :start()
+
 ---@return YabaiClient
 return yabai
