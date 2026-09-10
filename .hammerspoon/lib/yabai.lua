@@ -93,7 +93,29 @@ function yabai.switchSpace(spaceIndex, done, timeout)
     return
   end
 
-  return result
+  local timer = hs.timer.doAfter(timeout or 10, function()
+    local callback = yabai._pendingSpaceChanges[spaceID]
+    if not callback then
+      return
+    end
+    yabai._pendingSpaceChanges[spaceID] = nil
+    callback(false, "timed out waiting for Space " .. spaceIndex)
+  end)
+
+  yabai._pendingSpaceChanges[spaceID] = function(ok, errorMessage)
+    if timer:running() then
+      timer:stop()
+    end
+    done(ok, errorMessage)
+  end
+
+  yabai.run({ "space", "--focus", tostring(spaceIndex) }, function(ok, _, stderr)
+    if not ok and yabai._pendingSpaceChanges[spaceID] then -- callback hasn't been called yet (timer hasn't timed out
+      yabai._pendingSpaceChanges[spaceID] = nil
+      timer:stop()
+      done(false, stderr)
+    end
+  end, timeout)
 end
 
 yabai.spaceWatcher = hs.spaces.watcher
