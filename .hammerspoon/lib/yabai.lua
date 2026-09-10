@@ -31,10 +31,22 @@ local function spaces()
   return result
 end
 
+---@param ok boolean
+---@param stdout? string stdout for `run`, or error message for `switchSpace`
+---@param stderr? string stderr for `run`
+local function report(ok, stdout, stderr)
+  if ok then
+    return
+  end
+  print("yabai error: " .. (stderr or stdout or ""))
+end
+
 ---@param args string[]
----@param done fun(ok: boolean, stdout: string, stderr: string)
+---@param done? fun(ok: boolean, stdout: string, stderr: string)
 ---@param timeout? number seconds; defaults to 10
 function yabai.run(args, done, timeout)
+  done = done or report
+
   local argv = { "-m" }
   for i = 1, #args do
     argv[#argv + 1] = args[i]
@@ -67,9 +79,11 @@ end
 yabai._pendingSpaceChanges = {} -- native Space ID -> completion callback
 
 ---@param spaceIndex integer yabai Mission Control index
----@param done fun(ok: boolean, errorMessage: string?)
+---@param done? fun(ok: boolean, errorMessage: string?)
 ---@param timeout? number seconds; defaults to 10
 function yabai.switchSpace(spaceIndex, done, timeout)
+  done = done or report
+
   local spaceList, err = spaces()
   if not spaceList then
     done(false, err)
