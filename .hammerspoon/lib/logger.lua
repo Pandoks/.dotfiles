@@ -1,7 +1,8 @@
+---@class Logger
 local logger = {}
+
 local consolePrint = print
 local logDirectory = os.getenv("HOME") .. "/Library/Logs/Hammerspoon"
-
 local failurePrefix = "Could not write Hammerspoon file log: "
 
 logger.path = logDirectory .. "/config.log"
@@ -34,4 +35,5 @@ function logger.install()
   end
 end
 
+---@return Logger
 return logger
