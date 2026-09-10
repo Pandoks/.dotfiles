@@ -4,7 +4,6 @@
 yabai -m config layout bsp                       # bsp|stack|float
 yabai -m config window_insertion_point last      # focused|first|last
 yabai -m config skip_window_focus_animation off  # keep Cmd-Tab and Dock switching native
-yabai -m config focus_follows_mouse autofocus    # off|autofocus|autoraise
 
 yabai -m rule --add app!="^(Helium|Ghostty|Slack|Notion Calendar|T3 Code \(Nightly\))$" manage=off
 
