@@ -1,3 +1,5 @@
+local utils = require("lib.utils")
+
 ---@type string
 local path = (hs.processInfo.arch == "arm64" or hs.processInfo.isRosetta)
     and "/opt/homebrew/bin/yabai"
@@ -5,31 +7,6 @@ local path = (hs.processInfo.arch == "arm64" or hs.processInfo.isRosetta)
 
 ---@class YabaiClient
 local yabai = {}
-
----@class ManagedSpace
----@field ManagedSpaceID integer native CGS id (`hs.spaces.focusedSpace()`)
----@field id64 integer same id as `ManagedSpaceID` in practice
----@field type integer 0 = user, 4 = fullscreen
----@field uuid string empty for some Spaces (often the first)
-
----@return ManagedSpace[]? spaces 1-based; `spaces[i]` is Mission Control index `i`
----@return string? errorMessage
-local function spaces()
-  local data, err = hs.spaces.data_managedDisplaySpaces()
-  if type(data) ~= "table" then
-    return nil, err or "could not read managed Spaces"
-  end
-
-  ---@type ManagedSpace[]
-  local result = {}
-  for _, display in ipairs(data) do
-    for _, space in ipairs(display.Spaces or {}) do
-      result[#result + 1] = space
-    end
-  end
-
-  return result
-end
 
 ---@param ok boolean
 ---@param stdout? string stdout for `run`, or error message for `switchSpace`
@@ -84,7 +61,7 @@ yabai._pendingSpaceChanges = {} -- native Space ID -> completion callback
 function yabai.switchSpace(spaceIndex, done, timeout)
   done = done or report
 
-  local spaceList, err = spaces()
+  local spaceList, err = utils.spaces()
   if not spaceList then
     done(false, err)
     return
