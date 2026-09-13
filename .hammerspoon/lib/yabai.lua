@@ -180,10 +180,11 @@ function yabai.switchSpace(spaceIndex, done, timeout)
   end, timeout)
 end
 
--- hs.spaces.watcher retains itself in the LuaSkin registry while started
--- (libspaces_watcher.m: `spaceWatcher->self = [skin luaRef:refTable]`), so a
--- local is enough to keep it alive; keeping it local also means nothing
--- outside this module can stop it.
+-- hs.spaces.watcher:start() stores a self-reference in the LuaSkin registry
+-- (libspaces_watcher.m: `spaceWatcher->self = [skin luaRef:refTable]`) that is
+-- never released, so once started it lives until the Lua state is torn down and
+-- a local is enough to hold it; keeping it local also means nothing outside
+-- this module can stop it.
 ---@diagnostic disable-next-line: unused-local
 local spaceWatcher = hs.spaces.watcher
   .new(function(_)
