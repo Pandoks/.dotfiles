@@ -236,16 +236,12 @@ function chromium.installURLRouter(router)
 
     local function openURLWithExecutable()
       local task
-      task = hs.task.new(
-        executablePath,
-        function(exitCode, _, stdErr)
-          activeTasks[task] = nil
-          if exitCode ~= 0 then
-            print("Chromium URL routing failed: " .. (stdErr or "unknown error"))
-          end
-        end,
-        { "--profile-directory=" .. directory, fullURL }
-      )
+      task = hs.task.new(executablePath, function(exitCode, _, stdErr)
+        activeTasks[task] = nil
+        if exitCode ~= 0 then
+          print("Chromium URL routing failed: " .. (stdErr or "unknown error"))
+        end
+      end, { "--profile-directory=" .. directory, fullURL })
       if not task or task:start() == false then
         print("Could not start Chromium URL handler")
         hs.urlevent.openURLWithBundle(fullURL, router.bundleID)
