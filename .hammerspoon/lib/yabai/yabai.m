@@ -17,6 +17,7 @@ static int64_t nowMs(void) {
 
 static BOOL exchange(const char *socketPath, NSData *request, int timeoutMs,
                      NSMutableData *response, NSString **error) {
+  // Start the deadline and open a local socket.
   int64_t deadline = nowMs() + timeoutMs;
   int socketFd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (socketFd < 0) {
@@ -24,6 +25,7 @@ static BOOL exchange(const char *socketPath, NSData *request, int timeoutMs,
     return NO;
   }
 
+  // Prevent SIGPIPE and descriptor inheritance by executed child programs.
   int noSigPipe = 1;
   if (setsockopt(socketFd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, sizeof noSigPipe) != 0) {
     *error = @(strerror(errno));
@@ -35,6 +37,7 @@ static BOOL exchange(const char *socketPath, NSData *request, int timeoutMs,
     fcntl(socketFd, F_SETFD, descriptorFlags | FD_CLOEXEC);
   }
 
+  // Connect to the running yabai daemon.
   struct sockaddr_un address = { .sun_family = AF_UNIX };
   strlcpy(address.sun_path, socketPath, sizeof address.sun_path);
   if (connect(socketFd, (struct sockaddr *)&address, sizeof address) != 0) {
@@ -45,6 +48,7 @@ static BOOL exchange(const char *socketPath, NSData *request, int timeoutMs,
     return NO;
   }
 
+  // Set the send timeout from the remaining budget.
   int64_t sendBudget = deadline - nowMs();
   if (sendBudget <= 0) {
     close(socketFd);
@@ -57,6 +61,7 @@ static BOOL exchange(const char *socketPath, NSData *request, int timeoutMs,
   };
   setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &sendTimeout, sizeof sendTimeout);
 
+  // Send every request byte, then close the write direction.
   const char *cursor = request.bytes;
   size_t bytesRemaining = request.length;
   while (bytesRemaining > 0) {
@@ -77,6 +82,7 @@ static BOOL exchange(const char *socketPath, NSData *request, int timeoutMs,
   }
   shutdown(socketFd, SHUT_WR);
 
+  // Accumulate reply chunks until EOF or the deadline.
   char buffer[8192];
   for (;;) {
     int64_t remainingMs = deadline - nowMs();
@@ -108,11 +114,13 @@ static BOOL exchange(const char *socketPath, NSData *request, int timeoutMs,
     if (bytesRead == 0) break;
     [response appendBytes:buffer length:(NSUInteger)bytesRead];
   }
+  // Close the socket and report transport success.
   close(socketFd);
   return YES;
 }
 
 static int run(lua_State *state) {
+  // Validate Lua arguments and keep an owned copy of the socket path.
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TSTRING, LS_TTABLE, LS_TNUMBER | LS_TINTEGER, LS_TFUNCTION, LS_TBREAK];
   size_t pathLength;
@@ -122,6 +130,7 @@ static int run(lua_State *state) {
   int timeoutMs = (int)lua_tointeger(state, 3);
   luaL_argcheck(state, timeoutMs > 0, 3, "timeout must be > 0 ms");
 
+  // Encode NUL-separated arguments with a 32-bit length prefix.
   NSMutableData *body = [NSMutableData data];
   lua_Integer argumentCount = (lua_Integer)lua_rawlen(state, 2);
   for (lua_Integer index = 1; index <= argumentCount; index++) {
@@ -138,15 +147,18 @@ static int run(lua_State *state) {
   NSMutableData *request = [NSMutableData dataWithBytes:&bodyLength length:sizeof bodyLength];
   [request appendData:body];
 
+  // Retain the callback and record the current Lua state's identity.
   lua_pushvalue(state, 4);
   int callbackRef = [skin luaRef:refTable];
   LSGCCanary canary = [skin createGCCanary];
 
+  // Run the blocking socket exchange on a background worker.
   dispatch_async(ioQueue, ^{
     NSMutableData *response = [NSMutableData data];
     NSString *error = nil;
     BOOL ok = exchange(socketPath.bytes, request, timeoutMs, response, &error);
 
+    // Restore the callback on the main thread unless Lua has reloaded.
     dispatch_async(dispatch_get_main_queue(), ^{
       LuaSkin *mainSkin = [LuaSkin sharedWithState:NULL];
       if (![mainSkin checkGCCanary:canary]) return;
@@ -157,6 +169,7 @@ static int run(lua_State *state) {
       LSGCCanary completedCanary = canary;
       [mainSkin destroyGCCanary:&completedCanary];
 
+      // Map socket errors, yabai errors, or success to Lua arguments.
       const char *responseBytes = response.bytes;
       NSUInteger responseLength = response.length;
       if (!ok) {
@@ -172,10 +185,12 @@ static int run(lua_State *state) {
         lua_pushlstring(mainState, responseBytes, responseLength);
         lua_pushliteral(mainState, "");
       }
+      // Invoke the callback with (ok, stdout, stderr).
       [mainSkin protectedCallAndError:@"yabai callback" nargs:3 nresults:0];
       _lua_stackguard_exit(mainState);
     });
   });
+  // Return to Lua without waiting for the queued work.
   return 0;
 }
 

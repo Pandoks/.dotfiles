@@ -1,7 +1,2 @@
 -fobjc-arc
--fno-modules
 -F/Applications/Hammerspoon.app/Contents/Frameworks
--I/Applications/Hammerspoon.app/Contents/Frameworks/LuaSkin.framework/Headers
--Wall
--Wextra
--Wshadow
