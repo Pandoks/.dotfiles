@@ -15,28 +15,18 @@ local function shellQuote(s)
   return "'" .. s:gsub("'", "'\\''") .. "'"
 end
 
--- Load lib/yabai/native.m, compiling it into the app's cache directory on
--- first use or after an edit. The output name carries the arch, Hammerspoon
--- version and a hash of the source, so a stale binary is never loaded against
--- a changed LuaSkin ABI and a rebuilt module loads as a fresh image instead of
--- dyld handing back the one already mapped.
+-- The source/ABI cache key also makes dyld load rebuilt modules as fresh images.
 ---@return YabaiNative
 local function loadNative()
   local here = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$")
-  local src = here .. "/yabai/native.m"
+  local src = here .. "/yabai/yabai.m"
   local file = assert(io.open(src, "rb"), "missing " .. src)
   local sourceHash = hs.hash.SHA256(file:read("a")):sub(1, 16)
   file:close()
   local info = hs.processInfo
   local cache = string.format("%s/Library/Caches/%s/yabai", os.getenv("HOME"), info.bundleID)
-  local so = string.format(
-    "%s/native-%s-%s.%s-%s.so",
-    cache,
-    info.arch,
-    info.version,
-    info.build,
-    sourceHash
-  )
+  local so =
+    string.format("%s/yabai-%s-%s.%s-%s.so", cache, info.arch, info.version, info.build, sourceHash)
   if not hs.fs.attributes(so) then
     local frameworks = info.frameworksPath
     local argv = {
@@ -65,17 +55,20 @@ local function loadNative()
       string.format("mkdir -p %s && %s 2>&1", shellQuote(cache), table.concat(argv, " "))
     )
     if not ok then
-      error("yabai: building native.m failed:\n" .. output, 0)
+      error("yabai: building yabai.m failed:\n" .. output, 0)
     elseif output ~= "" then
-      print("yabai: native.m built with warnings:\n" .. output)
+      print("yabai: yabai.m built with warnings:\n" .. output)
     end
     for entry in hs.fs.dir(cache) do
-      if entry:match("^native%-.+%.so$") and cache .. "/" .. entry ~= so then
+      if
+        (entry:match("^yabai%-.+%.so$") or entry:match("^native%-.+%.so$"))
+        and cache .. "/" .. entry ~= so
+      then
         os.remove(cache .. "/" .. entry)
       end
     end
   end
-  return assert(package.loadlib(so, "luaopen_yabai_native"))()
+  return assert(package.loadlib(so, "luaopen_yabai"))()
 end
 
 local native = loadNative()
@@ -106,7 +99,7 @@ function yabai.run(args, done, timeout)
   )
 end
 
----@type table<integer, { callbacks: YabaiSpaceCallback[], timer: hs.timer, deadline: number }>
+---@type table<integer, { callbacks: YabaiSpaceCallback[], timer: hs.timer, pollTimer: hs.timer, deadline: number }>
 local pendingSpaceChanges = {} -- native Space ID -> waiters for that Space
 
 ---@param spaceID integer
@@ -119,6 +112,7 @@ local function settleSpaceChange(spaceID, ok, errorMessage)
   end
   pendingSpaceChanges[spaceID] = nil
   pending.timer:stop()
+  pending.pollTimer:stop()
   for _, callback in ipairs(pending.callbacks) do
     -- one failing waiter must not starve the others
     local called, traceback = xpcall(callback, debug.traceback, ok, errorMessage)
@@ -166,16 +160,34 @@ function yabai.switchSpace(spaceIndex, done, timeout)
     return
   end
 
-  pendingSpaceChanges[spaceID] = {
+  pending = {
     callbacks = { done },
     deadline = deadline,
     timer = hs.timer.doAfter(timeout, function()
-      settleSpaceChange(spaceID, false, "timed out waiting for Space " .. spaceIndex)
+      if hs.spaces.focusedSpace() == spaceID then
+        settleSpaceChange(spaceID, true)
+      else
+        settleSpaceChange(spaceID, false, "timed out waiting for Space " .. spaceIndex)
+      end
+    end),
+    -- Focusing an already-visible Space on another display may emit no Space
+    -- notification. Also cover notifications arriving before focus is updated.
+    pollTimer = hs.timer.doEvery(0.02, function()
+      if hs.spaces.focusedSpace() == spaceID then
+        settleSpaceChange(spaceID, true)
+      end
     end),
   }
+  pendingSpaceChanges[spaceID] = pending
   yabai.run({ "space", "--focus", tostring(spaceIndex) }, function(ok, _, stderr)
+    -- A late reply must not settle a newer request for the same Space.
+    if pendingSpaceChanges[spaceID] ~= pending then
+      return
+    end
     if not ok then
       settleSpaceChange(spaceID, false, stderr)
+    elseif hs.spaces.focusedSpace() == spaceID then
+      settleSpaceChange(spaceID, true)
     end
   end, timeout)
 end
