@@ -1,2 +1,4 @@
 -fobjc-arc
 -F/Applications/Hammerspoon.app/Contents/Frameworks
+-Wall
+-Wextra
