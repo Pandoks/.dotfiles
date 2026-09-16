@@ -2,6 +2,9 @@
 
 ## Implementation Notes
 
+Most of these rules apply to Lua, but it also applies to anything in `.hammerspoon`. For example,
+native modules etc.
+
 - Avoid polling as much as possible.
   - You should be using callbacks or event listeners instead even if it's more complex.
   - Resort to polling only when absolutely necessary and other implementation methods aren't
@@ -32,3 +35,13 @@
   - You don't need to create a module or function for every small feature as that clutters
     everything.
   - For miscallaneous utility functions, put that in a module named `utils`.
+- Comments should be as minimal as possible.
+  - If a comment can be done in a single word, do it in a single word. If it can be done in a single
+    sentence, do it in a single sentence. Ideally all comments can be a single line.
+  - You should only include a comment block on top of a function if it's needed by the LSP, but the
+    block should still be as minimal as possible.
+  - You don't need to have a comment block at the top of every file.
+  - For large functions ONLY, you should include concise comments at the top of every logical block
+    so developers don't have to parse through the code to understand what is going on.
+  - Functions should therefore be formatted in a way and implemented in a way where logic flow is
+    clear and organized so these comments are easily understood.
