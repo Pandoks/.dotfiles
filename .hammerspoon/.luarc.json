@@ -1,4 +1,5 @@
 {
+  "runtime.version": "Lua 5.4",
   "workspace.library": ["${env:HOME}/.hammerspoon/Spoons/EmmyLua.spoon/annotations"],
   "workspace.ignoreDir": ["Spoons"],
   "diagnostics.libraryFiles": "Disable",
