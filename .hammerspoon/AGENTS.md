@@ -46,3 +46,5 @@ native modules etc.
   - Functions should therefore be formatted in a way and implemented in a way where logic flow is
     clear and organized so these comments are easily understood.
 - When in doubt, look at the existing committed or staged code as a reference.
+- We don't need retry logic. Just make it fail fast, log it, and notify the user with a pop up
+  message.
