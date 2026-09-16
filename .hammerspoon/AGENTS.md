@@ -45,3 +45,4 @@ native modules etc.
     so developers don't have to parse through the code to understand what is going on.
   - Functions should therefore be formatted in a way and implemented in a way where logic flow is
     clear and organized so these comments are easily understood.
+- When in doubt, look at the existing committed or staged code as a reference.
