@@ -6,6 +6,7 @@
 "brew:rtorrent" = "latest"
 
 "mas:937984704" = "latest" # Amphetamine
+"mas:497799835" = "latest" # Xcode
 
 "brew-cask:ghostty" = "latest"
 "brew-cask:hammerspoon" = "latest"
@@ -13,7 +14,6 @@
 "brew-cask:docker-desktop" = "latest"
 "brew-cask:font-hack-nerd-font" = "latest"
 "brew-cask:tailscale-app" = "latest"
-"brew-cask:space-rabbit" = "latest"
 "brew-cask:betterdisplay" = "latest"
 "brew-cask:t3-code@nightly" = "latest"
 "brew-cask:gifox" = "latest"
