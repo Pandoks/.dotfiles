@@ -53,7 +53,7 @@
 ---@field cleanup DictationCleanupConfig LLM cleanup pass.
 ---@field style string Global instructions: the cleanup model's system prompt. This is what you tune.
 ---@field vocabulary string[] Correct spellings of names, tools, jargon. Misheard tokens close to one of these are rewritten to it (real English words are never touched), before and after cleanup, and the word is protected from being dropped. This is the list to maintain.
----@field dictionary table<string, string[]> Word -> spoken variants. Applied deterministically to the transcript and given to the models. Edit dictionary.lua.
+---@field dictionary table<string, string[]> Correct spelling -> explicit spoken variants, for mishearings `vocabulary` similarity cannot reach. Applied deterministically before and after cleanup.
 ---@field apps table<string, DictationAppConfig> Per-app overrides keyed by bundle id (`osascript -e 'id of app "Slack"'`).
 ---@field insert DictationInsertMode How the result is delivered: into the focused field, to the clipboard, or field-with-clipboard-fallback.
 ---@field includeSelection boolean Send the current text selection as context. Off by default (privacy; can cause echoing). Only a real selection, capped, is ever sent.
@@ -95,21 +95,34 @@ local config = {
     max_tokens = 400,
   },
 
-  -- Global instructions (the "fine tuning").
-  style = table.concat({
-    "You clean up dictated speech into text the user meant to type.",
-    "Fix transcription errors, add sensible punctuation and capitalization,",
-    "remove filler words (um, uh, like), but keep the user's wording and voice.",
-    "Do not answer questions or add commentary. Output ONLY the cleaned text.",
-  }, " "),
+  -- Global instructions (the "fine tuning"). Only used with a plain instruct
+  -- cleanup model (cleanup.adapter = nil); a cleanup-trained adapter ships its
+  -- own prompt.
+  style = "You clean up dictated speech into text the user meant to type. "
+    .. "Fix transcription errors, add sensible punctuation and capitalization, "
+    .. "remove filler words (um, uh, like), but keep the user's wording and voice. "
+    .. "Do not answer questions or add commentary. Output ONLY the cleaned text.",
 
-  -- Brand names, tools, jargon: see dictionary.lua (word -> how it's misheard).
-  dictionary = require("dictation.dictionary"),
-  -- Plain extra glossary words (no variants). Usually leave empty and use the
-  -- dictionary instead.
+  -- Correct spellings of names, tools, jargon. This is the list to maintain:
+  -- misheard tokens close to one of these are rewritten to it.
   vocabulary = {
     "yabai", "Raycast", "Hammerspoon", "Ghostty", "mise", "Neovim", "rtorrent",
     "macOS", "GitHub", "Slack",
+  },
+
+  -- Explicit spoken variants for stubborn mishearings the vocabulary match
+  -- cannot reach ("meez" for mise) or that collide with real words ("ghosty").
+  -- Word -> variants, replaced case-insensitively at word boundaries.
+  dictionary = {
+    Raycast = { "ray cast", "re cast", "ray cost" },
+    yabai = { "yabe", "ya bye", "yah bye", "ya buy" },
+    Hammerspoon = { "hammer spoon", "hammers spoon" },
+    Ghostty = { "ghosty", "ghost tea", "ghost e" },
+    mise = { "meez", "mees" },
+    Neovim = { "neo vim", "neo them" },
+    rtorrent = { "r torrent", "are torrent" },
+    macOS = { "mac os", "mac o s" },
+    GitHub = { "git hub" },
   },
 
   apps = {

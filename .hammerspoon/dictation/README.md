@@ -76,12 +76,16 @@ never rewritten ("recast" stays "recast"), and a vocabulary word you said is
 protected from being dropped by the cleanup model. With the Whisper backend the
 list is also passed to the speech model as a hint; Parakeet has no such input.
 
-`dictionary.lua` is only for stubborn mishearings the similarity match cannot
-reach, mapping the correct spelling to explicit spoken variants:
+`dictionary`, also in `config.lua`, is only for stubborn mishearings the
+similarity match cannot reach, mapping the correct spelling to explicit spoken
+variants:
 
 ```lua
-mise = { "meez", "mees" },
+dictionary = { mise = { "meez", "mees" } },
 ```
+
+`config.lua` is the single settings file and is pure data (a typed Lua table,
+no code), so lua-language-server gives completion and hover docs on every key.
 
 End-of-text punctuation is automatic: the cleanup model ends a complete
 sentence with the right mark and leaves a mid-sentence fragment (one you will
@@ -108,7 +112,7 @@ Set `cleanup.enabled = false` for raw transcription with no LLM pass.
 
 | File | Role |
 |---|---|
-| `config.lua` | all user settings (models, style, vocabulary, per-app, hotkey) |
+| `config.lua` | the only settings file: trigger, models, style, vocabulary, dictionary, per-app, insertion (pure data) |
 | `init.lua` | hotkey, orchestration, context, insertion |
 | `overlay.lua` | the Raycast-style waveform pill (`hs.canvas`) |
 | `recorder.lua` | asynchronous mic capture and completion |
