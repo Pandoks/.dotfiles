@@ -193,20 +193,9 @@ local function toggle()
     overlay = pill
     state = "recording"
     pill:show()
-    -- Animate immediately; the microphone takes ~0.4 s to open before real
-    -- frames arrive, and the pill must not look frozen meanwhile.
-    stopAnim()
-    animation = hs.timer.doEvery(1 / 30, function()
-      pill:tick()
-    end)
     setEscape(true)
     local capture, message = recorder.start({
       config = config,
-      onBars = function(bands)
-        if state == "recording" then
-          pill:setBars(bands)
-        end
-      end,
       onError = function(failure)
         fail("Dictation recorder: " .. failure)
         cancel()
@@ -218,6 +207,19 @@ local function toggle()
       return
     end
     recording = capture
+    -- One 30 fps tick drives everything: a listening pulse until the microphone
+    -- opens (~0.4 s), then the equalizer from PCM polled off ffmpeg's file.
+    stopAnim()
+    animation = hs.timer.doEvery(1 / 30, function()
+      if state == "recording" then
+        local bands = recorder.poll(capture)
+        if bands then
+          pill:setBars(bands)
+          return
+        end
+      end
+      pill:tick()
+    end)
   elseif state == "recording" then
     state = "thinking"
     local capture = assert(recording)

@@ -19,7 +19,7 @@ require("dictation")
 |---|---|---|
 | Hotkey, overlay, capture, insert | Hammerspoon (Lua) | this directory |
 | Speech-to-text + LLM cleanup | `.venv` Python (`server.py`) | resident process, fast after first load |
-| Mic capture | `ffmpeg` child process | levels drive the waveform |
+| Mic capture + equalizer | `ffmpeg` child + `spectrum.lua` | PCM via temp file, FFT in Lua |
 
 ## Setup
 
@@ -107,18 +107,22 @@ Set `cleanup.enabled = false` for raw transcription with no LLM pass.
 | `init.lua` | hotkey, orchestration, context, insertion |
 | `overlay.lua` | the Raycast-style waveform pill (`hs.canvas`) |
 | `recorder.lua` | asynchronous mic capture and completion |
-| `analyzer.py` | owns ffmpeg and streams live levels |
+| `spectrum.lua` | pure-Lua FFT: PCM window -> equalizer bands + level |
 | `engine.lua` | manages the resident Python backend over a JSON pipe |
 | `server.py` | speech-to-text + LLM cleanup, kept resident |
 | `setup.sh` | builds `.venv` |
 
 Capture errors stop dictation and show a logged alert. Capture uses the system's
-current default microphone without running discovery subprocesses.
+current default microphone. ffmpeg writes the wav and, in parallel, raw PCM to a
+flushed temp file; the 30 fps tick reads the new bytes and `spectrum.lua` runs
+the FFT in Lua (~2 ms/frame). No Python is involved in capture: Hammerspoon
+decodes task output as text (dropping PCM bytes) and `io.popen` would block the
+main thread, while a page-cached file read costs ~13 µs per frame.
 
-Stopping waits for ffmpeg to finalize the WAV before transcription. Escape
-cancels capture and discards pending transcription results by request ID. Meter
-frames update the recording overlay directly; a timer animates only the thinking
-state. Direct insertion writes through Accessibility and leaves the clipboard
+Stopping sends SIGINT so ffmpeg finalizes the WAV before transcription. Escape
+cancels capture and discards pending transcription results by request ID. One
+timer drives the pill: a listening pulse until the mic opens, the equalizer while
+recording, a shimmer while transcribing. Direct insertion writes through Accessibility and leaves the clipboard
 untouched; clipboard mode only copies. Chromium/Electron fields (Slack, VS Code,
 browsers) report Accessibility writes as supported and then ignore them, so for
 those the text is pasted with the app's own ⌘V (whole text at once, not typed)

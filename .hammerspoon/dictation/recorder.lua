@@ -1,24 +1,39 @@
+-- Microphone capture. hs.task owns one ffmpeg process on the system's current
+-- default input, writing two outputs: the cleaned 16 kHz wav for the speech
+-- model, and a raw PCM file (flushed per packet) that `poll()` reads for the
+-- equalizer. Audio goes through a file rather than a pipe because Hammerspoon
+-- decodes task output as UTF-8 text (dropping PCM bytes) and io.popen would
+-- block the main thread; a page-cached read costs ~13 µs per frame.
+--
+-- Hammerspoon has no native recording API; ffmpeg's microphone access is
+-- attributed to Hammerspoon (grant it in Privacy & Security > Microphone).
+
+local Spectrum = require("dictation.spectrum")
+
 ---@class DictationRecorderOptions
 ---@field config DictationConfig
----@field onBars? fun(bands: number[])
 ---@field onError fun(message: string)
 
 ---@class DictationRecording
----@field wav string
----@field peak number
----@field started number
----@field buffer string
----@field task? hs.task
+---@field wav string output wav path
+---@field pcm string raw PCM path read by poll()
+---@field offset integer bytes of pcm consumed so far
+---@field tail string most recent PCM bytes (one analysis window)
+---@field spectrum DictationSpectrum
+---@field peak number highest level (0..1) seen so far
+---@field started number epoch seconds when capture started
+---@field task hs.task
 ---@field finished? boolean
 ---@field stopping? boolean
 ---@field discarded? boolean
 ---@field error? string
 ---@field duration? number
----@field deadline? hs.timer
 ---@field done? fun(wav: string?, peak: number, duration: number)
 
 local recorder = {}
-local directory = debug.getinfo(1, "S").source:match("^@(.*/)") or "./"
+
+local RATE = 16000
+local SIZE = 1024
 
 ---@param options DictationRecorderOptions
 ---@return DictationRecording?, string?
@@ -41,12 +56,9 @@ function recorder.start(options)
   if not ffmpeg then
     return nil, "ffmpeg unavailable"
   end
-  local python = directory .. ".venv/bin/python"
-  if not hs.fs.attributes(python) then
-    return nil, "backend venv missing; run dictation/setup.sh"
-  end
 
-  local wav = os.tmpname()
+  local base = os.tmpname()
+  local wav, pcm = base .. ".wav", base .. ".pcm"
   local highpass = "highpass=f=90"
   local filter = highpass
   if options.config.noiseReduction then
@@ -56,8 +68,16 @@ function recorder.start(options)
       .. "stop_periods=-1:stop_threshold=-40dB:stop_silence=0.2"
   end
   ---@type DictationRecording
-  local recording =
-    { wav = wav, peak = 0, started = assert(hs.timer.secondsSinceEpoch()), buffer = "" }
+  local recording = {
+    wav = wav,
+    pcm = pcm,
+    offset = 0,
+    tail = "",
+    spectrum = Spectrum.new(RATE, options.config.eqBands, SIZE),
+    peak = 0,
+    started = assert(hs.timer.secondsSinceEpoch()),
+    task = nil, ---@diagnostic disable-line: assign-type-mismatch -- assigned below
+  }
   local function failure(message)
     if recording.error or recording.discarded then
       return
@@ -65,107 +85,70 @@ function recorder.start(options)
     recording.error = message
     options.onError(message)
   end
-  local function stream(_, output, errors)
-    if recording.finished or recording.discarded then
-      return true
-    end
+  local task = hs.task.new(ffmpeg, function(code, _, errors)
+    recording.finished = true
     if errors and errors ~= "" then
-      failure(errors:gsub("%s+$", ""))
+      failure((errors:gsub("%s+$", "")))
+    elseif not recording.stopping or (code ~= 0 and code ~= 255) then
+      failure("capture exited (code " .. tostring(code) .. ")")
     end
-    recording.buffer = recording.buffer .. (output or "")
-    while true do
-      local newline = recording.buffer:find("\n")
-      if not newline then
-        break
-      end
-      local line = recording.buffer:sub(1, newline - 1)
-      recording.buffer = recording.buffer:sub(newline + 1)
-      local ok, frame = pcall(hs.json.decode, line)
-      if
-        not ok
-        or type(frame) ~= "table"
-        or type(frame.l) ~= "number"
-        or type(frame.b) ~= "table"
-      then
-        failure("invalid audio meter response")
-        return true
-      end
-      recording.peak = math.max(recording.peak, frame.l)
-      if options.onBars then
-        options.onBars(frame.b)
-      end
+    os.remove(pcm)
+    if recording.discarded or recording.error then
+      os.remove(wav)
     end
-    return true
-  end
-  local task = hs.task.new(
-    python,
-    function(code, output, errors)
-      stream(nil, output, errors)
-      recording.finished = true
-      if recording.deadline then
-        recording.deadline:stop()
-      end
-      if code ~= 0 or not recording.stopping then
-        failure("capture exited (code " .. tostring(code) .. ")")
-      end
-      if recording.discarded or recording.error then
-        os.remove(wav)
-      end
-      if recording.done then
-        recording.done(
-          not recording.error and not recording.discarded and wav or nil,
-          recording.peak,
-          recording.duration or hs.timer.secondsSinceEpoch() - recording.started
-        )
-      end
-    end,
-    stream,
-    {
-      directory .. "analyzer.py",
-      "--bands",
-      tostring(options.config.eqBands),
-      "--capture",
-      ffmpeg,
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-f",
-      "avfoundation",
-      "-i",
-      ":default",
-      "-filter:a",
-      filter,
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "-y",
-      "-f",
-      "wav",
-      wav,
-      "-filter:a",
-      highpass,
-      "-f",
-      "s16le",
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "pipe:1",
-    }
-  )
+    if recording.done then
+      recording.done(
+        not recording.error and not recording.discarded and wav or nil,
+        recording.peak,
+        recording.duration or hs.timer.secondsSinceEpoch() - recording.started
+      )
+    end
+  end, {
+    "-hide_banner", "-loglevel", "error", "-nostdin",
+    "-f", "avfoundation", "-i", ":default",
+    "-filter:a", filter, "-ac", "1", "-ar", tostring(RATE), "-y", "-f", "wav", wav,
+    "-filter:a", highpass, "-f", "s16le", "-ac", "1", "-ar", tostring(RATE),
+    "-flush_packets", "1", "-y", pcm,
+  })
   if not task then
-    os.remove(wav)
     return nil, "could not create capture task"
   end
   recording.task = task
   if not task:start() then
-    os.remove(wav)
     return nil, "could not start capture task"
   end
   return recording
 end
 
+-- Read any new PCM and analyze the latest window. Call on the animation tick.
+---@param recording DictationRecording
+---@return number[]? bands nil until a full window of audio exists
+function recorder.poll(recording)
+  if recording.finished or recording.discarded then
+    return nil
+  end
+  local file = io.open(recording.pcm, "rb")
+  if not file then
+    return nil
+  end
+  file:seek("set", recording.offset)
+  local new = file:read("a") or ""
+  file:close()
+  if #new == 0 then
+    return nil
+  end
+  recording.offset = recording.offset + #new
+  recording.tail = (recording.tail .. new):sub(-SIZE * 2)
+  if #recording.tail < SIZE * 2 then
+    return nil
+  end
+  local bands, level = recording.spectrum:analyze(recording.tail)
+  recording.peak = math.max(recording.peak, level)
+  return bands
+end
+
+-- Stop capture. SIGINT lets ffmpeg finalize the wav; the completion callback
+-- then delivers the path (nil on failure), peak level, and duration.
 ---@param recording DictationRecording
 ---@param done fun(wav: string?, peak: number, duration: number)
 function recorder.stop(recording, done)
@@ -175,17 +158,10 @@ function recorder.stop(recording, done)
   recording.stopping, recording.done = true, done
   recording.duration = hs.timer.secondsSinceEpoch() - recording.started
   if recording.finished then
-    done(nil, recording.peak, hs.timer.secondsSinceEpoch() - recording.started)
+    done(nil, recording.peak, recording.duration)
     return
   end
-  -- The completion callback runs only after ffmpeg has finalized the WAV.
-  recording.task:setInput("q\n")
-  recording.deadline = hs.timer.doAfter(2, function()
-    recording.error = "timed out stopping microphone capture"
-    recording.task:terminate()
-    done(nil, recording.peak, hs.timer.secondsSinceEpoch() - recording.started)
-    recording.done = nil
-  end)
+  recording.task:interrupt()
 end
 
 ---@param recording? DictationRecording
@@ -194,12 +170,10 @@ function recorder.cleanup(recording)
     return
   end
   recording.discarded, recording.done = true, nil
-  if recording.deadline then
-    recording.deadline:stop()
-  end
   if recording.finished then
     os.remove(recording.wav)
-  elseif recording.task then
+    os.remove(recording.pcm)
+  else
     recording.task:terminate()
   end
 end

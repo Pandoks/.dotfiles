@@ -3,4 +3,3 @@ mlx-audio
 mlx-whisper
 mlx-lm
 transformers
-numpy
