@@ -92,69 +92,89 @@ local function setEscape(active)
   end
 end
 
+-- Insert text into the focused field. Returns the outcome: "ax" (accessibility
+-- write), "paste" (the app's own ⌘V), or nil when there is no field to insert
+-- into. Raises on a real failure.
+---@param text string
+---@return "ax"|"paste"|nil
+local function insertText(text)
+  local systemWide = hs.axuielement.systemWideElement() --[[@as hs.axuielement]]
+  local element = systemWide:attributeValue("AXFocusedUIElement")
+  if not element then
+    return nil
+  end
+  local value = element:attributeValue("AXValue")
+  local range = element:attributeValue("AXSelectedTextRange")
+  if type(value) == "string" and type(range) == "table" and range.location then
+    local before, units = "", 0
+    for _, codepoint in utf8.codes(value) do
+      units = units + (codepoint > 0xFFFF and 2 or 1)
+      if units > range.location then
+        break
+      end
+      before = utf8.char(codepoint)
+    end
+    if before ~= "" and not before:match("%s") then
+      text = " " .. text
+    end
+  end
+  local writable, failure = element:isAttributeSettable("AXSelectedText")
+  if failure then
+    error(failure, 0)
+  end
+  -- A text field reports its selection as writable and has a string value.
+  -- Anything else (Finder desktop, a web page with no input) is not a field.
+  if not writable or type(value) ~= "string" then
+    return nil
+  end
+  -- Chromium/Electron fields report the attribute writable and accept the
+  -- call, then ignore it. Only trust the write if the field's value changed.
+  local result, reason = element:setAttributeValue("AXSelectedText", text)
+  if not result then
+    error(reason or "could not insert into focused field", 0)
+  end
+  if element:attributeValue("AXValue") ~= value then
+    return "ax"
+  end
+  -- The app's own Paste is the only instant, whole-text insert left. macOS
+  -- offers no signal for when the app has read the clipboard, hence the delay
+  -- before restoring it.
+  local previous = hs.pasteboard.readAllData()
+  if not hs.pasteboard.setContents(text) then
+    error("could not write clipboard", 0)
+  end
+  hs.eventtap.keyStroke({ "cmd" }, "v", 0)
+  hs.timer.doAfter(0.25, function()
+    if previous then
+      hs.pasteboard.writeAllData(previous)
+    end
+  end)
+  return "paste"
+end
+
 -- Deliver the result and return to idle.
 ---@param text string?
 local function finish(text)
   inflight = nil
   if text and #text > 0 and not stopped then
-    if config.insert == "clipboard" then
-      if not hs.pasteboard.setContents(text) then
-        fail("Dictation: could not write clipboard")
+    local mode = config.insert
+    local outcome
+    if mode ~= "clipboard" then
+      local ok, result = pcall(insertText, text)
+      if ok then
+        outcome = result
+      elseif mode == "direct" then
+        fail("Dictation: " .. tostring(result))
       end
-    else
-      local inserted, message = pcall(function()
-        local systemWide = hs.axuielement.systemWideElement() --[[@as hs.axuielement]]
-        local element = systemWide:attributeValue("AXFocusedUIElement")
-        if element then
-          local value = element:attributeValue("AXValue")
-          local range = element:attributeValue("AXSelectedTextRange")
-          if type(value) == "string" and type(range) == "table" and range.location then
-            local before, units = "", 0
-            for _, codepoint in utf8.codes(value) do
-              units = units + (codepoint > 0xFFFF and 2 or 1)
-              if units > range.location then
-                break
-              end
-              before = utf8.char(codepoint)
-            end
-            if before ~= "" and not before:match("%s") then
-              text = " " .. text
-            end
-          end
-          local writable, failure = element:isAttributeSettable("AXSelectedText")
-          if failure then
-            error(failure, 0)
-          end
-          -- Chromium/Electron fields report the attribute writable and accept
-          -- the call, then ignore it. Only trust the write if the field's value
-          -- actually changed; otherwise type the text.
-          if writable and type(value) == "string" then
-            local result, reason = element:setAttributeValue("AXSelectedText", text)
-            if not result then
-              error(reason or "could not insert into focused field", 0)
-            end
-            if element:attributeValue("AXValue") ~= value then
-              return
-            end
-          end
+    end
+    -- "clipboard" always copies; "auto" copies when nothing could be inserted.
+    if mode == "clipboard" or (mode == "auto" and not outcome) then
+      if hs.pasteboard.setContents(text) then
+        if mode == "auto" then
+          hs.alert.show("Dictation copied to clipboard", 1.5)
         end
-        -- Chromium/Electron: the only instant, whole-text insert is the app's
-        -- own Paste. Keystrokes would be rendered as typing. Put the text on the
-        -- clipboard, paste, and restore the previous clipboard shortly after;
-        -- macOS offers no signal for when the app has read it.
-        local previous = hs.pasteboard.readAllData()
-        if not hs.pasteboard.setContents(text) then
-          error("could not write clipboard", 0)
-        end
-        hs.eventtap.keyStroke({ "cmd" }, "v", 0)
-        hs.timer.doAfter(0.25, function()
-          if previous then
-            hs.pasteboard.writeAllData(previous)
-          end
-        end)
-      end)
-      if not inserted then
-        fail("Dictation: " .. tostring(message))
+      else
+        fail("Dictation: could not write clipboard")
       end
     end
   end

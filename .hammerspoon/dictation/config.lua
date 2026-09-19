@@ -9,13 +9,14 @@
 ---| "dictationKey" # the macOS mic key; unreliable, macOS always intercepts it
 
 ---@alias DictationInsertMode
----| "direct"    # insert into the focused field via accessibility, clipboard untouched. Fields that ignore accessibility writes (Electron/Chromium apps) get the app's own Paste instead: text goes on the clipboard, ⌘V, previous clipboard restored 0.25 s later.
+---| "auto"      # insert like "direct"; if there is no focused field or insertion fails, copy the text to the clipboard instead (with a brief alert)
+---| "direct"    # insert into the focused field via accessibility, clipboard untouched. Fields that ignore accessibility writes (Electron/Chromium apps) get the app's own Paste instead: text goes on the clipboard, ⌘V, previous clipboard restored 0.25 s later. Failure is reported, nothing is copied.
 ---| "clipboard" # only copy the text to the clipboard; nothing is inserted
 
 ---@alias DictationModifierFlag "cmd"|"alt"|"shift"|"ctrl"|"fn"
 
 ---@class DictationSttConfig
----@field backend DictationBackend Which runtime loads the model. Must match the model; see models.lua.
+---@field backend DictationBackend Which runtime loads the model. Must match the model; see README.md.
 ---@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v3". Downloaded on first use.
 
 ---@class DictationCleanupConfig
@@ -54,7 +55,7 @@
 ---@field vocabulary string[] Correct spellings of names, tools, jargon. Misheard tokens close to one of these are rewritten to it (real English words are never touched), before and after cleanup, and the word is protected from being dropped. This is the list to maintain.
 ---@field dictionary table<string, string[]> Word -> spoken variants. Applied deterministically to the transcript and given to the models. Edit dictionary.lua.
 ---@field apps table<string, DictationAppConfig> Per-app overrides keyed by bundle id (`osascript -e 'id of app "Slack"'`).
----@field insert DictationInsertMode Deliver the result directly into the focused field, or only to the clipboard.
+---@field insert DictationInsertMode How the result is delivered: into the focused field, to the clipboard, or field-with-clipboard-fallback.
 ---@field includeSelection boolean Send the current text selection as context. Off by default (privacy; can cause echoing). Only a real selection, capped, is ever sent.
 ---@field minLevel number 0..1 peak loudness required, else the take is treated as silence. Raise to demand a closer, louder voice.
 ---@field minDuration number Minimum recording length in seconds; shorter takes are ignored.
@@ -126,7 +127,7 @@ local config = {
     },
   },
 
-  insert = "direct",
+  insert = "auto",
   includeSelection = false,
 
   minLevel = 0.25,

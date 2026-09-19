@@ -56,10 +56,16 @@ require("dictation")
 
 ## Choosing a speech model
 
-Edit `stt` in `config.lua`. See `models.lua` for a curated local list, for
-example Parakeet (fastest, default), Qwen3-ASR (most accurate open), Granite,
-or Whisper. Any repo the mlx-audio backend supports works; for Parakeet use
-`backend = "parakeet-mlx"` for the fastest path. First use downloads the model.
+Edit `stt` in `config.lua`; the backend must match the model. First use downloads
+the model. The existing local model reference is listed below.
+
+| Model | Backend | Approx. download | License | Recorded mean WER | Notes |
+|---|---|---|---|---|---|
+| `mlx-community/parakeet-tdt-0.6b-v3` | `parakeet-mlx` | ~1.2 GB | CC-BY-4.0 | 4.86 | Fastest. Best for dictation. 25 EU languages. Native streaming. Default. |
+| `mlx-community/Qwen3-ASR-1.7B-4bit` | `mlx-audio` | ~2 GB | Apache-2.0 | 4.31 | Most accurate open model. 50+ languages. Slower than Parakeet. |
+| `ibm-granite/granite-speech-4.1-2b` | `mlx-audio` | ~4 GB | Apache-2.0 | 4.62 | Strong EN/EU accuracy, keyword biasing. Heavier. |
+| `mlx-community/whisper-large-v3-turbo` | `mlx-whisper` | ~1.6 GB | MIT | 6.36 | 99 languages, most battle-tested. Higher English WER. Verified working. |
+| `mistralai/Voxtral-Mini-4B-Realtime-2602` | `mlx-audio` | ~5 GB | Apache-2.0 | 6.46 | Realtime/streaming oriented, multilingual. |
 
 ## Vocabulary and dictionary (names, tools, jargon)
 
@@ -103,7 +109,6 @@ Set `cleanup.enabled = false` for raw transcription with no LLM pass.
 | File | Role |
 |---|---|
 | `config.lua` | all user settings (models, style, vocabulary, per-app, hotkey) |
-| `models.lua` | curated local speech-model list |
 | `init.lua` | hotkey, orchestration, context, insertion |
 | `overlay.lua` | the Raycast-style waveform pill (`hs.canvas`) |
 | `recorder.lua` | asynchronous mic capture and completion |
@@ -122,8 +127,11 @@ main thread, while a page-cached file read costs ~13 µs per frame.
 Stopping sends SIGINT so ffmpeg finalizes the WAV before transcription. Escape
 cancels capture and discards pending transcription results by request ID. One
 timer drives the pill: a listening pulse until the mic opens, the equalizer while
-recording, a shimmer while transcribing. Direct insertion writes through Accessibility and leaves the clipboard
-untouched; clipboard mode only copies. Chromium/Electron fields (Slack, VS Code,
+recording, a shimmer while transcribing. Insertion (`insert` in config.lua):
+`auto` (default) inserts into the focused field and, when there is no field or
+insertion fails, copies the text to the clipboard and shows a brief alert;
+`direct` inserts only and reports failures; `clipboard` only copies. Direct
+insertion writes through Accessibility and leaves the clipboard untouched. Chromium/Electron fields (Slack, VS Code,
 browsers) report Accessibility writes as supported and then ignore them, so for
 those the text is pasted with the app's own ⌘V (whole text at once, not typed)
 and the previous clipboard is restored 0.25 s later; macOS gives no signal for
