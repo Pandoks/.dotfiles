@@ -60,7 +60,16 @@ fi
 brew install mise
 ```
 
-Bootstrap the machine:
+#### Disable SIP
+
+Some of the features need [SIP] disabled.
+
+1. Shut down. Hold power (Apple Silicon) or hold Command-R during startup (Intel).
+2. Apple Silicon: **Options → Continue**. Authenticate when prompted.
+3. **Utilities → Terminal**: `csrutil disable`. Confirm and authenticate.
+4. Restart. Check `csrutil status` reports `disabled`.
+
+## Bootstrap
 
 ```sh
 git clone https://github.com/Pandoks/.dotfiles.git "$HOME/.dotfiles"
@@ -105,5 +114,6 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
+[SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
