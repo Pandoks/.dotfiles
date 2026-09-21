@@ -108,6 +108,29 @@ model: set `cleanup.adapter = nil` and `cleanup.model` to e.g.
 
 Set `cleanup.enabled = false` for raw transcription with no LLM pass.
 
+## Swapping models and runtimes
+
+Models are swapped in `config.lua` alone: `stt.model` / `stt.backend` and
+`cleanup.model` / `cleanup.adapter` / `cleanup.backend` (default `mlx-lm`). Any
+Hugging Face repo the chosen runtime can load works; it is downloaded on first
+use.
+
+Runtimes are classes in `server.py`. Each model role is an abstract base with
+one subclass per runtime, registered by name:
+
+| Role | Method | Runtimes (`backend`) |
+|---|---|---|
+| `Speech` | `transcribe(wav) -> str` | `parakeet-mlx`, `mlx-whisper`, `mlx-audio` |
+| `Cleaner` | `complete(messages) -> str` | `mlx-lm` |
+
+To add one (say whisper.cpp, or a GGUF cleanup model through llama.cpp),
+subclass the role, set its `name`, implement `load` and the one method, and add
+the class to `SPEECH_BACKENDS` / `CLEANUP_BACKENDS`; then name it in
+`config.lua` (and its alias in the annotations). `Engine` owns everything
+around the models, in order: dictionary and vocabulary, the prompt (or the
+adapter's frozen prompt), the rewrite guard, stall stripping, the question
+mark, and the end policy, so a new runtime gets the same behavior for free.
+
 ## Files
 
 | File | Role |
@@ -118,7 +141,7 @@ Set `cleanup.enabled = false` for raw transcription with no LLM pass.
 | `recorder.lua` | asynchronous mic capture and completion |
 | `spectrum.lua` | pure-Lua FFT: PCM window -> equalizer bands + level |
 | `engine.lua` | manages the resident Python backend over a JSON pipe |
-| `server.py` | speech-to-text + LLM cleanup, kept resident |
+| `server.py` | speech-to-text + LLM cleanup, kept resident; `Speech`/`Cleaner` classes, one per runtime, picked by `backend` |
 | `setup.sh` | builds `.venv` |
 
 Capture errors stop dictation and show a logged alert. Capture uses the system's

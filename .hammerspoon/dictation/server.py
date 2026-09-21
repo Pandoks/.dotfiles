@@ -21,6 +21,19 @@ stdout (one JSON object per line):
   {"event": "pong"}
 
 Config is passed as a single JSON string via --config.
+
+Structure
+---------
+Two model roles, each an abstract base with one class per runtime, selected by
+name from a registry (`SPEECH_BACKENDS`, `CLEANUP_BACKENDS`) using the
+`backend` key of `stt` / `cleanup` in the config:
+
+  Speech.transcribe(wav) -> str          ParakeetSpeech, WhisperSpeech, MlxAudioSpeech
+  Cleaner.complete(messages) -> str      MlxLmCleaner
+
+`Engine` owns the deterministic text pipeline (dictionary, vocabulary, prompt,
+rewrite guard, stalls, question mark, end policy) and calls the two roles. To
+add a runtime, subclass the role and register it; nothing else changes.
 """
 
 import argparse
@@ -40,13 +53,142 @@ def log(msg):
     emit({"event": "log", "msg": str(msg)})
 
 
+# --- speech-to-text role ------------------------------------------------------
+class Speech:
+    """A speech-to-text runtime. Subclasses load one model and turn a wav into text."""
+
+    #: registry name, e.g. "parakeet-mlx"; matches `stt.backend` in config.lua
+    name = ""
+
+    def __init__(self, model_id, glossary):
+        self.model_id = model_id
+        # Callable returning the words the models should spell correctly
+        # (dictionary + vocabulary); runtimes that accept a hint pass it on.
+        self.glossary = glossary
+
+    def load(self):
+        raise NotImplementedError
+
+    def transcribe(self, wav):
+        raise NotImplementedError
+
+
+class ParakeetSpeech(Speech):
+    name = "parakeet-mlx"
+
+    def load(self):
+        from parakeet_mlx import from_pretrained
+
+        self.model = from_pretrained(self.model_id)
+
+    def transcribe(self, wav):
+        return self.model.transcribe(wav).text.strip()
+
+
+class WhisperSpeech(Speech):
+    name = "mlx-whisper"
+
+    def load(self):
+        import mlx_whisper  # noqa: F401 (fail early; the model loads on first transcribe)
+
+    def transcribe(self, wav):
+        import mlx_whisper
+
+        # Whisper accepts a vocabulary hint; Parakeet/mlx-audio do not.
+        hint = ", ".join(self.glossary()) or None
+        r = mlx_whisper.transcribe(wav, path_or_hf_repo=self.model_id, initial_prompt=hint)
+        return str(r.get("text", "")).strip()
+
+
+class MlxAudioSpeech(Speech):
+    name = "mlx-audio"
+
+    def load(self):
+        from mlx_audio.stt.utils import load_model
+
+        self.model = load_model(self.model_id)
+
+    def transcribe(self, wav):
+        result = self.model.generate(wav)
+        return str(getattr(result, "text", result)).strip()
+
+
+SPEECH_BACKENDS = {cls.name: cls for cls in (ParakeetSpeech, WhisperSpeech, MlxAudioSpeech)}
+
+
+# --- cleanup role -------------------------------------------------------------
+class Cleaner:
+    """A text-generation runtime for the cleanup pass. Subclasses load one model
+    (optionally with an adapter) and complete a chat, greedily, with thinking off."""
+
+    #: registry name; matches `cleanup.backend` in config.lua
+    name = ""
+
+    def __init__(self, model_id, adapter_id, max_tokens):
+        self.model_id = model_id
+        self.adapter_id = adapter_id
+        self.max_tokens = max_tokens
+        # A cleanup-trained adapter ships its prompt as system_v2.txt. It was
+        # trained with exactly that text and nothing else, so it is used
+        # verbatim: no style, no glossary, no framing. None = plain instruct model.
+        self.frozen_prompt = None
+
+    def load(self):
+        raise NotImplementedError
+
+    def complete(self, messages):
+        raise NotImplementedError
+
+    def _fetch_adapter(self):
+        """Download the adapter (if any) and pick up its frozen prompt. Returns the local dir or None."""
+        if not self.adapter_id:
+            return None
+        from huggingface_hub import snapshot_download
+
+        adapter_dir = snapshot_download(self.adapter_id)
+        p = os.path.join(adapter_dir, "system_v2.txt")
+        if os.path.exists(p):
+            self.frozen_prompt = open(p).read().strip()
+        return adapter_dir
+
+
+class MlxLmCleaner(Cleaner):
+    name = "mlx-lm"
+
+    def load(self):
+        from mlx_lm import load as llm_load
+
+        loaded = llm_load(self.model_id, adapter_path=self._fetch_adapter())
+        self.llm, self.tok = loaded[0], loaded[1]
+
+    def complete(self, messages):
+        from mlx_lm import generate
+        from mlx_lm.sample_utils import make_sampler
+
+        try:
+            prompt = self.tok.apply_chat_template(
+                messages, add_generation_prompt=True, enable_thinking=False
+            )
+        except TypeError:
+            prompt = self.tok.apply_chat_template(messages, add_generation_prompt=True)
+        out = generate(
+            self.llm,
+            self.tok,
+            prompt=prompt,
+            max_tokens=self.max_tokens,
+            sampler=make_sampler(temp=0.0),  # greedy
+            verbose=False,
+        )
+        return re.sub(r"<think>.*?</think>\s*", "", out, flags=re.S).strip()
+
+
+CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
+
+
+# --- pipeline -----------------------------------------------------------------
 class Engine:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.stt = None
-        self.stt_kind = None
-        self.llm = None
-        self.tok = None
         # Dictionary: word -> compiled pattern matching the word itself and its
         # spoken variants, case-insensitively at word boundaries.
         self.dictionary = []
@@ -58,6 +200,39 @@ class Engine:
             self.dictionary.append(
                 (word, re.compile(rf"\b(?:{alts})\b", re.IGNORECASE))
             )
+
+        stt = cfg.get("stt", {})
+        backend = stt.get("backend", "mlx-audio")
+        if backend not in SPEECH_BACKENDS:
+            raise ValueError(f"unknown speech backend: {backend}")
+        self.speech = SPEECH_BACKENDS[backend](
+            stt.get("model", "mlx-community/parakeet-tdt-0.6b-v3"), self.glossary
+        )
+
+        self.cleaner = None
+        cleanup = cfg.get("cleanup", {})
+        if cleanup.get("enabled"):
+            backend = cleanup.get("backend", "mlx-lm")
+            if backend not in CLEANUP_BACKENDS:
+                raise ValueError(f"unknown cleanup backend: {backend}")
+            self.cleaner = CLEANUP_BACKENDS[backend](
+                cleanup.get("model", "mlx-community/Qwen3.5-2B-MLX-4bit"),
+                cleanup.get("adapter"),
+                int(cleanup.get("max_tokens", 400)),
+            )
+
+    def load(self):
+        log(f"loading STT {self.speech.model_id} via {self.speech.name}")
+        self.speech.load()
+        log("STT ready")
+        if self.cleaner:
+            c = self.cleaner
+            log(
+                f"loading cleanup LLM {c.model_id} via {c.name}"
+                + (f" + adapter {c.adapter_id}" if c.adapter_id else "")
+            )
+            c.load()
+            log("cleanup LLM ready" + (" (frozen prompt)" if c.frozen_prompt else ""))
 
     def glossary(self, req=None):
         """All words the models should spell correctly: dictionary + vocabulary."""
@@ -213,76 +388,6 @@ class Engine:
             text = (text + " " + last).strip()
         return text
 
-    # --- model loading -------------------------------------------------
-    def load(self):
-        stt = self.cfg.get("stt", {})
-        backend = stt.get("backend", "mlx-audio")
-        model_id = stt.get("model", "mlx-community/parakeet-tdt-0.6b-v3")
-        log(f"loading STT {model_id} via {backend}")
-        if backend == "parakeet-mlx":
-            from parakeet_mlx import from_pretrained
-
-            self.stt = from_pretrained(model_id)
-            self.stt_kind = "parakeet-mlx"
-        elif backend == "mlx-whisper":
-            import mlx_whisper  # noqa: F401 (imported lazily at transcribe time)
-
-            self.stt_model_id = model_id
-            self.stt_kind = "mlx-whisper"
-        elif backend == "mlx-audio":
-            from mlx_audio.stt.utils import load_model
-
-            self.stt = load_model(model_id)
-            self.stt_kind = "mlx-audio"
-        else:
-            raise ValueError(f"unknown speech backend: {backend}")
-        log("STT ready")
-
-        cleanup = self.cfg.get("cleanup", {})
-        if cleanup.get("enabled"):
-            from mlx_lm import load as llm_load
-
-            cid = cleanup.get("model", "mlx-community/Qwen3.5-2B-MLX-4bit")
-            adapter = cleanup.get("adapter")
-            adapter_dir = None
-            if adapter:
-                from huggingface_hub import snapshot_download
-
-                adapter_dir = snapshot_download(adapter)
-            log(f"loading cleanup LLM {cid}" + (f" + adapter {adapter}" if adapter else ""))
-            loaded = llm_load(cid, adapter_path=adapter_dir)
-            self.llm, self.tok = loaded[0], loaded[1]
-            # A cleanup-trained adapter ships its prompt as system_v2.txt. It was
-            # trained with exactly that text and nothing else, so it is used
-            # verbatim: no style, no glossary, no framing.
-            self.frozen_prompt = None
-            if adapter_dir:
-                p = os.path.join(adapter_dir, "system_v2.txt")
-                if os.path.exists(p):
-                    self.frozen_prompt = open(p).read().strip()
-            log("cleanup LLM ready" + (" (frozen prompt)" if self.frozen_prompt else ""))
-
-    # --- inference -----------------------------------------------------
-    def transcribe(self, wav):
-        if self.stt_kind == "parakeet-mlx":
-            from parakeet_mlx.parakeet import BaseParakeet
-
-            assert isinstance(self.stt, BaseParakeet)
-            return self.stt.transcribe(wav).text.strip()
-        if self.stt_kind == "mlx-whisper":
-            import mlx_whisper
-
-            # Whisper accepts a vocabulary hint; Parakeet/mlx-audio do not.
-            hint = ", ".join(self.glossary()) or None
-            r = mlx_whisper.transcribe(
-                wav, path_or_hf_repo=self.stt_model_id, initial_prompt=hint
-            )
-            return str(r.get("text", "")).strip()
-        assert self.stt is not None and callable(self.stt.generate)
-        result = self.stt.generate(wav)
-        text = getattr(result, "text", result)
-        return str(text).strip()
-
     def build_prompt(self, raw, req):
         cfg = self.cfg
         parts = [cfg.get("style", "")]
@@ -340,15 +445,11 @@ class Engine:
         # would otherwise echo a vocabulary word (e.g. ".tcc"). Return empty.
         if not raw or not raw.strip():
             return ""
-        if not self.llm:
+        if not self.cleaner:
             return raw
-        assert self.tok is not None
-        from mlx_lm import generate
-        from mlx_lm.sample_utils import make_sampler
-
-        if getattr(self, "frozen_prompt", None):
+        if self.cleaner.frozen_prompt:
             # Cleanup-trained model: single user turn, prompt verbatim.
-            messages = [{"role": "user", "content": f"{self.frozen_prompt}\n\n{raw}"}]
+            messages = [{"role": "user", "content": f"{self.cleaner.frozen_prompt}\n\n{raw}"}]
         else:
             system = self.build_prompt(raw, req)
             # Frame the transcript as data, not as a message to the assistant.
@@ -363,21 +464,7 @@ class Engine:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ]
-        try:
-            prompt = self.tok.apply_chat_template(
-                messages, add_generation_prompt=True, enable_thinking=False
-            )
-        except TypeError:
-            prompt = self.tok.apply_chat_template(messages, add_generation_prompt=True)
-        out = generate(
-            self.llm,
-            self.tok,
-            prompt=prompt,
-            max_tokens=int(self.cfg.get("cleanup", {}).get("max_tokens", 400)),
-            sampler=make_sampler(temp=0.0),  # greedy
-            verbose=False,
-        )
-        out = re.sub(r"<think>.*?</think>\s*", "", out, flags=re.S).strip()
+        out = self.cleaner.complete(messages)
         # Guard: a cleanup must be the same words, lightly edited. If the model
         # answered, paraphrased, summarized, or rewrote, use the raw transcript.
         if self.looks_rewritten(raw, out, self.glossary(req)):
@@ -498,6 +585,14 @@ class Engine:
         new = [w for w in ow if w not in rset and w not in allowed]
         return len(new) > max(2, 0.25 * len(rw))  # too many words the user never said
 
+    def process(self, wav, req):
+        """The full pipeline for one take: speech -> dictionary/vocabulary ->
+        cleanup (guarded) -> dictionary/vocabulary -> stalls -> ? -> end policy."""
+        raw = self.apply_vocabulary(self.apply_dictionary(self.speech.transcribe(wav)), req)
+        text = self.cleanup(raw, req) if self.cleaner else raw
+        text = self.strip_stalls(self.apply_vocabulary(self.apply_dictionary(text), req).strip())
+        return raw, self.end_policy(raw, self.ensure_question(raw, text))
+
     def handle(self, req):
         cmd = req.get("cmd")
         if cmd == "ping":
@@ -513,10 +608,7 @@ class Engine:
                     }
                 )
                 return
-            raw = self.apply_vocabulary(self.apply_dictionary(self.transcribe(wav)), req)
-            text = self.cleanup(raw, req) if self.llm else raw
-            text = self.strip_stalls(self.apply_vocabulary(self.apply_dictionary(text), req).strip())
-            text = self.end_policy(raw, self.ensure_question(raw, text))
+            raw, text = self.process(wav, req)
             emit({"event": "final", "id": req.get("id"), "raw": raw, "text": text})
         else:
             emit({"event": "error", "id": req.get("id"), "msg": f"unknown cmd: {cmd}"})

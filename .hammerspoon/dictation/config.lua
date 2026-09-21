@@ -3,6 +3,9 @@
 ---| "mlx-audio"    # broad: Parakeet, Granite, Qwen3-ASR, Voxtral, ...
 ---| "mlx-whisper"  # Whisper family
 
+---@alias DictationCleanupBackend
+---| "mlx-lm"  # MLX text models, with or without a LoRA adapter (default)
+
 ---@alias DictationTrigger
 ---| "hotkey"       # a key combo (see `hotkey`)
 ---| "modifierTap"  # tap a modifier by itself, like Raycast (see `modifierTap`)
@@ -16,11 +19,12 @@
 ---@alias DictationModifierFlag "cmd"|"alt"|"shift"|"ctrl"|"fn"
 
 ---@class DictationSttConfig
----@field backend DictationBackend Which runtime loads the model. Must match the model; see README.md.
+---@field backend DictationBackend Which runtime loads the model. Must match the model; see README.md. Add runtimes by subclassing `Speech` in server.py.
 ---@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v3". Downloaded on first use.
 
 ---@class DictationCleanupConfig
 ---@field enabled boolean Run the LLM cleanup pass. false = raw transcription only.
+---@field backend? DictationCleanupBackend Which runtime loads the model. nil = "mlx-lm". Add runtimes by subclassing `Cleaner` in server.py.
 ---@field model string Hugging Face repo of an MLX model (the base when `adapter` is set), e.g. "mlx-community/Qwen3.5-2B-MLX-4bit".
 ---@field adapter? string Hugging Face repo of a LoRA adapter for `model`. A cleanup-trained adapter ships its own prompt (system_v2.txt), which is then used verbatim: `style` and `apps` do not apply, vocabulary is applied deterministically instead. nil = plain instruct model with our prompt.
 ---@field max_tokens integer Max tokens the cleanup may generate (cap for long dictations).
