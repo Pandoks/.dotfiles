@@ -1,6 +1,6 @@
 -- Microphone capture. hs.task owns one ffmpeg process on the system's current
--- default input, writing two outputs: the cleaned 16 kHz wav for the speech
--- model, and a raw PCM file (flushed per packet) that `poll()` reads for the
+-- default input, writing two outputs: the 16 kHz wav for the speech model, and
+-- a raw PCM file (flushed per packet) that `poll()` reads for the
 -- equalizer. Audio goes through a file rather than a pipe because Hammerspoon
 -- decodes task output as UTF-8 text (dropping PCM bytes) and io.popen would
 -- block the main thread; a page-cached read costs ~13 µs per frame.
@@ -60,14 +60,10 @@ function recorder.start(options)
   local base = os.tmpname()
   os.remove(base) -- tmpname creates the file; only the suffixed paths are used
   local wav, pcm = base .. ".wav", base .. ".pcm"
+  -- Only a high-pass. Denoising and silence trimming were measured to hurt:
+  -- their fixed dB thresholds erase a quiet or distant speaker entirely, while
+  -- the speech model is unaffected by steady noise or pauses on its own.
   local highpass = "highpass=f=90"
-  local filter = highpass
-  if options.config.noiseReduction then
-    filter = highpass
-      .. ",afftdn=nf=-25,silenceremove="
-      .. "start_periods=1:start_threshold=-40dB:start_silence=0.1:"
-      .. "stop_periods=-1:stop_threshold=-40dB:stop_silence=0.2"
-  end
   ---@type DictationRecording
   local recording = {
     wav = wav,
@@ -107,7 +103,7 @@ function recorder.start(options)
   end, {
     "-hide_banner", "-loglevel", "error", "-nostdin",
     "-f", "avfoundation", "-i", ":default",
-    "-filter:a", filter, "-ac", "1", "-ar", tostring(RATE), "-y", "-f", "wav", wav,
+    "-filter:a", highpass, "-ac", "1", "-ar", tostring(RATE), "-y", "-f", "wav", wav,
     "-filter:a", highpass, "-f", "s16le", "-ac", "1", "-ar", tostring(RATE),
     "-flush_packets", "1", "-y", pcm,
   })

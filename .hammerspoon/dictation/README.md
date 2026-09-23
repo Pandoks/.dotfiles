@@ -19,7 +19,7 @@ require("dictation")
 |---|---|---|
 | Hotkey, overlay, capture, insert | Hammerspoon (Lua) | this directory |
 | Speech-to-text + LLM cleanup | `.venv` Python (`server.py`) | resident process, fast after first load |
-| Mic capture + equalizer | `ffmpeg` child + `spectrum.lua` | PCM via temp file, FFT in Lua |
+| Mic capture + equalizer | `ffmpeg` child + `spectrum.lua` | PCM via temp file, FFT in Lua; high-pass only, no denoising |
 
 ## Setup
 
@@ -145,8 +145,14 @@ mark, and the end policy, so a new runtime gets the same behavior for free.
 | `setup.sh` | builds `.venv` |
 
 Capture errors stop dictation and show a logged alert. Capture uses the system's
-current default microphone. ffmpeg writes the wav and, in parallel, raw PCM to a
-flushed temp file; the 30 fps tick reads the new bytes and `spectrum.lua` runs
+current default microphone. The audio is only high-passed (90 Hz): denoising
+(`afftdn`) and silence trimming were measured to make things worse, because
+their fixed dB thresholds delete a quiet or distant speaker outright (a take
+25 dB below full scale came back empty), while Parakeet itself is flat at
+7–9% WER from full scale down to -35 dB and across pink, brown, fan, and
+20–10 dB babble noise. Only loud overlapping speech (babble at ≤5 dB SNR)
+defeats it, and no filter recovers that. ffmpeg writes the wav and, in
+parallel, raw PCM to a flushed temp file; the 30 fps tick reads the new bytes and `spectrum.lua` runs
 the FFT in Lua (~2 ms/frame). No Python is involved in capture: Hammerspoon
 decodes task output as text (dropping PCM bytes) and `io.popen` would block the
 main thread, while a page-cached file read costs ~13 µs per frame.

@@ -63,7 +63,6 @@
 ---@field includeSelection boolean Send the current text selection as context. Off by default (privacy; can cause echoing). Only a real selection, capped, is ever sent.
 ---@field minLevel number 0..1 peak loudness required, else the take is treated as silence. Raise to demand a closer, louder voice.
 ---@field minDuration number Minimum recording length in seconds; shorter takes are ignored.
----@field noiseReduction boolean High-pass, denoise, and silence-trim the audio so only clear, close speech reaches the model.
 ---@field overlayHeight number Pill height in points. ~30 matches Raycast; larger looks bulky.
 ---@field eqBands integer Number of frequency bands in the equalizer (mirrored around the center).
 
@@ -149,7 +148,6 @@ local config = {
 
   minLevel = 0.25,
   minDuration = 0.35,
-  noiseReduction = true,
 
   overlayHeight = 44,
   eqBands = 15,
