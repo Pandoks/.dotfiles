@@ -7,6 +7,9 @@ local install = spoon.SpoonInstall
 -- Generates hs.* type annotations for lua_ls when they are missing or stale.
 install:andUse("EmmyLua")
 
+-- Local, free, Raycast-style dictation (self-contained in ./dictation).
+require("dictation")
+
 require("yabai")
 require("applications")
 require("ghostty")

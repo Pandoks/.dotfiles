@@ -1,0 +1,5 @@
+parakeet-mlx
+mlx-audio
+mlx-whisper
+mlx-lm
+transformers
