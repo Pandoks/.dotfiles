@@ -28,7 +28,7 @@ Two model roles, each an abstract base with one class per runtime, selected by
 name from a registry (`SPEECH_BACKENDS`, `CLEANUP_BACKENDS`) using the
 `backend` key of `stt` / `cleanup` in the config:
 
-  Speech.transcribe(wav) -> str          ParakeetSpeech, WhisperSpeech, MlxAudioSpeech
+  Speech.transcribe(wav, hint) -> str    ParakeetSpeech, WhisperSpeech, MlxAudioSpeech
   Cleaner.complete(messages) -> str      MlxLmCleaner
 
 `Engine` owns the deterministic text pipeline (dictionary, vocabulary, prompt,
@@ -60,16 +60,15 @@ class Speech:
     #: registry name, e.g. "parakeet-mlx"; matches `stt.backend` in config.lua
     name = ""
 
-    def __init__(self, model_id, glossary):
+    def __init__(self, model_id):
         self.model_id = model_id
-        # Callable returning the words the models should spell correctly
-        # (dictionary + vocabulary); runtimes that accept a hint pass it on.
-        self.glossary = glossary
 
     def load(self):
         raise NotImplementedError
 
-    def transcribe(self, wav):
+    def transcribe(self, wav, hint):
+        """`hint` is the list of words to spell correctly (dictionary + vocabulary,
+        including the active app's); runtimes that accept a hint pass it on."""
         raise NotImplementedError
 
 
@@ -81,7 +80,7 @@ class ParakeetSpeech(Speech):
 
         self.model = from_pretrained(self.model_id)
 
-    def transcribe(self, wav):
+    def transcribe(self, wav, hint):
         return self.model.transcribe(wav).text.strip()
 
 
@@ -91,12 +90,13 @@ class WhisperSpeech(Speech):
     def load(self):
         import mlx_whisper  # noqa: F401 (fail early; the model loads on first transcribe)
 
-    def transcribe(self, wav):
+    def transcribe(self, wav, hint):
         import mlx_whisper
 
         # Whisper accepts a vocabulary hint; Parakeet/mlx-audio do not.
-        hint = ", ".join(self.glossary()) or None
-        r = mlx_whisper.transcribe(wav, path_or_hf_repo=self.model_id, initial_prompt=hint)
+        r = mlx_whisper.transcribe(
+            wav, path_or_hf_repo=self.model_id, initial_prompt=", ".join(hint) or None
+        )
         return str(r.get("text", "")).strip()
 
 
@@ -108,7 +108,7 @@ class MlxAudioSpeech(Speech):
 
         self.model = load_model(self.model_id)
 
-    def transcribe(self, wav):
+    def transcribe(self, wav, hint):
         result = self.model.generate(wav)
         return str(getattr(result, "text", result)).strip()
 
@@ -206,7 +206,7 @@ class Engine:
         if backend not in SPEECH_BACKENDS:
             raise ValueError(f"unknown speech backend: {backend}")
         self.speech = SPEECH_BACKENDS[backend](
-            stt.get("model", "mlx-community/parakeet-tdt-0.6b-v3"), self.glossary
+            stt.get("model", "mlx-community/parakeet-tdt-0.6b-v3")
         )
 
         self.cleaner = None
@@ -247,8 +247,8 @@ class Engine:
             text = pattern.sub(word, text)
         return text
 
-    # Real words, so a fuzzy vocabulary match never rewrites one ("recast" must
-    # not become "Raycast"). macOS ships this list.
+    # Real words (plurals via a stripped "s"), so a fuzzy vocabulary match never
+    # rewrites one ("recast" must not become "Raycast"). macOS ships this list.
     try:
         WORDS = frozenset(w.strip().lower() for w in open("/usr/share/dict/words"))
     except OSError:
@@ -258,13 +258,16 @@ class Engine:
         """Map misheard tokens to vocabulary words by similarity, so users list
         correct spellings only. A single token must be close and not a real
         word; a pair of adjacent tokens ("hammer spoon") must be a near-exact
-        match. Explicit dictionary variants have already been applied."""
+        match. An exact (case-insensitive) match always takes the configured
+        spelling. Explicit dictionary variants have already been applied.
+        Whitespace between tokens is kept as is."""
         import difflib
 
         vocab = self.glossary(req)
         if not vocab or not text:
             return text
-        toks = text.split()
+        parts = re.split(r"(\s+)", text)  # tokens at even indexes, separators at odd
+        toks = parts[0::2]
         out, i = [], 0
         norm = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
         while i < len(toks):
@@ -277,19 +280,27 @@ class Engine:
                     continue
                 for v in vocab:
                     r = difflib.SequenceMatcher(None, cand, v.lower()).ratio()
-                    if r >= 0.95 or (r >= floor and not (span == 1 and cand in self.WORDS)):
+                    real = span == 1 and (cand in self.WORDS or cand.rstrip("s") in self.WORDS)
+                    if r == 1.0 or (r >= floor and not real):
                         if not best or r > best[0]:
                             best = (r, v, span)
-                if best:
-                    break
             if best:
-                trail = re.search(r"[^\w]*$", toks[i + best[2] - 1]).group(0)
-                out.append(best[1] + trail)
+                first, last = toks[i], toks[i + best[2] - 1]
+                lead = re.match(r"^[^\w]*", first).group(0)
+                trail = re.search(r"[^\w]*$", last).group(0)
+                out.append((lead + best[1] + trail, best[2]))
                 i += best[2]
             else:
-                out.append(toks[i])
+                out.append((toks[i], 1))
                 i += 1
-        return " ".join(out)
+        # Re-interleave the original separators; a merged pair keeps the one after it.
+        seps, result, ti = parts[1::2], [], 0
+        for tok, span in out:
+            result.append(tok)
+            ti += span
+            if ti - 1 < len(seps):
+                result.append(seps[ti - 1])
+        return "".join(result)
 
     # Words a finished sentence essentially never ends on. If the dictation ends
     # on one, the user stopped mid-thought: no terminal punctuation, and keep
@@ -379,8 +390,8 @@ class Engine:
     def end_policy(self, raw, text):
         """Automatic end-of-text punctuation: leave unfinished dictations open."""
         raw_words = re.sub(r"[.!?,;:]+$", "", raw.strip()).split()
-        if not raw_words or raw_words[-1].lower() not in self.CONTINUATION:
-            return text
+        if not raw_words or raw_words[-1].lower() not in self.CONTINUATION or self.is_question(raw):
+            return text  # "What is this for?" ends on a preposition and is complete
         last = raw_words[-1].lower()
         text = re.sub(r"[.!?]+$", "", text.rstrip()).rstrip()
         out_words = text.split()
@@ -480,6 +491,7 @@ class Engine:
     @classmethod
     def strip_stalls(cls, text):
         out = cls.STALL_RE.sub("", text)
+        out = re.sub(r"\s+([.!?,;:])", r"\1", out)
         out = re.sub(r"\s{2,}", " ", out).strip()
         out = re.sub(r"^[,;:]\s*", "", out)
         if out and text and text[0].isupper() and out[0].islower():
@@ -529,6 +541,14 @@ class Engine:
 
     @classmethod
     def is_question(cls, raw):
+        """Question-shaped: the speech model ended it with '?', or it opens with
+        a question word and the speech model did not close it as a statement
+        ("Will do." and "May is warm." stay statements)."""
+        raw = raw.strip()
+        if raw.endswith("?"):
+            return True
+        if raw.endswith((".", "!")):
+            return False
         first = re.findall(r"[a-z']+", raw.lower())
         return bool(first) and first[0] in cls.QUESTION_STARTS
 
@@ -572,6 +592,8 @@ class Engine:
         if not ow or len(ow) > 1.6 * len(rw) + 3:
             return True  # far longer than what was said: an answer/explanation
         rset, oset = set(rw), set(ow)
+        if not rset & oset:
+            return True  # nothing the user said survived (short inputs included)
         allowed = {a.lower() for a in allowed}
         # Dictionary terms the user said must survive; dropping one is a rewrite.
         if any(w in allowed and w not in oset for w in rset):
@@ -583,14 +605,26 @@ class Engine:
         if len(lost) > max(2, 0.3 * len(rw)):
             return True
         new = [w for w in ow if w not in rset and w not in allowed]
-        return len(new) > max(2, 0.25 * len(rw))  # too many words the user never said
+        if len(new) > max(2, 0.25 * len(rw)):
+            return True  # too many words the user never said
+
+        # The words kept must keep their order (repeats collapsed: "I I think").
+        def kept(seq, other):
+            k = [w for w in seq if w in other]
+            return [w for i, w in enumerate(k) if i == 0 or w != k[i - 1]]
+
+        return kept(rw, oset) != kept(ow, rset)
 
     def process(self, wav, req):
         """The full pipeline for one take: speech -> dictionary/vocabulary ->
-        cleanup (guarded) -> dictionary/vocabulary -> stalls -> ? -> end policy."""
-        raw = self.apply_vocabulary(self.apply_dictionary(self.speech.transcribe(wav)), req)
-        text = self.cleanup(raw, req) if self.cleaner else raw
-        text = self.strip_stalls(self.apply_vocabulary(self.apply_dictionary(text), req).strip())
+        cleanup (guarded) -> dictionary/vocabulary -> stalls -> ? -> end policy.
+        With cleanup disabled only the spelling fixes run."""
+        heard = self.speech.transcribe(wav, self.glossary(req))
+        raw = self.apply_vocabulary(self.apply_dictionary(heard), req)
+        if not self.cleaner:
+            return raw, raw  # cleanup off: the speech model's text, spellings fixed
+        text = self.apply_vocabulary(self.apply_dictionary(self.cleanup(raw, req)), req)
+        text = self.strip_stalls(text.strip())
         return raw, self.end_policy(raw, self.ensure_question(raw, text))
 
     def handle(self, req):

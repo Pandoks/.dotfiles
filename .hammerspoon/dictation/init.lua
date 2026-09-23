@@ -67,7 +67,8 @@ local function gatherContext()
       return element and element:attributeValue("AXSelectedText")
     end)
     if ok and type(selection) == "string" and #selection > 0 then
-      context.selected = selection:sub(1, 200)
+      local cut = utf8.offset(selection, 201) -- byte after the 200th character, or nil if shorter
+      context.selected = cut and selection:sub(1, cut - 1) or selection
     end
   end
   return context
@@ -105,17 +106,27 @@ local function insertText(text)
   end
   local value = element:attributeValue("AXValue")
   local range = element:attributeValue("AXSelectedTextRange")
+  local selected = element:attributeValue("AXSelectedText")
   if type(value) == "string" and type(range) == "table" and range.location then
-    local before, units = "", 0
+    -- Characters around the selection (AX ranges count UTF-16 units).
+    local before, after, units = "", "", 0
     for _, codepoint in utf8.codes(value) do
-      units = units + (codepoint > 0xFFFF and 2 or 1)
-      if units > range.location then
+      if units >= range.location + (range.length or 0) then
+        after = utf8.char(codepoint)
         break
       end
-      before = utf8.char(codepoint)
+      if units < range.location then
+        before = utf8.char(codepoint)
+      end
+      units = units + (codepoint > 0xFFFF and 2 or 1)
     end
-    if before ~= "" and not before:match("%s") then
+    -- Delimiters that open a run: no space is added between them and the text.
+    local OPENERS = { ["("] = true, ["["] = true, ["{"] = true, ['"'] = true, ["'"] = true, ["“"] = true, ["‘"] = true, ["<"] = true, ["/"] = true }
+    if before ~= "" and not before:match("^%s$") and not OPENERS[before] then
       text = " " .. text
+    end
+    if after:match("^%w$") or OPENERS[after] then
+      text = text .. " "
     end
   end
   local writable, failure = element:isAttributeSettable("AXSelectedText")
@@ -133,8 +144,8 @@ local function insertText(text)
   if not result then
     error(reason or "could not insert into focused field", 0)
   end
-  if element:attributeValue("AXValue") ~= value then
-    return "ax"
+  if element:attributeValue("AXValue") ~= value or selected == text then
+    return "ax" -- changed, or identical text over an identical selection (a no-op either way)
   end
   -- The app's own Paste is the only instant, whole-text insert left. macOS
   -- offers no signal for when the app has read the clipboard, hence the delay
@@ -144,8 +155,10 @@ local function insertText(text)
     error("could not write clipboard", 0)
   end
   hs.eventtap.keyStroke({ "cmd" }, "v", 0)
+  local count = hs.pasteboard.changeCount()
   hs.timer.doAfter(0.25, function()
-    if previous then
+    -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
+    if previous and hs.pasteboard.changeCount() == count then
       hs.pasteboard.writeAllData(previous)
     end
   end)
@@ -163,8 +176,9 @@ local function finish(text)
       local ok, result = pcall(insertText, text)
       if ok then
         outcome = result
-      elseif mode == "direct" then
-        fail("Dictation: " .. tostring(result))
+      end
+      if mode == "direct" and not outcome then
+        fail("Dictation: " .. (ok and "no text field is focused" or tostring(result)))
       end
     end
     -- "clipboard" always copies; "auto" copies when nothing could be inserted.
@@ -323,11 +337,15 @@ local function installModifierTap()
   ---@type number, integer
   local lastTapAt, tapCount = 0, 0
 
-  dictation.keyTap = hs.eventtap.new({ types.flagsChanged, types.keyDown }, function(event)
+  local watched = {
+    types.flagsChanged, types.keyDown, types.leftMouseDown, types.rightMouseDown,
+    types.otherMouseDown, types.scrollWheel,
+  }
+  dictation.keyTap = hs.eventtap.new(watched, function(event)
     local kind = event:getType()
-    if kind == types.keyDown then
+    if kind ~= types.flagsChanged then
       if down then
-        otherUsed = true -- a real key was pressed while the modifier was held
+        otherUsed = true -- a key, click, or scroll while the modifier was held
       end
       return false
     end
@@ -336,8 +354,12 @@ local function installModifierTap()
     local flags = event:getFlags()
     if key == modifier.keycode then
       if flags[modifier.flag] then
-        -- our modifier went down
-        down, downAt, otherUsed = true, hs.timer.secondsSinceEpoch() or 0, false
+        -- our modifier went down; another modifier already held is not a solo tap
+        local others = false
+        for flag in pairs(flags) do
+          others = others or flag ~= modifier.flag
+        end
+        down, downAt, otherUsed = true, hs.timer.secondsSinceEpoch() or 0, others
       else
         -- our modifier went up: a clean, quick tap?
         local now = hs.timer.secondsSinceEpoch() or 0

@@ -58,6 +58,7 @@ function recorder.start(options)
   end
 
   local base = os.tmpname()
+  os.remove(base) -- tmpname creates the file; only the suffixed paths are used
   local wav, pcm = base .. ".wav", base .. ".pcm"
   local highpass = "highpass=f=90"
   local filter = highpass

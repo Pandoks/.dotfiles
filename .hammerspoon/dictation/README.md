@@ -120,7 +120,7 @@ one subclass per runtime, registered by name:
 
 | Role | Method | Runtimes (`backend`) |
 |---|---|---|
-| `Speech` | `transcribe(wav) -> str` | `parakeet-mlx`, `mlx-whisper`, `mlx-audio` |
+| `Speech` | `transcribe(wav, hint) -> str` | `parakeet-mlx`, `mlx-whisper`, `mlx-audio` |
 | `Cleaner` | `complete(messages) -> str` | `mlx-lm` |
 
 To add one (say whisper.cpp, or a GGUF cleanup model through llama.cpp),

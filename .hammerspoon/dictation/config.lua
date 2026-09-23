@@ -23,7 +23,7 @@
 ---@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v3". Downloaded on first use.
 
 ---@class DictationCleanupConfig
----@field enabled boolean Run the LLM cleanup pass. false = raw transcription only.
+---@field enabled boolean Run the LLM cleanup pass. false = the speech model's text with only `dictionary`/`vocabulary` applied (no stall stripping or punctuation policy).
 ---@field backend? DictationCleanupBackend Which runtime loads the model. nil = "mlx-lm". Add runtimes by subclassing `Cleaner` in server.py.
 ---@field model string Hugging Face repo of an MLX model (the base when `adapter` is set), e.g. "mlx-community/Qwen3.5-2B-MLX-4bit".
 ---@field adapter? string Hugging Face repo of a LoRA adapter for `model`. A cleanup-trained adapter ships its own prompt (system_v2.txt), which is then used verbatim: `style` and `apps` do not apply, vocabulary is applied deterministically instead. nil = plain instruct model with our prompt.
