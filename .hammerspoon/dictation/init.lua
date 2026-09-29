@@ -1,6 +1,7 @@
 local Engine = require("dictation.engine")
 local Overlay = require("dictation.overlay")
 local config = require("dictation.config")
+local history = require("dictation.history")
 local recorder = require("dictation.recorder")
 
 -- Report a failure in the log and on screen.
@@ -299,6 +300,13 @@ engine, failure = Engine.new(config, {
     print("Dictation: backend ready")
   end,
   onFinal = function(result)
+    -- Saved before anything else, even for a cancelled take, so no result is lost.
+    if result.text and #result.text > 0 then
+      local _, problem = history.save(result.text, config.history.directory, config.history.maxMegabytes * 1024 * 1024)
+      if problem then
+        fail("Dictation: " .. problem)
+      end
+    end
     recorder.cleanup(requests[result.id])
     requests[result.id] = nil
     if stopped or inflight ~= result.id then

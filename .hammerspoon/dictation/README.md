@@ -108,6 +108,15 @@ model: set `cleanup.adapter = nil` and `cleanup.model` to e.g.
 
 Set `cleanup.enabled = false` for raw transcription with no LLM pass.
 
+## Transcript history
+
+Every result is written to `~/Library/Caches/dictation/<timestamp>.txt` the
+moment the backend returns it, before insertion, so a paste that lands in the
+wrong place (or an Escape) never loses the text. Once the directory passes
+`history.maxMegabytes` of disk space (default 10, about 2,500 takes: every
+file occupies at least one 4 KB block) the oldest files are deleted. Set the
+folder and the cap in `history` in `config.lua`.
+
 ## Swapping models and runtimes
 
 Models are swapped in `config.lua` alone: `stt.model` / `stt.backend` and
@@ -139,6 +148,7 @@ mark, and the end policy, so a new runtime gets the same behavior for free.
 | `init.lua` | hotkey, orchestration, context, insertion |
 | `overlay.lua` | the Raycast-style waveform pill (`hs.canvas`) |
 | `recorder.lua` | asynchronous mic capture and completion |
+| `history.lua` | saves every transcript as a `.txt` file, deleting the oldest past a size cap |
 | `spectrum.lua` | pure-Lua FFT: PCM window -> equalizer bands + level |
 | `engine.lua` | manages the resident Python backend over a JSON pipe |
 | `server.py` | speech-to-text + LLM cleanup, kept resident; `Speech`/`Cleaner` classes, one per runtime, picked by `backend` |

@@ -33,6 +33,10 @@
 ---@field style? string Extra instructions appended to the global `style` when this app is focused.
 ---@field vocabulary? string[] Extra glossary words merged into the global `vocabulary` for this app.
 
+---@class DictationHistoryConfig
+---@field directory string Every result is saved here as <timestamp>.txt ("~" = home), before it is inserted.
+---@field maxMegabytes number Size cap for the directory in MB of disk space (as `du` reports it); the oldest files are deleted once it is exceeded.
+
 ---@class DictationHotkeyConfig
 ---@field mods string[] Modifiers, e.g. { "alt" } or { "cmd", "shift" }. {} for none.
 ---@field key string Key name as hs.hotkey expects, e.g. "space", "d", "f5".
@@ -59,6 +63,7 @@
 ---@field vocabulary string[] Correct spellings of names, tools, jargon. Misheard tokens close to one of these are rewritten to it (real English words are never touched), before and after cleanup, and the word is protected from being dropped. This is the list to maintain.
 ---@field dictionary table<string, string[]> Correct spelling -> explicit spoken variants, for mishearings `vocabulary` similarity cannot reach. Applied deterministically before and after cleanup.
 ---@field apps table<string, DictationAppConfig> Per-app overrides keyed by bundle id (`osascript -e 'id of app "Slack"'`).
+---@field history DictationHistoryConfig Local archive of every transcript, oldest dropped past a size cap.
 ---@field insert DictationInsertMode How the result is delivered: into the focused field, to the clipboard, or field-with-clipboard-fallback.
 ---@field includeSelection boolean Send the current text selection as context. Off by default (privacy; can cause echoing). Only a real selection, capped, is ever sent.
 ---@field minLevel number 0..1 peak loudness required, else the take is treated as silence. Raise to demand a closer, louder voice.
@@ -142,6 +147,11 @@ local config = {
       style = "This is a shell command or terminal input. Prefer exact command syntax.",
     },
   },
+
+  -- Every transcript as a .txt file; 10 MB on disk is ~2,500 takes (each file
+  -- occupies at least one 4 KB block, however short). Caches
+  -- survives reboots (unlike $TMPDIR) and is private to this user.
+  history = { directory = "~/Library/Caches/dictation", maxMegabytes = 10 },
 
   insert = "auto",
   includeSelection = false,
