@@ -159,8 +159,9 @@ main thread, while a page-cached file read costs ~13 µs per frame.
 
 Stopping sends SIGINT so ffmpeg finalizes the WAV before transcription. Escape
 cancels capture and discards pending transcription results by request ID. One
-timer drives the pill: a listening pulse until the mic opens, the equalizer while
-recording, a shimmer while transcribing. Insertion (`insert` in config.lua):
+timer drives the pill: a glowing ripple from the center until the mic opens,
+crossfading (~0.4 s) into the equalizer while recording (flat in silence,
+brighter when louder), a glowing shimmer while transcribing. Insertion (`insert` in config.lua):
 `auto` (default) inserts into the focused field and, when there is no field or
 insertion fails, copies the text to the clipboard and shows a brief alert;
 `direct` inserts only and reports failures; `clipboard` only copies. Direct

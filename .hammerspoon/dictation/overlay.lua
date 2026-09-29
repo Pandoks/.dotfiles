@@ -1,8 +1,8 @@
 ---@class DictationOverlay
 ---@field baseline number[] idle diamond envelope per bar (0..1)
 ---@field thinking boolean true while transcribing (shimmer animation)
----@field warming boolean true from show() until the first audio frame (listening pulse)
----@field phase number animation phase for the shimmer
+---@field warmth number 1 = listening pulse (mic opening), fading to 0 = live equalizer
+---@field phase number animation phase (intro ripple, shimmer); 0 at show()
 ---@field bars number[] current per-bar equalizer heights (0..1), smoothed
 ---@field canvas hs.canvas? the drawn pill; nil after :delete()
 ---@field width number pill width in points
@@ -17,6 +17,7 @@ local STROKE = 1
 local BAR_W = 0.038 -- of height
 local BAR_SPAN = 0.80 -- fraction of width the bars occupy
 local BAR_PEAK = 0.34 -- tallest bar as fraction of height
+local FADE = 12 -- frames (~0.4 s at 30 fps) from the listening pulse to the live equalizer
 
 ---@param height? number pill height in points (default 30)
 ---@return DictationOverlay
@@ -25,6 +26,7 @@ function overlay.new(height)
   local self = setmetatable({}, overlay)
   self.height = height or 30
   self.thinking = false
+  self.warmth = 1
   self.phase = 0
   -- Baseline diamond envelope so an idle pill still looks like Raycast's.
   self.baseline = {}
@@ -80,18 +82,29 @@ function overlay:_layout()
   local span = width * BAR_SPAN
   local pitch = span / (BARS - 1)
   local cx, cy = width / 2, height / 2
+  local warmth = self.warmth * self.warmth * (3 - 2 * self.warmth) -- smoothstep ease
+  local center = (BARS + 1) / 2
   for i = 1, BARS do
     local amplitude
+    local glow = 1 -- bar brightness
     if self.thinking then
       -- gentle traveling shimmer while transcribing
-      amplitude = (0.25 + 0.35 * (0.5 + 0.5 * math.sin(self.phase + i * 0.5))) * self.baseline[i]
-    elseif self.warming then
-      -- "listening" breath from the first millisecond, until the microphone
-      -- delivers its first frame (opening the device takes ~0.4 s)
-      amplitude = (0.35 + 0.25 * math.sin(self.phase * 0.6)) * self.baseline[i]
+      local wave = 0.5 + 0.5 * math.sin(self.phase + i * 0.5)
+      amplitude = (0.25 + 0.35 * wave) * self.baseline[i]
+      glow = 0.4 + 0.6 * wave ^ 2 -- brightness travels with the shimmer
     else
-      -- real equalizer: per-bar band height, floored by the idle envelope
-      amplitude = math.max(self.baseline[i] * 0.12, self.bars[i])
+      -- While the mic opens (~0.4 s): a wave blooms out from the center bar and
+      -- keeps rippling outward, then crossfades into the live equalizer (band
+      -- height, floored by the idle envelope).
+      local distance = math.abs(i - center)
+      local bloom = math.max(0, math.min(1, (self.phase * 4.6 - distance) / 4))
+      local ripple = (0.5 + 0.5 * math.sin(self.phase * 1.3 - distance * 0.6)) ^ 2
+      local intro = bloom * (0.25 + 0.75 * self.baseline[i]) * (0.2 + 0.8 * ripple)
+      local live = math.max(self.baseline[i] * 0.12, self.bars[i])
+      amplitude = warmth * intro + (1 - warmth) * live
+      -- Intro: bars light up as the wave passes. Live: louder bars glow brighter.
+      local lit = 1 - 0.6 * (1 - ripple * bloom)
+      glow = warmth * lit + (1 - warmth) * (0.45 + 0.55 * math.min(1, self.bars[i] * 1.8))
     end
     local h = math.max(barWidth, height * BAR_PEAK * amplitude + barWidth * 0.85)
     local x = cx - span / 2 + (i - 1) * pitch
@@ -101,6 +114,7 @@ function overlay:_layout()
       "frame",
       { x = x - barWidth / 2, y = cy - h / 2, w = barWidth, h = h }
     )
+    canvas:elementAttribute(i + 1, "fillColor", { white = 0.976, alpha = glow })
   end
 end
 
@@ -112,7 +126,10 @@ function overlay:setBars(bands)
   if type(bands) ~= "table" or #bands == 0 then
     return
   end
-  self.warming = false
+  if self.warmth > 0 then
+    self.warmth = math.max(0, self.warmth - 1 / FADE)
+    self.phase = self.phase + 0.35 -- keep the ripple moving while it fades out
+  end
   local center = (BARS + 1) / 2
   for i = 1, BARS do
     local distance = math.floor(math.abs(i - center)) -- 0 at center
@@ -129,7 +146,7 @@ end
 -- Advance the shimmer animation; call at ~30 fps while visible.
 function overlay:tick()
   self.phase = self.phase + 0.35
-  if self.thinking or self.warming then
+  if self.thinking or self.warmth > 0 then
     self:_layout()
   end
 end
@@ -137,7 +154,8 @@ end
 -- Show centered horizontally, near the bottom of the screen with the mouse.
 function overlay:show()
   self.thinking = false
-  self.warming = true
+  self.warmth = 1
+  self.phase = 0 -- the intro blooms from the center at phase 0
   for i = 1, BARS do
     self.bars[i] = 0
   end
