@@ -6,7 +6,8 @@
 ---@field bands integer number of output bands
 ---@field bins integer[] band edge FFT bins, index 0..bands
 ---@field window number[] Hann window, 1..size
----@field peak number[] per-band slow-decaying maximum for auto-gain
+---@field peak number[] per-band slow-decaying maximum for auto-gain (floored at 0.4 of the loudest)
+---@field floor? number ambient loudness (0..1): falls instantly, rises slowly
 local spectrum = {}
 spectrum.__index = spectrum
 
@@ -70,7 +71,7 @@ end
 
 -- Analyze the most recent window of PCM.
 ---@param pcm string at least `size * 2` bytes of little-endian signed 16-bit mono samples; the last window is used
----@return number[] bands each 0..1 (auto-gained)
+---@return number[] bands each 0..1: spectral shape (auto-gained) scaled by loudness above the ambient floor
 ---@return number level overall loudness 0..1 (-50..-10 dBFS)
 function spectrum:analyze(pcm)
   local size = self.size
@@ -90,17 +91,29 @@ function spectrum:analyze(pcm)
   end
   local rms = math.sqrt(energy / size) + 1e-9
   local level = math.max(0, math.min(1, (20 * math.log(rms, 10) + 50) / 40))
+  -- Steady background noise sets the floor (plus ~3 dB for its jitter), so
+  -- silence reads as flat bars and only sound above the room moves them.
+  if energy > 0 then
+    self.floor = self.floor and math.min(level, self.floor + 0.002) or level
+  end
+  local gain = math.max(0, math.min(1, (level - (self.floor or level) - 0.08) / 0.2)) -- full at ~11 dB over the room
   fft(re, im)
-  local bands = {}
+  local bands, top = {}, 0
   for b = 1, self.bands do
     local lo, hi = self.bins[b - 1], math.max(self.bins[b - 1] + 1, self.bins[b])
     local sum = 0
     for k = lo, hi - 1 do
       sum = sum + math.sqrt(re[k + 1] ^ 2 + im[k + 1] ^ 2)
     end
-    local magnitude = math.sqrt(sum / (hi - lo)) -- perceptual compression
-    self.peak[b] = math.max(self.peak[b] * 0.999, magnitude)
-    bands[b] = math.max(0, math.min(1, magnitude / (self.peak[b] + 1e-6)))
+    bands[b] = math.sqrt(sum / (hi - lo)) -- perceptual compression
+    self.peak[b] = math.max(self.peak[b] * 0.999, bands[b])
+    top = math.max(top, self.peak[b])
+  end
+  -- Each band is scaled by its own peak, but never by less than 0.4 of the
+  -- loudest band's: the first word after silence would otherwise read full
+  -- height in every band (their peaks only know room noise yet).
+  for b = 1, self.bands do
+    bands[b] = gain * math.min(1, bands[b] / (math.max(self.peak[b], top * 0.4) + 1e-6)) ^ 0.5 -- lift quiet bands
   end
   return bands, level
 end
