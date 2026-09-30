@@ -75,6 +75,8 @@ class Speech:
 
 
 def _letters(piece):
+    if piece == "<unk>":
+        return ""  # never boosted, never part of a word
     return "".join(c for c in piece.lower() if c.isalnum() or c == "'")
 
 
@@ -87,11 +89,12 @@ def vocabulary_prefixes(words):
 def boosted_greedy(
     model, features, lengths=None, last_token=None, hidden_state=None, *, config, prefixes, bonus
 ):
-    """parakeet-mlx's TDT greedy decoder (ParakeetTDT.decode_greedy, Apache-2.0)
-    with one change: before each pick, pieces that keep the current word a
-    prefix of a vocabulary word get `bonus` per letter (after the first) added
-    to their log-prob (shallow fusion). Clear speech still wins; ambiguous audio
-    ("oki" vs "okay") tips toward the listed spelling."""
+    """parakeet-mlx 0.5.2's ParakeetTDT.decode_greedy (Apache-2.0), changed so
+    that before each pick, pieces that keep the current word a prefix of a
+    vocabulary word get `bonus` per letter (after the first) added to their
+    float32 log-prob (shallow fusion), and confidence is fixed at 1.0 instead
+    of the entropy score. Clear speech still wins; ambiguous audio ("oki" vs
+    "okay") tips toward the listed spelling."""
     import mlx.core as mx
     from mlx import nn
     from parakeet_mlx import tokenizer
@@ -172,9 +175,11 @@ class ParakeetSpeech(Speech):
     name = "parakeet-mlx"
 
     def load(self):
-        from parakeet_mlx import from_pretrained
+        from parakeet_mlx import ParakeetTDT, from_pretrained
 
         self.model = from_pretrained(self.model_id)
+        if self.boost and not isinstance(self.model, ParakeetTDT):
+            raise ValueError(f"stt.boost needs a Parakeet TDT model, not {self.model_id}")
 
     def transcribe(self, wav, hint):
         # Boosting swaps in our greedy decoder on this model instance only.
@@ -192,7 +197,11 @@ class WhisperSpeech(Speech):
     name = "mlx-whisper"
 
     def load(self):
-        import mlx_whisper  # noqa: F401 (fail early; the model loads on first transcribe)
+        import mlx.core as mx
+        from mlx_whisper.transcribe import ModelHolder
+
+        # Warm the cache transcribe() reads (fp16 is its default).
+        ModelHolder.get_model(self.model_id, mx.float16)
 
     def transcribe(self, wav, hint):
         import mlx_whisper

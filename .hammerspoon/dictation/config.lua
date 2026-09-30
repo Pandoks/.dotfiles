@@ -21,7 +21,7 @@
 ---@class DictationSttConfig
 ---@field backend DictationBackend Which runtime loads the model. Must match the model; see README.md. Add runtimes by subclassing `Speech` in server.py.
 ---@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v2". Downloaded on first use.
----@field boost? number parakeet-mlx only: bias decoding toward `vocabulary`/`dictionary`/per-app words (log-prob bonus per matching letter). 4.5 measured best; 0 or nil = off. 6 already inserts vocabulary words that weren't said.
+---@field boost? number parakeet-mlx TDT models only: bias decoding toward single-word `vocabulary`/`dictionary`/per-app entries made of letters, digits, and apostrophes (log-prob bonus per matching letter); multi-word, hyphenated, or dotted entries get only the text fixes. 4.5 measured best; 0 or nil = off. 6 already inserts vocabulary words that weren't said.
 
 ---@class DictationCleanupConfig
 ---@field enabled boolean Run the LLM cleanup pass. false = the speech model's text with only `dictionary`/`vocabulary` applied (no stall stripping or punctuation policy).
