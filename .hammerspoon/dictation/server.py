@@ -52,6 +52,13 @@ def log(message):
     emit({"event": "log", "msg": str(message)})
 
 
+def pinned(revision, name):
+    # A commit SHA loads from the cache with no Hub request; a branch is looked up every launch.
+    if not re.fullmatch(r"[0-9a-f]{40}", str(revision)):
+        raise ValueError(f"{name} must be a 40-character commit SHA, got {revision!r}")
+    return revision
+
+
 # --- speech-to-text role ------------------------------------------------------
 class Speech:
     """A speech-to-text runtime. Subclasses load one model and turn a wav into text."""
@@ -59,8 +66,9 @@ class Speech:
     #: registry name, e.g. "parakeet-mlx"; matches `stt.backend` in config.lua
     name = ""
 
-    def __init__(self, model_id, boost=0.0):
+    def __init__(self, model_id, revision, boost=0.0):
         self.model_id = model_id
+        self.revision = revision
         # Vocabulary boosting strength (log-prob bonus per matching letter);
         # runtimes that can bias decoding use it, 0 = off.
         self.boost = boost
@@ -180,6 +188,7 @@ class ParakeetSpeech(Speech):
         import mlx.core as mx
         import numpy as np
         import parakeet_mlx.parakeet
+        from huggingface_hub import hf_hub_download
         from parakeet_mlx import ParakeetTDT, from_pretrained
 
         def read(path, rate, _dtype):
@@ -191,7 +200,10 @@ class ParakeetSpeech(Speech):
                 frames = audio.readframes(params.nframes)
             return mx.array(np.frombuffer(frames, np.int16)).astype(mx.float32) / 32768.0
 
-        self.model = from_pretrained(self.model_id)
+        # The two files from_pretrained reads, pinned; given a repo id it fetches the latest commit.
+        config = hf_hub_download(self.model_id, "config.json", revision=self.revision)
+        hf_hub_download(self.model_id, "model.safetensors", revision=self.revision)
+        self.model = from_pretrained(os.path.dirname(config))
         if self.boost and not isinstance(self.model, ParakeetTDT):
             raise ValueError(f"stt.boost needs a Parakeet TDT model, not {self.model_id}")
         parakeet_mlx.parakeet.load_audio = read
@@ -214,17 +226,20 @@ class WhisperSpeech(Speech):
 
     def load(self):
         import mlx.core as mx
+        from huggingface_hub import snapshot_download
         from mlx_whisper.transcribe import ModelHolder
 
+        # Pinned local dir; given a repo id, mlx_whisper fetches the latest commit.
+        self.path = snapshot_download(self.model_id, revision=self.revision)
         # Warm the cache transcribe() reads (fp16 is its default).
-        ModelHolder.get_model(self.model_id, mx.float16)
+        ModelHolder.get_model(self.path, mx.float16)
 
     def transcribe(self, wav, hint):
         import mlx_whisper
 
         # Whisper takes the vocabulary as a prompt; Parakeet uses it via boosting.
         result = mlx_whisper.transcribe(
-            wav, path_or_hf_repo=self.model_id, initial_prompt=", ".join(hint) or None
+            wav, path_or_hf_repo=self.path, initial_prompt=", ".join(hint) or None
         )
         return str(result.get("text", "")).strip()
 
@@ -235,7 +250,7 @@ class MlxAudioSpeech(Speech):
     def load(self):
         from mlx_audio.stt.utils import load_model
 
-        self.model = load_model(self.model_id)
+        self.model = load_model(self.model_id, revision=self.revision)
 
     def transcribe(self, wav, hint):
         result = self.model.generate(wav)
@@ -253,9 +268,11 @@ class Cleaner:
     #: registry name; matches `cleanup.backend` in config.lua
     name = ""
 
-    def __init__(self, model_id, adapter_id, max_tokens):
+    def __init__(self, model_id, revision, adapter_id, adapter_revision, max_tokens):
         self.model_id = model_id
+        self.revision = revision
         self.adapter_id = adapter_id
+        self.adapter_revision = adapter_revision
         self.max_tokens = max_tokens
         # A cleanup-trained adapter ships its prompt as system_v2.txt. It was
         # trained with exactly that text and nothing else, so it is used
@@ -274,7 +291,7 @@ class Cleaner:
             return None
         from huggingface_hub import snapshot_download
 
-        adapter_dir = snapshot_download(self.adapter_id)
+        adapter_dir = snapshot_download(self.adapter_id, revision=self.adapter_revision)
         path = os.path.join(adapter_dir, "system_v2.txt")
         if os.path.exists(path):
             with open(path) as file:
@@ -288,7 +305,7 @@ class MlxLmCleaner(Cleaner):
     def load(self):
         from mlx_lm import load as llm_load
 
-        loaded = llm_load(self.model_id, adapter_path=self._fetch_adapter())
+        loaded = llm_load(self.model_id, adapter_path=self._fetch_adapter(), revision=self.revision)
         self.llm, self.tokenizer = loaded[0], loaded[1]
 
     def complete(self, messages):
@@ -332,7 +349,9 @@ class Engine:
         backend = stt["backend"]
         if backend not in SPEECH_BACKENDS:
             raise ValueError(f"unknown speech backend: {backend}")
-        self.speech = SPEECH_BACKENDS[backend](stt["model"], float(stt.get("boost") or 0))
+        self.speech = SPEECH_BACKENDS[backend](
+            stt["model"], pinned(stt.get("revision"), "stt.revision"), float(stt.get("boost") or 0)
+        )
 
         self.cleaner = None
         cleanup = config["cleanup"]
@@ -340,8 +359,13 @@ class Engine:
             backend = cleanup.get("backend", "mlx-lm")
             if backend not in CLEANUP_BACKENDS:
                 raise ValueError(f"unknown cleanup backend: {backend}")
+            adapter = cleanup.get("adapter")
             self.cleaner = CLEANUP_BACKENDS[backend](
-                cleanup["model"], cleanup.get("adapter"), int(cleanup["max_tokens"])
+                cleanup["model"],
+                pinned(cleanup.get("revision"), "cleanup.revision"),
+                adapter,
+                adapter and pinned(cleanup.get("adapterRevision"), "cleanup.adapterRevision"),
+                int(cleanup["max_tokens"]),
             )
 
     def load(self):

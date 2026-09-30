@@ -21,13 +21,16 @@
 ---@class DictationSttConfig
 ---@field backend DictationBackend Which runtime loads the model. Must match the model; see README.md. Add runtimes by subclassing `Speech` in server.py.
 ---@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v2". Downloaded on first use.
+---@field revision string Commit SHA of `model` (`.venv/bin/hf models info <repo> --expand sha`). Pinned: once cached it loads with no network, and upstream changes apply only when you change this.
 ---@field boost? number parakeet-mlx TDT models only: bias decoding toward single-word `vocabulary`/`dictionary`/per-app entries made of letters, digits, and apostrophes (log-prob bonus per matching letter); multi-word, hyphenated, or dotted entries get only the text fixes. 4.5 measured best; 0 or nil = off. 6 already inserts vocabulary words that weren't said.
 
 ---@class DictationCleanupConfig
 ---@field enabled boolean Run the LLM cleanup pass. false = the speech model's text with only `dictionary`/`vocabulary` applied (no stall stripping or punctuation policy).
 ---@field backend? DictationCleanupBackend Which runtime loads the model. nil = "mlx-lm". Add runtimes by subclassing `Cleaner` in server.py.
 ---@field model string Hugging Face repo of an MLX model (the base when `adapter` is set), e.g. "mlx-community/Qwen3.5-2B-MLX-4bit".
+---@field revision string Commit SHA of `model`, pinned like `stt.revision`.
 ---@field adapter? string Hugging Face repo of a LoRA adapter for `model`. A cleanup-trained adapter ships its own prompt (system_v2.txt), which is then used verbatim: `style` and `apps` do not apply, vocabulary is applied deterministically instead. nil = plain instruct model with our prompt.
+---@field adapterRevision? string Commit SHA of `adapter`, pinned like `stt.revision`. Required with `adapter`.
 ---@field max_tokens integer Max tokens the cleanup may generate (cap for long dictations).
 
 ---@class DictationAppConfig
@@ -90,6 +93,7 @@ local config = {
   stt = {
     backend = "parakeet-mlx",
     model = "mlx-community/parakeet-tdt-0.6b-v2",
+    revision = "8ae155301e23d820d82aa60d24817c900e69e487",
     boost = 4.5,
   },
 
@@ -101,7 +105,9 @@ local config = {
   cleanup = {
     enabled = true,
     model = "mlx-community/Qwen3.5-2B-MLX-4bit",
+    revision = "93760be4f1f69842a46bc13dbdc0f19e291392a3",
     adapter = "ReFyneLabs/simplewords-dictation-cleanup-v3-adapter",
+    adapterRevision = "b603b485ffb54f5458a94f1542cf1cad97cc872c",
     max_tokens = 400,
   },
 

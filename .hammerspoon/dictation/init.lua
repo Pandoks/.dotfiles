@@ -166,7 +166,9 @@ local function insertText(text)
   -- The app's own ⌘V; macOS never signals when the clipboard was read, hence the delay.
   local previous = hs.pasteboard.readAllData()
   local items = #hs.pasteboard.allContentTypes()
-  if not hs.pasteboard.setContents(text) then
+  -- Transient (nspasteboard.org): clipboard managers record neither this nor the restore.
+  local transient = "org.nspasteboard.TransientType"
+  if not hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = text, [transient] = "" }) then
     error("could not write clipboard", 0)
   end
   hs.eventtap.keyStroke({ "cmd" }, "v", 0)
@@ -175,6 +177,7 @@ local function insertText(text)
     dictation.restore = nil
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
     if previous and hs.pasteboard.changeCount() == count then
+      previous[transient] = ""
       hs.pasteboard.writeAllData(previous)
       -- readAllData sees only the first item (e.g. of several copied files).
       if items > 1 then

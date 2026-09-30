@@ -19,7 +19,8 @@ it with `require("dictation")`.
 
 ## Setup
 
-1. Install the backend (creates `.venv`, needs `uv` and `ffmpeg`):
+1. Install the backend (creates `.venv` from the hashed lock `requirements.txt`,
+   needs `uv` and `ffmpeg`):
 
    ```sh
    ~/.hammerspoon/dictation/setup.sh
@@ -54,8 +55,11 @@ it with `require("dictation")`.
 
 ## Choosing a speech model
 
-Edit `stt` in `config.lua`; the backend must match the model. First use downloads
-the model. The existing local model reference is listed below.
+Edit `stt` in `config.lua`; the backend must match the model. `revision` pins
+the model's commit (`.venv/bin/hf models info <repo> --expand sha`): first use
+downloads that commit, later launches load it from the cache with no network,
+and an upstream change is used only once you change `revision`. The existing
+local model reference is listed below.
 
 | Model | Backend | Approx. download | License | Recorded mean WER | Notes |
 |---|---|---|---|---|---|
@@ -114,9 +118,9 @@ own prompt, which is used verbatim; a vocabulary list cannot be added to it (it
 echoes the list back), so vocabulary is applied deterministically as above.
 
 `style` and per-app `apps` instructions only take effect with a plain instruct
-model: set `cleanup.adapter = nil` and `cleanup.model` to e.g.
-`mlx-community/Qwen2.5-1.5B-Instruct-4bit`. Generic models measured worse here
-(no self-correction handling) but are steerable.
+model: set `cleanup.adapter = nil` and `cleanup.model` (and its `revision`) to
+e.g. `mlx-community/Qwen2.5-1.5B-Instruct-4bit`. Generic models measured worse
+here (no self-correction handling) but are steerable.
 
 Set `cleanup.enabled = false` for raw transcription with no LLM pass.
 
@@ -132,9 +136,10 @@ folder and the cap in `history` in `config.lua`.
 ## Swapping models and runtimes
 
 Models are swapped in `config.lua` alone: `stt.model` / `stt.backend` and
-`cleanup.model` / `cleanup.adapter` / `cleanup.backend` (default `mlx-lm`). Any
-Hugging Face repo the chosen runtime can load works; it is downloaded on first
-use.
+`cleanup.model` / `cleanup.adapter` / `cleanup.backend` (default `mlx-lm`), each
+repo with its commit SHA (`revision` / `adapterRevision`). Any Hugging Face repo
+the chosen runtime can load works; the pinned commit is downloaded on first use.
+Pin only repos you trust: mlx-lm runs Python a model repo names in its config.
 
 Runtimes are classes in `server.py`. Each model role is an abstract base with
 one subclass per runtime, registered by name:
@@ -188,7 +193,9 @@ untouched. Chromium/Electron fields (Slack, VS Code, browsers) report
 Accessibility writes as supported and then ignore them, so for those the text is
 pasted with the app's own ⌘V (whole text at once, not typed) and the previous
 clipboard is restored 0.25 s later; macOS gives no signal for when the app has
-read the clipboard, so that delay is unavoidable. `hs.pasteboard` restores only
+read the clipboard, so that delay is unavoidable. Both writes carry
+`org.nspasteboard.TransientType`, so clipboard managers that honor it (Raycast,
+Maccy, Alfred, ...) record neither. `hs.pasteboard` restores only
 the first clipboard item, so several copied files come back as the first one,
 with an alert.
 
@@ -204,4 +211,4 @@ with an alert.
 | `spectrum.lua` | pure-Lua FFT: PCM window -> equalizer bands + level |
 | `engine.lua` | manages the resident Python backend over a JSON pipe |
 | `server.py` | speech-to-text + LLM cleanup, kept resident; `Speech`/`Cleaner` classes, one per runtime, picked by `backend` |
-| `setup.sh` | builds `.venv` |
+| `setup.sh` | builds `.venv` from `requirements.txt` (hashed lock of `requirements.in`) |
