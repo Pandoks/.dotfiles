@@ -361,18 +361,6 @@ if config.trigger == "hotkey" then
   if not dictation.hotkey then
     fail("Dictation: could not register the hotkey; another app or macOS already uses it")
   end
-elseif config.trigger == "dictationKey" then
-  local key = config.dictationKey
-  dictation.keyTap = hs.eventtap.new({ hs.eventtap.event.types.systemDefined }, function(event)
-    local native = event:getRawEventData().NSEventData
-    if native and native.subtype == key.subtype and native.data1 == key.data1 then
-      if native.data2 == 1 then
-        toggle()
-      end
-      return key.swallow
-    end
-    return false
-  end)
 else
   -- Solo modifier tap: any other key, click, scroll, or modifier voids it.
   local modifier = config.modifierTap

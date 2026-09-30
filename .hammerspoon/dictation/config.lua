@@ -7,9 +7,8 @@
 ---| "mlx-lm"  # MLX text models, with or without a LoRA adapter (default)
 
 ---@alias DictationTrigger
----| "hotkey"       # a key combo (see `hotkey`)
----| "modifierTap"  # tap a modifier by itself, like Raycast (see `modifierTap`)
----| "dictationKey" # the macOS mic key; unreliable, macOS always intercepts it
+---| "hotkey"      # a key combo (see `hotkey`)
+---| "modifierTap" # tap a modifier by itself, like Raycast (see `modifierTap`)
 
 ---@alias DictationInsertMode
 ---| "auto"      # insert like "direct"; if there is no focused field, focus moved, or insertion fails, copy the text to the clipboard instead (with a brief alert)
@@ -49,16 +48,10 @@
 ---@field taps 1|2 Taps required: 1 = single tap, 2 = double tap (safer against accidents).
 ---@field window number Max seconds for a tap and between taps. Longer holds are ignored.
 
----@class DictationKeyEventConfig
----@field subtype integer NSEvent subtype of the mic key's system event (7 on this Mac).
----@field data1 integer NSEvent data1 identifying the key (1 on this Mac).
----@field swallow boolean Try to consume the event so macOS ignores it (macOS still acts on it; see README).
-
 ---@class DictationConfig
 ---@field trigger DictationTrigger How dictation is started/stopped.
 ---@field hotkey DictationHotkeyConfig Used when trigger = "hotkey".
 ---@field modifierTap DictationModifierTapConfig Used when trigger = "modifierTap".
----@field dictationKey DictationKeyEventConfig Used when trigger = "dictationKey".
 ---@field stt DictationSttConfig Speech-to-text model.
 ---@field cleanup DictationCleanupConfig LLM cleanup pass.
 ---@field style string System prompt of a plain instruct cleanup model (`cleanup.adapter = nil`); a cleanup adapter ignores it.
@@ -81,8 +74,6 @@ local config = {
   hotkey = { mods = { "alt" }, key = "space" },
 
   modifierTap = { keycode = 54, flag = "cmd", taps = 2, window = 0.4 },
-
-  dictationKey = { subtype = 7, data1 = 1, swallow = true },
 
   -- English-only: v3 sometimes transcribes English as another language.
   stt = {

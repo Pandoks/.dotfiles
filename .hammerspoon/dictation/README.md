@@ -38,9 +38,8 @@ it with `require("dictation")`.
 
    The physical macOS dictation key (mic glyph) cannot be used: macOS 26 owns it
    and always runs its own dictation, or an "enable Dictation?" prompt when
-   Dictation is off, and no third-party app can suppress that. A `dictationKey`
-   mode exists but is unreliable for this reason. Leave **System Settings >
-   Keyboard > Dictation** on or off as you like; it no longer matters.
+   Dictation is off, and no third-party app can suppress that. Leave **System
+   Settings > Keyboard > Dictation** on or off as you like; it no longer matters.
 
 3. Grant permissions to **Hammerspoon** in **System Settings > Privacy &
    Security**: Microphone (for ffmpeg), Accessibility (for the key event,
