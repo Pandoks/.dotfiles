@@ -20,7 +20,7 @@
 
 ---@class DictationSttConfig
 ---@field backend DictationBackend Which runtime loads the model. Must match the model; see README.md. Add runtimes by subclassing `Speech` in server.py.
----@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v2". Downloaded on first use.
+---@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v2". Downloaded when the backend first starts.
 ---@field revision string Commit SHA of `model` (`.venv/bin/hf models info <repo> --expand sha`). Pinned: once cached it loads with no network, and upstream changes apply only when you change this.
 ---@field boost? number parakeet-mlx TDT models only: bias decoding toward single-word `vocabulary`/`dictionary`/per-app entries made of letters, digits, and apostrophes (log-prob bonus per matching letter); multi-word, hyphenated, or dotted entries get only the text fixes. 4.5 measured best; 0 or nil = off. 6 already inserts vocabulary words that weren't said.
 
@@ -100,8 +100,8 @@ local config = {
   -- simplewords v3: a LoRA trained only to clean dictation (fixes fillers and
   -- self-corrections like "Thursday no Friday", never answers or paraphrases),
   -- on Qwen3.5-2B. ~0.8s per utterance. Base ~1.7 GB + adapter 67 MB, fetched
-  -- on first use. Set adapter = nil to use a generic instruct model with the
-  -- `style`/`apps` prompt instead.
+  -- at the backend's first start. Set adapter = nil to use a generic instruct
+  -- model with the `style`/`apps` prompt instead.
   cleanup = {
     enabled = true,
     model = "mlx-community/Qwen3.5-2B-MLX-4bit",

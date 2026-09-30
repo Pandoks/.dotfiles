@@ -357,6 +357,7 @@ huggingface-hub==1.31.0 \
     --hash=sha256:9dbb6a503cbe2494ea666695207e7262d410659e09134059deb83e5480864667 \
     --hash=sha256:f8e9e710a210613fa5d0f26bba6da05ef4aef9fba5a0f23f508f5ac4d08b6f90
     # via
+    #   -r requirements.in
     #   mlx-audio
     #   mlx-whisper
     #   parakeet-mlx
@@ -599,6 +600,7 @@ mlx==0.32.2 \
     --hash=sha256:fe813a4dee2daa6d5ac496ef25117034728c77fe26f713983a3b406eb6f4e8f0 \
     --hash=sha256:fe8c1ecdad687259944b76d67621b00536b00194557588a4604a45efcd238d8e
     # via
+    #   -r requirements.in
     #   mlx-audio
     #   mlx-lm
     #   mlx-whisper
@@ -823,6 +825,7 @@ numpy==2.5.3 \
     --hash=sha256:fc36dc566135b5eceec4cf89758fcb719266a019ef07dae1754ae7c9f617ef3e \
     --hash=sha256:ffdc76bfcae6b255dff75202c5e7feaf95b40246bc0a17944facc1fecf9f79ab
     # via
+    #   -r requirements.in
     #   librosa
     #   mlx-audio
     #   mlx-lm
