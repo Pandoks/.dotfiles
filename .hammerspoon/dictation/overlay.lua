@@ -4,7 +4,7 @@
 ---@field warmth number 1 = ripple intro (mic opening), fading to 0 = live equalizer
 ---@field phase number animation phase (intro ripple, shimmer); 0 at show()
 ---@field bars number[] current per-bar equalizer heights (0..1), smoothed
----@field canvas hs.canvas? the drawn pill; nil after :delete()
+---@field canvas hs.canvas the drawn pill
 ---@field width number pill width in points
 ---@field height number pill height in points
 ---@field barWidth number bar width in points
@@ -72,9 +72,6 @@ end
 -- Recompute every bar's frame from the current state.
 function overlay:_layout()
   local canvas = self.canvas
-  if not canvas then
-    return
-  end
   local height, width, barWidth = self.height, self.width, self.barWidth
   local bars = #self.bars
   local span = width * spread
@@ -150,9 +147,6 @@ function overlay:show()
     self.bars[i] = 0
   end
   local canvas = self.canvas
-  if not canvas then
-    return
-  end
   local screen = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
   if screen then
     local frame = screen:frame()
@@ -171,16 +165,11 @@ function overlay:setThinking()
 end
 
 function overlay:hide()
-  if self.canvas then
-    self.canvas:hide()
-  end
+  self.canvas:hide()
 end
 
 function overlay:delete()
-  if self.canvas then
-    self.canvas:delete()
-    self.canvas = nil
-  end
+  self.canvas:delete()
 end
 
 return overlay

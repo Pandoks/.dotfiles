@@ -9,11 +9,15 @@ stdout: {"event": "ready"}                          once models are loaded
 """
 
 import argparse
+import difflib
+import functools
 import json
 import os
 import re
 import sys
 import traceback
+import unicodedata
+import wave
 from pathlib import Path
 
 
@@ -159,8 +163,6 @@ class ParakeetSpeech(Speech):
     name = "parakeet-mlx"
 
     def load(self):
-        import wave
-
         import mlx.core as mx
         import numpy as np
         import parakeet_mlx.parakeet
@@ -190,8 +192,6 @@ class ParakeetSpeech(Speech):
         # Boosting swaps in our greedy decoder on this model instance only.
         self.model.__dict__.pop("decode_greedy", None)
         if self.boost and hint:
-            import functools
-
             self.model.decode_greedy = functools.partial(
                 boosted_greedy, self.model, prefixes=vocabulary_prefixes(hint), bonus=self.boost
             )
@@ -381,9 +381,6 @@ class Engine:
 
     def apply_vocabulary(self, text, request=None):
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
-        import difflib
-        import unicodedata
-
         # Words joined by " .'-", accents folded ("José" -> "jose"); "C++" is skipped (keys as "c").
         glossary = {
             re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", w.lower())): w
@@ -742,7 +739,6 @@ class Engine:
     @classmethod
     def looks_rewritten(cls, raw, out, allowed):
         """True if `out` is not a light edit of `raw`; `allowed` words may replace misheard ones."""
-        import difflib
 
         def words(text):
             return re.findall(r"[a-z0-9']+", text.lower())

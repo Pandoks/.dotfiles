@@ -438,8 +438,6 @@ else
     end
     return false
   end)
-end
-if dictation.keyTap then
   dictation.keyTap:start()
   if not dictation.keyTap:isEnabled() then
     fail("Dictation: allow Accessibility access in System Settings, then reload Hammerspoon")
