@@ -128,7 +128,9 @@ model: set `cleanup.adapter = nil` and `cleanup.model` (and its `revision`) to
 e.g. `mlx-community/Qwen2.5-1.5B-Instruct-4bit`. Generic models measured worse
 here (no self-correction handling) but are steerable.
 
-Set `cleanup.enabled = false` for raw transcription with no LLM pass.
+Set `cleanup.enabled = false` for raw transcription with no LLM pass. Only
+macOS's word list then keeps real words from `vocabulary` fuzzy matching, so
+"tacos" can become "macOS".
 
 ## Transcript history
 

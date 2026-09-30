@@ -22,7 +22,7 @@
 ---@field boost? number parakeet-mlx TDT models only: bias decoding toward single-word `vocabulary`/`dictionary`/per-app entries made of letters, digits, and apostrophes (log-prob bonus per matching letter); multi-word, hyphenated, or dotted entries get only the text fixes. 4.5 measured best; 0 or nil = off. 6 already inserts vocabulary words that weren't said.
 
 ---@class DictationCleanupConfig
----@field enabled boolean Run the LLM cleanup pass. false = the speech model's text with only `dictionary`/`vocabulary` applied (no stall stripping or punctuation policy).
+---@field enabled boolean Run the LLM cleanup pass. false = the speech model's text with only `dictionary`/`vocabulary` applied (no stall stripping or punctuation policy); only macOS's word list then keeps real words from `vocabulary` fuzzy matching, so "tacos" can become "macOS".
 ---@field backend? DictationCleanupBackend Which runtime loads the model. nil = "mlx-lm". Add runtimes by subclassing `Cleaner` in server.py.
 ---@field model string Hugging Face repo of an MLX model (the base when `adapter` is set), e.g. "mlx-community/Qwen3.5-2B-MLX-4bit".
 ---@field revision string Commit SHA of `model`, pinned like `stt.revision`.
@@ -55,7 +55,7 @@
 ---@field stt DictationSttConfig Speech-to-text model.
 ---@field cleanup DictationCleanupConfig LLM cleanup pass.
 ---@field style string System prompt of a plain instruct cleanup model (`cleanup.adapter = nil`); a cleanup adapter ignores it.
----@field vocabulary string[] Correct spellings of names, tools, jargon. Misheard words close to one of these are rewritten to it, before and after cleanup (a real word, per macOS's word list and the cleanup model's tokenizer, is never fuzzy-matched, but an unlisted name can be: "Maisie" -> "mise", so list it too; an exact case-insensitive match takes this spelling: "slack" -> "Slack"; entries with symbols other than inner spaces, dots, hyphens, or apostrophes, like "C++", need `dictionary` variants), and the word is protected from being dropped unless you correct yourself. This is the list to maintain.
+---@field vocabulary string[] Correct spellings of names, tools, jargon. Misheard words close to one of these are rewritten to it, before and after cleanup (a real word, per macOS's word list and, with cleanup on, the cleanup model's tokenizer, is never fuzzy-matched, but an unlisted name can be: "Maisie" -> "mise", so list it too; an exact case-insensitive match takes this spelling: "slack" -> "Slack"; entries with symbols other than inner spaces, dots, hyphens, or apostrophes, like "C++", need `dictionary` variants), and the word is protected from being dropped unless you correct yourself. This is the list to maintain.
 ---@field dictionary table<string, string[]> Correct spelling -> explicit spoken variants, for mishearings `vocabulary` similarity cannot reach. Applied deterministically before and after cleanup.
 ---@field apps table<string, DictationAppConfig> Per-app overrides keyed by bundle id (`osascript -e 'id of app "Slack"'`).
 ---@field history DictationHistoryConfig Local archive of every transcript, oldest dropped past a size cap.
