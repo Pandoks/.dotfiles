@@ -34,12 +34,21 @@ for directory in path:gmatch("[^:]+") do
 end
 recorder.ffmpeg = ffmpeg
 
+-- Per-user 0700 temp dir, not the shared /tmp.
+local temporary = hs.fs.temporaryDirectory()
+-- Reload and quit remove their takes; anything left here is from a crash.
+for entry in hs.fs.dir(temporary) do
+  local extension = entry:match("^dictation%-[%x%-]+%.(%a+)$")
+  if extension == "wav" or extension == "pcm" then
+    os.remove(temporary .. entry)
+  end
+end
+
 ---@param bands integer equalizer bands
 ---@param onError fun(message: string)
 ---@return DictationRecording?, string?
 function recorder.start(bands, onError)
-  -- Per-user 0700 temp dir, not the shared /tmp.
-  local base = hs.fs.temporaryDirectory() .. "dictation-" .. hs.host.uuid()
+  local base = temporary .. "dictation-" .. hs.host.uuid()
   local wav, pcm = base .. ".wav", base .. ".pcm"
   -- High-pass only: denoise and silence trimming erase quiet speakers.
   local highpass = "highpass=f=90"

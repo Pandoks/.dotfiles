@@ -186,11 +186,12 @@ capture: Hammerspoon decodes task output as text (dropping PCM bytes) and
 
 Stopping sends SIGINT so ffmpeg finalizes the WAV before transcription; if
 Hammerspoon quits or crashes mid-take, a watchdog on ffmpeg's stdin sends it
-instead, so the mic never stays open. Escape cancels capture and discards
-pending transcription results by request ID. One timer drives the pill: a
-glowing ripple from the center until the mic opens, crossfading (~0.4 s) into
-the equalizer while recording (flat in silence, brighter when louder), a
-glowing shimmer while transcribing.
+instead, so the mic never stays open, and the next load deletes a crashed
+take's temp files. Escape cancels capture and discards pending transcription
+results by request ID. One timer drives the pill: a glowing ripple from the
+center until the mic opens, crossfading (~0.4 s) into the equalizer while
+recording (flat in silence, brighter when louder), a glowing shimmer while
+transcribing.
 
 Insertion (`insert` in config.lua): `auto` (default) inserts into the focused
 field and, when there is no field or insertion fails, copies the text to the
