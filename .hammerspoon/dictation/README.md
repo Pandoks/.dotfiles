@@ -6,12 +6,8 @@ transcribes, a local LLM cleans it up using your style, vocabulary, and the
 active app, and the result is inserted into the focused field (or copied to the
 clipboard, per `insert` in config.lua).
 
-Everything is self-contained in this directory. The only change to your existing
-config is one line in `~/.hammerspoon/init.lua`:
-
-```lua
-require("dictation")
-```
+Everything is self-contained in this directory; `~/.hammerspoon/init.lua` loads
+it with `require("dictation")`.
 
 ## What runs where
 
@@ -50,9 +46,8 @@ require("dictation")
    text field after accessibility is granted, and even then selection can be
    flaky; app name and browser URL are always available.
 
-4. Add `require("dictation")` to `~/.hammerspoon/init.lua` and reload
-   Hammerspoon. The backend loads models in the background (~10s the first time,
-   plus a one-time model download).
+4. Reload Hammerspoon. The backend loads models in the background (~10s the
+   first time, plus a one-time model download).
 
 ## Choosing a speech model
 
@@ -147,6 +142,38 @@ around the models, in order: dictionary and vocabulary, the prompt (or the
 adapter's frozen prompt), the rewrite guard, stall stripping, the question
 mark, and the end policy, so a new runtime gets the same behavior for free.
 
+## Capture and insertion
+
+Capture errors stop dictation and show a logged alert. Capture uses the system's
+current default microphone. The audio is only high-passed (90 Hz): denoising
+(`afftdn`) and silence trimming were measured to make things worse, because
+their fixed dB thresholds delete a quiet or distant speaker outright (a take
+25 dB below full scale came back empty), while Parakeet itself is flat at
+7–9% WER from full scale down to -35 dB and across pink, brown, fan, and
+20–10 dB babble noise. Only loud overlapping speech (babble at ≤5 dB SNR)
+defeats it, and no filter recovers that. ffmpeg writes the wav and, in
+parallel, raw PCM to a flushed temp file; the 30 fps tick reads the new bytes
+and `spectrum.lua` runs the FFT in Lua (~2 ms/frame). No Python is involved in
+capture: Hammerspoon decodes task output as text (dropping PCM bytes) and
+`io.popen` would block the main thread, while a page-cached file read costs
+~13 µs per frame.
+
+Stopping sends SIGINT so ffmpeg finalizes the WAV before transcription. Escape
+cancels capture and discards pending transcription results by request ID. One
+timer drives the pill: a glowing ripple from the center until the mic opens,
+crossfading (~0.4 s) into the equalizer while recording (flat in silence,
+brighter when louder), a glowing shimmer while transcribing.
+
+Insertion (`insert` in config.lua): `auto` (default) inserts into the focused
+field and, when there is no field or insertion fails, copies the text to the
+clipboard and shows a brief alert; `direct` inserts only and reports failures;
+`clipboard` only copies. Direct insertion writes through Accessibility and
+leaves the clipboard untouched. Chromium/Electron fields (Slack, VS Code,
+browsers) report Accessibility writes as supported and then ignore them, so for
+those the text is pasted with the app's own ⌘V (whole text at once, not typed)
+and the previous clipboard is restored 0.25 s later; macOS gives no signal for
+when the app has read the clipboard, so that delay is unavoidable.
+
 ## Files
 
 | File | Role |
@@ -160,30 +187,3 @@ mark, and the end policy, so a new runtime gets the same behavior for free.
 | `engine.lua` | manages the resident Python backend over a JSON pipe |
 | `server.py` | speech-to-text + LLM cleanup, kept resident; `Speech`/`Cleaner` classes, one per runtime, picked by `backend` |
 | `setup.sh` | builds `.venv` |
-
-Capture errors stop dictation and show a logged alert. Capture uses the system's
-current default microphone. The audio is only high-passed (90 Hz): denoising
-(`afftdn`) and silence trimming were measured to make things worse, because
-their fixed dB thresholds delete a quiet or distant speaker outright (a take
-25 dB below full scale came back empty), while Parakeet itself is flat at
-7–9% WER from full scale down to -35 dB and across pink, brown, fan, and
-20–10 dB babble noise. Only loud overlapping speech (babble at ≤5 dB SNR)
-defeats it, and no filter recovers that. ffmpeg writes the wav and, in
-parallel, raw PCM to a flushed temp file; the 30 fps tick reads the new bytes and `spectrum.lua` runs
-the FFT in Lua (~2 ms/frame). No Python is involved in capture: Hammerspoon
-decodes task output as text (dropping PCM bytes) and `io.popen` would block the
-main thread, while a page-cached file read costs ~13 µs per frame.
-
-Stopping sends SIGINT so ffmpeg finalizes the WAV before transcription. Escape
-cancels capture and discards pending transcription results by request ID. One
-timer drives the pill: a glowing ripple from the center until the mic opens,
-crossfading (~0.4 s) into the equalizer while recording (flat in silence,
-brighter when louder), a glowing shimmer while transcribing. Insertion (`insert` in config.lua):
-`auto` (default) inserts into the focused field and, when there is no field or
-insertion fails, copies the text to the clipboard and shows a brief alert;
-`direct` inserts only and reports failures; `clipboard` only copies. Direct
-insertion writes through Accessibility and leaves the clipboard untouched. Chromium/Electron fields (Slack, VS Code,
-browsers) report Accessibility writes as supported and then ignore them, so for
-those the text is pasted with the app's own ⌘V (whole text at once, not typed)
-and the previous clipboard is restored 0.25 s later; macOS gives no signal for
-when the app has read the clipboard, so that delay is unavoidable.

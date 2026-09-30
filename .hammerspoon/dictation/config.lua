@@ -69,7 +69,7 @@
 ---@field includeSelection boolean Send the current text selection as context. Off by default (privacy; can cause echoing). Only a real selection, capped, is ever sent.
 ---@field minLevel number 0..1 peak loudness required, else the take is treated as silence. Raise to demand a closer, louder voice.
 ---@field minDuration number Minimum recording length in seconds; shorter takes are ignored.
----@field overlayHeight number Pill height in points. ~30 matches Raycast; larger looks bulky.
+---@field overlayHeight number Pill height in points.
 ---@field eqBands integer Number of frequency bands in the equalizer (mirrored around the center).
 
 ---@type DictationConfig
@@ -93,8 +93,6 @@ local config = {
     boost = 4.5,
   },
 
-  -- 1.5B halves cleanup latency (~0.8s vs ~1.4s) at the same quality as 3B on
-  -- dictation; 0.5B is too weak (misses corrections and punctuation).
   -- simplewords v3: a LoRA trained only to clean dictation (fixes fillers and
   -- self-corrections like "Thursday no Friday", never answers or paraphrases),
   -- on Qwen3.5-2B. ~0.8s per utterance. Base ~1.3 GB + adapter 67 MB, fetched
@@ -118,8 +116,18 @@ local config = {
   -- Correct spellings of names, tools, jargon. This is the list to maintain:
   -- misheard tokens close to one of these are rewritten to it.
   vocabulary = {
-    "yabai", "Raycast", "Hammerspoon", "Ghostty", "mise", "Neovim", "rtorrent",
-    "macOS", "GitHub", "Slack", "Oki", "Uniqlo",
+    "yabai",
+    "Raycast",
+    "Hammerspoon",
+    "Ghostty",
+    "mise",
+    "Neovim",
+    "rtorrent",
+    "macOS",
+    "GitHub",
+    "Slack",
+    "Oki",
+    "Uniqlo",
   },
 
   -- Explicit spoken variants for stubborn mishearings the vocabulary match

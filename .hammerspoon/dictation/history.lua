@@ -1,21 +1,16 @@
--- Keeps every dictation result as a .txt file, so a failed insert never loses
--- a take. The oldest files are deleted once the directory exceeds its cap.
-
 local history = {}
 
--- Save `text` as <timestamp>.txt in `directory` (created if missing; "~" is the
--- home directory), then delete the oldest files until the directory's on-disk
--- size is <= maxBytes. The file just written is always kept. Returns the saved path.
+-- Save `text` as <timestamp>.txt, then delete the oldest files past the size cap.
 ---@param text string
----@param directory string
----@param maxBytes number on-disk bytes, as `du` counts them
----@return string? path, string? failure
-function history.save(text, directory, maxBytes)
-  directory = (directory:gsub("^~", os.getenv("HOME") or "~"))
+---@param settings DictationHistoryConfig
+---@return string? failure
+function history.save(text, settings)
+  local directory = (settings.directory:gsub("^~", os.getenv("HOME") or "~"))
+  local limit = settings.maxMegabytes * 1024 * 1024
   if not hs.fs.attributes(directory, "mode") then
     local ok, message = hs.fs.mkdir(directory)
     if not ok then
-      return nil, "could not create " .. directory .. ": " .. tostring(message)
+      return "could not create " .. directory .. ": " .. tostring(message)
     end
   end
 
@@ -29,13 +24,12 @@ function history.save(text, directory, maxBytes)
   local path = directory .. "/" .. name
   local file, message = io.open(path, "w")
   if not file then
-    return nil, "could not write " .. path .. ": " .. tostring(message)
+    return "could not write " .. path .. ": " .. tostring(message)
   end
   file:write(text, "\n")
   file:close()
 
-  -- Prune oldest first, never the newest. Sizes are allocated disk blocks
-  -- (st_blocks, 512 bytes each): a one-line take still occupies 4 KB.
+  -- Prune oldest first, never the newest; sizes are allocated 512-byte blocks, as `du` counts.
   local files, total = {}, 0
   for entry in hs.fs.dir(directory) do
     if entry:match("%.txt$") then
@@ -48,13 +42,12 @@ function history.save(text, directory, maxBytes)
     return a.name < b.name
   end)
   for i = 1, #files - 1 do
-    if total <= maxBytes then
+    if total <= limit then
       break
     end
     os.remove(directory .. "/" .. files[i].name)
     total = total - files[i].size
   end
-  return path
 end
 
 return history

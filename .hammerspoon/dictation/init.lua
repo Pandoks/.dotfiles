@@ -26,7 +26,7 @@ local inflight
 local requests = {}
 local stopped = false
 
-local BROWSERS = {
+local browsers = {
   ["com.apple.Safari"] = "Safari",
   ["com.google.Chrome"] = "Google Chrome",
   ["com.brave.Browser"] = "Brave Browser",
@@ -47,7 +47,7 @@ local function gatherContext()
       context.title = window:title()
     end
     -- URL of the front tab when the app is a known browser.
-    local browser = context.app and BROWSERS[context.app]
+    local browser = context.app and browsers[context.app]
     if browser then
       local script = browser == "Safari"
           and [[tell application "Safari" to return URL of current tab of front window]]
@@ -58,9 +58,7 @@ local function gatherContext()
       end
     end
   end
-  -- Only the user's real selection, capped. We deliberately do NOT fall back to
-  -- the whole field's value: that leaks document contents and makes the cleanup
-  -- model echo them back instead of transcribing.
+  -- Only a real selection, capped: the whole field leaks the document and gets echoed back.
   if config.includeSelection then
     local ok, selection = pcall(function()
       local systemWide = hs.axuielement.systemWideElement() --[[@as hs.axuielement]]
@@ -75,7 +73,7 @@ local function gatherContext()
   return context
 end
 
-local function stopAnim()
+local function stopAnimation()
   if animation then
     animation:stop()
     animation = nil
@@ -94,16 +92,14 @@ local function setEscape(active)
   end
 end
 
--- Insert text into the focused field. Returns the outcome: "ax" (accessibility
--- write), "paste" (the app's own ⌘V), or nil when there is no field to insert
--- into. Raises on a real failure.
+-- Insert into the focused field; false when there is none. Raises on failure.
 ---@param text string
----@return "ax"|"paste"|nil
+---@return boolean
 local function insertText(text)
   local systemWide = hs.axuielement.systemWideElement() --[[@as hs.axuielement]]
   local element = systemWide:attributeValue("AXFocusedUIElement")
   if not element then
-    return nil
+    return false
   end
   local value = element:attributeValue("AXValue")
   local range = element:attributeValue("AXSelectedTextRange")
@@ -122,11 +118,21 @@ local function insertText(text)
       units = units + (codepoint > 0xFFFF and 2 or 1)
     end
     -- Delimiters that open a run: no space is added between them and the text.
-    local OPENERS = { ["("] = true, ["["] = true, ["{"] = true, ['"'] = true, ["'"] = true, ["“"] = true, ["‘"] = true, ["<"] = true, ["/"] = true }
-    if before ~= "" and not before:match("^%s$") and not OPENERS[before] then
+    local openers = {
+      ["("] = true,
+      ["["] = true,
+      ["{"] = true,
+      ['"'] = true,
+      ["'"] = true,
+      ["“"] = true,
+      ["‘"] = true,
+      ["<"] = true,
+      ["/"] = true,
+    }
+    if before ~= "" and not before:match("^%s$") and not openers[before] then
       text = " " .. text
     end
-    if after:match("^%w$") or OPENERS[after] then
+    if after:match("^%w$") or openers[after] then
       text = text .. " "
     end
   end
@@ -134,23 +140,19 @@ local function insertText(text)
   if failure then
     error(failure, 0)
   end
-  -- A text field reports its selection as writable and has a string value.
-  -- Anything else (Finder desktop, a web page with no input) is not a field.
+  -- Only a text field has a writable selection and a string value.
   if not writable or type(value) ~= "string" then
-    return nil
+    return false
   end
-  -- Chromium/Electron fields report the attribute writable and accept the
-  -- call, then ignore it. Only trust the write if the field's value changed.
+  -- Chromium/Electron accept the write and ignore it; trust it only if the value changed.
   local result, reason = element:setAttributeValue("AXSelectedText", text)
   if not result then
     error(reason or "could not insert into focused field", 0)
   end
   if element:attributeValue("AXValue") ~= value or selected == text then
-    return "ax" -- changed, or identical text over an identical selection (a no-op either way)
+    return true -- changed, or identical text over an identical selection (a no-op either way)
   end
-  -- The app's own Paste is the only instant, whole-text insert left. macOS
-  -- offers no signal for when the app has read the clipboard, hence the delay
-  -- before restoring it.
+  -- The app's own ⌘V; macOS never signals when the clipboard was read, hence the delay.
   local previous = hs.pasteboard.readAllData()
   if not hs.pasteboard.setContents(text) then
     error("could not write clipboard", 0)
@@ -163,7 +165,7 @@ local function insertText(text)
       hs.pasteboard.writeAllData(previous)
     end
   end)
-  return "paste"
+  return true
 end
 
 -- Deliver the result and return to idle.
@@ -172,18 +174,16 @@ local function finish(text)
   inflight = nil
   if text and #text > 0 and not stopped then
     local mode = config.insert
-    local outcome
+    local inserted
     if mode ~= "clipboard" then
       local ok, result = pcall(insertText, text)
-      if ok then
-        outcome = result
-      end
-      if mode == "direct" and not outcome then
+      inserted = ok and result
+      if mode == "direct" and not inserted then
         fail("Dictation: " .. (ok and "no text field is focused" or tostring(result)))
       end
     end
     -- "clipboard" always copies; "auto" copies when nothing could be inserted.
-    if mode == "clipboard" or (mode == "auto" and not outcome) then
+    if mode == "clipboard" or (mode == "auto" and not inserted) then
       if hs.pasteboard.setContents(text) then
         if mode == "auto" then
           hs.alert.show("Dictation copied to clipboard", 1.5)
@@ -196,7 +196,7 @@ local function finish(text)
   if overlay then
     overlay:hide()
   end
-  stopAnim()
+  stopAnimation()
   setEscape(false)
   if recording then
     recorder.cleanup(recording)
@@ -229,22 +229,18 @@ local function toggle()
     state = "recording"
     pill:show()
     setEscape(true)
-    local capture, message = recorder.start({
-      config = config,
-      onError = function(failure)
-        fail("Dictation recorder: " .. failure)
-        cancel()
-      end,
-    })
+    local capture, message = recorder.start(config.eqBands, function(failure)
+      fail("Dictation recorder: " .. failure)
+      cancel()
+    end)
     if not capture then
       fail("Dictation: " .. tostring(message))
       finish(nil)
       return
     end
     recording = capture
-    -- One 30 fps tick drives everything: a listening pulse until the microphone
-    -- opens (~0.4 s), then the equalizer from PCM polled off ffmpeg's file.
-    stopAnim()
+    -- One 30 fps tick: the ripple intro until the mic opens, then the equalizer.
+    stopAnimation()
     animation = hs.timer.doEvery(1 / 30, function()
       if state == "recording" then
         local bands = recorder.poll(capture)
@@ -269,8 +265,8 @@ local function toggle()
         return
       end
       if peak < config.minLevel or duration < config.minDuration then
-        print(("Dictation: discarded (peak %.2f < %.2f or %.2fs < %.2fs)"):format(
-          peak, config.minLevel, duration, config.minDuration))
+        local line = "Dictation: discarded (peak %.2f < %.2f or %.2fs < %.2fs)"
+        print(line:format(peak, config.minLevel, duration, config.minDuration))
         finish(nil)
         return
       end
@@ -302,7 +298,7 @@ engine, failure = Engine.new(config, {
   onFinal = function(result)
     -- Saved before anything else, even for a cancelled take, so no result is lost.
     if result.text and #result.text > 0 then
-      local _, problem = history.save(result.text, config.history.directory, config.history.maxMegabytes * 1024 * 1024)
+      local problem = history.save(result.text, config.history)
       if problem then
         fail("Dictation: " .. problem)
       end
@@ -338,16 +334,34 @@ if not engine then
   fail("Dictation: " .. tostring(failure))
 end
 
-local function installModifierTap()
+if config.trigger == "hotkey" then
+  dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, toggle)
+elseif config.trigger == "dictationKey" then
+  local key = config.dictationKey
+  dictation.keyTap = hs.eventtap.new({ hs.eventtap.event.types.systemDefined }, function(event)
+    local native = event:getRawEventData().NSEventData
+    if native and native.subtype == key.subtype and native.data1 == key.data1 then
+      if native.data2 == 1 then
+        toggle()
+      end
+      return key.swallow
+    end
+    return false
+  end)
+else
+  -- Solo modifier tap: any other key, click, scroll, or modifier voids it.
   local modifier = config.modifierTap
   local types = hs.eventtap.event.types
   local down, downAt, otherUsed = false, 0, false
   ---@type number, integer
   local lastTapAt, tapCount = 0, 0
-
   local watched = {
-    types.flagsChanged, types.keyDown, types.leftMouseDown, types.rightMouseDown,
-    types.otherMouseDown, types.scrollWheel,
+    types.flagsChanged,
+    types.keyDown,
+    types.leftMouseDown,
+    types.rightMouseDown,
+    types.otherMouseDown,
+    types.scrollWheel,
   }
   dictation.keyTap = hs.eventtap.new(watched, function(event)
     local kind = event:getType()
@@ -357,7 +371,6 @@ local function installModifierTap()
       end
       return false
     end
-    -- flagsChanged
     local key = event:getKeyCode()
     local flags = event:getFlags()
     if key == modifier.keycode then
@@ -379,7 +392,7 @@ local function installModifierTap()
             tapCount = 1
           end
           lastTapAt = now
-          if tapCount >= (modifier.taps or 1) then
+          if tapCount >= modifier.taps then
             tapCount = 0
             toggle()
           end
@@ -393,30 +406,9 @@ local function installModifierTap()
     end
     return false
   end)
-  if dictation.keyTap then
-    dictation.keyTap:start()
-  end
 end
-
-if config.trigger == "hotkey" then
-  dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, toggle)
-elseif config.trigger == "dictationKey" then
-  local key = config.dictationKey
-  dictation.keyTap = hs.eventtap.new({ hs.eventtap.event.types.systemDefined }, function(event)
-    local native = event:getRawEventData() and event:getRawEventData().NSEventData
-    if native and native.subtype == key.subtype and native.data1 == key.data1 then
-      if native.data2 == 1 then
-        toggle()
-      end
-      return key.swallow == true
-    end
-    return false
-  end)
-  if dictation.keyTap then
-    dictation.keyTap:start()
-  end
-else
-  installModifierTap()
+if dictation.keyTap then
+  dictation.keyTap:start()
 end
 
 -- Bound but disabled; only enabled while dictating so Escape works normally.

@@ -1,7 +1,7 @@
 ---@class DictationOverlay
 ---@field baseline number[] idle diamond envelope per bar (0..1)
 ---@field thinking boolean true while transcribing (shimmer animation)
----@field warmth number 1 = listening pulse (mic opening), fading to 0 = live equalizer
+---@field warmth number 1 = ripple intro (mic opening), fading to 0 = live equalizer
 ---@field phase number animation phase (intro ripple, shimmer); 0 at show()
 ---@field bars number[] current per-bar equalizer heights (0..1), smoothed
 ---@field canvas hs.canvas? the drawn pill; nil after :delete()
@@ -11,36 +11,35 @@
 local overlay = {}
 overlay.__index = overlay
 
-local BARS = 29
-local ASPECT = 3.32
-local STROKE = 1
-local BAR_W = 0.038 -- of height
-local BAR_SPAN = 0.80 -- fraction of width the bars occupy
-local BAR_PEAK = 0.34 -- tallest bar as fraction of height
-local FADE = 12 -- frames (~0.4 s at 30 fps) from the listening pulse to the live equalizer
+local bars = 29
+local aspect = 3.32
+local stroke = 1
+local thickness = 0.038 -- bar width as a fraction of height
+local spread = 0.80 -- fraction of width the bars occupy
+local peak = 0.34 -- tallest bar as a fraction of height
+local fade = 12 -- frames (~0.4 s at 30 fps) from the ripple intro to the live equalizer
 
----@param height? number pill height in points (default 30)
+---@param height number pill height in points
 ---@return DictationOverlay
 function overlay.new(height)
   ---@type DictationOverlay
   local self = setmetatable({}, overlay)
-  self.height = height or 30
+  self.height = height
   self.thinking = false
   self.warmth = 1
   self.phase = 0
   -- Baseline diamond envelope so an idle pill still looks like Raycast's.
   self.baseline = {}
   self.bars = {}
-  local half = (BARS - 1) / 2
-  for i = 1, BARS do
-    local t = math.abs(i - (BARS + 1) / 2) / half
+  local half = (bars - 1) / 2
+  for i = 1, bars do
+    local t = math.abs(i - (bars + 1) / 2) / half
     self.baseline[i] = math.max(0, (1 - t)) ^ 2.4
     self.bars[i] = 0
   end
 
-  height = self.height
-  local width = height * ASPECT
-  local radius = (height - STROKE) / 2
+  local width = height * aspect
+  local radius = (height - stroke) / 2
   local canvas =
     assert(hs.canvas.new({ x = 0, y = 0, w = width, h = height }), "hs.canvas.new failed")
   canvas:level(hs.canvas.windowLevels.status)
@@ -51,13 +50,13 @@ function overlay.new(height)
     type = "rectangle",
     action = "strokeAndFill",
     roundedRectRadii = { xRadius = radius, yRadius = radius },
-    padding = STROKE / 2, -- Keep the centered stroke inside the canvas.
+    padding = stroke / 2, -- Keep the centered stroke inside the canvas.
     fillColor = { white = 0.13, alpha = 0.98 },
     strokeColor = { white = 0.24, alpha = 1.0 },
-    strokeWidth = STROKE,
+    strokeWidth = stroke,
   })
-  local barWidth = height * BAR_W
-  for _ = 1, BARS do
+  local barWidth = height * thickness
+  for _ = 1, bars do
     canvas:appendElements({
       type = "rectangle",
       action = "fill",
@@ -79,12 +78,12 @@ function overlay:_layout()
     return
   end
   local height, width, barWidth = self.height, self.width, self.barWidth
-  local span = width * BAR_SPAN
-  local pitch = span / (BARS - 1)
+  local span = width * spread
+  local pitch = span / (bars - 1)
   local cx, cy = width / 2, height / 2
   local warmth = self.warmth * self.warmth * (3 - 2 * self.warmth) -- smoothstep ease
-  local center = (BARS + 1) / 2
-  for i = 1, BARS do
+  local center = (bars + 1) / 2
+  for i = 1, bars do
     local amplitude
     local glow = 1 -- bar brightness
     if self.thinking then
@@ -93,9 +92,7 @@ function overlay:_layout()
       amplitude = (0.25 + 0.35 * wave) * self.baseline[i]
       glow = 0.4 + 0.6 * wave ^ 2 -- brightness travels with the shimmer
     else
-      -- While the mic opens (~0.4 s): a wave blooms out from the center bar and
-      -- keeps rippling outward, then crossfades into the live equalizer (band
-      -- height, floored by the idle envelope).
+      -- Ripple intro from the center bar, crossfading into the live equalizer.
       local distance = math.abs(i - center)
       local bloom = math.max(0, math.min(1, (self.phase * 4.6 - distance) / 4))
       local ripple = (0.5 + 0.5 * math.sin(self.phase * 1.3 - distance * 0.6)) ^ 2
@@ -106,9 +103,9 @@ function overlay:_layout()
       local lit = 1 - 0.6 * (1 - ripple * bloom)
       glow = warmth * lit + (1 - warmth) * (0.45 + 0.55 * math.min(1, self.bars[i] * 1.8))
     end
-    local h = math.max(barWidth, height * BAR_PEAK * amplitude + barWidth * 0.85)
+    local h = math.max(barWidth, height * peak * amplitude + barWidth * 0.85)
     local x = cx - span / 2 + (i - 1) * pitch
-    -- element 1 is the pill; bars are elements 2..BARS+1
+    -- element 1 is the pill; bars are elements 2..bars+1
     canvas:elementAttribute(
       i + 1,
       "frame",
@@ -118,20 +115,15 @@ function overlay:_layout()
   end
 end
 
--- Feed frequency-band magnitudes (0..1). The analyzer sends N bands (low->high);
--- we mirror them around the center so the pill stays symmetric like Raycast:
--- center bars are the lowest bands, outer bars the highest.
----@param bands number[] per-band magnitudes, low to high frequency
+-- Mirror spectrum.lua's bands around the center: lowest in the middle, highest outside.
+---@param bands number[] per-band magnitudes (0..1), low to high frequency
 function overlay:setBars(bands)
-  if type(bands) ~= "table" or #bands == 0 then
-    return
-  end
   if self.warmth > 0 then
-    self.warmth = math.max(0, self.warmth - 1 / FADE)
+    self.warmth = math.max(0, self.warmth - 1 / fade)
     self.phase = self.phase + 0.35 -- keep the ripple moving while it fades out
   end
-  local center = (BARS + 1) / 2
-  for i = 1, BARS do
+  local center = (bars + 1) / 2
+  for i = 1, bars do
     local distance = math.floor(math.abs(i - center)) -- 0 at center
     local band = bands[math.min(#bands, distance + 1)] or 0
     -- attack fast, release slow for a natural equalizer bounce
@@ -156,7 +148,7 @@ function overlay:show()
   self.thinking = false
   self.warmth = 1
   self.phase = 0 -- the intro blooms from the center at phase 0
-  for i = 1, BARS do
+  for i = 1, bars do
     self.bars[i] = 0
   end
   local canvas = self.canvas

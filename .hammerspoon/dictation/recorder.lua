@@ -1,18 +1,4 @@
--- Microphone capture. hs.task owns one ffmpeg process on the system's current
--- default input, writing two outputs: the 16 kHz wav for the speech model, and
--- a raw PCM file (flushed per packet) that `poll()` reads for the
--- equalizer. Audio goes through a file rather than a pipe because Hammerspoon
--- decodes task output as UTF-8 text (dropping PCM bytes) and io.popen would
--- block the main thread; a page-cached read costs ~13 µs per frame.
---
--- Hammerspoon has no native recording API; ffmpeg's microphone access is
--- attributed to Hammerspoon (grant it in Privacy & Security > Microphone).
-
 local Spectrum = require("dictation.spectrum")
-
----@class DictationRecorderOptions
----@field config DictationConfig
----@field onError fun(message: string)
 
 ---@class DictationRecording
 ---@field wav string output wav path
@@ -32,55 +18,45 @@ local Spectrum = require("dictation.spectrum")
 
 local recorder = {}
 
-local RATE = 16000
-local SIZE = 1024
+local rate = 16000
+local size = 1024
 
----@param options DictationRecorderOptions
+-- First ffmpeg on mise, Homebrew, or PATH; the backend also needs it on its PATH.
+local path = table.concat({
+  os.getenv("HOME") .. "/.local/share/mise/installs/ffmpeg/latest/.mise-bins",
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  os.getenv("PATH") or "",
+}, ":")
+local ffmpeg
+for directory in path:gmatch("[^:]+") do
+  if hs.fs.attributes(directory .. "/ffmpeg", "mode") == "file" then
+    ffmpeg = directory .. "/ffmpeg"
+    break
+  end
+end
+recorder.ffmpeg = ffmpeg
+
+---@param bands integer equalizer bands
+---@param onError fun(message: string)
 ---@return DictationRecording?, string?
-function recorder.start(options)
-  local paths = {
-    os.getenv("HOME") .. "/.local/share/mise/installs/ffmpeg/latest/.mise-bins",
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-  }
-  for path in (os.getenv("PATH") or ""):gmatch("[^:]+") do
-    paths[#paths + 1] = path
-  end
-  local ffmpeg
-  for _, path in ipairs(paths) do
-    if hs.fs.attributes(path .. "/ffmpeg", "mode") == "file" then
-      ffmpeg = path .. "/ffmpeg"
-      break
-    end
-  end
+function recorder.start(bands, onError)
   if not ffmpeg then
     return nil, "ffmpeg unavailable"
   end
-
   local base = os.tmpname()
   os.remove(base) -- tmpname creates the file; only the suffixed paths are used
   local wav, pcm = base .. ".wav", base .. ".pcm"
-  -- Only a high-pass. Denoising and silence trimming were measured to hurt:
-  -- their fixed dB thresholds erase a quiet or distant speaker entirely, while
-  -- the speech model is unaffected by steady noise or pauses on its own.
+  -- High-pass only: denoise and silence trimming erase quiet speakers.
   local highpass = "highpass=f=90"
   ---@type DictationRecording
-  local recording = {
-    wav = wav,
-    pcm = pcm,
-    offset = 0,
-    tail = "",
-    spectrum = Spectrum.new(RATE, options.config.eqBands, SIZE),
-    peak = 0,
-    started = assert(hs.timer.secondsSinceEpoch()),
-    task = nil, ---@diagnostic disable-line: assign-type-mismatch -- assigned below
-  }
+  local recording
   local function failure(message)
     if recording.error or recording.discarded then
       return
     end
     recording.error = message
-    options.onError(message)
+    onError(message)
   end
   local task = hs.task.new(ffmpeg, function(code, _, errors)
     recording.finished = true
@@ -101,16 +77,50 @@ function recorder.start(options)
       )
     end
   end, {
-    "-hide_banner", "-loglevel", "error", "-nostdin",
-    "-f", "avfoundation", "-i", ":default",
-    "-filter:a", highpass, "-ac", "1", "-ar", tostring(RATE), "-y", "-f", "wav", wav,
-    "-filter:a", highpass, "-f", "s16le", "-ac", "1", "-ar", tostring(RATE),
-    "-flush_packets", "1", "-y", pcm,
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-nostdin",
+    "-f",
+    "avfoundation",
+    "-i",
+    ":default",
+    "-filter:a",
+    highpass,
+    "-ac",
+    "1",
+    "-ar",
+    tostring(rate),
+    "-y",
+    "-f",
+    "wav",
+    wav,
+    "-filter:a",
+    highpass,
+    "-f",
+    "s16le",
+    "-ac",
+    "1",
+    "-ar",
+    tostring(rate),
+    "-flush_packets",
+    "1",
+    "-y",
+    pcm,
   })
   if not task then
     return nil, "could not create capture task"
   end
-  recording.task = task
+  recording = {
+    wav = wav,
+    pcm = pcm,
+    offset = 0,
+    tail = "",
+    spectrum = Spectrum.new(rate, bands, size),
+    peak = 0,
+    started = assert(hs.timer.secondsSinceEpoch()),
+    task = task,
+  }
   if not task:start() then
     return nil, "could not start capture task"
   end
@@ -135,8 +145,8 @@ function recorder.poll(recording)
     return nil
   end
   recording.offset = recording.offset + #new
-  recording.tail = (recording.tail .. new):sub(-SIZE * 2)
-  if #recording.tail < SIZE * 2 then
+  recording.tail = (recording.tail .. new):sub(-size * 2)
+  if #recording.tail < size * 2 then
     return nil
   end
   local bands, level = recording.spectrum:analyze(recording.tail)
@@ -144,8 +154,7 @@ function recorder.poll(recording)
   return bands
 end
 
--- Stop capture. SIGINT lets ffmpeg finalize the wav; the completion callback
--- then delivers the path (nil on failure), peak level, and duration.
+-- SIGINT lets ffmpeg finalize the wav before `done` gets it (nil on failure).
 ---@param recording DictationRecording
 ---@param done fun(wav: string?, peak: number, duration: number)
 function recorder.stop(recording, done)

@@ -1,13 +1,4 @@
----@class DictationResult
----@field id integer
----@field raw string
----@field text string
-
----@class DictationEngineHandlers
----@field onReady? fun()
----@field onFinal fun(result: DictationResult)
----@field onError fun(message: string, id?: integer)
----@field onLog? fun(message: string)
+local recorder = require("dictation.recorder")
 
 ---@class DictationTranscribeRequest
 ---@field wav string
@@ -29,12 +20,20 @@ engine.__index = engine
 local directory = debug.getinfo(1, "S").source:match("^@(.*/)") or "./"
 
 ---@param config DictationConfig
----@param handlers DictationEngineHandlers
+---@param handlers {
+---  onReady?: fun(),
+---  onFinal: fun(result: { id: integer, text: string }),
+---  onError: fun(message: string, id?: integer),
+---  onLog?: fun(message: string),
+---}
 ---@return DictationEngine?, string?
 function engine.new(config, handlers)
   local python = directory .. ".venv/bin/python"
   if not hs.fs.attributes(python) then
     return nil, "backend venv missing; run dictation/setup.sh"
+  end
+  if not recorder.ffmpeg then
+    return nil, "ffmpeg unavailable"
   end
   local self = setmetatable({ ready = false, stopped = false, serial = 0, buffer = "" }, engine)
   local function failure(message)
@@ -67,11 +66,7 @@ function engine.new(config, handlers)
             handlers.onReady()
           end
         elseif event.event == "final" then
-          if
-            type(event.id) ~= "number"
-            or type(event.raw) ~= "string"
-            or type(event.text) ~= "string"
-          then
+          if type(event.id) ~= "number" or type(event.text) ~= "string" then
             failure("invalid transcription response")
             return true
           end
@@ -89,12 +84,6 @@ function engine.new(config, handlers)
     end
     return true
   end
-  local path = table.concat({
-    os.getenv("HOME") .. "/.local/share/mise/installs/ffmpeg/latest/.mise-bins",
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    os.getenv("PATH") or "/usr/bin:/bin",
-  }, ":")
   local task = hs.task.new(
     "/usr/bin/env",
     function(code, stdout, stderr)
@@ -105,7 +94,7 @@ function engine.new(config, handlers)
     end,
     output,
     {
-      "PATH=" .. path,
+      "PATH=" .. recorder.ffmpeg:match("^(.*)/") .. ":" .. (os.getenv("PATH") or "/usr/bin:/bin"),
       "PYTHONUNBUFFERED=1",
       python,
       directory .. "server.py",

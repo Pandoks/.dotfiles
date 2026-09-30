@@ -2,23 +2,21 @@
 
 Reads newline-delimited JSON commands on stdin and writes newline-delimited JSON
 events on stdout. Keeps the speech model and the cleanup LLM resident so each
-request is fast (~0.25s transcribe + ~1.3s cleanup on an M-series Mac).
+request is fast (~0.25s transcribe + ~0.8s cleanup on an M-series Mac).
 
 Protocol
 --------
 stdin  (one JSON object per line):
-  {"cmd": "transcribe", "wav": "/path.wav",
+  {"cmd": "transcribe", "id": 1, "wav": "/path.wav",
    "app": "com.tinyspeck.slackmacgap", "title": "window title",
    "url": "https://...", "selected": "text near the cursor"}
-  {"cmd": "ping"}
 The process is stopped with SIGTERM; there is no shutdown command.
 
 stdout (one JSON object per line):
-  {"event": "ready"}                     once models are loaded
-  {"event": "log", "msg": "..."}         diagnostics
-  {"event": "final", "raw": "...", "text": "..."}   transcription result
-  {"event": "error", "msg": "..."}
-  {"event": "pong"}
+  {"event": "ready"}                          once models are loaded
+  {"event": "log", "msg": "..."}              diagnostics
+  {"event": "final", "id": 1, "text": "..."}  transcription result
+  {"event": "error", "id": 1, "msg": "..."}   "id" only when a request failed
 
 Config is passed as a single JSON string via --config.
 
@@ -42,15 +40,16 @@ import os
 import re
 import sys
 import traceback
+from pathlib import Path
 
 
-def emit(obj):
-    sys.stdout.write(json.dumps(obj) + "\n")
+def emit(event):
+    sys.stdout.write(json.dumps(event) + "\n")
     sys.stdout.flush()
 
 
-def log(msg):
-    emit({"event": "log", "msg": str(msg)})
+def log(message):
+    emit({"event": "log", "msg": str(message)})
 
 
 # --- speech-to-text role ------------------------------------------------------
@@ -85,14 +84,16 @@ def vocabulary_prefixes(words):
     return {w[:i] for w in full if w for i in range(1, len(w) + 1)}
 
 
-def boosted_greedy(model, features, lengths=None, last_token=None, hidden_state=None, *, config, prefixes, bonus):
+def boosted_greedy(
+    model, features, lengths=None, last_token=None, hidden_state=None, *, config, prefixes, bonus
+):
     """parakeet-mlx's TDT greedy decoder (ParakeetTDT.decode_greedy, Apache-2.0)
     with one change: before each pick, pieces that keep the current word a
     prefix of a vocabulary word get `bonus` per letter (after the first) added
     to their log-prob (shallow fusion). Clear speech still wins; ambiguous audio
     ("oki" vs "okay") tips toward the listed spelling."""
     import mlx.core as mx
-    import mlx.nn as nn
+    from mlx import nn
     from parakeet_mlx import tokenizer
     from parakeet_mlx.alignment import AlignedToken
 
@@ -122,15 +123,20 @@ def boosted_greedy(model, features, lengths=None, last_token=None, hidden_state=
         step = new_symbols = 0
         while step < length:
             decoder_out, (hidden, cell) = model.decoder(
-                mx.array([[last_token[batch]]]) if last_token[batch] is not None else None, hidden_state[batch]
+                mx.array([[last_token[batch]]]) if last_token[batch] is not None else None,
+                hidden_state[batch],
             )
             decoder_out = decoder_out.astype(feature.dtype)
             decoder_hidden = (hidden.astype(feature.dtype), cell.astype(feature.dtype))
             joint_out = model.joint(feature[:, step : step + 1], decoder_out)
-            logprobs = nn.log_softmax(joint_out[0, 0, 0, : len(vocabulary) + 1].astype(mx.float32), -1)
+            logprobs = nn.log_softmax(
+                joint_out[0, 0, 0, : len(vocabulary) + 1].astype(mx.float32), -1
+            )
             boosts = {i: n for i, n in extending(word or "").items() if n}
             if boosts:
-                logprobs = logprobs.at[mx.array(list(boosts))].add(mx.array([bonus * n for n in boosts.values()]))
+                logprobs = logprobs.at[mx.array(list(boosts))].add(
+                    mx.array([bonus * n for n in boosts.values()])
+                )
             token = int(mx.argmax(logprobs))
             decision = int(mx.argmax(joint_out[0, 0, 0, len(vocabulary) + 1 :]))
             if token != len(vocabulary):  # not blank
@@ -192,10 +198,10 @@ class WhisperSpeech(Speech):
         import mlx_whisper
 
         # Whisper takes the vocabulary as a prompt; Parakeet uses it via boosting.
-        r = mlx_whisper.transcribe(
+        result = mlx_whisper.transcribe(
             wav, path_or_hf_repo=self.model_id, initial_prompt=", ".join(hint) or None
         )
-        return str(r.get("text", "")).strip()
+        return str(result.get("text", "")).strip()
 
 
 class MlxAudioSpeech(Speech):
@@ -238,15 +244,16 @@ class Cleaner:
         raise NotImplementedError
 
     def _fetch_adapter(self):
-        """Download the adapter (if any) and pick up its frozen prompt. Returns the local dir or None."""
+        """Download the adapter (if any), pick up its frozen prompt, and return its dir or None."""
         if not self.adapter_id:
             return None
         from huggingface_hub import snapshot_download
 
         adapter_dir = snapshot_download(self.adapter_id)
-        p = os.path.join(adapter_dir, "system_v2.txt")
-        if os.path.exists(p):
-            self.frozen_prompt = open(p).read().strip()
+        path = os.path.join(adapter_dir, "system_v2.txt")
+        if os.path.exists(path):
+            with open(path) as file:
+                self.frozen_prompt = file.read().strip()
         return adapter_dir
 
 
@@ -257,27 +264,24 @@ class MlxLmCleaner(Cleaner):
         from mlx_lm import load as llm_load
 
         loaded = llm_load(self.model_id, adapter_path=self._fetch_adapter())
-        self.llm, self.tok = loaded[0], loaded[1]
+        self.llm, self.tokenizer = loaded[0], loaded[1]
 
     def complete(self, messages):
         from mlx_lm import generate
         from mlx_lm.sample_utils import make_sampler
 
-        try:
-            prompt = self.tok.apply_chat_template(
-                messages, add_generation_prompt=True, enable_thinking=False
-            )
-        except TypeError:
-            prompt = self.tok.apply_chat_template(messages, add_generation_prompt=True)
+        prompt = self.tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, enable_thinking=False
+        )
         out = generate(
             self.llm,
-            self.tok,
+            self.tokenizer,
             prompt=prompt,
             max_tokens=self.max_tokens,
             sampler=make_sampler(temp=0.0),  # greedy
             verbose=False,
         )
-        return re.sub(r"<think>.*?</think>\s*", "", out, flags=re.S).strip()
+        return re.sub(r"<think>.*?</think>\s*", "", out, flags=re.DOTALL).strip()
 
 
 CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
@@ -285,38 +289,32 @@ CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
 
 # --- pipeline -----------------------------------------------------------------
 class Engine:
-    def __init__(self, cfg):
-        self.cfg = cfg
+    def __init__(self, config):
+        self.config = config
         # Dictionary: word -> compiled pattern matching the word itself and its
         # spoken variants, case-insensitively at word boundaries.
         self.dictionary = []
-        for word, variants in (cfg.get("dictionary") or {}).items():
+        for word, variants in (config.get("dictionary") or {}).items():
             forms = [word] + list(variants or [])
-            alts = "|".join(
-                re.escape(f) for f in sorted(set(forms), key=len, reverse=True)
+            alternatives = "|".join(
+                re.escape(form) for form in sorted(set(forms), key=len, reverse=True)
             )
-            self.dictionary.append(
-                (word, re.compile(rf"\b(?:{alts})\b", re.IGNORECASE))
-            )
+            self.dictionary.append((word, re.compile(rf"\b(?:{alternatives})\b", re.IGNORECASE)))
 
-        stt = cfg.get("stt", {})
-        backend = stt.get("backend", "mlx-audio")
+        stt = config["stt"]
+        backend = stt["backend"]
         if backend not in SPEECH_BACKENDS:
             raise ValueError(f"unknown speech backend: {backend}")
-        self.speech = SPEECH_BACKENDS[backend](
-            stt.get("model", "mlx-community/parakeet-tdt-0.6b-v2"), float(stt.get("boost") or 0)
-        )
+        self.speech = SPEECH_BACKENDS[backend](stt["model"], float(stt.get("boost") or 0))
 
         self.cleaner = None
-        cleanup = cfg.get("cleanup", {})
-        if cleanup.get("enabled"):
+        cleanup = config["cleanup"]
+        if cleanup["enabled"]:
             backend = cleanup.get("backend", "mlx-lm")
             if backend not in CLEANUP_BACKENDS:
                 raise ValueError(f"unknown cleanup backend: {backend}")
             self.cleaner = CLEANUP_BACKENDS[backend](
-                cleanup.get("model", "mlx-community/Qwen3.5-2B-MLX-4bit"),
-                cleanup.get("adapter"),
-                int(cleanup.get("max_tokens", 400)),
+                cleanup["model"], cleanup.get("adapter"), int(cleanup["max_tokens"])
             )
 
     def load(self):
@@ -324,20 +322,20 @@ class Engine:
         self.speech.load()
         log("STT ready")
         if self.cleaner:
-            c = self.cleaner
+            cleaner = self.cleaner
             log(
-                f"loading cleanup LLM {c.model_id} via {c.name}"
-                + (f" + adapter {c.adapter_id}" if c.adapter_id else "")
+                f"loading cleanup LLM {cleaner.model_id} via {cleaner.name}"
+                + (f" + adapter {cleaner.adapter_id}" if cleaner.adapter_id else "")
             )
-            c.load()
-            log("cleanup LLM ready" + (" (frozen prompt)" if c.frozen_prompt else ""))
+            cleaner.load()
+            log("cleanup LLM ready" + (" (frozen prompt)" if cleaner.frozen_prompt else ""))
 
-    def glossary(self, req=None):
+    def glossary(self, request=None):
         """All words the models should spell correctly: dictionary + vocabulary."""
-        words = list(self.cfg.get("vocabulary") or []) + [w for w, _ in self.dictionary]
-        app_cfg = (self.cfg.get("apps") or {}).get((req or {}).get("app") or "")
-        if app_cfg:
-            words += list(app_cfg.get("vocabulary") or [])
+        words = list(self.config.get("vocabulary") or []) + [w for w, _ in self.dictionary]
+        app = (self.config.get("apps") or {}).get((request or {}).get("app") or "")
+        if app:
+            words += list(app.get("vocabulary") or [])
         return list(dict.fromkeys(words))
 
     def apply_dictionary(self, text):
@@ -347,12 +345,9 @@ class Engine:
 
     # Real words (plurals via a stripped "s"), so a fuzzy vocabulary match never
     # rewrites one ("recast" must not become "Raycast"). macOS ships this list.
-    try:
-        WORDS = frozenset(w.strip().lower() for w in open("/usr/share/dict/words"))
-    except OSError:
-        WORDS = frozenset()
+    WORDS = frozenset(Path("/usr/share/dict/words").read_text().lower().splitlines())
 
-    def apply_vocabulary(self, text, req=None):
+    def apply_vocabulary(self, text, request=None):
         """Map misheard tokens to vocabulary words by similarity, so users list
         correct spellings only. A single token must be close and not a real
         word; a pair of adjacent tokens ("hammer spoon") must be a near-exact
@@ -361,43 +356,48 @@ class Engine:
         Whitespace between tokens is kept as is."""
         import difflib
 
-        vocab = self.glossary(req)
-        if not vocab or not text:
+        glossary = self.glossary(request)
+        if not glossary or not text:
             return text
         parts = re.split(r"(\s+)", text)  # tokens at even indexes, separators at odd
-        toks = parts[0::2]
+        tokens = parts[0::2]
         out, i = [], 0
-        norm = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
-        while i < len(toks):
+
+        def normalize(token):
+            return re.sub(r"[^a-z0-9]", "", token.lower())
+
+        while i < len(tokens):
             best = None
             for span, floor in ((1, 0.8), (2, 0.9)):
-                if i + span > len(toks):
+                if i + span > len(tokens):
                     continue
-                cand = "".join(norm(t) for t in toks[i:i + span])
-                if len(cand) < 4:
+                candidate = "".join(normalize(t) for t in tokens[i : i + span])
+                if len(candidate) < 4:
                     continue
-                for v in vocab:
-                    r = difflib.SequenceMatcher(None, cand, v.lower()).ratio()
-                    real = span == 1 and (cand in self.WORDS or cand.rstrip("s") in self.WORDS)
-                    if r == 1.0 or (r >= floor and not real):
-                        if not best or r > best[0]:
-                            best = (r, v, span)
+                real = span == 1 and (
+                    candidate in self.WORDS or candidate.rstrip("s") in self.WORDS
+                )
+                for word in glossary:
+                    ratio = difflib.SequenceMatcher(None, candidate, word.lower()).ratio()
+                    close = ratio == 1.0 or (ratio >= floor and not real)
+                    if close and (not best or ratio > best[0]):
+                        best = (ratio, word, span)
             if best:
-                first, last = toks[i], toks[i + best[2] - 1]
+                first, last = tokens[i], tokens[i + best[2] - 1]
                 lead = re.match(r"^[^\w]*", first).group(0)
                 trail = re.search(r"[^\w]*$", last).group(0)
                 out.append((lead + best[1] + trail, best[2]))
                 i += best[2]
             else:
-                out.append((toks[i], 1))
+                out.append((tokens[i], 1))
                 i += 1
         # Re-interleave the original separators; a merged pair keeps the one after it.
-        seps, result, ti = parts[1::2], [], 0
-        for tok, span in out:
-            result.append(tok)
-            ti += span
-            if ti - 1 < len(seps):
-                result.append(seps[ti - 1])
+        separators, result, consumed = parts[1::2], [], 0
+        for token, span in out:
+            result.append(token)
+            consumed += span
+            if consumed - 1 < len(separators):
+                result.append(separators[consumed - 1])
         return "".join(result)
 
     # Words a finished sentence essentially never ends on. If the dictation ends
@@ -497,31 +497,29 @@ class Engine:
             text = (text + " " + last).strip()
         return text
 
-    def build_prompt(self, raw, req):
-        cfg = self.cfg
-        parts = [cfg.get("style", "")]
-        app = req.get("app") or ""
-        app_cfg = (cfg.get("apps") or {}).get(app)
-        if app_cfg and app_cfg.get("style"):
-            parts.append(app_cfg["style"])
-        vocab = self.glossary(req)
-        if vocab:
-            parts.append(
-                "Domain vocabulary (spell these exactly): " + ", ".join(vocab) + "."
-            )
-        ctx = []
+    def build_prompt(self, raw, request):
+        config = self.config
+        parts = [config["style"]]
+        app = request.get("app") or ""
+        overrides = (config.get("apps") or {}).get(app)
+        if overrides and overrides.get("style"):
+            parts.append(overrides["style"])
+        glossary = self.glossary(request)
+        if glossary:
+            parts.append("Domain vocabulary (spell these exactly): " + ", ".join(glossary) + ".")
+        context = []
         if app:
-            ctx.append(f"Active app: {app}")
-        if req.get("title"):
-            ctx.append(f"Window: {req['title']}")
-        if req.get("url"):
-            ctx.append(f"URL: {req['url']}")
-        if req.get("selected"):
-            ctx.append(f"Text near cursor: {req['selected'][:500]}")
-        if ctx:
+            context.append(f"Active app: {app}")
+        if request.get("title"):
+            context.append(f"Window: {request['title']}")
+        if request.get("url"):
+            context.append(f"URL: {request['url']}")
+        if request.get("selected"):
+            context.append(f"Text near cursor: {request['selected'][:500]}")
+        if context:
             parts.append(
                 "Context (for reference only, NEVER copy it into your output) — "
-                + "; ".join(ctx)
+                + "; ".join(context)
                 + "."
             )
         parts.append(
@@ -549,7 +547,7 @@ class Engine:
         )
         return "\n".join(p for p in parts if p)
 
-    def cleanup(self, raw, req):
+    def cleanup(self, raw, request):
         # Never let the LLM invent text from nothing: on empty / trivial input it
         # would otherwise echo a vocabulary word (e.g. ".tcc"). Return empty.
         if not raw or not raw.strip():
@@ -560,7 +558,7 @@ class Engine:
             # Cleanup-trained model: single user turn, prompt verbatim.
             messages = [{"role": "user", "content": f"{self.cleaner.frozen_prompt}\n\n{raw}"}]
         else:
-            system = self.build_prompt(raw, req)
+            system = self.build_prompt(raw, request)
             # Frame the transcript as data, not as a message to the assistant.
             # Otherwise a dictated question gets answered instead of cleaned.
             user = (
@@ -576,15 +574,13 @@ class Engine:
         out = self.cleaner.complete(messages)
         # Guard: a cleanup must be the same words, lightly edited. If the model
         # answered, paraphrased, summarized, or rewrote, use the raw transcript.
-        if self.looks_rewritten(raw, out, self.glossary(req)):
+        if self.looks_rewritten(raw, out, self.glossary(request)):
             return self.polish_raw(raw)
         return out
 
     # Verbal stalls removed mechanically (the small model is inconsistent).
     # Not matched inside hyphenated forms like "uh-huh".
-    STALL_RE = re.compile(
-        r"(?<![\w-])(?:um+|uh+|erm?|hm)(?![\w-])[,]?\s*", re.IGNORECASE
-    )
+    STALL_RE = re.compile(r"(?<![\w-])(?:um+|uh+|erm?|hm)(?![\w-])[,]?\s*", re.IGNORECASE)
 
     @classmethod
     def strip_stalls(cls, text):
@@ -681,94 +677,86 @@ class Engine:
         most of the original ones. Answers, paraphrases, and summaries do both.
         """
 
-        def words(s):
-            return re.findall(r"[a-z0-9']+", s.lower())
+        def words(text):
+            return re.findall(r"[a-z0-9']+", text.lower())
 
-        rw, ow = words(raw), words(out)
-        if not rw:
+        raw_words, out_words = words(raw), words(out)
+        if not raw_words:
             return False
-        if not ow or len(ow) > 1.6 * len(rw) + 3:
+        if not out_words or len(out_words) > 1.6 * len(raw_words) + 3:
             return True  # far longer than what was said: an answer/explanation
-        rset, oset = set(rw), set(ow)
-        if not rset & oset:
+        raw_set, out_set = set(raw_words), set(out_words)
+        if not raw_set & out_set:
             return True  # nothing the user said survived (short inputs included)
         allowed = {a.lower() for a in allowed}
         # Dictionary terms the user said must survive; dropping one is a rewrite.
-        if any(w in allowed and w not in oset for w in rset):
+        if any(w in allowed and w not in out_set for w in raw_set):
             return True
         # Fillers and a couple of misheard/normalized words may go; a paraphrase
         # or summary loses far more. Absolute floor so short phrases aren't
         # rejected for a one- or two-word fix.
-        lost = [w for w in rset if w not in oset]
-        if len(lost) > max(2, 0.3 * len(rw)):
+        lost = [w for w in raw_set if w not in out_set]
+        if len(lost) > max(2, 0.3 * len(raw_words)):
             return True
-        new = [w for w in ow if w not in rset and w not in allowed]
-        if len(new) > max(2, 0.25 * len(rw)):
+        new = [w for w in out_words if w not in raw_set and w not in allowed]
+        if len(new) > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
         # The words kept must keep their order (repeats collapsed: "I I think").
-        def kept(seq, other):
-            k = [w for w in seq if w in other]
-            return [w for i, w in enumerate(k) if i == 0 or w != k[i - 1]]
+        def kept(sequence, other):
+            shared = [w for w in sequence if w in other]
+            return [w for i, w in enumerate(shared) if i == 0 or w != shared[i - 1]]
 
-        return kept(rw, oset) != kept(ow, rset)
+        return kept(raw_words, out_set) != kept(out_words, raw_set)
 
-    def process(self, wav, req):
+    def process(self, wav, request):
         """The full pipeline for one take: speech -> dictionary/vocabulary ->
         cleanup (guarded) -> dictionary/vocabulary -> stalls -> ? -> end policy.
         With cleanup disabled only the spelling fixes run."""
-        heard = self.speech.transcribe(wav, self.glossary(req))
+        heard = self.speech.transcribe(wav, self.glossary(request))
         # Parakeet occasionally emits runs of <unk> or of one rare symbol ("ΨΨΨ")
         # on short takes; never insert them.
         heard = re.sub(r"([^\x00-\x7F])\1{3,}", "", heard.replace("<unk>", ""))
         heard = re.sub(r"\s{2,}", " ", heard).strip()
-        raw = self.apply_vocabulary(self.apply_dictionary(heard), req)
+        raw = self.apply_vocabulary(self.apply_dictionary(heard), request)
         if not self.cleaner:
-            return raw, raw  # cleanup off: the speech model's text, spellings fixed
-        text = self.apply_vocabulary(self.apply_dictionary(self.cleanup(raw, req)), req)
+            return raw  # cleanup off: the speech model's text, spellings fixed
+        text = self.apply_vocabulary(self.apply_dictionary(self.cleanup(raw, request)), request)
         text = self.strip_stalls(text.strip())
-        return raw, self.end_policy(raw, self.ensure_question(raw, text))
+        return self.end_policy(raw, self.ensure_question(raw, text))
 
-    def handle(self, req):
-        cmd = req.get("cmd")
-        if cmd == "ping":
-            emit({"event": "pong"})
-        elif cmd == "transcribe":
-            wav = req.get("wav")
+    def handle(self, request):
+        command = request.get("cmd")
+        if command == "transcribe":
+            wav = request.get("wav")
             if not wav or not os.path.exists(wav):
-                emit(
-                    {
-                        "event": "error",
-                        "id": req.get("id"),
-                        "msg": f"missing wav: {wav}",
-                    }
-                )
+                emit({"event": "error", "id": request.get("id"), "msg": f"missing wav: {wav}"})
                 return
-            raw, text = self.process(wav, req)
-            emit({"event": "final", "id": req.get("id"), "raw": raw, "text": text})
+            text = self.process(wav, request)
+            emit({"event": "final", "id": request.get("id"), "text": text})
         else:
-            emit({"event": "error", "id": req.get("id"), "msg": f"unknown cmd: {cmd}"})
+            emit({"event": "error", "id": request.get("id"), "msg": f"unknown cmd: {command}"})
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="{}")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
+    args = parser.parse_args()
     try:
-        cfg = json.loads(args.config)
-        if not isinstance(cfg, dict):
+        config = json.loads(args.config)
+        if not isinstance(config, dict):
             emit({"event": "error", "msg": "config must be an object"})
             return 2
-    except json.JSONDecodeError as e:
-        emit({"event": "error", "msg": f"bad config: {e}"})
+    except json.JSONDecodeError as error:
+        emit({"event": "error", "msg": f"bad config: {error}"})
         return 2
 
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     try:
-        eng = Engine(cfg)
-        eng.load()
-    except Exception as e:  # noqa: BLE001 - Convert backend failures into protocol errors.
-        emit({"event": "error", "msg": f"load failed: {e}"})
+        engine = Engine(config)
+        engine.load()
+    except Exception as error:  # noqa: BLE001 - Convert backend failures into protocol errors.
+        emit({"event": "error", "msg": f"load failed: {error!r}"})
         emit({"event": "log", "msg": traceback.format_exc()})
         return 1
     emit({"event": "ready"})
@@ -778,17 +766,17 @@ def main():
         if not line:
             continue
         try:
-            req = json.loads(line)
-            if not isinstance(req, dict):
+            request = json.loads(line)
+            if not isinstance(request, dict):
                 emit({"event": "error", "msg": "request must be an object"})
                 continue
-        except json.JSONDecodeError as e:
-            emit({"event": "error", "msg": f"bad request json: {e}"})
+        except json.JSONDecodeError as error:
+            emit({"event": "error", "msg": f"bad request json: {error}"})
             continue
         try:
-            eng.handle(req)
-        except Exception as e:  # noqa: BLE001 - One failed request must receive a terminal response.
-            emit({"event": "error", "id": req.get("id"), "msg": str(e)})
+            engine.handle(request)
+        except Exception as error:  # noqa: BLE001 - Every request gets a terminal response.
+            emit({"event": "error", "id": request.get("id"), "msg": str(error)})
             emit({"event": "log", "msg": traceback.format_exc()})
     return 0
 
