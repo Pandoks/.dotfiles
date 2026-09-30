@@ -31,7 +31,7 @@
 ---@field revision string Commit SHA of `model`, pinned like `stt.revision`.
 ---@field adapter? string Hugging Face repo of a LoRA adapter for `model`. A cleanup-trained adapter ships its own prompt (system_v2.txt), which is then used verbatim: `style` and per-app `style` do not apply, vocabulary (per-app too) is applied deterministically instead. nil = plain instruct model with our prompt.
 ---@field adapterRevision? string Commit SHA of `adapter`, pinned like `stt.revision`. Required with `adapter`.
----@field max_tokens integer Max tokens the cleanup may generate (cap for long dictations).
+---@field max_tokens integer Max tokens the cleanup may generate, raised to twice the dictation's so a long take is never cut.
 
 ---@class DictationAppConfig
 ---@field style? string Extra instructions appended to the global `style` when this app is focused (plain instruct model only).

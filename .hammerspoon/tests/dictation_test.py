@@ -81,7 +81,7 @@ def dictate(raw, cleaned=None):
     engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav)
     engine.cleaner = SimpleNamespace(
         frozen_prompt="prompt",
-        complete=lambda messages: cleaned or messages[0]["content"].split("\n\n", 1)[1],
+        complete=lambda messages, raw: cleaned or messages[0]["content"].split("\n\n", 1)[1],
     )
     return engine.process(raw, {})
 

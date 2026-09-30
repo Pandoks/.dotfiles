@@ -154,7 +154,7 @@ one subclass per runtime, registered by name:
 | Role | Method | Runtimes (`backend`) |
 |---|---|---|
 | `Speech` | `transcribe(wav, hint) -> str` | `parakeet-mlx`, `mlx-whisper`, `mlx-audio` |
-| `Cleaner` | `complete(messages) -> str` | `mlx-lm` |
+| `Cleaner` | `complete(messages, raw) -> str` | `mlx-lm` |
 
 To add one (say whisper.cpp, or a GGUF cleanup model through llama.cpp),
 subclass the role, set its `name`, implement `load` and the one method, and add

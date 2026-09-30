@@ -180,6 +180,8 @@ class ParakeetSpeech(Speech):
         config = hf_hub_download(self.model_id, "config.json", revision=self.revision)
         hf_hub_download(self.model_id, "model.safetensors", revision=self.revision)
         self.model = from_pretrained(os.path.dirname(config))
+        # from_pretrained is lazy: read and cast the weights now, not in the first take.
+        mx.eval(self.model.parameters())
         if self.boost and not isinstance(self.model, ParakeetTDT):
             raise ValueError(f"stt.boost needs a Parakeet TDT model, not {self.model_id}")
         parakeet_mlx.parakeet.load_audio = read
@@ -256,7 +258,8 @@ class Cleaner:
     def load(self):
         raise NotImplementedError
 
-    def complete(self, messages):
+    def complete(self, messages, raw):
+        """Greedy reply to `messages`, with room to echo `raw` (the dictation) in full."""
         raise NotImplementedError
 
     def _fetch_adapter(self):
@@ -283,7 +286,7 @@ class MlxLmCleaner(Cleaner):
         self.llm, self.tokenizer = loaded[0], loaded[1]
         self.words = whole_words(self.tokenizer.get_vocab())
 
-    def complete(self, messages):
+    def complete(self, messages, raw):
         from mlx_lm import generate
         from mlx_lm.sample_utils import make_sampler
 
@@ -294,7 +297,8 @@ class MlxLmCleaner(Cleaner):
             self.llm,
             self.tokenizer,
             prompt=prompt,
-            max_tokens=self.max_tokens,
+            # Twice the dictation: an echo is never cut, and a runaway fails the rewrite guard.
+            max_tokens=max(self.max_tokens, 2 * len(self.tokenizer.encode(raw))),
             sampler=make_sampler(temp=0.0),  # greedy
             verbose=False,
         )
@@ -558,7 +562,7 @@ class Engine:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ]
-        out = self.cleaner.complete(messages)
+        out = self.cleaner.complete(messages, raw)
         # Guard: an answer, paraphrase, or rewrite falls back to the raw transcript.
         return raw if self.looks_rewritten(raw, out, self.glossary(request)) else out
 
@@ -733,6 +737,8 @@ def main():
 
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     try:
+        import mlx.core as mx  # every backend runs on MLX
+
         engine = Engine(config)
         engine.load()
     except Exception as error:  # noqa: BLE001 - Convert backend failures into protocol errors.
@@ -740,6 +746,8 @@ def main():
         emit({"event": "log", "msg": traceback.format_exc()})
         emit({"event": "error", "msg": f"load failed: {error!r}"})
         return 1
+    # MLX keeps freed buffers (up to most of RAM): release the load's and each take's.
+    mx.clear_cache()
     emit({"event": "ready"})
 
     for line in sys.stdin:
@@ -759,6 +767,7 @@ def main():
         except Exception as error:  # noqa: BLE001 - Every request gets a terminal response.
             emit({"event": "error", "id": request.get("id"), "msg": str(error)})
             emit({"event": "log", "msg": traceback.format_exc()})
+        mx.clear_cache()
     return 0
 
 
