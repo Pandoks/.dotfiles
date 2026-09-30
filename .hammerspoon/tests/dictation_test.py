@@ -316,10 +316,11 @@ check(
 parakeet = server.ParakeetSpeech("stub", "0" * 40, 0.0)
 parakeet.model = SimpleNamespace(transcribe=lambda wav, chunk_duration: SimpleNamespace(text=wav))
 check(
-    "Parakeet drops <unk> and rare symbol runs",
+    "Parakeet drops special pieces and rare symbol runs",
     [
         ("<unk> ΨΨΨ", ""),
         (" Hello <unk> there ", "Hello there"),
+        ("N<|eo|>vim<|endoftext|>", "Nvim"),
         ("Привет", "Привет"),
     ],
     lambda text: parakeet.transcribe(text, []),
@@ -329,7 +330,7 @@ check(
     [
         (["Oki"], {"o", "ok", "oki"}),
         (["GitHub's"], {"g", "gi", "git", "gith", "githu", "github", "github'", "github's"}),
-        (["hammer spoon", "yt-dlp", "Node.js", "<unk>", " "], set()),
+        (["hammer spoon", "yt-dlp", "Node.js", "<unk>", "<|en|>", " "], set()),
     ],
     server.vocabulary_prefixes,
 )
@@ -338,7 +339,8 @@ check(
 class Model:
     """Weightless TDT model: `logits[last token][step]` is the joint output."""
 
-    vocabulary = ("▁ok", "i", "ay", "▁g", "it", "hub", "'s", "▁me", "▁M", "e", ".", "<unk>")
+    vocabulary = ("▁ok", "i", "ay", "▁g", "it", "hub", "'s", "▁me", "▁M", "e", ".")
+    vocabulary += ("<unk>", "<|eo|>")  # special pieces
     durations = (0, 1, 2)
     max_symbols = 3
     time_ratio = 0.08
@@ -397,6 +399,8 @@ check(
         (([{"▁ok": 30}, {"ay": 21, "i": 20}], ["Oki"], 4.5), " oki"),
         # A first-letter bonus would flip casing and splitting: "▁me" -> "▁M" "e".
         (([{"▁me": 21, "▁M": 20}], ["mise"], 4.5), " me"),
+        # Special pieces spell nothing: v3's "<|eo|>" must not outscore "e" in "Meow".
+        (([{"▁M": 30}, {"e": 20, "<|eo|>": 16}], ["Meow"], 4.5), " Me"),
     ],
     lambda case: speak(*case),
 )

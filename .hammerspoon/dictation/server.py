@@ -54,8 +54,8 @@ class Speech:
 
 
 def _letters(piece):
-    if piece == "<unk>":
-        return ""  # never boosted, never part of a word
+    if re.fullmatch(r"<[^<>]+>", piece):
+        return ""  # special pieces (<unk>, v3's <|en|>) are never boosted or part of a word
     return "".join(c for c in piece.lower() if c.isalnum() or c == "'")
 
 
@@ -197,8 +197,8 @@ class ParakeetSpeech(Speech):
             )
         # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
         text = self.model.transcribe(wav, chunk_duration=120).text
-        # Parakeet sometimes emits <unk> or a rare symbol run ("ΨΨΨ") on short takes.
-        text = re.sub(r"([^\x00-\x7F])\1{2,}", "", text.replace("<unk>", ""))
+        # Parakeet sometimes emits a special piece (<unk>) or symbol run ("ΨΨΨ") on short takes.
+        text = re.sub(r"([^\x00-\x7F])\1{2,}", "", re.sub(r"<[^<>]+>", "", text))
         return re.sub(r"\s{2,}", " ", text).strip()
 
 
