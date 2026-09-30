@@ -1,3 +1,5 @@
 .env
 .hammerspoon/secrets.lua
 .hammerspoon/Spoons/
+.hammerspoon/dictation/.venv/
+.hammerspoon/dictation/__pycache__/
