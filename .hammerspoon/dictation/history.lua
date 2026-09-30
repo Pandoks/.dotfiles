@@ -41,14 +41,15 @@ function history.save(text, settings)
   end
 end
 
--- Delete the oldest files past the size cap, never the newest; sizes are blocks, as `du` counts.
+-- Delete the oldest transcripts past the size cap, never the newest; sizes are blocks, as `du` counts.
 ---@param settings DictationHistoryConfig
 function history.prune(settings)
   local directory = folder(settings)
   local limit = settings.maxMegabytes * 1024 * 1024
   local files, total = {}, 0
   for entry in hs.fs.dir(directory) do
-    if entry:match("%.txt$") then
+    -- Only names save() writes: the folder may hold the user's own files.
+    if entry:match("^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d[_%d]*%.txt$") then
       local size = (hs.fs.attributes(directory .. "/" .. entry, "blocks") or 0) * 512
       files[#files + 1] = { name = entry, size = size }
       total = total + size

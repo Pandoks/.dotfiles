@@ -39,7 +39,7 @@
 
 ---@class DictationHistoryConfig
 ---@field directory string Every result is saved here as <timestamp>.txt ("~" = home), before it is inserted.
----@field maxMegabytes number Size cap for the directory in MB of disk space (as `du` reports it); the oldest files are deleted once it is exceeded.
+---@field maxMegabytes number Size cap for the saved transcripts in MB of disk space (as `du` reports it); the oldest are deleted once it is exceeded. Other files in the directory are never counted or deleted.
 
 ---@class DictationHotkeyConfig
 ---@field mods string[] Modifiers, e.g. { "alt" } or { "cmd", "shift" }. {} for none.

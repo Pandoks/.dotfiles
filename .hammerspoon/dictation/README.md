@@ -134,10 +134,11 @@ Set `cleanup.enabled = false` for raw transcription with no LLM pass.
 
 Every result is written to `~/Library/Caches/dictation/<timestamp>.txt` the
 moment the backend returns it, before insertion, so a paste that lands in the
-wrong place (or an Escape) never loses the text. Once the directory passes
+wrong place (or an Escape) never loses the text. Once the transcripts pass
 `history.maxMegabytes` of disk space (default 10, about 2,500 takes: every
-file occupies at least one 4 KB block) the oldest files are deleted. Set the
-folder and the cap in `history` in `config.lua`.
+file occupies at least one 4 KB block) the oldest are deleted; other files in
+the folder are never touched. Set the folder and the cap in `history` in
+`config.lua`.
 
 ## Swapping models and runtimes
 
