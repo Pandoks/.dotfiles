@@ -148,7 +148,7 @@ local function insertText(text)
   if failure and failure ~= "Attribute is not supported by target" then
     error(failure, 0)
   elseif not writable then
-    -- Terminals and Messages are text fields with a read-only selection: paste as is.
+    -- Terminals and Messages take no writes: paste. Read-only views look alike; ⌘V fails silently.
     local role = read(element, "AXRole")
     return (role == "AXTextField" or role == "AXTextArea") and paste(text)
   end
