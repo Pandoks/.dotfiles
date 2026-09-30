@@ -317,18 +317,19 @@ engine, failure = Engine.new(config, {
   end,
   onFinal = function(result)
     -- Saved before anything else, even for a cancelled take, so no result is lost.
-    if result.text and #result.text > 0 then
-      local problem = history.save(result.text, config.history)
-      if problem then
-        fail("Dictation: " .. problem)
-      end
+    local problem = #result.text > 0 and history.save(result.text, config.history)
+    if problem then
+      fail("Dictation: " .. problem)
     end
     recorder.cleanup(requests[result.id])
     requests[result.id] = nil
-    if stopped or inflight ~= result.id then
-      return
+    if not stopped and inflight == result.id then
+      finish(result.text)
     end
-    finish(result.text)
+    -- nil means saved (false: nothing to save); prune after delivery since it stats every file.
+    if problem == nil then
+      history.prune(config.history)
+    end
   end,
   onError = function(message, id)
     if id then

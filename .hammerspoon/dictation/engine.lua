@@ -15,6 +15,7 @@ local recorder = require("dictation.recorder")
 ---@field stopped boolean
 ---@field serial integer
 ---@field buffer string
+---@field errors string stderr tail for the exit report
 local engine = {}
 engine.__index = engine
 local directory = debug.getinfo(1, "S").source:match("^@(.*/)") or "./"
@@ -35,7 +36,8 @@ function engine.new(config, handlers)
   if not recorder.ffmpeg then
     return nil, "ffmpeg unavailable"
   end
-  local self = setmetatable({ ready = false, stopped = false, serial = 0, buffer = "" }, engine)
+  local self =
+    setmetatable({ ready = false, stopped = false, serial = 0, buffer = "", errors = "" }, engine)
   local function failure(message)
     if self.stopped then
       return
@@ -43,10 +45,11 @@ function engine.new(config, handlers)
     self:stop()
     handlers.onError(message)
   end
-  local function output(_, stdout, _)
+  local function output(_, stdout, stderr)
     if self.stopped then
       return true
     end
+    self.errors = (self.errors .. (stderr or "")):sub(-4000)
     self.buffer = self.buffer .. (stdout or "")
     while true do
       local newline = self.buffer:find("\n")
@@ -87,9 +90,9 @@ function engine.new(config, handlers)
   local task = hs.task.new(
     "/usr/bin/env",
     function(code, stdout, stderr)
-      output(nil, stdout, nil)
+      output(nil, stdout, stderr)
       if not self.stopped then
-        failure("backend exited (code " .. tostring(code) .. "): " .. (stderr or ""))
+        failure("backend exited (code " .. tostring(code) .. ")\n" .. self.errors)
       end
     end,
     output,

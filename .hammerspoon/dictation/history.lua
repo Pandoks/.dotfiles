@@ -1,12 +1,16 @@
 local history = {}
 
--- Save `text` as <timestamp>.txt, then delete the oldest files past the size cap.
+---@param settings DictationHistoryConfig
+local function folder(settings)
+  return (settings.directory:gsub("^~", os.getenv("HOME") or "~"))
+end
+
+-- Save `text` as <timestamp>.txt.
 ---@param text string
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.save(text, settings)
-  local directory = (settings.directory:gsub("^~", os.getenv("HOME") or "~"))
-  local limit = settings.maxMegabytes * 1024 * 1024
+  local directory = folder(settings)
   if not hs.fs.attributes(directory, "mode") then
     local ok, message = hs.fs.mkdir(directory)
     if not ok then
@@ -28,8 +32,13 @@ function history.save(text, settings)
   end
   file:write(text, "\n")
   file:close()
+end
 
-  -- Prune oldest first, never the newest; sizes are allocated 512-byte blocks, as `du` counts.
+-- Delete the oldest files past the size cap, never the newest; sizes are blocks, as `du` counts.
+---@param settings DictationHistoryConfig
+function history.prune(settings)
+  local directory = folder(settings)
+  local limit = settings.maxMegabytes * 1024 * 1024
   local files, total = {}, 0
   for entry in hs.fs.dir(directory) do
     if entry:match("%.txt$") then

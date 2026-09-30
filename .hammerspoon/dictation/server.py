@@ -175,11 +175,26 @@ class ParakeetSpeech(Speech):
     name = "parakeet-mlx"
 
     def load(self):
+        import wave
+
+        import mlx.core as mx
+        import numpy as np
+        import parakeet_mlx.parakeet
         from parakeet_mlx import ParakeetTDT, from_pretrained
+
+        def read(path, rate, _dtype):
+            # The recorder's wav is already 16 kHz mono s16le; no ffmpeg subprocess per take.
+            with wave.open(str(path), "rb") as audio:
+                params = audio.getparams()
+                if (params.framerate, params.nchannels, params.sampwidth) != (rate, 1, 2):
+                    raise ValueError(f"{path}: expected {rate} Hz mono 16-bit audio")
+                frames = audio.readframes(params.nframes)
+            return mx.array(np.frombuffer(frames, np.int16)).astype(mx.float32) / 32768.0
 
         self.model = from_pretrained(self.model_id)
         if self.boost and not isinstance(self.model, ParakeetTDT):
             raise ValueError(f"stt.boost needs a Parakeet TDT model, not {self.model_id}")
+        parakeet_mlx.parakeet.load_audio = read
 
     def transcribe(self, wav, hint):
         # Boosting swaps in our greedy decoder on this model instance only.
@@ -190,7 +205,8 @@ class ParakeetSpeech(Speech):
             self.model.decode_greedy = functools.partial(
                 boosted_greedy, self.model, prefixes=vocabulary_prefixes(hint), bonus=self.boost
             )
-        return self.model.transcribe(wav).text.strip()
+        # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
+        return self.model.transcribe(wav, chunk_duration=120).text.strip()
 
 
 class WhisperSpeech(Speech):
@@ -751,8 +767,9 @@ def main():
         engine = Engine(config)
         engine.load()
     except Exception as error:  # noqa: BLE001 - Convert backend failures into protocol errors.
-        emit({"event": "error", "msg": f"load failed: {error!r}"})
+        # Traceback first: Hammerspoon stops reading at the error.
         emit({"event": "log", "msg": traceback.format_exc()})
+        emit({"event": "error", "msg": f"load failed: {error!r}"})
         return 1
     emit({"event": "ready"})
 

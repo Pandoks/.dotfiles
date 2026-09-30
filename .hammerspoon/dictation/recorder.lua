@@ -7,7 +7,7 @@ local Spectrum = require("dictation.spectrum")
 ---@field tail string most recent PCM bytes (one analysis window)
 ---@field spectrum DictationSpectrum
 ---@field peak number highest level (0..1) seen so far
----@field task hs.task
+---@field task? hs.task nil once ffmpeg exits
 ---@field finished? boolean
 ---@field stopping? boolean
 ---@field discarded? boolean
@@ -50,17 +50,19 @@ function recorder.start(bands, onError)
   ---@type DictationRecording
   local recording
   local function failure(message)
-    if recording.error or recording.discarded then
+    message = message:gsub("%s+$", "")
+    if message == "" or recording.error or recording.discarded then
       return
     end
     recording.error = message
     onError(message)
   end
-  local task = hs.task.new(ffmpeg, function(code, _, errors)
-    recording.finished = true
-    if errors and errors ~= "" then
-      failure((errors:gsub("%s+$", "")))
-    elseif not recording.stopping or (code ~= 0 and code ~= 255) then
+  -- sh execs ffmpeg in its place; its child SIGINTs ffmpeg when stdin closes (Hammerspoon exited).
+  local watchdog = 'exec 3<&0; (read _ <&3; kill -INT $$) >/dev/null 2>&1 & exec "$0" "$@" 3<&-'
+  local task = hs.task.new("/bin/sh", function(code, _, errors)
+    recording.finished, recording.task = true, nil -- frees the task, which holds these callbacks
+    failure(errors or "")
+    if not recording.stopping or (code ~= 0 and code ~= 255) then
       failure("capture exited (code " .. tostring(code) .. ")")
     end
     os.remove(pcm)
@@ -74,7 +76,13 @@ function recorder.start(bands, onError)
         recording.offset / (2 * rate)
       )
     end
+  end, function(_, _, errors)
+    failure(errors or "") -- a streaming task keeps stdin open
+    return true
   end, {
+    "-c",
+    watchdog,
+    ffmpeg,
     "-hide_banner",
     "-loglevel",
     "error",
@@ -163,7 +171,7 @@ function recorder.stop(recording, done)
     done(nil, recording.peak, recording.offset / (2 * rate))
     return
   end
-  recording.task:interrupt()
+  assert(recording.task):interrupt()
 end
 
 ---@param recording? DictationRecording
@@ -172,7 +180,7 @@ function recorder.cleanup(recording)
     return
   end
   recording.discarded, recording.done = true, nil
-  if not recording.finished then
+  if recording.task then
     recording.task:terminate()
   end
   -- Remove now; a reload skips the exit callback (unlinking is safe while ffmpeg writes).
