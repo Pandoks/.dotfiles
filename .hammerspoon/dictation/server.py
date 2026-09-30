@@ -60,8 +60,11 @@ class Speech:
     #: registry name, e.g. "parakeet-mlx"; matches `stt.backend` in config.lua
     name = ""
 
-    def __init__(self, model_id):
+    def __init__(self, model_id, boost=0.0):
         self.model_id = model_id
+        # Vocabulary boosting strength (log-prob bonus per matching letter);
+        # runtimes that can bias decoding use it, 0 = off.
+        self.boost = boost
 
     def load(self):
         raise NotImplementedError
@@ -70,6 +73,93 @@ class Speech:
         """`hint` is the list of words to spell correctly (dictionary + vocabulary,
         including the active app's); runtimes that accept a hint pass it on."""
         raise NotImplementedError
+
+
+def _letters(piece):
+    return "".join(c for c in piece.lower() if c.isalnum() or c == "'")
+
+
+def vocabulary_prefixes(words):
+    """Every prefix of every single-word vocabulary entry, as lowercase letters."""
+    full = {_letters(w) for w in words if " " not in w.strip()}
+    return {w[:i] for w in full if w for i in range(1, len(w) + 1)}
+
+
+def boosted_greedy(model, features, lengths=None, last_token=None, hidden_state=None, *, config, prefixes, bonus):
+    """parakeet-mlx's TDT greedy decoder (ParakeetTDT.decode_greedy, Apache-2.0)
+    with one change: before each pick, pieces that keep the current word a
+    prefix of a vocabulary word get `bonus` per letter (after the first) added
+    to their log-prob (shallow fusion). Clear speech still wins; ambiguous audio
+    ("oki" vs "okay") tips toward the listed spelling."""
+    import mlx.core as mx
+    import mlx.nn as nn
+    from parakeet_mlx import tokenizer
+    from parakeet_mlx.alignment import AlignedToken
+
+    vocabulary, cache = model.vocabulary, {}
+
+    def extending(word):
+        """Piece id -> letters added, for pieces that keep `word` a vocabulary prefix."""
+        if word not in cache:
+            out = {}
+            for i, piece in enumerate(vocabulary):
+                core, starts = _letters(piece), piece.startswith("▁")
+                if core and (starts or word) and (core if starts else word + core) in prefixes:
+                    # No bonus for a word's first letter: that alone would flip
+                    # the model's own casing/splitting ("▁me" -> "▁M" "e").
+                    out[i] = len(core) - 1 if starts else len(core)
+            cache[word] = out
+        return cache[word]
+
+    B, S, *_ = features.shape
+    hidden_state = hidden_state if hidden_state is not None else [None] * B
+    lengths = lengths if lengths is not None else mx.array([S] * B)
+    last_token = last_token if last_token is not None else [None] * B
+    results = []
+    for batch in range(B):
+        hypothesis, word = [], ""
+        feature, length = features[batch : batch + 1], int(lengths[batch])
+        step = new_symbols = 0
+        while step < length:
+            decoder_out, (hidden, cell) = model.decoder(
+                mx.array([[last_token[batch]]]) if last_token[batch] is not None else None, hidden_state[batch]
+            )
+            decoder_out = decoder_out.astype(feature.dtype)
+            decoder_hidden = (hidden.astype(feature.dtype), cell.astype(feature.dtype))
+            joint_out = model.joint(feature[:, step : step + 1], decoder_out)
+            logprobs = nn.log_softmax(joint_out[0, 0, 0, : len(vocabulary) + 1].astype(mx.float32), -1)
+            boosts = {i: n for i, n in extending(word or "").items() if n}
+            if boosts:
+                logprobs = logprobs.at[mx.array(list(boosts))].add(mx.array([bonus * n for n in boosts.values()]))
+            token = int(mx.argmax(logprobs))
+            decision = int(mx.argmax(joint_out[0, 0, 0, len(vocabulary) + 1 :]))
+            if token != len(vocabulary):  # not blank
+                piece = vocabulary[token]
+                core = _letters(piece)
+                if piece.startswith("▁") or not core:
+                    word = core
+                elif word is not None:
+                    word += core
+                if word and word not in prefixes:
+                    word = None  # can no longer become a vocabulary word
+                hypothesis.append(
+                    AlignedToken(
+                        token,
+                        start=step * model.time_ratio,
+                        duration=model.durations[decision] * model.time_ratio,
+                        confidence=1.0,
+                        text=tokenizer.decode([token], vocabulary),
+                    )
+                )
+                last_token[batch], hidden_state[batch] = token, decoder_hidden
+            step += model.durations[decision]
+            new_symbols += 1
+            if model.durations[decision] != 0:
+                new_symbols = 0
+            elif model.max_symbols is not None and model.max_symbols <= new_symbols:
+                step, new_symbols = step + 1, 0
+        results.append(hypothesis)
+    return results, hidden_state
 
 
 class ParakeetSpeech(Speech):
@@ -81,6 +171,14 @@ class ParakeetSpeech(Speech):
         self.model = from_pretrained(self.model_id)
 
     def transcribe(self, wav, hint):
+        # Boosting swaps in our greedy decoder on this model instance only.
+        self.model.__dict__.pop("decode_greedy", None)
+        if self.boost and hint:
+            import functools
+
+            self.model.decode_greedy = functools.partial(
+                boosted_greedy, self.model, prefixes=vocabulary_prefixes(hint), bonus=self.boost
+            )
         return self.model.transcribe(wav).text.strip()
 
 
@@ -93,7 +191,7 @@ class WhisperSpeech(Speech):
     def transcribe(self, wav, hint):
         import mlx_whisper
 
-        # Whisper accepts a vocabulary hint; Parakeet/mlx-audio do not.
+        # Whisper takes the vocabulary as a prompt; Parakeet uses it via boosting.
         r = mlx_whisper.transcribe(
             wav, path_or_hf_repo=self.model_id, initial_prompt=", ".join(hint) or None
         )
@@ -206,7 +304,7 @@ class Engine:
         if backend not in SPEECH_BACKENDS:
             raise ValueError(f"unknown speech backend: {backend}")
         self.speech = SPEECH_BACKENDS[backend](
-            stt.get("model", "mlx-community/parakeet-tdt-0.6b-v2")
+            stt.get("model", "mlx-community/parakeet-tdt-0.6b-v2"), float(stt.get("boost") or 0)
         )
 
         self.cleaner = None

@@ -75,7 +75,13 @@ spellings. Any transcript token close to one of them ("ghosty", "hammer spoon",
 "ray cast") is rewritten to it, before and after cleanup. Real English words are
 never rewritten ("recast" stays "recast"), and a vocabulary word you said is
 protected from being dropped by the cleanup model. With the Whisper backend the
-list is also passed to the speech model as a hint; Parakeet has no such input.
+list is also passed to the speech model as a prompt. With Parakeet it biases
+decoding instead (`stt.boost`, default 4.5): once the model has spelled the
+first letter of one of your words, pieces that continue it get a small bonus,
+so a word it hears ambiguously ("oki" vs "okay") comes out as you listed it,
+at no extra latency. Measured on 80 takes of listed words: 42 → 58 correct,
+with no listed word inserted into 60 look-alike sentences ("okay", "ghostly",
+"a torrent of rain") and ordinary dictation unchanged (error rate and casing).
 
 `dictionary`, also in `config.lua`, is only for stubborn mishearings the
 similarity match cannot reach, mapping the correct spelling to explicit spoken
