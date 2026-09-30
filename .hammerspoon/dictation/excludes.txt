@@ -1,0 +1,1 @@
+torch  # mlx-whisper needs it only to convert checkpoints

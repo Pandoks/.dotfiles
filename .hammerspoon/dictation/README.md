@@ -219,7 +219,7 @@ with an alert.
 | `spectrum.lua` | pure-Lua FFT: PCM window -> equalizer bands + level |
 | `engine.lua` | manages the resident Python backend over a JSON pipe |
 | `server.py` | speech-to-text + LLM cleanup, kept resident; `Speech`/`Cleaner` classes, one per runtime, picked by `backend` |
-| `setup.sh` | syncs `.venv` to `requirements.txt` (hashed lock of `requirements.in`) |
+| `setup.sh` | syncs `.venv` to `requirements.txt` (hashed lock of `requirements.in`, minus `excludes.txt`) |
 
 ## Tests
 
