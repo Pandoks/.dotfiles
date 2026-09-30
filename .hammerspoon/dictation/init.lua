@@ -217,7 +217,7 @@ local function toggle()
       fail("Dictation: allow Microphone access in System Settings")
       return
     end
-    local pill = overlay or Overlay.new(config.overlayHeight)
+    local pill = overlay or Overlay.new(config.overlayHeight, config.eqBands)
     overlay = pill
     state = "recording"
     pill:show()

@@ -7,13 +7,11 @@ local Spectrum = require("dictation.spectrum")
 ---@field tail string most recent PCM bytes (one analysis window)
 ---@field spectrum DictationSpectrum
 ---@field peak number highest level (0..1) seen so far
----@field started number epoch seconds when capture started
 ---@field task hs.task
 ---@field finished? boolean
 ---@field stopping? boolean
 ---@field discarded? boolean
 ---@field error? string
----@field duration? number
 ---@field done? fun(wav: string?, peak: number, duration: number)
 
 local recorder = {}
@@ -44,8 +42,8 @@ function recorder.start(bands, onError)
   if not ffmpeg then
     return nil, "ffmpeg unavailable"
   end
-  local base = os.tmpname()
-  os.remove(base) -- tmpname creates the file; only the suffixed paths are used
+  -- Per-user 0700 temp dir, not the shared /tmp.
+  local base = hs.fs.temporaryDirectory() .. "dictation-" .. hs.host.uuid()
   local wav, pcm = base .. ".wav", base .. ".pcm"
   -- High-pass only: denoise and silence trimming erase quiet speakers.
   local highpass = "highpass=f=90"
@@ -73,7 +71,7 @@ function recorder.start(bands, onError)
       recording.done(
         not recording.error and not recording.discarded and wav or nil,
         recording.peak,
-        recording.duration or hs.timer.secondsSinceEpoch() - recording.started
+        recording.offset / (2 * rate)
       )
     end
   end, {
@@ -118,7 +116,6 @@ function recorder.start(bands, onError)
     tail = "",
     spectrum = Spectrum.new(rate, bands, size),
     peak = 0,
-    started = assert(hs.timer.secondsSinceEpoch()),
     task = task,
   }
   if not task:start() then
@@ -154,7 +151,7 @@ function recorder.poll(recording)
   return bands
 end
 
--- SIGINT lets ffmpeg finalize the wav before `done` gets it (nil on failure).
+-- SIGINT lets ffmpeg finalize the wav; `done` gets it (nil on failure) and the seconds polled.
 ---@param recording DictationRecording
 ---@param done fun(wav: string?, peak: number, duration: number)
 function recorder.stop(recording, done)
@@ -162,9 +159,8 @@ function recorder.stop(recording, done)
     return
   end
   recording.stopping, recording.done = true, done
-  recording.duration = hs.timer.secondsSinceEpoch() - recording.started
   if recording.finished then
-    done(nil, recording.peak, recording.duration)
+    done(nil, recording.peak, recording.offset / (2 * rate))
     return
   end
   recording.task:interrupt()

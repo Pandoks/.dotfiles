@@ -70,7 +70,7 @@
 ---@field minLevel number 0..1 peak loudness required, else the take is treated as silence. Raise to demand a closer, louder voice.
 ---@field minDuration number Minimum recording length in seconds; shorter takes are ignored.
 ---@field overlayHeight number Pill height in points.
----@field eqBands integer Number of frequency bands in the equalizer (mirrored around the center).
+---@field eqBands integer Number of frequency bands (>= 2); the pill mirrors them into 2n - 1 bars.
 
 ---@type DictationConfig
 local config = {

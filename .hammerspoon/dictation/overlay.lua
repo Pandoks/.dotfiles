@@ -11,7 +11,6 @@
 local overlay = {}
 overlay.__index = overlay
 
-local bars = 29
 local aspect = 3.32
 local stroke = 1
 local thickness = 0.038 -- bar width as a fraction of height
@@ -20,8 +19,9 @@ local peak = 0.34 -- tallest bar as a fraction of height
 local fade = 12 -- frames (~0.4 s at 30 fps) from the ripple intro to the live equalizer
 
 ---@param height number pill height in points
+---@param bands integer spectrum bands, mirrored around the center bar
 ---@return DictationOverlay
-function overlay.new(height)
+function overlay.new(height, bands)
   ---@type DictationOverlay
   local self = setmetatable({}, overlay)
   self.height = height
@@ -31,9 +31,9 @@ function overlay.new(height)
   -- Baseline diamond envelope so an idle pill still looks like Raycast's.
   self.baseline = {}
   self.bars = {}
-  local half = (bars - 1) / 2
+  local bars = 2 * bands - 1
   for i = 1, bars do
-    local t = math.abs(i - (bars + 1) / 2) / half
+    local t = math.abs(i - bands) / (bands - 1)
     self.baseline[i] = math.max(0, (1 - t)) ^ 2.4
     self.bars[i] = 0
   end
@@ -78,6 +78,7 @@ function overlay:_layout()
     return
   end
   local height, width, barWidth = self.height, self.width, self.barWidth
+  local bars = #self.bars
   local span = width * spread
   local pitch = span / (bars - 1)
   local cx, cy = width / 2, height / 2
@@ -122,10 +123,9 @@ function overlay:setBars(bands)
     self.warmth = math.max(0, self.warmth - 1 / fade)
     self.phase = self.phase + 0.35 -- keep the ripple moving while it fades out
   end
-  local center = (bars + 1) / 2
-  for i = 1, bars do
-    local distance = math.floor(math.abs(i - center)) -- 0 at center
-    local band = bands[math.min(#bands, distance + 1)] or 0
+  local center = (#self.bars + 1) // 2
+  for i = 1, #self.bars do
+    local band = bands[math.abs(i - center) + 1]
     -- attack fast, release slow for a natural equalizer bounce
     local target = math.max(0, math.min(1, band))
     local current = self.bars[i]
@@ -148,7 +148,7 @@ function overlay:show()
   self.thinking = false
   self.warmth = 1
   self.phase = 0 -- the intro blooms from the center at phase 0
-  for i = 1, bars do
+  for i = 1, #self.bars do
     self.bars[i] = 0
   end
   local canvas = self.canvas
