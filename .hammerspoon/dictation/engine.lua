@@ -29,7 +29,7 @@ function engine.new(config, handlers)
     return nil, "backend venv missing; run dictation/setup.sh"
   end
   if not recorder.ffmpeg then
-    return nil, "ffmpeg unavailable"
+    return nil, "ffmpeg not found; run mise install"
   end
   local self =
     setmetatable({ ready = false, stopped = false, serial = 0, buffer = "", errors = "" }, engine)

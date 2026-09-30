@@ -15,8 +15,8 @@ local dictation = {}
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
----@type DictationOverlay?, DictationRecording?, DictationEngine?
-local overlay, recording, engine
+---@type DictationOverlay?, DictationRecording?, DictationEngine?, string?
+local overlay, recording, engine, engineError
 ---@type hs.timer?, hs.axuielement?, string?
 local animation, target, targetError
 local inflight
@@ -116,6 +116,17 @@ local function paste(text)
   return true
 end
 
+-- An attribute of the focused field; nil when unsupported. Raises on accessibility errors.
+---@param element hs.axuielement
+---@param name string
+local function read(element, name)
+  local value, problem = element:attributeValue(name)
+  if problem and problem ~= "Attribute is not supported by target" then
+    error(("could not read the focused field's %s: %s"):format(name, problem), 0)
+  end
+  return value
+end
+
 -- Insert into the field focused at stop; false when there is none. Raises on failure.
 ---@param text string
 local function insertText(text)
@@ -138,16 +149,16 @@ local function insertText(text)
     error(failure, 0)
   elseif not writable then
     -- Terminals and Messages are text fields with a read-only selection: paste as is.
-    local role = element:attributeValue("AXRole")
+    local role = read(element, "AXRole")
     return (role == "AXTextField" or role == "AXTextArea") and paste(text)
   end
   -- Only a text field has a string value.
-  local value = element:attributeValue("AXValue")
+  local value = read(element, "AXValue")
   if type(value) ~= "string" then
     return false
   end
-  local range = element:attributeValue("AXSelectedTextRange")
-  local selected = element:attributeValue("AXSelectedText")
+  local range = read(element, "AXSelectedTextRange")
+  local selected = read(element, "AXSelectedText")
   if type(range) == "table" and range.location then
     -- Two characters on each side of the selection (AX ranges count UTF-16 units).
     local prior, before, after, beyond, units = "", "", "", "", 0
@@ -190,7 +201,7 @@ local function insertText(text)
   if not result then
     error(reason or "could not insert into focused field", 0)
   end
-  if element:attributeValue("AXValue") ~= value or selected == text then
+  if read(element, "AXValue") ~= value or selected == text then
     return true -- changed, or identical text over an identical selection (a no-op either way)
   end
   return paste(text)
@@ -241,7 +252,10 @@ end
 
 local function toggle()
   if state == "idle" then
-    if not engine or engine.stopped then
+    if not engine then
+      fail("Dictation: " .. tostring(engineError))
+      return
+    elseif engine.stopped then
       fail("Dictation: backend stopped (see the console); reload Hammerspoon")
       return
     elseif not engine.ready then
@@ -315,8 +329,7 @@ local function toggle()
 end
 
 -- Each reply owns its recording; cancelled replies cannot finish a later take.
-local failure
-engine, failure = Engine.new(config, {
+engine, engineError = Engine.new(config, {
   onReady = function()
     print("Dictation: backend ready")
   end,
@@ -360,7 +373,7 @@ engine, failure = Engine.new(config, {
   end,
 })
 if not engine then
-  fail("Dictation: " .. tostring(failure))
+  fail("Dictation: " .. tostring(engineError))
 end
 
 if config.trigger == "hotkey" then
