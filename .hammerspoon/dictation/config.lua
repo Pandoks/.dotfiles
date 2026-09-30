@@ -16,8 +16,6 @@
 ---| "direct"    # insert via accessibility into the field focused when dictation stopped, clipboard untouched. Fields that ignore accessibility writes (Electron/Chromium apps) get the app's own Paste instead: text goes on the clipboard, ⌘V, previous clipboard restored 0.25 s later (its first item only; an alert says when there were more, e.g. several copied files). Failure, including focus having moved, is reported, nothing is copied.
 ---| "clipboard" # only copy the text to the clipboard; nothing is inserted
 
----@alias DictationModifierFlag "cmd"|"alt"|"shift"|"ctrl"|"fn"
-
 ---@class DictationSttConfig
 ---@field backend DictationBackend Which runtime loads the model. Must match the model; see README.md. Add runtimes by subclassing `Speech` in server.py.
 ---@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v2". Downloaded when the backend first starts.
@@ -31,7 +29,7 @@
 ---@field revision string Commit SHA of `model`, pinned like `stt.revision`.
 ---@field adapter? string Hugging Face repo of a LoRA adapter for `model`. A cleanup-trained adapter ships its own prompt (system_v2.txt), which is then used verbatim: `style` and per-app `style` do not apply, vocabulary (per-app too) is applied deterministically instead. nil = plain instruct model with our prompt.
 ---@field adapterRevision? string Commit SHA of `adapter`, pinned like `stt.revision`. Required with `adapter`.
----@field max_tokens integer Max tokens the cleanup may generate, raised to twice the dictation's so a long take is never cut.
+---@field maxTokens integer Max tokens the cleanup may generate, raised to twice the dictation's so a long take is never cut.
 
 ---@class DictationAppConfig
 ---@field style? string Extra instructions appended to the global `style` when this app is focused (plain instruct model only).
@@ -47,7 +45,7 @@
 
 ---@class DictationModifierTapConfig
 ---@field keycode integer Physical key: Right Cmd 54, Left Cmd 55, Right Opt 61, Left Opt 58, Right Shift 60, Right Ctrl 62.
----@field flag DictationModifierFlag The modifier flag that key sets ("cmd" for Command, "alt" for Option, ...).
+---@field flag "cmd"|"alt"|"shift"|"ctrl"|"fn" The modifier flag that key sets ("cmd" for Command, "alt" for Option, ...).
 ---@field taps 1|2 Taps required: 1 = single tap, 2 = double tap (safer against accidents).
 ---@field window number Max seconds for a tap and between taps. Longer holds are ignored.
 
@@ -101,7 +99,7 @@ local config = {
     revision = "93760be4f1f69842a46bc13dbdc0f19e291392a3",
     adapter = "ReFyneLabs/simplewords-dictation-cleanup-v3-adapter",
     adapterRevision = "b603b485ffb54f5458a94f1542cf1cad97cc872c",
-    max_tokens = 400,
+    maxTokens = 400,
   },
 
   style = "You clean up dictated speech into text the user meant to type. "

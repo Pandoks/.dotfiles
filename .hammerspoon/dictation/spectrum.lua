@@ -11,7 +11,6 @@ spectrum.__index = spectrum
 ---@param rate integer sample rate in Hz
 ---@param bands integer number of log-spaced bands from 80 Hz to just under Nyquist
 ---@param size integer FFT size, power of two
----@return DictationSpectrum
 function spectrum.new(rate, bands, size)
   local self =
     setmetatable({ size = size, bands = bands, bins = {}, window = {}, peak = {} }, spectrum)

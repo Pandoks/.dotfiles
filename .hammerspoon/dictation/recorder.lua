@@ -38,9 +38,6 @@ recorder.ffmpeg = ffmpeg
 ---@param onError fun(message: string)
 ---@return DictationRecording?, string?
 function recorder.start(bands, onError)
-  if not ffmpeg then
-    return nil, "ffmpeg unavailable"
-  end
   -- Per-user 0700 temp dir, not the shared /tmp.
   local base = hs.fs.temporaryDirectory() .. "dictation-" .. hs.host.uuid()
   local wav, pcm = base .. ".wav", base .. ".pcm"

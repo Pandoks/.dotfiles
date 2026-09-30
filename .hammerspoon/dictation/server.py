@@ -40,7 +40,7 @@ class Speech:
     #: registry name, e.g. "parakeet-mlx"; matches `stt.backend` in config.lua
     name = ""
 
-    def __init__(self, model_id, revision, boost=0.0):
+    def __init__(self, model_id, revision, boost):
         self.model_id = model_id
         self.revision = revision
         self.boost = boost  # log-prob bonus per matching vocabulary letter; 0 = off
@@ -284,7 +284,7 @@ class MlxLmCleaner(Cleaner):
 
         loaded = llm_load(self.model_id, adapter_path=self._fetch_adapter(), revision=self.revision)
         self.llm, self.tokenizer = loaded[0], loaded[1]
-        self.words = whole_words(self.tokenizer.get_vocab())
+        self.words = whole_words(self.tokenizer.get_vocab())  # pyright: ignore[reportCallIssue]
 
     def complete(self, messages, raw):
         from mlx_lm import generate
@@ -293,12 +293,13 @@ class MlxLmCleaner(Cleaner):
         prompt = self.tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, enable_thinking=False
         )
+        tokens = len(self.tokenizer.encode(raw))  # pyright: ignore[reportCallIssue]
         out = generate(
             self.llm,
             self.tokenizer,
             prompt=prompt,
             # Twice the dictation: an echo is never cut, and a runaway fails the rewrite guard.
-            max_tokens=max(self.max_tokens, 2 * len(self.tokenizer.encode(raw))),
+            max_tokens=max(self.max_tokens, 2 * tokens),
             sampler=make_sampler(temp=0.0),  # greedy
             verbose=False,
         )
@@ -342,7 +343,7 @@ class Engine:
                 pinned(cleanup.get("revision"), "cleanup.revision"),
                 adapter,
                 adapter and pinned(cleanup.get("adapterRevision"), "cleanup.adapterRevision"),
-                int(cleanup["max_tokens"]),
+                int(cleanup["maxTokens"]),
             )
 
     def load(self):
@@ -372,8 +373,7 @@ class Engine:
             text = pattern.sub(word, text)
         return text
 
-    # Real words are never fuzzy-matched ("recast" stays). macOS's 1934 list lacks most
-    # inflections and modern words ("tacos"); load() adds the cleanup tokenizer's.
+    # Real words are never fuzzy-matched ("recast"); load() adds the tokenizer's ("tacos").
     words = frozenset(Path("/usr/share/dict/words").read_text().lower().splitlines())
 
     def apply_vocabulary(self, text, request=None):
@@ -428,8 +428,8 @@ class Engine:
                 and not match(second[2], 0.8)
             ):
                 word, span = match(first[2] + second[2], 0.9), 2
-            if word:
-                last = plain[i + span - 1]
+            if first and word:
+                last = second if span == 2 and second else first
                 out.append((first[1] + word + (last[3] or "") + last[4], span))
                 i += span
             else:
@@ -658,7 +658,7 @@ class Engine:
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
 
     @classmethod
-    def looks_rewritten(cls, raw, out, allowed=()):
+    def looks_rewritten(cls, raw, out, allowed):
         """True if `out` is not a light edit of `raw`; `allowed` words may replace misheard ones."""
 
         def words(text):

@@ -12,6 +12,8 @@ uv pip sync -p "$venv/bin/python" "$dir/requirements.txt"
 
 echo
 echo "Done. Verify with:"
-echo "  \"$venv/bin/python\" -c 'import parakeet_mlx, mlx_audio, mlx_whisper, mlx_lm; print(\"ok\")'"
+echo "  \"$venv/bin/python\" -c \\"
+echo "    'import parakeet_mlx, mlx_audio, mlx_whisper, mlx_lm; print(\"ok\")'"
 echo
-echo "Reload Hammerspoon: the backend's first start downloads the models pinned in config.lua into ~/.cache/huggingface."
+echo "Reload Hammerspoon: the backend's first start downloads the models pinned in config.lua"
+echo "into ~/.cache/huggingface."

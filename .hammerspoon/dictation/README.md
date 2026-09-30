@@ -32,6 +32,7 @@ it with `require("dictation")`.
    - Tap a modifier like Raycast: set `trigger = "modifierTap"` and pick
      `modifierTap.keycode` (Right Command 54, Right Option 61, Right Shift 60,
      Right Control 62) and its `flag`; `taps = 1` or `2`.
+
    If Raycast is also bound to Option+Space, Hammerspoon takes precedence and
    Raycast will stop opening; change one of them.
 

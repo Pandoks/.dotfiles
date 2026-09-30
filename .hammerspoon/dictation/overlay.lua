@@ -20,9 +20,7 @@ local fade = 12 -- frames (~0.4 s at 30 fps) from the ripple intro to the live e
 
 ---@param height number pill height in points
 ---@param bands integer spectrum bands, mirrored around the center bar
----@return DictationOverlay
 function overlay.new(height, bands)
-  ---@type DictationOverlay
   local self = setmetatable({}, overlay)
   self.height = height
   self.thinking = false

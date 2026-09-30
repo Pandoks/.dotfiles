@@ -17,10 +17,10 @@ local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 
 ---@param config DictationConfig
 ---@param handlers {
----  onReady?: fun(),
+---  onReady: fun(),
 ---  onFinal: fun(result: { id: integer, text: string }),
 ---  onError: fun(message: string, id?: integer),
----  onLog?: fun(message: string),
+---  onLog: fun(message: string),
 ---}
 ---@return DictationEngine?, string?
 function engine.new(config, handlers)
@@ -43,7 +43,7 @@ function engine.new(config, handlers)
   local function output(_, stdout, stderr)
     if self.stopped then
       -- hs.task may deliver the last stderr after the exit callback; keep it in the log.
-      if stderr and stderr ~= "" and handlers.onLog then
+      if stderr and stderr ~= "" then
         handlers.onLog(stderr)
       end
       return true
@@ -65,9 +65,7 @@ function engine.new(config, handlers)
         elseif event.event == "ready" then
           -- Load chatter (HF warnings, progress bars) is no crash reason.
           self.ready, self.errors = true, ""
-          if handlers.onReady then
-            handlers.onReady()
-          end
+          handlers.onReady()
         elseif event.event == "final" then
           if type(event.id) ~= "number" or type(event.text) ~= "string" then
             failure("invalid transcription response")
@@ -80,7 +78,7 @@ function engine.new(config, handlers)
           else
             failure(event.msg or "unknown error")
           end
-        elseif event.event == "log" and handlers.onLog then
+        elseif event.event == "log" then
           handlers.onLog(event.msg or "")
         end
       end

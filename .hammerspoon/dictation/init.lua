@@ -11,13 +11,14 @@ local function fail(message)
   hs.alert.show(message:match("^[^\n]+"), 5)
 end
 
----@class DictationModule
 local dictation = {}
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
----@type DictationOverlay?, DictationRecording?, DictationEngine?, hs.timer?, hs.axuielement?, string?
-local overlay, recording, engine, animation, target, targetError
+---@type DictationOverlay?, DictationRecording?, DictationEngine?
+local overlay, recording, engine
+---@type hs.timer?, hs.axuielement?, string?
+local animation, target, targetError
 local inflight
 local requests = {}
 
@@ -90,7 +91,6 @@ end
 
 -- Insert into the field focused at stop; false when there is none. Raises on failure.
 ---@param text string
----@return boolean
 local function insertText(text)
   if targetError then
     error("could not read the focused field at stop: " .. targetError, 0)

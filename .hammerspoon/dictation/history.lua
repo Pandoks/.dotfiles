@@ -41,7 +41,7 @@ function history.save(text, settings)
   end
 end
 
--- Delete the oldest transcripts past the size cap, never the newest; sizes are blocks, as `du` counts.
+-- Delete the oldest transcripts over the cap, never the newest; sizes are du-style blocks.
 ---@param settings DictationHistoryConfig
 function history.prune(settings)
   local directory = folder(settings)

@@ -66,7 +66,8 @@ engine = server.Engine(
 cleanup = snapshot_download(
     "mlx-community/Qwen3.5-2B-MLX-4bit", revision="93760be4f1f69842a46bc13dbdc0f19e291392a3"
 )
-engine.words |= server.whole_words(load_tokenizer(Path(cleanup)).get_vocab())
+tokenizer = load_tokenizer(Path(cleanup))
+engine.words |= server.whole_words(tokenizer.get_vocab())  # pyright: ignore[reportCallIssue]
 
 
 def check(name, cases, function):
