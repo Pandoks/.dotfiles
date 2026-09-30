@@ -119,7 +119,7 @@ local config = {
   -- misheard tokens close to one of these are rewritten to it.
   vocabulary = {
     "yabai", "Raycast", "Hammerspoon", "Ghostty", "mise", "Neovim", "rtorrent",
-    "macOS", "GitHub", "Slack",
+    "macOS", "GitHub", "Slack", "Oki", "Uniqlo",
   },
 
   -- Explicit spoken variants for stubborn mishearings the vocabulary match
@@ -135,6 +135,7 @@ local config = {
     rtorrent = { "r torrent", "are torrent" },
     macOS = { "mac os", "mac o s" },
     GitHub = { "git hub" },
+    Uniqlo = { "unicolo", "uni clo", "uni klo", "uni clow", "une clo", "une klo", "yune klo" },
   },
 
   apps = {
