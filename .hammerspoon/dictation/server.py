@@ -75,7 +75,11 @@ def whole_words(tokens):
 def boosted_greedy(
     model, features, lengths=None, last_token=None, hidden_state=None, *, config, prefixes, bonus
 ):
-    """parakeet-mlx 0.5.2's decode_greedy (Apache-2.0) plus a vocabulary bonus; confidence 1.0."""
+    """parakeet-mlx 0.5.2's decode_greedy plus a vocabulary bonus; confidence 1.0.
+
+    Source: https://github.com/senstella/parakeet-mlx (parakeet_mlx/parakeet.py)
+    License: Apache-2.0, https://www.apache.org/licenses/LICENSE-2.0
+    """
     import mlx.core as mx
     from mlx import nn
     from parakeet_mlx import tokenizer
@@ -213,7 +217,7 @@ class WhisperSpeech(Speech):
         result = mlx_whisper.transcribe(
             wav, path_or_hf_repo=self.path, initial_prompt=", ".join(hint) or None
         )
-        return str(result.get("text", "")).strip()
+        return result["text"].strip()  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class MlxAudioSpeech(Speech):
@@ -225,8 +229,7 @@ class MlxAudioSpeech(Speech):
         self.model = load_model(self.model_id, revision=self.revision)
 
     def transcribe(self, wav, hint):
-        result = self.model.generate(wav)
-        return str(getattr(result, "text", result)).strip()
+        return self.model.generate(wav).text.strip()  # pyright: ignore[reportOptionalCall]
 
 
 SPEECH_BACKENDS = {cls.name: cls for cls in (ParakeetSpeech, WhisperSpeech, MlxAudioSpeech)}
