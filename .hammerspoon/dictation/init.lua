@@ -105,10 +105,21 @@ local function insertText(text)
   if element ~= target then
     error("focus moved while transcribing", 0)
   end
+  -- Only a text field has a string value and a writable selection.
   local value = element:attributeValue("AXValue")
+  if type(value) ~= "string" then
+    return false
+  end
+  local writable, failure = element:isAttributeSettable("AXSelectedText")
+  -- Unsupported (e.g. a pop-up button's title value) just means not a text field.
+  if failure and failure ~= "Attribute is not supported by target" then
+    error(failure, 0)
+  elseif not writable then
+    return false
+  end
   local range = element:attributeValue("AXSelectedTextRange")
   local selected = element:attributeValue("AXSelectedText")
-  if type(value) == "string" and type(range) == "table" and range.location then
+  if type(range) == "table" and range.location then
     -- Two characters on each side of the selection (AX ranges count UTF-16 units).
     local prior, before, after, beyond, units = "", "", "", "", 0
     for _, codepoint in utf8.codes(value) do
@@ -144,14 +155,6 @@ local function insertText(text)
     if after:match("^%w$") or openers[after] or (quotes[after] and beyond:match("^%w$")) then
       text = text .. " "
     end
-  end
-  local writable, failure = element:isAttributeSettable("AXSelectedText")
-  if failure then
-    error(failure, 0)
-  end
-  -- Only a text field has a writable selection and a string value.
-  if not writable or type(value) ~= "string" then
-    return false
   end
   -- Chromium/Electron accept the write and ignore it; trust it only if the value changed.
   local result, reason = element:setAttributeValue("AXSelectedText", text)
