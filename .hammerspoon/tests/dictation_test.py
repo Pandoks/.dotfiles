@@ -62,9 +62,11 @@ engine = server.Engine(
         },
     }
 )
-# config.lua's cleanup tokenizer: the real words Engine.load adds.
+# config.lua's cleanup tokenizer (the real words Engine.load adds), from files mlx_lm.load caches.
 cleanup = snapshot_download(
-    "mlx-community/Qwen3.5-2B-MLX-4bit", revision="93760be4f1f69842a46bc13dbdc0f19e291392a3"
+    "mlx-community/Qwen3.5-2B-MLX-4bit",
+    revision="93760be4f1f69842a46bc13dbdc0f19e291392a3",
+    allow_patterns=["*.json", "*.jinja"],
 )
 tokenizer = load_tokenizer(Path(cleanup))
 engine.words |= server.whole_words(tokenizer.get_vocab())  # pyright: ignore[reportCallIssue]
