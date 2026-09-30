@@ -199,10 +199,11 @@ clipboard and shows a brief alert; `direct` inserts only and reports failures;
 dictation stopped: if focus moved while transcribing, that counts as a failure.
 Direct insertion writes through Accessibility and leaves the clipboard
 untouched. Chromium/Electron fields (Slack, VS Code, browsers) report
-Accessibility writes as supported and then ignore them, so for those the text is
-pasted with the app's own ⌘V (whole text at once, not typed) and the previous
-clipboard is restored 0.25 s later; macOS gives no signal for when the app has
-read the clipboard, so that delay is unavoidable. Both writes carry
+Accessibility writes as supported and then ignore them, and terminals (Ghostty)
+and Messages take none, so for those the text is pasted with the app's own ⌘V
+(whole text at once, not typed) and the previous clipboard is restored 0.25 s
+later; macOS gives no signal for when the app has read the clipboard, so that
+delay is unavoidable. Both writes carry
 `org.nspasteboard.TransientType`, so clipboard managers that honor it (Raycast,
 Maccy, Alfred, ...) record neither. `hs.pasteboard` restores only
 the first clipboard item, so several copied files come back as the first one,

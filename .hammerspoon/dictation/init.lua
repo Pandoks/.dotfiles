@@ -87,6 +87,35 @@ local function gatherContext()
   return context
 end
 
+-- The app's own ⌘V; macOS never signals when the clipboard was read, hence the delay.
+---@param text string
+local function paste(text)
+  local previous = hs.pasteboard.readAllData()
+  local items = #hs.pasteboard.allContentTypes()
+  -- Transient (nspasteboard.org): clipboard managers record neither this nor the restore.
+  local transient = "org.nspasteboard.TransientType"
+  if not hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = text, [transient] = "" }) then
+    error("could not write clipboard", 0)
+  end
+  hs.eventtap.keyStroke({ "cmd" }, "v", 0)
+  local count = hs.pasteboard.changeCount()
+  -- Held so GC cannot stop it.
+  dictation.restore = hs.timer.doAfter(0.25, function()
+    dictation.restore = nil
+    -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
+    if previous and hs.pasteboard.changeCount() == count then
+      previous[transient] = ""
+      if not hs.pasteboard.writeAllData(previous) then
+        fail("Dictation: could not restore the clipboard")
+      elseif items > 1 then
+        -- readAllData sees only the first item (e.g. of several copied files).
+        fail(("Dictation: restored only the first of %d clipboard items"):format(items))
+      end
+    end
+  end)
+  return true
+end
+
 -- Insert into the field focused at stop; false when there is none. Raises on failure.
 ---@param text string
 local function insertText(text)
@@ -103,16 +132,18 @@ local function insertText(text)
   if element ~= target then
     error("focus moved while transcribing", 0)
   end
-  -- Only a text field has a string value and a writable selection.
-  local value = element:attributeValue("AXValue")
-  if type(value) ~= "string" then
-    return false
-  end
   local writable, failure = element:isAttributeSettable("AXSelectedText")
   -- Unsupported (e.g. a pop-up button's title value) just means not a text field.
   if failure and failure ~= "Attribute is not supported by target" then
     error(failure, 0)
   elseif not writable then
+    -- Terminals and Messages are text fields with a read-only selection: paste as is.
+    local role = element:attributeValue("AXRole")
+    return (role == "AXTextField" or role == "AXTextArea") and paste(text)
+  end
+  -- Only a text field has a string value.
+  local value = element:attributeValue("AXValue")
+  if type(value) ~= "string" then
     return false
   end
   local range = element:attributeValue("AXSelectedTextRange")
@@ -162,31 +193,7 @@ local function insertText(text)
   if element:attributeValue("AXValue") ~= value or selected == text then
     return true -- changed, or identical text over an identical selection (a no-op either way)
   end
-  -- The app's own ⌘V; macOS never signals when the clipboard was read, hence the delay.
-  local previous = hs.pasteboard.readAllData()
-  local items = #hs.pasteboard.allContentTypes()
-  -- Transient (nspasteboard.org): clipboard managers record neither this nor the restore.
-  local transient = "org.nspasteboard.TransientType"
-  if not hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = text, [transient] = "" }) then
-    error("could not write clipboard", 0)
-  end
-  hs.eventtap.keyStroke({ "cmd" }, "v", 0)
-  local count = hs.pasteboard.changeCount()
-  -- Held so GC cannot stop it.
-  dictation.restore = hs.timer.doAfter(0.25, function()
-    dictation.restore = nil
-    -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
-    if previous and hs.pasteboard.changeCount() == count then
-      previous[transient] = ""
-      if not hs.pasteboard.writeAllData(previous) then
-        fail("Dictation: could not restore the clipboard")
-      elseif items > 1 then
-        -- readAllData sees only the first item (e.g. of several copied files).
-        fail(("Dictation: restored only the first of %d clipboard items"):format(items))
-      end
-    end
-  end)
-  return true
+  return paste(text)
 end
 
 -- Deliver the result and return to idle.
