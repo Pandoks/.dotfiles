@@ -577,8 +577,8 @@ class Engine:
     STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w/@-]|\.\w)"
     # Opening a sentence it goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
     LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…?!]+)?\s*)+)(\w*)")
-    # Elsewhere with its commas: "We need, uh, three things." -> "We need three things."
-    STALL_RE = re.compile(rf",?\s*{STALL},?")
+    # Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
+    STALL_RE = re.compile(rf",?\s*{STALL},?(?:\s+(?=[.!?,;:](?:\s|$)))?")
 
     @classmethod
     def strip_stalls(cls, text):
@@ -588,7 +588,6 @@ class Engine:
             text,
         )
         out = cls.STALL_RE.sub("", out)
-        out = re.sub(r"\s+([.!?,;:])(?=\s|$)", r"\1", out)
         out = re.sub(r"\s{2,}", " ", out).strip()
         return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
@@ -762,9 +761,23 @@ class Engine:
             for i, w in enumerate(raw_words)
         ):
             return True
-        # Fillers and cues may go, plus 2 words or 30%; a paraphrase or summary loses more.
+        edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
+        # Taken back: up to 6 words cut along with a cue after them ("mug, actually, the small one").
+        cues = [k for k, w in enumerate(raw_words) if w in cls.CORRECTIONS]
+        corrected = {
+            k
+            for tag, i1, i2, _, _ in edits
+            if tag != "equal"
+            for k in range(i1, i2)
+            if any(k < c < i2 and c - k <= 6 for c in cues)
+        }
+
+        def uncorrected(i1, i2):
+            return said(" ".join(raw_words[k] for k in range(i1, i2) if k not in corrected))
+
+        # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more.
         kept = out_set | cls.CORRECTIONS
-        lost = [w for w in set(said(raw)) if w not in kept]
+        lost = [w for w in set(uncorrected(0, len(raw_words))) if w not in kept]
         if len(lost) > max(2, 0.3 * len(raw_words)):
             return True
         new = [w for w in out_words if w not in raw_set]
@@ -773,17 +786,16 @@ class Engine:
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
-        # A cut of 4+ said words or a "not" needs a cue in or right after it: a dropped sentence.
-        edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
         for _, i1, i2, j1, j2 in edits:
-            gone = [w for w in said(" ".join(raw_words[i1:i2])) if w not in kept]
-            cut = len(gone) > 3 or (negative(gone) and not negative(out_words[j1:j2]))
-            if cut and not cls.CORRECTIONS & set(raw_words[i1 : i2 + 2]):
+            gone = [w for w in uncorrected(i1, i2) if w not in kept]
+            if len(gone) > 3 or (negative(gone) and not negative(out_words[j1:j2])):
+                return True  # a dropped sentence or "not" the user never took back
+            if negative(out_words[j1:j2]) and not negative(raw_words[i1:i2]):
+                return True  # a "not" the user never said
+        # Words before the first or after the last one said are a reply: "Sure. Thanks."
+        for tag, i1, i2, _, _ in (edits[0], edits[-1]):
+            if tag in ("insert", "replace") and not said(" ".join(raw_words[i1:i2])):
                 return True
-        # Words after the last one said are a reply: "Thanks." -> "Thanks. You're welcome!"
-        tag, i1, i2, _, _ = edits[-1]
-        if tag in ("insert", "replace") and not said(" ".join(raw_words[i1:i2])):
-            return True
 
         # Kept words keep their order; repeats and corrected parts may go.
         rest = iter(raw_words)

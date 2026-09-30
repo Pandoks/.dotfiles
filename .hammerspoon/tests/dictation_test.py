@@ -169,6 +169,8 @@ check(
         ("Email er@acme.com please.", "Email er@acme.com please."),
         ("Um?", ""),
         ("Okay. Um?", "Okay."),
+        ("I think, um .", "I think."),
+        ("git add .", "git add ."),
     ],
     server.Engine.strip_stalls,
 )
@@ -252,6 +254,7 @@ check(
             ("Can you send me the, can you send me the report?", "Can you send me the report?"),
             ("Send it to the team. Scratch that. Send it to John.", "Send it to John."),
             ("I do not know.", "I don't know."),
+            ("Order the large blue ceramic mug, actually, the small one.", "Order the small one."),
         ]
     ],
     lambda pair: dictate(*pair),
@@ -301,8 +304,15 @@ check(
             ("iPhone sales are up.", "The capital of France is Paris."),
             ("Thanks.", "You're welcome!"),
             ("Thanks.", "Thanks. You're welcome!"),
+            ("Thanks.", "Sure. Thanks."),
             ("What is the capital of France?", "What is the capital of France? Paris."),
             ("We should not deploy on Friday.", "We should deploy on Friday."),
+            ("We should deploy on Friday.", "We should not deploy on Friday."),
+            ("The tests pass on my machine, no idea why CI fails.", "No idea why CI fails."),
+            (
+                "Actually the budget review is on Tuesday and the planning meeting is on Thursday.",
+                "The planning meeting is on Thursday.",
+            ),
             ("No, I use Neovim.", "No, I use Vim."),
             (
                 "Tell me a joke.",
