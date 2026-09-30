@@ -61,18 +61,25 @@ local function gatherContext()
     local script = browser == "Safari"
         and [[tell application "Safari" to return URL of current tab of front window]]
       or ([[tell application "%s" to return URL of active tab of front window]]):format(browser)
-    local ok, url = hs.osascript.applescript(script)
-    if ok and type(url) == "string" and #url > 0 then
+    local ok, url, descriptor = hs.osascript.applescript(script)
+    if not ok then
+      local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage
+      print("Dictation: could not read the URL: " .. tostring(message))
+    elseif type(url) == "string" and #url > 0 then
       context.url = url
     end
   end
   -- Only a real selection, capped: the whole field leaks the document and gets echoed back.
   if config.includeSelection then
-    local ok, selection = pcall(function()
-      local element = focused()
-      return element and element:attributeValue("AXSelectedText")
-    end)
-    if ok and type(selection) == "string" and #selection > 0 then
+    -- The field focused at stop, which is also the one the text goes into.
+    local selection, problem = nil, targetError
+    if target then
+      selection, problem = target:attributeValue("AXSelectedText")
+    end
+    -- Unsupported just means the focus is not a text field.
+    if problem and problem ~= "Attribute is not supported by target" then
+      print("Dictation: could not read the selection: " .. problem)
+    elseif type(selection) == "string" and #selection > 0 then
       local cut = utf8.offset(selection, 201) -- byte after the 200th character, or nil if shorter
       context.selected = cut and selection:sub(1, cut - 1) or selection
     end
