@@ -289,9 +289,13 @@ local function toggle()
         finish(nil)
         return
       end
-      if peak < config.minLevel or duration < config.minDuration then
-        local line = "Dictation: discarded (peak %.2f < %.2f or %.2fs < %.2fs)"
-        print(line:format(peak, config.minLevel, duration, config.minDuration))
+      -- A too-short take is an accidental tap; a quiet one is a mic problem worth showing.
+      if duration < config.minDuration then
+        print(("Dictation: discarded (%.2fs < %.2fs)"):format(duration, config.minDuration))
+        finish(nil)
+        return
+      elseif peak < config.minLevel then
+        fail(("Dictation: no speech detected (peak %.2f < %.2f)"):format(peak, config.minLevel))
         finish(nil)
         return
       end
@@ -324,6 +328,9 @@ engine, failure = Engine.new(config, {
     recorder.cleanup(requests[result.id])
     requests[result.id] = nil
     if not stopped and inflight == result.id then
+      if result.text == "" then
+        fail("Dictation: no speech recognized")
+      end
       finish(result.text)
     end
     -- nil means saved (false: nothing to save); prune after delivery since it stats every file.

@@ -16,7 +16,7 @@ stdout (one JSON object per line):
   {"event": "ready"}                          once models are loaded
   {"event": "log", "msg": "..."}              diagnostics
   {"event": "final", "id": 1, "text": "..."}  transcription result
-  {"event": "error", "id": 1, "msg": "..."}   "id" only when a request failed
+  {"event": "error", "id": 1, "msg": "..."}   "id" if one request failed; else fatal
 
 Config is passed as a single JSON string via --config.
 

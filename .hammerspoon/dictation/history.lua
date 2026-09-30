@@ -30,8 +30,13 @@ function history.save(text, settings)
   if not file then
     return "could not write " .. path .. ": " .. tostring(message)
   end
-  file:write(text, "\n")
-  file:close()
+  -- Writes are buffered: a full disk surfaces only at close.
+  local written, problem = file:write(text, "\n")
+  local closed, reason = file:close()
+  if not (written and closed) then
+    os.remove(path)
+    return "could not write " .. path .. ": " .. tostring(problem or reason)
+  end
 end
 
 -- Delete the oldest files past the size cap, never the newest; sizes are blocks, as `du` counts.

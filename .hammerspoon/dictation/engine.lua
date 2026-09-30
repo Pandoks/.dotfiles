@@ -47,6 +47,10 @@ function engine.new(config, handlers)
   end
   local function output(_, stdout, stderr)
     if self.stopped then
+      -- hs.task may deliver the last stderr after the exit callback; keep it in the log.
+      if stderr and stderr ~= "" and handlers.onLog then
+        handlers.onLog(stderr)
+      end
       return true
     end
     self.errors = (self.errors .. (stderr or "")):sub(-4000)
@@ -64,7 +68,8 @@ function engine.new(config, handlers)
           failure("invalid backend response: " .. line)
           return true
         elseif event.event == "ready" then
-          self.ready = true
+          -- Load chatter (HF warnings, progress bars) is no crash reason.
+          self.ready, self.errors = true, ""
           if handlers.onReady then
             handlers.onReady()
           end
@@ -92,7 +97,10 @@ function engine.new(config, handlers)
     function(code, stdout, stderr)
       output(nil, stdout, stderr)
       if not self.stopped then
-        failure("backend exited (code " .. tostring(code) .. ")\n" .. self.errors)
+        -- The last stderr line (exception or abort reason) goes in the popup.
+        local reason = self.errors:match("([^\n]*%S)%s*$")
+        local exit = "backend exited (code " .. tostring(code) .. ")"
+        failure(reason and exit .. ": " .. reason .. "\n" .. self.errors or exit)
       end
     end,
     output,

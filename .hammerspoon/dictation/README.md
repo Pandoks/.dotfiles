@@ -154,8 +154,10 @@ mark, and the end policy, so a new runtime gets the same behavior for free.
 
 ## Capture and insertion
 
-Capture errors stop dictation and show a logged alert. Capture uses the system's
-current default microphone. The audio is only high-passed (90 Hz): denoising
+Capture errors stop dictation and show a logged alert, as does a take quieter
+than `minLevel` or with no recognized words; one shorter than `minDuration` is
+dropped as an accidental tap. Capture uses the system's current default
+microphone. The audio is only high-passed (90 Hz): denoising
 (`afftdn`) and silence trimming were measured to make things worse, because
 their fixed dB thresholds delete a quiet or distant speaker outright (a take
 25 dB below full scale came back empty), while Parakeet itself is flat at
