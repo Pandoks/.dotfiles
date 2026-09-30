@@ -20,7 +20,7 @@
 
 ---@class DictationSttConfig
 ---@field backend DictationBackend Which runtime loads the model. Must match the model; see README.md. Add runtimes by subclassing `Speech` in server.py.
----@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v3". Downloaded on first use.
+---@field model string Hugging Face repo id, e.g. "mlx-community/parakeet-tdt-0.6b-v2". Downloaded on first use.
 
 ---@class DictationCleanupConfig
 ---@field enabled boolean Run the LLM cleanup pass. false = the speech model's text with only `dictionary`/`vocabulary` applied (no stall stripping or punctuation policy).
@@ -84,9 +84,11 @@ local config = {
   -- macOS mic key event. Used only when trigger = "dictationKey" (unreliable).
   dictationKey = { subtype = 7, data1 = 1, swallow = true },
 
+  -- English-only Parakeet: v3 is multilingual with automatic language
+  -- detection and occasionally transcribes English as another language.
   stt = {
     backend = "parakeet-mlx",
-    model = "mlx-community/parakeet-tdt-0.6b-v3",
+    model = "mlx-community/parakeet-tdt-0.6b-v2",
   },
 
   -- 1.5B halves cleanup latency (~0.8s vs ~1.4s) at the same quality as 3B on

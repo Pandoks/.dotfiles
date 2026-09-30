@@ -206,7 +206,7 @@ class Engine:
         if backend not in SPEECH_BACKENDS:
             raise ValueError(f"unknown speech backend: {backend}")
         self.speech = SPEECH_BACKENDS[backend](
-            stt.get("model", "mlx-community/parakeet-tdt-0.6b-v3")
+            stt.get("model", "mlx-community/parakeet-tdt-0.6b-v2")
         )
 
         self.cleaner = None
@@ -620,6 +620,10 @@ class Engine:
         cleanup (guarded) -> dictionary/vocabulary -> stalls -> ? -> end policy.
         With cleanup disabled only the spelling fixes run."""
         heard = self.speech.transcribe(wav, self.glossary(req))
+        # Parakeet occasionally emits runs of <unk> or of one rare symbol ("ΨΨΨ")
+        # on short takes; never insert them.
+        heard = re.sub(r"([^\x00-\x7F])\1{3,}", "", heard.replace("<unk>", ""))
+        heard = re.sub(r"\s{2,}", " ", heard).strip()
         raw = self.apply_vocabulary(self.apply_dictionary(heard), req)
         if not self.cleaner:
             return raw, raw  # cleanup off: the speech model's text, spellings fixed

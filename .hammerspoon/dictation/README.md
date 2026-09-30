@@ -61,7 +61,8 @@ the model. The existing local model reference is listed below.
 
 | Model | Backend | Approx. download | License | Recorded mean WER | Notes |
 |---|---|---|---|---|---|
-| `mlx-community/parakeet-tdt-0.6b-v3` | `parakeet-mlx` | ~1.2 GB | CC-BY-4.0 | 4.86 | Fastest. Best for dictation. 25 EU languages. Native streaming. Default. |
+| `mlx-community/parakeet-tdt-0.6b-v2` | `parakeet-mlx` | ~2.3 GB | CC-BY-4.0 | 4.70 | English only, so it never outputs another language. Fastest. Default. |
+| `mlx-community/parakeet-tdt-0.6b-v3` | `parakeet-mlx` | ~2.3 GB | CC-BY-4.0 | 4.86 | 25 EU languages with automatic detection: short English takes occasionally come out in another language. |
 | `mlx-community/Qwen3-ASR-1.7B-4bit` | `mlx-audio` | ~2 GB | Apache-2.0 | 4.31 | Most accurate open model. 50+ languages. Slower than Parakeet. |
 | `ibm-granite/granite-speech-4.1-2b` | `mlx-audio` | ~4 GB | Apache-2.0 | 4.62 | Strong EN/EU accuracy, keyword biasing. Heavier. |
 | `mlx-community/whisper-large-v3-turbo` | `mlx-whisper` | ~1.6 GB | MIT | 6.36 | 99 languages, most battle-tested. Higher English WER. Verified working. |
