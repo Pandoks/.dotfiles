@@ -202,6 +202,7 @@ check(
         (("Thanks. But", "Thanks."), "Thanks. But"),
         (("Will do", "Will do."), "Will do."),
         (('Did he say "yes"', 'Did he say "yes."'), 'Did he say "yes"?'),
+        (("I want to go to the", "I want to go to the,"), "I want to go to the,"),
     ],
     lambda pair: dictate(*pair),
 )
@@ -224,6 +225,26 @@ check(
             ("Open Slack, no wait, open GitHub.", "Open GitHub."),
             ("I am going to the store.", "I'm going to the store."),
             ("Meet me at three thirty.", "Meet me at 3:30."),
+        ]
+    ],
+    lambda pair: dictate(*pair),
+)
+# Short enough that one unlisted cue or filler exceeds the guard's 2-word slack.
+check(
+    "guard accepts each cue and filler",
+    [
+        ((raw, cleaned), cleaned)
+        for raw, cleaned in [
+            *(
+                (f"Open Slack, {cue} GitHub.", "Open GitHub.")
+                for cue in ["no,", "wait,", "sorry,", "I mean", "scratch that,", "actually"]
+            ),
+            *(
+                (f"So, {filler}, meet Friday, no, Monday.", "Meet Monday.")
+                for filler in ["um", "uh", "erm", "hmm", "like"]
+            ),
+            ("You know, meet Friday, no, Monday.", "Meet Monday."),
+            ("So, meet Friday, I mean Monday.", "Meet Monday."),
         ]
     ],
     lambda pair: dictate(*pair),
@@ -297,7 +318,7 @@ check(
 class Model:
     """Weightless TDT model: `logits[last token][step]` is the joint output."""
 
-    vocabulary = ("▁ok", "i", "ay", "▁g", "it", "hub", "'s", ".", "<unk>")
+    vocabulary = ("▁ok", "i", "ay", "▁g", "it", "hub", "'s", "▁me", "▁M", "e", ".", "<unk>")
     durations = (0, 1, 2)
     max_symbols = 3
     time_ratio = 0.08
@@ -332,15 +353,30 @@ for seed in range(20):
     assert model.decode(unboosted, 40) == upstream, f"seed {seed}: differs from parakeet-mlx"
 print("PASS boosted decoder with no bonus matches parakeet-mlx")
 
-# "▁ok", then "ay" narrowly over "i", then blank; each pick advances one frame.
+# Each frame scores pieces over -20 and each pick advances one frame; a blank frame ends it.
 blank = len(Model.vocabulary)
-rows = mx.full((3, width), -20.0)
-rows = rows.at[0, 0].add(30).at[1, 2].add(21).at[1, 1].add(20).at[2, blank].add(30)
-spoken = Model(mx.broadcast_to(rows.at[:, blank + 2].add(30), (contexts, 3, width)))
-for bonus, text in [(0.0, " okay"), (4.5, " oki")]:
+
+
+def speak(frames, words, bonus):
+    """Boosted decoding of `frames` ({piece: score}) with `words` listed."""
+    rows = mx.full((len(frames) + 1, width), -20.0).at[-1, blank].add(30).at[:, blank + 2].add(30)
+    for step, frame in enumerate(frames):
+        for piece, score in frame.items():
+            rows = rows.at[step, Model.vocabulary.index(piece)].add(score)
     greedy = functools.partial(
-        server.boosted_greedy, prefixes=server.vocabulary_prefixes(["Oki"]), bonus=bonus
+        server.boosted_greedy, prefixes=server.vocabulary_prefixes(words), bonus=bonus
     )
-    heard = "".join(token[3] for token in spoken.decode(greedy, 3)[0])
-    assert heard == text, f"bonus {bonus}: {heard!r}, expected {text!r}"
-print("PASS boost tips an ambiguous word to the vocabulary spelling")
+    tokens = Model(mx.broadcast_to(rows, (contexts, *rows.shape))).decode(greedy, len(frames) + 1)
+    return "".join(token[3] for token in tokens[0])
+
+
+check(
+    "boost tips an ambiguous word to the vocabulary spelling, never on its first letter",
+    [
+        (([{"▁ok": 30}, {"ay": 21, "i": 20}], ["Oki"], 0.0), " okay"),
+        (([{"▁ok": 30}, {"ay": 21, "i": 20}], ["Oki"], 4.5), " oki"),
+        # A first-letter bonus would flip casing and splitting: "▁me" -> "▁M" "e".
+        (([{"▁me": 21, "▁M": 20}], ["mise"], 4.5), " me"),
+    ],
+    lambda case: speak(*case),
+)

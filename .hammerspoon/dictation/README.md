@@ -233,3 +233,12 @@ It pins the text pipeline (vocabulary, stalls, end punctuation, rewrite guard)
 and checks the boosted decoder against parakeet-mlx's own on a weightless model,
 so run it after editing `server.py` or bumping parakeet-mlx. It loads only the
 cleanup model's cached tokenizer and uses no microphone, network, or Hammerspoon.
+
+```sh
+sh ~/.hammerspoon/tests/history_test.sh
+```
+
+It builds a Lua runner against Hammerspoon's LuaSkin and checks, in a temporary
+folder with Hammerspoon's real `hs.fs`, that `history.lua` names takes as
+`prune` expects and deletes only the oldest transcripts past the cap, never the
+newest or any other file. Run it after editing `history.lua`.
