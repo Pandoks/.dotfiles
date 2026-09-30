@@ -384,8 +384,7 @@ class Engine:
         import difflib
         import unicodedata
 
-        # Words joined by spaces, dots, hyphens, or apostrophes, accents folded ("José" keys as
-        # "jose"); "C++" would key as "c".
+        # Words joined by " .'-", accents folded ("José" -> "jose"); "C++" is skipped (keys as "c").
         glossary = {
             re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", w.lower())): w
             for w in self.glossary(request)
@@ -424,8 +423,7 @@ class Engine:
             ratio, word = max(scores, key=lambda score: score[0], default=(0, None))
             return word if ratio >= floor else None
 
-        # Two adjacent words ("hammer spon") merge only if neither matches alone; two real words
-        # only into an exact entry ("no vim" stays).
+        # Pairs ("hammer spon") merge if neither matches alone; real-word pairs need an exact entry.
         while i < len(tokens):
             first, span = plain[i], 1
             word = first and match(first[2], 0.8)

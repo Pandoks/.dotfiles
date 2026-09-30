@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-test_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+test_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 test_build=$(mktemp -d "${TMPDIR:-/var/tmp}/history-tests.XXXXXX")
 trap 'rm -rf "$test_build"' EXIT HUP INT TERM
 

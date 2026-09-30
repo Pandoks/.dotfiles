@@ -87,15 +87,6 @@ local function gatherContext()
   return context
 end
 
----@param active boolean
-local function setEscape(active)
-  if active then
-    dictation.cancelHotkey:enable()
-  else
-    dictation.cancelHotkey:disable()
-  end
-end
-
 -- Insert into the field focused at stop; false when there is none. Raises on failure.
 ---@param text string
 local function insertText(text)
@@ -233,7 +224,7 @@ local function finish(text)
     animation:stop()
     animation = nil
   end
-  setEscape(false)
+  dictation.cancelHotkey:disable()
   if recording then
     recorder.cleanup(recording)
     recording = nil
@@ -263,7 +254,7 @@ local function toggle()
     overlay = pill
     state = "recording"
     pill:show()
-    setEscape(true)
+    dictation.cancelHotkey:enable()
     local capture, message = recorder.start(config.eqBands, function(failure)
       fail("Dictation recorder: " .. failure)
       finish(nil)
@@ -406,6 +397,7 @@ else
     end
     local key = event:getKeyCode()
     local flags = event:getFlags()
+    local now = hs.timer.secondsSinceEpoch() --[[@as number]]
     if key == modifier.keycode then
       if flags[modifier.flag] then
         -- our modifier went down; another modifier already held is not a solo tap
@@ -413,10 +405,9 @@ else
         for flag in pairs(flags) do
           others = others or flag ~= modifier.flag
         end
-        down, downAt, otherUsed = true, hs.timer.secondsSinceEpoch() or 0, others
+        down, downAt, otherUsed = true, now, others
       else
         -- our modifier went up: a clean, quick tap?
-        local now = hs.timer.secondsSinceEpoch() or 0
         down = false
         if not otherUsed and (now - downAt) <= modifier.window then
           if (now - lastTapAt) <= modifier.window then
