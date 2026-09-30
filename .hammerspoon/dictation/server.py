@@ -196,7 +196,10 @@ class ParakeetSpeech(Speech):
                 boosted_greedy, self.model, prefixes=vocabulary_prefixes(hint), bonus=self.boost
             )
         # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
-        return self.model.transcribe(wav, chunk_duration=120).text.strip()
+        text = self.model.transcribe(wav, chunk_duration=120).text
+        # Parakeet sometimes emits <unk> or a rare symbol run ("ΨΨΨ") on short takes.
+        text = re.sub(r"([^\x00-\x7F])\1{2,}", "", text.replace("<unk>", ""))
+        return re.sub(r"\s{2,}", " ", text).strip()
 
 
 class WhisperSpeech(Speech):
@@ -748,11 +751,8 @@ class Engine:
     def process(self, wav, request):
         """One take: speech, spellings, guarded cleanup, stalls, spellings, '?', end policy."""
         heard = self.speech.transcribe(wav, self.glossary(request))
-        # Parakeet sometimes emits <unk> or a rare symbol run ("ΨΨΨ") on short takes.
-        heard = re.sub(r"([^\x00-\x7F])\1{2,}", "", heard.replace("<unk>", ""))
-        heard = re.sub(r"\s{2,}", " ", heard).strip()
-        # No letters or digits: nothing was said, and the cleaner would invent text.
-        if not re.search(r"[A-Za-z0-9]", heard):
+        # No letters or digits in any script: nothing was said, and the cleaner would invent text.
+        if not re.search(r"[^\W_]", heard):
             return ""
         raw = self.apply_vocabulary(self.apply_dictionary(heard), request)
         if not self.cleaner:

@@ -261,6 +261,29 @@ check(
     lambda pair: dictate(*pair),
 )
 check(
+    "any script's letters or digits count as speech",
+    [
+        ("Привет, как дела?", "Привет, как дела?"),
+        ("你好，今天天气很好。", "你好，今天天气很好。"),
+        ("ㅋㅋㅋ 진짜 웃겨", "ㅋㅋㅋ 진짜 웃겨"),
+        ("42", "42"),
+        ("...", ""),
+        ("—–…", ""),
+    ],
+    dictate,
+)
+parakeet = server.ParakeetSpeech("stub", "0" * 40, 0.0)
+parakeet.model = SimpleNamespace(transcribe=lambda wav, chunk_duration: SimpleNamespace(text=wav))
+check(
+    "Parakeet drops <unk> and rare symbol runs",
+    [
+        ("<unk> ΨΨΨ", ""),
+        (" Hello <unk> there ", "Hello there"),
+        ("Привет", "Привет"),
+    ],
+    lambda text: parakeet.transcribe(text, []),
+)
+check(
     "vocabulary prefixes",
     [
         (["Oki"], {"o", "ok", "oki"}),
