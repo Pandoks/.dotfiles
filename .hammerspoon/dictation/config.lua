@@ -29,12 +29,12 @@
 ---@field backend? DictationCleanupBackend Which runtime loads the model. nil = "mlx-lm". Add runtimes by subclassing `Cleaner` in server.py.
 ---@field model string Hugging Face repo of an MLX model (the base when `adapter` is set), e.g. "mlx-community/Qwen3.5-2B-MLX-4bit".
 ---@field revision string Commit SHA of `model`, pinned like `stt.revision`.
----@field adapter? string Hugging Face repo of a LoRA adapter for `model`. A cleanup-trained adapter ships its own prompt (system_v2.txt), which is then used verbatim: `style` and `apps` do not apply, vocabulary is applied deterministically instead. nil = plain instruct model with our prompt.
+---@field adapter? string Hugging Face repo of a LoRA adapter for `model`. A cleanup-trained adapter ships its own prompt (system_v2.txt), which is then used verbatim: `style` and per-app `style` do not apply, vocabulary (per-app too) is applied deterministically instead. nil = plain instruct model with our prompt.
 ---@field adapterRevision? string Commit SHA of `adapter`, pinned like `stt.revision`. Required with `adapter`.
 ---@field max_tokens integer Max tokens the cleanup may generate (cap for long dictations).
 
 ---@class DictationAppConfig
----@field style? string Extra instructions appended to the global `style` when this app is focused.
+---@field style? string Extra instructions appended to the global `style` when this app is focused (plain instruct model only).
 ---@field vocabulary? string[] Extra glossary words merged into the global `vocabulary` for this app.
 
 ---@class DictationHistoryConfig
@@ -63,7 +63,7 @@
 ---@field dictationKey DictationKeyEventConfig Used when trigger = "dictationKey".
 ---@field stt DictationSttConfig Speech-to-text model.
 ---@field cleanup DictationCleanupConfig LLM cleanup pass.
----@field style string Global instructions: the cleanup model's system prompt. This is what you tune.
+---@field style string System prompt of a plain instruct cleanup model (`cleanup.adapter = nil`); a cleanup adapter ignores it.
 ---@field vocabulary string[] Correct spellings of names, tools, jargon. Misheard words close to one of these are rewritten to it, before and after cleanup (a real English word is never fuzzy-matched, but an exact case-insensitive match takes this spelling: "slack" -> "Slack"), and the word is protected from being dropped unless you correct yourself. This is the list to maintain.
 ---@field dictionary table<string, string[]> Correct spelling -> explicit spoken variants, for mishearings `vocabulary` similarity cannot reach. Applied deterministically before and after cleanup.
 ---@field apps table<string, DictationAppConfig> Per-app overrides keyed by bundle id (`osascript -e 'id of app "Slack"'`).
@@ -99,7 +99,7 @@ local config = {
 
   -- simplewords v3: a LoRA trained only to clean dictation (fixes fillers and
   -- self-corrections like "Thursday no Friday", never answers or paraphrases),
-  -- on Qwen3.5-2B. ~0.8s per utterance. Base ~1.3 GB + adapter 67 MB, fetched
+  -- on Qwen3.5-2B. ~0.8s per utterance. Base ~1.7 GB + adapter 67 MB, fetched
   -- on first use. Set adapter = nil to use a generic instruct model with the
   -- `style`/`apps` prompt instead.
   cleanup = {

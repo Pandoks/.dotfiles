@@ -3,4 +3,3 @@ parakeet-mlx==0.5.2  # server.py copies its TDT greedy decoder
 mlx-audio
 mlx-whisper
 mlx-lm
-transformers

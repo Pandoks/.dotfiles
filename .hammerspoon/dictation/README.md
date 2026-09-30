@@ -2,9 +2,9 @@
 
 A free, fully local replacement for macOS F5 dictation, styled after Raycast's
 dictation pill. Press Option+Space to record, press again to stop; a local speech model
-transcribes, a local LLM cleans it up using your style, vocabulary, and the
-active app, and the result is inserted into the focused field (or copied to the
-clipboard, per `insert` in config.lua).
+transcribes, a local LLM cleans it up (fillers, self-corrections), your
+vocabulary fixes names and jargon, and the result is inserted into the focused
+field (or copied to the clipboard, per `insert` in config.lua).
 
 Everything is self-contained in this directory; `~/.hammerspoon/init.lua` loads
 it with `require("dictation")`.
@@ -63,37 +63,37 @@ local model reference is listed below.
 
 | Model | Backend | Approx. download | License | Recorded mean WER | Notes |
 |---|---|---|---|---|---|
-| `mlx-community/parakeet-tdt-0.6b-v2` | `parakeet-mlx` | ~2.3 GB | CC-BY-4.0 | 4.70 | English only, so it never outputs another language. Fastest. Default. |
-| `mlx-community/parakeet-tdt-0.6b-v3` | `parakeet-mlx` | ~2.3 GB | CC-BY-4.0 | 4.86 | 25 EU languages with automatic detection: short English takes occasionally come out in another language. |
-| `mlx-community/Qwen3-ASR-1.7B-4bit` | `mlx-audio` | ~2 GB | Apache-2.0 | 4.31 | Most accurate open model. 50+ languages. Slower than Parakeet. |
-| `ibm-granite/granite-speech-4.1-2b` | `mlx-audio` | ~4 GB | Apache-2.0 | 4.62 | Strong EN/EU accuracy, keyword biasing. Heavier. |
+| `mlx-community/parakeet-tdt-0.6b-v2` | `parakeet-mlx` | ~2.5 GB | CC-BY-4.0 | 4.70 | English only, so it never outputs another language. Fastest. Default. |
+| `mlx-community/parakeet-tdt-0.6b-v3` | `parakeet-mlx` | ~2.5 GB | CC-BY-4.0 | 4.86 | 25 EU languages with automatic detection: short English takes occasionally come out in another language. |
+| `mlx-community/Qwen3-ASR-1.7B-4bit` | `mlx-audio` | ~1.6 GB | Apache-2.0 | 4.31 | Most accurate open model. 50+ languages. Slower than Parakeet. |
+| `ibm-granite/granite-speech-4.1-2b` | `mlx-audio` | ~4.9 GB | Apache-2.0 | 4.62 | Strong EN/EU accuracy. Heavier. Its keyword biasing is not wired up. |
 | `mlx-community/whisper-large-v3-turbo` | `mlx-whisper` | ~1.6 GB | MIT | 6.36 | 99 languages, most battle-tested. Higher English WER. Verified working. |
-| `mistralai/Voxtral-Mini-4B-Realtime-2602` | `mlx-audio` | ~5 GB | Apache-2.0 | 6.46 | Realtime/streaming oriented, multilingual. |
+| `mistralai/Voxtral-Mini-4B-Realtime-2602` | `mlx-audio` | ~18 GB (two weight copies) | Apache-2.0 | 6.46 | Realtime/streaming oriented, multilingual. |
 
 ## Vocabulary and dictionary (names, tools, jargon)
 
 `vocabulary` in `config.lua` is the list to maintain: just the correct
-spellings. Any transcript token close to one of them ("ghosty", "hammer spoon",
-"ray cast") is rewritten to it, before and after cleanup. A real English word
-or its inflection is never fuzzy-matched ("recast" and "missed" stay), but an
-exact case-insensitive match takes your spelling ("slack" → "Slack"). Paths and
+spellings. Any transcript token close to one of them ("yabay", "hammer spoon",
+"ray cast") is rewritten to it, before and after cleanup. A real English word or
+its inflection is never fuzzy-matched ("recast" and "missed" stay), but an exact
+case-insensitive match takes your spelling ("slack" → "Slack"). Paths and
 domains are left alone ("github.com"). A vocabulary word you said is protected
 from being dropped by the cleanup model unless you corrected yourself ("Slack,
-no wait, GitHub"). With the Whisper backend the
-list is also passed to the speech model as a prompt. With Parakeet it biases
-decoding instead (`stt.boost`, default 4.5): once the model has spelled the
-first letter of one of your words, pieces that continue it get a small bonus,
-so a word it hears ambiguously ("oki" vs "okay") comes out as you listed it,
-at no extra latency. Only single-word entries of letters, digits, and
+no wait, GitHub"). With the Whisper backend the list is also passed to the
+speech model as a prompt, and mlx-audio models get only the text fixes. With
+Parakeet it biases decoding instead (`stt.boost`, default 4.5): once the model
+has spelled the first letter of one of your words, pieces that continue it get a
+small bonus, so a word it hears ambiguously ("oki" vs "okay") comes out as you
+listed it, at no extra latency. Only single-word entries of letters, digits, and
 apostrophes are boosted, and only on TDT models; multi-word, hyphenated, or
-dotted entries ("yt-dlp", "Node.js") get just the text fixes above. Measured
-on 80 takes of listed words: 42 → 58 correct, with no listed word inserted into
-60 look-alike sentences ("okay", "ghostly", "a torrent of rain") and ordinary
+dotted entries ("yt-dlp", "Node.js") get just the text fixes above. Measured on
+80 takes of listed words: 42 → 58 correct, with no listed word inserted into 60
+look-alike sentences ("okay", "ghostly", "a torrent of rain") and ordinary
 dictation unchanged (error rate and casing).
 
 `dictionary`, also in `config.lua`, is only for stubborn mishearings the
-similarity match cannot reach, mapping the correct spelling to explicit spoken
-variants:
+similarity match cannot reach, real words included ("ghosty"), mapping the
+correct spelling to explicit spoken variants:
 
 ```lua
 dictionary = { mise = { "meez", "mees" } },
@@ -105,12 +105,13 @@ no code), so lua-language-server gives completion and hover docs on every key.
 End-of-text punctuation is automatic: the cleanup model ends a complete
 sentence with the right mark, and a take that ends on a word no sentence ends
 on ("the", "and", "because") is left open with no trailing punctuation, for you
-to keep typing after. Internal punctuation is normal.
+to keep typing after (enforced after the model, which adds a period anyway).
+Internal punctuation is normal.
 
 ## The cleanup model
 
 Default: simplewords v3, a LoRA adapter trained only to clean dictation, on
-`mlx-community/Qwen3.5-2B-MLX-4bit` (base ~1.3 GB + adapter 67 MB, downloaded
+`mlx-community/Qwen3.5-2B-MLX-4bit` (base ~1.7 GB + adapter 67 MB, downloaded
 on first use into `~/.cache/huggingface`). Greedy decoding. On this Mac it was
 the only candidate that handled self-corrections ("Thursday no Friday" ->
 "Friday"), never answered a dictated question, and ran in ~0.8 s. It ships its

@@ -28,11 +28,11 @@ if [ -z "$uv" ]; then
 fi
 
 echo "Using uv: $uv"
-"$uv" venv -p 3.12 "$venv"
+"$uv" venv --allow-existing -p 3.12 "$venv"
 "$uv" pip install -p "$venv/bin/python" -r "$dir/requirements.txt"
 
 echo
 echo "Done. Verify with:"
-echo "  \"$venv/bin/python\" -c 'import parakeet_mlx, mlx_audio, mlx_lm; print(\"ok\")'"
+echo "  \"$venv/bin/python\" -c 'import parakeet_mlx, mlx_audio, mlx_whisper, mlx_lm; print(\"ok\")'"
 echo
 echo "First dictation downloads the models named in config.lua into ~/.cache/huggingface."
