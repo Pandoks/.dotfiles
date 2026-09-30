@@ -16,8 +16,8 @@ local dictation = {}
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
----@type DictationOverlay?, DictationRecording?, DictationEngine?, hs.timer?, hs.axuielement?
-local overlay, recording, engine, animation, target
+---@type DictationOverlay?, DictationRecording?, DictationEngine?, hs.timer?, hs.axuielement?, string?
+local overlay, recording, engine, animation, target, targetError
 local inflight
 local requests = {}
 
@@ -92,6 +92,9 @@ end
 ---@param text string
 ---@return boolean
 local function insertText(text)
+  if targetError then
+    error("could not read the focused field at stop: " .. targetError, 0)
+  end
   local element, problem = focused()
   if problem then
     error("could not read the focused field: " .. problem, 0)
@@ -174,9 +177,10 @@ local function insertText(text)
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
     if previous and hs.pasteboard.changeCount() == count then
       previous[transient] = ""
-      hs.pasteboard.writeAllData(previous)
-      -- readAllData sees only the first item (e.g. of several copied files).
-      if items > 1 then
+      if not hs.pasteboard.writeAllData(previous) then
+        fail("Dictation: could not restore the clipboard")
+      elseif items > 1 then
+        -- readAllData sees only the first item (e.g. of several copied files).
         fail(("Dictation: restored only the first of %d clipboard items"):format(items))
       end
     end
@@ -211,7 +215,7 @@ local function finish(text)
       end
     end
   end
-  target = nil
+  target, targetError = nil, nil
   if overlay then
     overlay:hide()
   end
@@ -273,7 +277,7 @@ local function toggle()
     end)
   elseif state == "recording" then
     state = "thinking"
-    target = focused() -- the text goes here only if it still has focus on delivery
+    target, targetError = focused() -- the text goes here only if it still has focus on delivery
     local capture = assert(recording)
     local backend, pill = assert(engine), assert(overlay)
     recorder.stop(capture, function(wav, peak, duration)
@@ -357,6 +361,9 @@ end
 
 if config.trigger == "hotkey" then
   dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, toggle)
+  if not dictation.hotkey then
+    fail("Dictation: could not register the hotkey; another app or macOS already uses it")
+  end
 elseif config.trigger == "dictationKey" then
   local key = config.dictationKey
   dictation.keyTap = hs.eventtap.new({ hs.eventtap.event.types.systemDefined }, function(event)
@@ -429,6 +436,9 @@ else
 end
 if dictation.keyTap then
   dictation.keyTap:start()
+  if not dictation.keyTap:isEnabled() then
+    fail("Dictation: allow Accessibility access in System Settings, then reload Hammerspoon")
+  end
 end
 
 -- Bound but disabled; only enabled while dictating so Escape works normally.
