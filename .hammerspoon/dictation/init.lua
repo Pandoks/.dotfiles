@@ -109,7 +109,8 @@ local function insertText(text)
     -- Two characters on each side of the selection (AX ranges count UTF-16 units).
     local prior, before, after, beyond, units = "", "", "", "", 0
     for _, codepoint in utf8.codes(value) do
-      local char = utf8.char(codepoint)
+      -- Browsers store a typed trailing space in a contenteditable as U+00A0.
+      local char = codepoint == 0xA0 and " " or utf8.char(codepoint)
       if units >= range.location + (range.length or 0) then
         if after ~= "" then
           beyond = char
