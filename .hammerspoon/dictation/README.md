@@ -74,22 +74,26 @@ cache with no network, and an upstream change is used only once you change
 
 `vocabulary` in `config.lua` is the list to maintain: just the correct
 spellings. Any transcript token close to one of them ("yabay", "hammer spoon",
-"ray cast") is rewritten to it, before and after cleanup. A real English word or
-its inflection is never fuzzy-matched ("recast" and "missed" stay), but an exact
-case-insensitive match takes your spelling ("slack" → "Slack"). Paths and
-domains are left alone ("github.com"). A vocabulary word you said is protected
-from being dropped by the cleanup model unless you corrected yourself ("Slack,
-no wait, GitHub"). With the Whisper backend the list is also passed to the
-speech model as a prompt, and mlx-audio models get only the text fixes. With
-Parakeet it biases decoding instead (`stt.boost`, default 4.5): once the model
-has spelled the first letter of one of your words, pieces that continue it get a
-small bonus, so a word it hears ambiguously ("oki" vs "okay") comes out as you
-listed it, at no extra latency. Only single-word entries of letters, digits, and
-apostrophes are boosted, and only on TDT models; multi-word, hyphenated, or
-dotted entries ("yt-dlp", "Node.js") get just the text fixes above. Measured on
-80 takes of listed words: 42 → 58 correct, with no listed word inserted into 60
-look-alike sentences ("okay", "ghostly", "a torrent of rain") and ordinary
-dictation unchanged (error rate and casing).
+"ray cast") is rewritten to it, before and after cleanup. A real word or its
+inflection is never fuzzy-matched ("recast", "missed", "tacos", "Emacs" stay):
+real means in macOS's word list or, with cleanup on, a whole word of the cleanup
+model's tokenizer. An unlisted name can still be ("Maisie" → "mise"), so list it
+too. An exact case-insensitive match takes your spelling ("slack" → "Slack").
+Entries with symbols other than inner spaces, dots, hyphens, or apostrophes
+("C++", ".NET", "A/B") are skipped here; give them `dictionary` variants instead
+("c plus plus"). Paths and domains are left alone ("github.com"). A vocabulary
+word you said is protected from being dropped by the cleanup model unless you
+corrected yourself ("Slack, no wait, GitHub"). With the Whisper backend the list
+is also passed to the speech model as a prompt, and mlx-audio models get only
+the text fixes. With Parakeet it biases decoding instead (`stt.boost`, default
+4.5): once the model has spelled the first letter of one of your words, pieces
+that continue it get a small bonus, so a word it hears ambiguously ("oki" vs
+"okay") comes out as you listed it, at no extra latency. Only single-word
+entries of letters, digits, and apostrophes are boosted, and only on TDT models;
+multi-word, hyphenated, or dotted entries ("yt-dlp", "Node.js") get just the
+text fixes above. Measured on 80 takes of listed words: 42 → 58 correct, with no
+listed word inserted into 60 look-alike sentences ("okay", "ghostly", "a torrent
+of rain") and ordinary dictation unchanged (error rate and casing).
 
 `dictionary`, also in `config.lua`, is only for stubborn mishearings the
 similarity match cannot reach, real words included ("ghosty"), mapping the
@@ -224,5 +228,5 @@ with an alert.
 
 It pins the text pipeline (vocabulary, stalls, end punctuation, rewrite guard)
 and checks the boosted decoder against parakeet-mlx's own on a weightless model,
-so run it after editing `server.py` or bumping parakeet-mlx. It loads no model
-and uses no microphone, network, or Hammerspoon.
+so run it after editing `server.py` or bumping parakeet-mlx. It loads only the
+cleanup model's cached tokenizer and uses no microphone, network, or Hammerspoon.

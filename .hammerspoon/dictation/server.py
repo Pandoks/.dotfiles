@@ -65,6 +65,13 @@ def vocabulary_prefixes(words):
     return {w[:i] for w in full for i in range(1, len(w) + 1)}
 
 
+def whole_words(tokens):
+    """Lowercase word-initial letter tokens ("Ġtacos", "▁emacs"): a modern real-word list."""
+    return frozenset(
+        t[1:].lower() for t in tokens if t[:1] in "Ġ▁" and t[1:].isascii() and t[1:].isalpha()
+    )
+
+
 def boosted_greedy(
     model, features, lengths=None, last_token=None, hidden_state=None, *, config, prefixes, bonus
 ):
@@ -240,6 +247,8 @@ class Cleaner:
         self.max_tokens = max_tokens
         # The adapter's system_v2.txt, used verbatim as it was trained; None = plain instruct model.
         self.frozen_prompt = None
+        # Its tokenizer's whole words, kept as real words by the vocabulary pass.
+        self.words = frozenset()
 
     def load(self):
         raise NotImplementedError
@@ -269,6 +278,7 @@ class MlxLmCleaner(Cleaner):
 
         loaded = llm_load(self.model_id, adapter_path=self._fetch_adapter(), revision=self.revision)
         self.llm, self.tokenizer = loaded[0], loaded[1]
+        self.words = whole_words(self.tokenizer.get_vocab())
 
     def complete(self, messages):
         from mlx_lm import generate
@@ -339,6 +349,7 @@ class Engine:
                 + (f" + adapter {cleaner.adapter_id}" if cleaner.adapter_id else "")
             )
             cleaner.load()
+            self.words = self.words | cleaner.words
             log("cleanup LLM ready" + (" (frozen prompt)" if cleaner.frozen_prompt else ""))
 
     def glossary(self, request=None):
@@ -354,14 +365,20 @@ class Engine:
             text = pattern.sub(word, text)
         return text
 
-    # Real words are never fuzzy-matched ("recast" stays); macOS's list lacks most inflections.
-    WORDS = frozenset(Path("/usr/share/dict/words").read_text().lower().splitlines())
+    # Real words are never fuzzy-matched ("recast" stays). macOS's 1934 list lacks most
+    # inflections and modern words ("tacos"); load() adds the cleanup tokenizer's.
+    words = frozenset(Path("/usr/share/dict/words").read_text().lower().splitlines())
 
     def apply_vocabulary(self, text, request=None):
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
         import difflib
 
-        glossary = {re.sub(r"[^a-z0-9]", "", w.lower()): w for w in self.glossary(request)}
+        # Words joined by spaces, dots, hyphens, or apostrophes; "C++" would key as "c".
+        glossary = {
+            re.sub(r"[^a-z0-9]", "", w.lower()): w
+            for w in self.glossary(request)
+            if re.fullmatch(r"\w+(?:[ .'-]\w+)*", w)
+        }
         if not glossary or not text:
             return text
         parts = re.split(r"(\s+)", text)  # tokens at even indexes, separators at odd
@@ -380,7 +397,7 @@ class Engine:
                 return glossary[core]
             suffixes = ("", "s", "es", "d", "ed", "ing")
             stems = (core[: len(core) - len(s)] for s in suffixes if core.endswith(s))
-            if len(core) < 4 or any(stem in self.WORDS for stem in stems):
+            if len(core) < 4 or any(stem in self.words for stem in stems):
                 return None
             scores = [
                 (difflib.SequenceMatcher(None, core, key).ratio(), word)
@@ -449,21 +466,25 @@ class Engine:
         ]
     )
 
+    @classmethod
+    def dangles(cls, words):
+        """Ends on a continuation word; an all-caps one after others is a name ("plan A")."""
+        last = words[-1]
+        return last.lower() in cls.CONTINUATION and not (len(words) > 1 and last.isupper())
+
     def end_policy(self, raw, text):
         """Automatic end-of-text punctuation: leave unfinished dictations open."""
         raw_words = re.sub(r"[.!?,;:]+$", "", raw.strip()).split()
-        if (
-            not raw_words
-            or raw_words[-1].lower() not in self.CONTINUATION
-            or raw.rstrip().endswith("?")
-        ):
-            return text  # "What if?" is complete
-        last = raw_words[-1].lower()
-        text = re.sub(r"[.!?]+$", "", text.rstrip()).rstrip()
-        out_words = text.split()
-        if not out_words or out_words[-1].lower().strip(",;:") != last:
-            text = (text + " " + last).strip()
-        return text
+        if not raw_words or not self.dangles(raw_words) or raw.rstrip().endswith(("?", "!")):
+            return text  # "What if?" and "Oh my!" are complete
+        last, text = raw_words[-1], text.rstrip()
+        open_text = re.sub(r"[.!?]+$", "", text).rstrip()
+        out_words = open_text.split()
+        if out_words and out_words[-1].lower().strip(",;:") == last.lower():
+            return open_text
+        # Opening a new sentence ("Thanks. But"), it leaves the one before finished.
+        opens = len(raw_words) > 1 and raw_words[-2][-1] in ".!?"
+        return f"{text if opens else open_text} {last}".strip()
 
     def build_prompt(self, request):
         config = self.config
@@ -536,21 +557,21 @@ class Engine:
             ]
         out = self.cleaner.complete(messages)
         # Guard: an answer, paraphrase, or rewrite falls back to the raw transcript.
-        if self.looks_rewritten(raw, out, self.glossary(request)):
-            return self.polish_raw(raw)
-        return out
+        return raw if self.looks_rewritten(raw, out, self.glossary(request)) else out
 
     # Stalls removed mechanically (the model is inconsistent); "ER" and "uh-huh" stay.
     STALL = r"(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w-])"
     # Opening a sentence it goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
-    LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…]+)?\s*)+)(\w?)")
+    LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…]+)?\s*)+)(\w*)")
     # Elsewhere with its commas: "We need, uh, three things." -> "We need three things."
     STALL_RE = re.compile(rf",?\s*(?<![\w-]){STALL},?")
 
     @classmethod
     def strip_stalls(cls, text):
+        # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
         out = cls.LEAD_STALL_RE.sub(
-            lambda m: m[1] + (m[3].upper() if m[2][0].isupper() else m[3]), text
+            lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
+            text,
         )
         out = cls.STALL_RE.sub("", out)
         out = re.sub(r"\s+([.!?,;:])(?=\s|$)", r"\1", out)
@@ -609,30 +630,20 @@ class Engine:
             return True
         if raw.endswith((".", "!")):
             return False
-        words = re.findall(r"[a-z']+", re.split(r"[.!?]\s+", raw)[-1].lower())
-        if not words or words[0] not in cls.QUESTION_STARTS or words[-1] in cls.CONTINUATION:
+        cased = re.findall(r"[A-Za-z']+", re.split(r"[.!?]\s+", raw)[-1])
+        words = [w.lower() for w in cased]
+        if not words or words[0] not in cls.QUESTION_STARTS or cls.dangles(cased):
             return False
         negated = words[0].endswith("n't") or words[1:2] == ["not"]
         return not negated or (len(words) > 1 and words[1] in cls.SUBJECTS)
 
     @classmethod
     def ensure_question(cls, raw, text):
-        """Capitalize a question-shaped dictation and end it with '?' in place of '.' or '!'."""
+        """End a question-shaped dictation with '?' in place of '.' or '!'."""
         text = text.strip()
-        if not text or not cls.is_question(raw):
+        if not text or not cls.is_question(raw) or text.endswith("?"):
             return text
-        text = text[0].upper() + text[1:]
-        if not text.endswith("?"):
-            text = re.sub(r"[.!]+$", "", text).rstrip() + "?"
-        return text
-
-    @classmethod
-    def polish_raw(cls, raw):
-        """Capitalize a rejected cleanup's raw transcript and finish a question."""
-        text = raw.strip()
-        if not text:
-            return text
-        return cls.ensure_question(raw, text[0].upper() + text[1:])
+        return re.sub(r"[.!]+$", "", text).rstrip() + "?"
 
     # Self-correction cues the adapter acts on ("no wait", "sorry, I mean", "scratch that").
     CORRECTIONS = frozenset(["no", "wait", "sorry", "mean", "scratch", "actually"])
@@ -641,7 +652,7 @@ class Engine:
 
     @classmethod
     def looks_rewritten(cls, raw, out, allowed=()):
-        """True if `out` is not a light edit of `raw`; `allowed` (glossary) words may be new."""
+        """True if `out` is not a light edit of `raw`; `allowed` words may replace misheard ones."""
 
         def words(text):
             return re.findall(r"[a-z0-9']+", text.lower())
@@ -664,8 +675,10 @@ class Engine:
         lost = [w for w in said if w not in out_set]
         if len(lost) > max(2, 0.3 * len(raw_words)):
             return True
-        new = [w for w in out_words if w not in raw_set and w not in allowed]
-        if len(new) > max(2, 0.25 * len(raw_words)):
+        new = [w for w in out_words if w not in raw_set]
+        # A glossary word may replace a lost (misheard) word; an echoed list replaces none.
+        fixes = min(len(lost), sum(w in allowed for w in new))
+        if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
         # Kept words keep their order; repeats and corrected parts may go.
@@ -673,7 +686,7 @@ class Engine:
         return not all(w in rest for w in out_words if w in raw_set)
 
     def process(self, wav, request):
-        """One take: speech, spellings, guarded cleanup, spellings, stalls, '?', end policy."""
+        """One take: speech, spellings, guarded cleanup, stalls, spellings, '?', end policy."""
         heard = self.speech.transcribe(wav, self.glossary(request))
         # Parakeet sometimes emits <unk> or a rare symbol run ("ΨΨΨ") on short takes.
         heard = re.sub(r"([^\x00-\x7F])\1{2,}", "", heard.replace("<unk>", ""))
@@ -684,8 +697,9 @@ class Engine:
         raw = self.apply_vocabulary(self.apply_dictionary(heard), request)
         if not self.cleaner:
             return raw  # cleanup off: the speech model's text, spellings fixed
-        text = self.apply_vocabulary(self.apply_dictionary(self.cleanup(raw, request)), request)
-        text = self.strip_stalls(text.strip())
+        # Stalls first: the vocabulary restores a spelling their removal capitalized ("yabai").
+        text = self.strip_stalls(self.cleanup(raw, request).strip())
+        text = self.apply_vocabulary(self.apply_dictionary(text), request)
         return self.end_policy(raw, self.ensure_question(raw, text))
 
     def handle(self, request):

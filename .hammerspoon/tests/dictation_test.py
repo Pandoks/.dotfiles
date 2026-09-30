@@ -1,19 +1,24 @@
 """Pin the dictation backend's text pipeline and boosted decoder with stub models.
 
 Run: .hammerspoon/dictation/.venv/bin/python .hammerspoon/tests/dictation_test.py
-No model download, microphone, network, or Hammerspoon.
+No model load, microphone, network, or Hammerspoon; the cleanup tokenizer comes from the cache.
 """
 
 import functools
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "dictation"))
 
 import mlx.core as mx
 import server  # pyright: ignore[reportMissingImports]
+from huggingface_hub import snapshot_download
+from mlx_lm.utils import load_tokenizer
 from parakeet_mlx import ParakeetTDT
 
 # config.lua's default vocabulary and dictionary.
@@ -57,6 +62,11 @@ engine = server.Engine(
         },
     }
 )
+# config.lua's cleanup tokenizer: the real words Engine.load adds.
+cleanup = snapshot_download(
+    "mlx-community/Qwen3.5-2B-MLX-4bit", revision="93760be4f1f69842a46bc13dbdc0f19e291392a3"
+)
+engine.words |= server.whole_words(load_tokenizer(Path(cleanup)).get_vocab())
 
 
 def check(name, cases, function):
@@ -102,6 +112,9 @@ check(
             "A torrent of rain.",
             "Okay, sounds good.",
             "Recast the spell.",
+            "Let's get tacos for lunch.",
+            "I switched from Emacs to Neovim.",
+            "Pipe it through sort and uniq.",
             "Loki and raycasting.",
             "Check GitHub's API docs.",
             "Open github.com please.",
@@ -109,6 +122,12 @@ check(
         ]
     ],
     lambda text: engine.apply_vocabulary(engine.apply_dictionary(text)),
+)
+symbols = server.Engine(dict(engine.config, vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp"]))
+check(
+    "vocabulary skips symbol entries",
+    [("I got a C on the net.", "I got a C on the net."), ("Run ytdlp now.", "Run yt-dlp now.")],
+    symbols.apply_vocabulary,
 )
 check(
     "stalls",
@@ -138,6 +157,13 @@ check(
         ("Let me check and", "Let me check and"),
         ("Do the dishes and", "Do the dishes and"),
         ("Can you send me the", "Can you send me the"),
+        ("Let's go with option A.", "Let's go with option A."),
+        ("Take him to the OR.", "Take him to the OR."),
+        ("Oh my!", "Oh my!"),
+        ("macOS or Linux?", "macOS or Linux?"),
+        ("iPhone or Android?", "iPhone or Android?"),
+        ("Um, yabai crashed again.", "yabai crashed again."),
+        ("Uh, iPhone sales are up.", "iPhone sales are up."),
     ],
     dictate,
 )
@@ -147,6 +173,8 @@ check(
         (("I want to go to the", "I want to go to the."), "I want to go to the"),
         (("I want to go to the", "I want to go to."), "I want to go to the"),
         (("What time is it", "What time is it."), "What time is it?"),
+        (("Should we pick A", "Should we pick A."), "Should we pick A?"),
+        (("Thanks. But", "Thanks."), "Thanks. But"),
     ],
     lambda pair: dictate(*pair),
 )
@@ -173,6 +201,10 @@ check(
     ],
     lambda pair: dictate(*pair),
 )
+standup = (
+    "I think we should move the standup to ten tomorrow because half the team is out and nobody "
+    "has prepared the demo yet."
+)
 check(
     "guard rejects rewrites",
     [
@@ -189,6 +221,8 @@ check(
                 "Can you summarize the meeting notes from yesterday and send them to the team?",
                 "Summarize notes and send to team.",
             ),
+            ("iPhone sales are up.", "The capital of France is Paris."),
+            (standup, f"{standup} Domain vocabulary: {', '.join(engine.glossary())}."),
         ]
     ],
     lambda pair: dictate(*pair),
