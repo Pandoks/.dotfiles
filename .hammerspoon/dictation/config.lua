@@ -12,8 +12,8 @@
 ---| "dictationKey" # the macOS mic key; unreliable, macOS always intercepts it
 
 ---@alias DictationInsertMode
----| "auto"      # insert like "direct"; if there is no focused field or insertion fails, copy the text to the clipboard instead (with a brief alert)
----| "direct"    # insert into the focused field via accessibility, clipboard untouched. Fields that ignore accessibility writes (Electron/Chromium apps) get the app's own Paste instead: text goes on the clipboard, ⌘V, previous clipboard restored 0.25 s later. Failure is reported, nothing is copied.
+---| "auto"      # insert like "direct"; if there is no focused field, focus moved, or insertion fails, copy the text to the clipboard instead (with a brief alert)
+---| "direct"    # insert via accessibility into the field focused when dictation stopped, clipboard untouched. Fields that ignore accessibility writes (Electron/Chromium apps) get the app's own Paste instead: text goes on the clipboard, ⌘V, previous clipboard restored 0.25 s later (its first item only; an alert says when there were more, e.g. several copied files). Failure, including focus having moved, is reported, nothing is copied.
 ---| "clipboard" # only copy the text to the clipboard; nothing is inserted
 
 ---@alias DictationModifierFlag "cmd"|"alt"|"shift"|"ctrl"|"fn"
@@ -66,7 +66,7 @@
 ---@field apps table<string, DictationAppConfig> Per-app overrides keyed by bundle id (`osascript -e 'id of app "Slack"'`).
 ---@field history DictationHistoryConfig Local archive of every transcript, oldest dropped past a size cap.
 ---@field insert DictationInsertMode How the result is delivered: into the focused field, to the clipboard, or field-with-clipboard-fallback.
----@field includeSelection boolean Send the current text selection as context. Off by default (privacy; can cause echoing). Only a real selection, capped, is ever sent.
+---@field includeSelection boolean Send the current text selection as context (plain instruct cleanup model only, like the window title and browser URL). Off by default (privacy; can cause echoing). Only a real selection, capped, is ever sent.
 ---@field minLevel number 0..1 peak loudness required, else the take is treated as silence. Raise to demand a closer, louder voice.
 ---@field minDuration number Minimum recording length in seconds; shorter takes are ignored.
 ---@field overlayHeight number Pill height in points.

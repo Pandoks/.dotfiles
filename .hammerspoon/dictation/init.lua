@@ -21,8 +21,8 @@ local dictation = {}
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
----@type DictationOverlay?, DictationRecording?, DictationEngine?, hs.timer?
-local overlay, recording, engine, animation
+---@type DictationOverlay?, DictationRecording?, DictationEngine?, hs.timer?, hs.axuielement?
+local overlay, recording, engine, animation, target
 local inflight
 local requests = {}
 local stopped = false
@@ -35,35 +35,46 @@ local browsers = {
   ["com.microsoft.edgemac"] = "Microsoft Edge",
 }
 
--- Frontmost app, window title, browser URL, and (opt-in) the text selection.
+-- The focused UI element; nil and an error string when accessibility fails.
+---@return hs.axuielement?, string?
+local function focused()
+  local systemWide = hs.axuielement.systemWideElement() --[[@as hs.axuielement]]
+  return systemWide:attributeValue("AXFocusedUIElement")
+end
+
+-- Frontmost app; window title, browser URL, and (opt-in) selection for our own prompt only.
 ---@return DictationTranscribeRequest context `wav` is filled in by the caller
 local function gatherContext()
   ---@type DictationTranscribeRequest
   local context = { wav = "" }
   local app = hs.application.frontmostApplication()
-  if app then
-    context.app = app:bundleID()
-    local window = app:focusedWindow()
-    if window then
-      context.title = window:title()
-    end
-    -- URL of the front tab when the app is a known browser.
-    local browser = context.app and browsers[context.app]
-    if browser then
-      local script = browser == "Safari"
-          and [[tell application "Safari" to return URL of current tab of front window]]
-        or ([[tell application "%s" to return URL of active tab of front window]]):format(browser)
-      local ok, url = hs.osascript.applescript(script)
-      if ok and type(url) == "string" and #url > 0 then
-        context.url = url
-      end
+  if not app then
+    return context
+  end
+  context.app = app:bundleID()
+  -- The rest only feeds our own prompt; a cleanup adapter ships its own.
+  if not config.cleanup.enabled or config.cleanup.adapter then
+    return context
+  end
+  local window = app:focusedWindow()
+  if window then
+    context.title = window:title()
+  end
+  -- URL of the front tab when the app is a known browser.
+  local browser = context.app and browsers[context.app]
+  if browser then
+    local script = browser == "Safari"
+        and [[tell application "Safari" to return URL of current tab of front window]]
+      or ([[tell application "%s" to return URL of active tab of front window]]):format(browser)
+    local ok, url = hs.osascript.applescript(script)
+    if ok and type(url) == "string" and #url > 0 then
+      context.url = url
     end
   end
   -- Only a real selection, capped: the whole field leaks the document and gets echoed back.
   if config.includeSelection then
     local ok, selection = pcall(function()
-      local systemWide = hs.axuielement.systemWideElement() --[[@as hs.axuielement]]
-      local element = systemWide:attributeValue("AXFocusedUIElement")
+      local element = focused()
       return element and element:attributeValue("AXSelectedText")
     end)
     if ok and type(selection) == "string" and #selection > 0 then
@@ -83,28 +94,36 @@ local function setEscape(active)
   end
 end
 
--- Insert into the focused field; false when there is none. Raises on failure.
+-- Insert into the field focused at stop; false when there is none. Raises on failure.
 ---@param text string
 ---@return boolean
 local function insertText(text)
-  local systemWide = hs.axuielement.systemWideElement() --[[@as hs.axuielement]]
-  local element = systemWide:attributeValue("AXFocusedUIElement")
+  local element, problem = focused()
+  if problem then
+    error("could not read the focused field: " .. problem, 0)
+  end
   if not element then
     return false
+  end
+  if element ~= target then
+    error("focus moved while transcribing", 0)
   end
   local value = element:attributeValue("AXValue")
   local range = element:attributeValue("AXSelectedTextRange")
   local selected = element:attributeValue("AXSelectedText")
   if type(value) == "string" and type(range) == "table" and range.location then
-    -- Characters around the selection (AX ranges count UTF-16 units).
-    local before, after, units = "", "", 0
+    -- Two characters on each side of the selection (AX ranges count UTF-16 units).
+    local prior, before, after, beyond, units = "", "", "", "", 0
     for _, codepoint in utf8.codes(value) do
+      local char = utf8.char(codepoint)
       if units >= range.location + (range.length or 0) then
-        after = utf8.char(codepoint)
-        break
-      end
-      if units < range.location then
-        before = utf8.char(codepoint)
+        if after ~= "" then
+          beyond = char
+          break
+        end
+        after = char
+      elseif units < range.location then
+        prior, before = before, char
       end
       units = units + (codepoint > 0xFFFF and 2 or 1)
     end
@@ -113,17 +132,18 @@ local function insertText(text)
       ["("] = true,
       ["["] = true,
       ["{"] = true,
-      ['"'] = true,
-      ["'"] = true,
       ["“"] = true,
       ["‘"] = true,
       ["<"] = true,
       ["/"] = true,
     }
-    if before ~= "" and not before:match("^%s$") and not openers[before] then
+    -- A straight quote opens after the start, a space, or an opener, and before a word.
+    local quotes = { ['"'] = true, ["'"] = true }
+    local opening = quotes[before] and (prior == "" or prior:match("^%s$") or openers[prior])
+    if before ~= "" and not before:match("^%s$") and not openers[before] and not opening then
       text = " " .. text
     end
-    if after:match("^%w$") or openers[after] then
+    if after:match("^%w$") or openers[after] or (quotes[after] and beyond:match("^%w$")) then
       text = text .. " "
     end
   end
@@ -145,6 +165,7 @@ local function insertText(text)
   end
   -- The app's own ⌘V; macOS never signals when the clipboard was read, hence the delay.
   local previous = hs.pasteboard.readAllData()
+  local items = #hs.pasteboard.allContentTypes()
   if not hs.pasteboard.setContents(text) then
     error("could not write clipboard", 0)
   end
@@ -155,6 +176,10 @@ local function insertText(text)
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
     if previous and hs.pasteboard.changeCount() == count then
       hs.pasteboard.writeAllData(previous)
+      -- readAllData sees only the first item (e.g. of several copied files).
+      if items > 1 then
+        fail(("Dictation: restored only the first of %d clipboard items"):format(items))
+      end
     end
   end)
   return true
@@ -172,6 +197,8 @@ local function finish(text)
       inserted = ok and result
       if mode == "direct" and not inserted then
         fail("Dictation: " .. (ok and "no text field is focused" or tostring(result)))
+      elseif not ok then
+        print("Dictation: " .. tostring(result))
       end
     end
     -- "clipboard" always copies; "auto" copies when nothing could be inserted.
@@ -185,6 +212,7 @@ local function finish(text)
       end
     end
   end
+  target = nil
   if overlay then
     overlay:hide()
   end
@@ -217,6 +245,10 @@ local function toggle()
       fail("Dictation: allow Microphone access in System Settings")
       return
     end
+    if config.insert ~= "clipboard" and not hs.accessibilityState(true) then
+      fail("Dictation: allow Accessibility access in System Settings")
+      return
+    end
     local pill = overlay or Overlay.new(config.overlayHeight, config.eqBands)
     overlay = pill
     state = "recording"
@@ -245,6 +277,7 @@ local function toggle()
     end)
   elseif state == "recording" then
     state = "thinking"
+    target = focused() -- the text goes here only if it still has focus on delivery
     local capture = assert(recording)
     local backend, pill = assert(engine), assert(overlay)
     recorder.stop(capture, function(wav, peak, duration)

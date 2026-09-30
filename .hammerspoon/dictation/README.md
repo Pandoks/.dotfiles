@@ -42,9 +42,12 @@ it with `require("dictation")`.
 
 3. Grant permissions to **Hammerspoon** in **System Settings > Privacy &
    Security**: Microphone (for ffmpeg), Accessibility (for the key event,
-   pasting, and reading context). Slack and other Electron apps only expose their
-   text field after accessibility is granted, and even then selection can be
-   flaky; app name and browser URL are always available.
+   inserting, pasting, and reading context). Slack and other Electron apps only
+   expose their text field after accessibility is granted, and even then
+   selection can be flaky. The window title, browser URL, and (opt-in) selection
+   are read only for a plain instruct cleanup model (`cleanup.adapter = nil`);
+   the default adapter ships its own prompt and never sees them. The URL needs
+   Automation access, which macOS asks for once per browser.
 
 4. Reload Hammerspoon. The backend loads models in the background (~10s the
    first time, plus a one-time model download).
@@ -174,12 +177,16 @@ brighter when louder), a glowing shimmer while transcribing.
 Insertion (`insert` in config.lua): `auto` (default) inserts into the focused
 field and, when there is no field or insertion fails, copies the text to the
 clipboard and shows a brief alert; `direct` inserts only and reports failures;
-`clipboard` only copies. Direct insertion writes through Accessibility and
-leaves the clipboard untouched. Chromium/Electron fields (Slack, VS Code,
-browsers) report Accessibility writes as supported and then ignore them, so for
-those the text is pasted with the app's own ⌘V (whole text at once, not typed)
-and the previous clipboard is restored 0.25 s later; macOS gives no signal for
-when the app has read the clipboard, so that delay is unavoidable.
+`clipboard` only copies. The text goes only to the field that was focused when
+dictation stopped: if focus moved while transcribing, that counts as a failure.
+Direct insertion writes through Accessibility and leaves the clipboard
+untouched. Chromium/Electron fields (Slack, VS Code, browsers) report
+Accessibility writes as supported and then ignore them, so for those the text is
+pasted with the app's own ⌘V (whole text at once, not typed) and the previous
+clipboard is restored 0.25 s later; macOS gives no signal for when the app has
+read the clipboard, so that delay is unavoidable. `hs.pasteboard` restores only
+the first clipboard item, so several copied files come back as the first one,
+with an alert.
 
 ## Files
 
