@@ -131,10 +131,6 @@ function engine:transcribe(request)
   return self.serial
 end
 
-function engine:isReady()
-  return self.ready and not self.stopped
-end
-
 function engine:stop()
   self.stopped, self.ready = true, false
   if self.task and self.task:isRunning() then

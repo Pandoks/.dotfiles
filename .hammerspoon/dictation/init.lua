@@ -13,8 +13,9 @@ end
 
 ---@class DictationModule
 ---@field hotkey? hs.hotkey bound when trigger = "hotkey"
----@field cancelHotkey? hs.hotkey Escape; enabled only while dictating
+---@field cancelHotkey hs.hotkey Escape; enabled only while dictating
 ---@field keyTap? hs.eventtap bound for "modifierTap" / "dictationKey" triggers
+---@field restore? hs.timer pending clipboard restore; held so GC cannot stop it
 ---@field stop fun() tear everything down (called on Hammerspoon shutdown)
 local dictation = {}
 
@@ -73,18 +74,8 @@ local function gatherContext()
   return context
 end
 
-local function stopAnimation()
-  if animation then
-    animation:stop()
-    animation = nil
-  end
-end
-
 ---@param active boolean
 local function setEscape(active)
-  if not dictation.cancelHotkey then
-    return
-  end
   if active then
     dictation.cancelHotkey:enable()
   else
@@ -159,7 +150,8 @@ local function insertText(text)
   end
   hs.eventtap.keyStroke({ "cmd" }, "v", 0)
   local count = hs.pasteboard.changeCount()
-  hs.timer.doAfter(0.25, function()
+  dictation.restore = hs.timer.doAfter(0.25, function()
+    dictation.restore = nil
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
     if previous and hs.pasteboard.changeCount() == count then
       hs.pasteboard.writeAllData(previous)
@@ -196,7 +188,10 @@ local function finish(text)
   if overlay then
     overlay:hide()
   end
-  stopAnimation()
+  if animation then
+    animation:stop()
+    animation = nil
+  end
   setEscape(false)
   if recording then
     recorder.cleanup(recording)
@@ -205,18 +200,16 @@ local function finish(text)
   state = "idle"
 end
 
-local function cancel()
-  inflight = nil
-  finish(nil)
-end
-
 local function toggle()
   if stopped then
     return
   end
   if state == "idle" then
-    if not engine or not engine:isReady() then
-      fail("Dictation: backend is not ready")
+    if not engine or engine.stopped then
+      fail("Dictation: backend stopped (see the console); reload Hammerspoon")
+      return
+    elseif not engine.ready then
+      fail("Dictation: backend is still loading")
       return
     end
     if hs.microphoneState(false) == false then
@@ -231,7 +224,7 @@ local function toggle()
     setEscape(true)
     local capture, message = recorder.start(config.eqBands, function(failure)
       fail("Dictation recorder: " .. failure)
-      cancel()
+      finish(nil)
     end)
     if not capture then
       fail("Dictation: " .. tostring(message))
@@ -239,8 +232,7 @@ local function toggle()
       return
     end
     recording = capture
-    -- One 30 fps tick: the ripple intro until the mic opens, then the equalizer.
-    stopAnimation()
+    -- One 30 fps tick: the ripple intro, the equalizer once the mic opens, then the shimmer.
     animation = hs.timer.doEvery(1 / 30, function()
       if state == "recording" then
         local bands = recorder.poll(capture)
@@ -280,11 +272,6 @@ local function toggle()
       end
       requests[id], inflight, recording = capture, id, nil
       pill:setThinking()
-      if not animation then
-        animation = hs.timer.doEvery(1 / 30, function()
-          pill:tick()
-        end)
-      end
     end)
   end
 end
@@ -324,7 +311,7 @@ engine, failure = Engine.new(config, {
       end
     end
     fail("Dictation backend: " .. message)
-    cancel()
+    finish(nil)
   end,
   onLog = function(message)
     print("Dictation backend: " .. message)
@@ -414,13 +401,13 @@ end
 -- Bound but disabled; only enabled while dictating so Escape works normally.
 dictation.cancelHotkey = hs.hotkey.new({}, "escape", function()
   if state ~= "idle" then
-    cancel()
+    finish(nil)
   end
 end)
 
 function dictation.stop()
   stopped = true
-  cancel()
+  finish(nil)
   if engine then
     engine:stop()
   end
@@ -439,9 +426,7 @@ function dictation.stop()
   if dictation.hotkey then
     dictation.hotkey:delete()
   end
-  if dictation.cancelHotkey then
-    dictation.cancelHotkey:delete()
-  end
+  dictation.cancelHotkey:delete()
 end
 
 -- Chain into Hammerspoon's shutdown so reloads clean up the backend process.

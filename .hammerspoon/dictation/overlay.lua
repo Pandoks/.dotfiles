@@ -164,7 +164,7 @@ function overlay:show()
     })
   end
   self:_layout()
-  canvas:show(0.12)
+  canvas:show()
 end
 
 function overlay:setThinking()
@@ -174,7 +174,7 @@ end
 
 function overlay:hide()
   if self.canvas then
-    self.canvas:hide(0.12)
+    self.canvas:hide()
   end
 end
 

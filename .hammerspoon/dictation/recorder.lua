@@ -176,12 +176,12 @@ function recorder.cleanup(recording)
     return
   end
   recording.discarded, recording.done = true, nil
-  if recording.finished then
-    os.remove(recording.wav)
-    os.remove(recording.pcm)
-  else
+  if not recording.finished then
     recording.task:terminate()
   end
+  -- Remove now; a reload skips the exit callback (unlinking is safe while ffmpeg writes).
+  os.remove(recording.wav)
+  os.remove(recording.pcm)
 end
 
 return recorder
