@@ -8,7 +8,6 @@ local Spectrum = require("dictation.spectrum")
 ---@field spectrum DictationSpectrum
 ---@field peak number highest level (0..1) seen so far
 ---@field task? hs.task nil once ffmpeg exits
----@field finished? boolean
 ---@field stopping? boolean
 ---@field discarded? boolean
 ---@field error? string
@@ -60,7 +59,7 @@ function recorder.start(bands, onError)
   -- sh execs ffmpeg in its place; its child SIGINTs ffmpeg when stdin closes (Hammerspoon exited).
   local watchdog = 'exec 3<&0; (read _ <&3; kill -INT $$) >/dev/null 2>&1 & exec "$0" "$@" 3<&-'
   local task = hs.task.new("/bin/sh", function(code, _, errors)
-    recording.finished, recording.task = true, nil -- frees the task, which holds these callbacks
+    recording.task = nil -- frees the task, which holds these callbacks
     failure(errors or "")
     if not recording.stopping or (code ~= 0 and code ~= 255) then
       failure("capture exited (code " .. tostring(code) .. ")")
@@ -136,9 +135,6 @@ end
 ---@param recording DictationRecording
 ---@return number[]? bands nil until a full window of audio exists
 function recorder.poll(recording)
-  if recording.finished or recording.discarded then
-    return nil
-  end
   local file = io.open(recording.pcm, "rb")
   if not file then
     return nil
@@ -163,14 +159,7 @@ end
 ---@param recording DictationRecording
 ---@param done fun(wav: string?, peak: number, duration: number)
 function recorder.stop(recording, done)
-  if recording.stopping then
-    return
-  end
   recording.stopping, recording.done = true, done
-  if recording.finished then
-    done(nil, recording.peak, recording.offset / (2 * rate))
-    return
-  end
   assert(recording.task):interrupt()
 end
 

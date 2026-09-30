@@ -20,7 +20,6 @@ local state = "idle"
 local overlay, recording, engine, animation, target
 local inflight
 local requests = {}
-local stopped = false
 
 local browsers = {
   ["com.apple.Safari"] = "Safari",
@@ -188,7 +187,7 @@ end
 ---@param text string?
 local function finish(text)
   inflight = nil
-  if text and #text > 0 and not stopped then
+  if text and #text > 0 then
     local mode = config.insert
     local inserted
     if mode ~= "clipboard" then
@@ -228,9 +227,6 @@ local function finish(text)
 end
 
 local function toggle()
-  if stopped then
-    return
-  end
   if state == "idle" then
     if not engine or engine.stopped then
       fail("Dictation: backend stopped (see the console); reload Hammerspoon")
@@ -280,9 +276,6 @@ local function toggle()
     local capture = assert(recording)
     local backend, pill = assert(engine), assert(overlay)
     recorder.stop(capture, function(wav, peak, duration)
-      if recording ~= capture or stopped then
-        return
-      end
       if not wav then
         fail("Dictation: " .. (capture.error or "capture failed"))
         finish(nil)
@@ -326,7 +319,7 @@ engine, failure = Engine.new(config, {
     end
     recorder.cleanup(requests[result.id])
     requests[result.id] = nil
-    if not stopped and inflight == result.id then
+    if inflight == result.id then
       if result.text == "" then
         fail("Dictation: no speech recognized")
       end
@@ -439,13 +432,10 @@ end
 
 -- Bound but disabled; only enabled while dictating so Escape works normally.
 dictation.cancelHotkey = hs.hotkey.new({}, "escape", function()
-  if state ~= "idle" then
-    finish(nil)
-  end
+  finish(nil)
 end)
 
 function dictation.stop()
-  stopped = true
   finish(nil)
   if engine then
     engine:stop()
