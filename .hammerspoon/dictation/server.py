@@ -316,14 +316,14 @@ CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
 class Engine:
     def __init__(self, config):
         self.config = config
-        # (word, pattern of it and its variants): whole words, never in a path, domain, or flag.
+        # (word, pattern of it and variants): whole words, never in a path, domain, flag, or "it's".
         self.dictionary = []
         for word, variants in (config.get("dictionary") or {}).items():
             forms = [word] + list(variants or [])
             alternatives = "|".join(
                 re.escape(form) for form in sorted(set(forms), key=len, reverse=True)
             )
-            pattern = rf"(?<![\w./~-])(?:{alternatives})(?![\w/-]|\.\w)"
+            pattern = rf"(?<![\w./~-])(?<!\w['’])(?:{alternatives})(?![\w/-]|\.\w)"
             self.dictionary.append((word, re.compile(pattern, re.IGNORECASE)))
 
         stt = config["stt"]
@@ -579,7 +579,7 @@ class Engine:
     # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
     STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w/@-]|\.\w)"
     # Opening a sentence it goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
-    LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…]+)?\s*)+)(\w*)")
+    LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…?!]+)?\s*)+)(\w*)")
     # Elsewhere with its commas: "We need, uh, three things." -> "We need three things."
     STALL_RE = re.compile(rf",?\s*{STALL},?")
 
@@ -679,6 +679,30 @@ class Engine:
             "something",
         ]
     )
+    # After a bare wh-word they open a clause, not a question: "When I get home", "What a day".
+    CLAUSES = frozenset(["i", "you", "we", "they", "he", "she", "it", "a", "an"])
+    # Singular subjects "do" never asks with: "Do it now", "Don't anyone move".
+    ORDERS = frozenset(
+        [
+            "it",
+            "this",
+            "that",
+            "he",
+            "she",
+            "a",
+            "an",
+            "every",
+            "anyone",
+            "anybody",
+            "anything",
+            "everyone",
+            "everybody",
+            "everything",
+            "someone",
+            "somebody",
+            "something",
+        ]
+    )
 
     @classmethod
     def is_question(cls, raw):
@@ -692,10 +716,14 @@ class Engine:
         words = [w.lower() for w in cased]
         if not words or cls.dangles(cased):
             return False
+        after = words[1] if len(words) > 1 else ""
         if words[0] in cls.QUESTION_WORDS:
-            return words[1:2] != ["not"]  # "What not to do"
+            # "What not to do"; "What's it" stays a question.
+            return after != "not" and ("'" in words[0] or after not in cls.CLAUSES)
+        if words[0] in ("do", "don't") and after in cls.ORDERS:
+            return False
         # A name counts as a subject: "Did GitHub go down"; "Don't forget" has none.
-        subject = len(words) > 1 and (words[1] in cls.SUBJECTS or cased[1][0].isupper())
+        subject = len(words) > 1 and (after in cls.SUBJECTS or cased[1][0].isupper())
         return words[0] in cls.AUXILIARIES and subject
 
     @classmethod
@@ -714,9 +742,16 @@ class Engine:
     @classmethod
     def looks_rewritten(cls, raw, out, allowed):
         """True if `out` is not a light edit of `raw`; `allowed` words may replace misheard ones."""
+        import difflib
 
         def words(text):
             return re.findall(r"[a-z0-9']+", text.lower())
+
+        def said(text):
+            return words(cls.DROPPED_RE.sub(" ", text.lower()))
+
+        def negative(ws):
+            return any(w in ("not", "never", "cannot") or w.endswith("n't") for w in ws)
 
         raw_words, out_words = words(raw), words(out)
         if not out_words or len(out_words) > 1.6 * len(raw_words) + 3:
@@ -732,8 +767,8 @@ class Engine:
         ):
             return True
         # Fillers and cues may go, plus 2 words or 30%; a paraphrase or summary loses more.
-        said = set(words(cls.DROPPED_RE.sub(" ", raw.lower()))) - cls.CORRECTIONS
-        lost = [w for w in said if w not in out_set]
+        kept = out_set | cls.CORRECTIONS
+        lost = [w for w in set(said(raw)) if w not in kept]
         if len(lost) > max(2, 0.3 * len(raw_words)):
             return True
         new = [w for w in out_words if w not in raw_set]
@@ -741,6 +776,18 @@ class Engine:
         fixes = min(len(lost), sum(w in allowed for w in new))
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
+
+        # A cut of 4+ said words or a "not" needs a cue in or right after it: a dropped sentence.
+        edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
+        for _, i1, i2, j1, j2 in edits:
+            gone = [w for w in said(" ".join(raw_words[i1:i2])) if w not in kept]
+            cut = len(gone) > 3 or (negative(gone) and not negative(out_words[j1:j2]))
+            if cut and not cls.CORRECTIONS & set(raw_words[i1 : i2 + 2]):
+                return True
+        # Words after the last one said are a reply: "Thanks." -> "Thanks. You're welcome!"
+        tag, i1, i2, _, _ = edits[-1]
+        if tag in ("insert", "replace") and not said(" ".join(raw_words[i1:i2])):
+            return True
 
         # Kept words keep their order; repeats and corrected parts may go.
         rest = iter(raw_words)

@@ -124,6 +124,7 @@ check(
             "Edit ~/.hammerspoon/init.lua now.",
             "It has no vim bindings.",
             "I'll hammer soon.",
+            "You're cast as the lead.",
         ]
     ],
     lambda text: engine.apply_vocabulary(engine.apply_dictionary(text)),
@@ -156,6 +157,8 @@ check(
         ("Order it from hm.com today.", "Order it from hm.com today."),
         ("Open ~/um/notes.txt now.", "Open ~/um/notes.txt now."),
         ("Email er@acme.com please.", "Email er@acme.com please."),
+        ("Um?", ""),
+        ("Okay. Um?", "Okay."),
     ],
     server.Engine.strip_stalls,
 )
@@ -191,6 +194,8 @@ check(
         ("Can confirm", "Can confirm"),
         ("Did GitHub go down", "Did GitHub go down?"),
         ("Can you send it,", "Can you send it?"),
+        ("How's it going", "How's it going?"),
+        ("Is it ready", "Is it ready?"),
     ],
     dictate,
 )
@@ -205,6 +210,10 @@ check(
         (("Will do", "Will do."), "Will do."),
         (('Did he say "yes"', 'Did he say "yes."'), 'Did he say "yes"?'),
         (("I want to go to the", "I want to go to the,"), "I want to go to the,"),
+        (("When I get home", "When I get home."), "When I get home."),
+        (("What a great idea", "What a great idea!"), "What a great idea!"),
+        (("Do it now", "Do it now."), "Do it now."),
+        (("Don't anyone move", "Don't anyone move."), "Don't anyone move."),
     ],
     lambda pair: dictate(*pair),
 )
@@ -227,6 +236,9 @@ check(
             ("Open Slack, no wait, open GitHub.", "Open GitHub."),
             ("I am going to the store.", "I'm going to the store."),
             ("Meet me at three thirty.", "Meet me at 3:30."),
+            ("Can you send me the, can you send me the report?", "Can you send me the report?"),
+            ("Send it to the team. Scratch that. Send it to John.", "Send it to John."),
+            ("I do not know.", "I don't know."),
         ]
     ],
     lambda pair: dictate(*pair),
@@ -255,6 +267,8 @@ standup = (
     "I think we should move the standup to ten tomorrow because half the team is out and nobody "
     "has prepared the demo yet."
 )
+pricing = "Marketing wants a short video explaining the pricing changes."
+closed = "Please remind everyone the office is closed Monday."
 check(
     "guard rejects rewrites",
     [
@@ -273,12 +287,16 @@ check(
             ),
             ("iPhone sales are up.", "The capital of France is Paris."),
             ("Thanks.", "You're welcome!"),
+            ("Thanks.", "Thanks. You're welcome!"),
+            ("What is the capital of France?", "What is the capital of France? Paris."),
+            ("We should not deploy on Friday.", "We should deploy on Friday."),
             (
                 "Tell me a joke.",
                 "Tell me a joke. Why did the chicken cross the road? To get to the other side.",
             ),
             ("Send the report to the team.", "Send the report to the entire marketing team today."),
             (standup, f"{standup} Domain vocabulary: {', '.join(engine.glossary())}."),
+            (f"{standup} {pricing} {closed}", f"{standup} {closed}"),
         ]
     ],
     lambda pair: dictate(*pair),
