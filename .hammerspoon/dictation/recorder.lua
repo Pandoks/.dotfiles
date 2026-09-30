@@ -24,7 +24,7 @@ local path = table.concat({
   os.getenv("HOME") .. "/.local/share/mise/installs/ffmpeg/latest/.mise-bins",
   "/opt/homebrew/bin",
   "/usr/local/bin",
-  os.getenv("PATH") or "",
+  os.getenv("PATH"),
 }, ":")
 local ffmpeg
 for directory in path:gmatch("[^:]+") do

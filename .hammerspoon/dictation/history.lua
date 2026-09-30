@@ -2,7 +2,9 @@ local history = {}
 
 ---@param settings DictationHistoryConfig
 local function folder(settings)
-  return (settings.directory:gsub("^~", os.getenv("HOME") or "~"))
+  return (
+    settings.directory:gsub("^~", os.getenv("HOME") --[[@as string]])
+  )
 end
 
 -- Save `text` as <timestamp>.txt.

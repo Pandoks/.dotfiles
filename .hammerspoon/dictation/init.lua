@@ -12,11 +12,6 @@ local function fail(message)
 end
 
 ---@class DictationModule
----@field hotkey? hs.hotkey bound when trigger = "hotkey"
----@field cancelHotkey hs.hotkey Escape; enabled only while dictating
----@field keyTap? hs.eventtap bound for "modifierTap" / "dictationKey" triggers
----@field restore? hs.timer pending clipboard restore; held so GC cannot stop it
----@field stop fun() tear everything down (called on Hammerspoon shutdown)
 local dictation = {}
 
 ---@type "idle"|"recording"|"thinking"
@@ -173,6 +168,7 @@ local function insertText(text)
   end
   hs.eventtap.keyStroke({ "cmd" }, "v", 0)
   local count = hs.pasteboard.changeCount()
+  -- Held so GC cannot stop it.
   dictation.restore = hs.timer.doAfter(0.25, function()
     dictation.restore = nil
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
@@ -384,7 +380,6 @@ else
   local modifier = config.modifierTap
   local types = hs.eventtap.event.types
   local down, downAt, otherUsed = false, 0, false
-  ---@type number, integer
   local lastTapAt, tapCount = 0, 0
   local watched = {
     types.flagsChanged,

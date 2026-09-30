@@ -11,14 +11,9 @@ local recorder = require("dictation.recorder")
 
 ---@class DictationEngine
 ---@field task? hs.task
----@field ready boolean
----@field stopped boolean
----@field serial integer
----@field buffer string
----@field errors string stderr tail for the exit report
 local engine = {}
 engine.__index = engine
-local directory = debug.getinfo(1, "S").source:match("^@(.*/)") or "./"
+local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 
 ---@param config DictationConfig
 ---@param handlers {
@@ -105,7 +100,7 @@ function engine.new(config, handlers)
     end,
     output,
     {
-      "PATH=" .. recorder.ffmpeg:match("^(.*)/") .. ":" .. (os.getenv("PATH") or "/usr/bin:/bin"),
+      "PATH=" .. recorder.ffmpeg:match("^(.*)/") .. ":" .. os.getenv("PATH"),
       "PYTHONUNBUFFERED=1",
       python,
       directory .. "server.py",

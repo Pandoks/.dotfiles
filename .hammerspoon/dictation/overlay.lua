@@ -135,7 +135,7 @@ function overlay:setBars(bands)
   self:_layout()
 end
 
--- Advance the shimmer animation; call at ~30 fps while visible.
+-- Advance the ripple intro or shimmer; call at ~30 fps while visible.
 function overlay:tick()
   self.phase = self.phase + 0.35
   if self.thinking or self.warmth > 0 then
@@ -157,10 +157,10 @@ function overlay:show()
   end
   local screen = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
   if screen then
-    local f = screen:frame()
+    local frame = screen:frame()
     canvas:topLeft({
-      x = f.x + (f.w - self.width) / 2,
-      y = f.y + f.h - self.height - math.floor(f.h * 0.10),
+      x = frame.x + (frame.w - self.width) / 2,
+      y = frame.y + frame.h - self.height - math.floor(frame.h * 0.10),
     })
   end
   self:_layout()

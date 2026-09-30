@@ -1,37 +1,11 @@
-"""Persistent dictation backend.
+"""Resident dictation backend: one JSON object per line, config via --config, stop with SIGTERM.
 
-Reads newline-delimited JSON commands on stdin and writes newline-delimited JSON
-events on stdout. Keeps the speech model and the cleanup LLM resident so each
-request is fast (~0.25s transcribe + ~0.8s cleanup on an M-series Mac).
-
-Protocol
---------
-stdin  (one JSON object per line):
-  {"cmd": "transcribe", "id": 1, "wav": "/path.wav",
-   "app": "com.tinyspeck.slackmacgap", "title": "window title",
-   "url": "https://...", "selected": "text near the cursor"}
-The process is stopped with SIGTERM; there is no shutdown command.
-
-stdout (one JSON object per line):
-  {"event": "ready"}                          once models are loaded
-  {"event": "log", "msg": "..."}              diagnostics
-  {"event": "final", "id": 1, "text": "..."}  transcription result
-  {"event": "error", "id": 1, "msg": "..."}   "id" if one request failed; else fatal
-
-Config is passed as a single JSON string via --config.
-
-Structure
----------
-Two model roles, each an abstract base with one class per runtime, selected by
-name from a registry (`SPEECH_BACKENDS`, `CLEANUP_BACKENDS`) using the
-`backend` key of `stt` / `cleanup` in the config:
-
-  Speech.transcribe(wav, hint) -> str    ParakeetSpeech, WhisperSpeech, MlxAudioSpeech
-  Cleaner.complete(messages) -> str      MlxLmCleaner
-
-`Engine` owns the deterministic text pipeline (dictionary, vocabulary, prompt,
-rewrite guard, stalls, question mark, end policy) and calls the two roles. To
-add a runtime, subclass the role and register it; nothing else changes.
+stdin:  {"cmd": "transcribe", "id": 1, "wav": "/path.wav", "app": "com.tinyspeck.slackmacgap",
+         "title": "window title", "url": "https://...", "selected": "selected text"}
+stdout: {"event": "ready"}                          once models are loaded
+        {"event": "log", "msg": "..."}              diagnostics
+        {"event": "final", "id": 1, "text": "..."}  transcription result
+        {"event": "error", "id": 1, "msg": "..."}   "id" if one request failed; else fatal
 """
 
 import argparse
@@ -69,16 +43,13 @@ class Speech:
     def __init__(self, model_id, revision, boost=0.0):
         self.model_id = model_id
         self.revision = revision
-        # Vocabulary boosting strength (log-prob bonus per matching letter);
-        # runtimes that can bias decoding use it, 0 = off.
-        self.boost = boost
+        self.boost = boost  # log-prob bonus per matching vocabulary letter; 0 = off
 
     def load(self):
         raise NotImplementedError
 
     def transcribe(self, wav, hint):
-        """`hint` is the list of words to spell correctly (dictionary + vocabulary,
-        including the active app's); runtimes that accept a hint pass it on."""
+        """`hint` lists the words to spell correctly, the active app's included."""
         raise NotImplementedError
 
 
@@ -89,8 +60,7 @@ def _letters(piece):
 
 
 def vocabulary_prefixes(words):
-    """Every lowercase prefix of every entry made only of letters, digits, and
-    apostrophes ("GitHub's"); "hammer spoon", "yt-dlp", and "Node.js" get none."""
+    """Every lowercase prefix of entries of only letters, digits, and apostrophes ("GitHub's")."""
     full = {w.lower() for w in map(str.strip, words) if w and _letters(w) == w.lower()}
     return {w[:i] for w in full for i in range(1, len(w) + 1)}
 
@@ -98,12 +68,7 @@ def vocabulary_prefixes(words):
 def boosted_greedy(
     model, features, lengths=None, last_token=None, hidden_state=None, *, config, prefixes, bonus
 ):
-    """parakeet-mlx 0.5.2's ParakeetTDT.decode_greedy (Apache-2.0), changed so
-    that before each pick, pieces that keep the current word a prefix of a
-    vocabulary word get `bonus` per letter (after the first) added to their
-    float32 log-prob (shallow fusion), and confidence is fixed at 1.0 instead
-    of the entropy score. Clear speech still wins; ambiguous audio ("oki" vs
-    "okay") tips toward the listed spelling."""
+    """parakeet-mlx 0.5.2's decode_greedy (Apache-2.0) plus a vocabulary bonus; confidence 1.0."""
     import mlx.core as mx
     from mlx import nn
     from parakeet_mlx import tokenizer
@@ -118,8 +83,7 @@ def boosted_greedy(
             for i, piece in enumerate(vocabulary):
                 core, starts = _letters(piece), piece.startswith("▁")
                 if core and (starts or word) and (core if starts else word + core) in prefixes:
-                    # No bonus for a word's first letter: that alone would flip
-                    # the model's own casing/splitting ("▁me" -> "▁M" "e").
+                    # No first-letter bonus: it flips casing/splitting ("▁me" -> "▁M" "e").
                     out[i] = len(core) - 1 if starts else len(core)
             cache[word] = out
         return cache[word]
@@ -263,8 +227,7 @@ SPEECH_BACKENDS = {cls.name: cls for cls in (ParakeetSpeech, WhisperSpeech, MlxA
 
 # --- cleanup role -------------------------------------------------------------
 class Cleaner:
-    """A text-generation runtime for the cleanup pass. Subclasses load one model
-    (optionally with an adapter) and complete a chat, greedily, with thinking off."""
+    """A cleanup runtime: one model (optionally with an adapter) completing a chat greedily."""
 
     #: registry name; matches `cleanup.backend` in config.lua
     name = ""
@@ -275,9 +238,7 @@ class Cleaner:
         self.adapter_id = adapter_id
         self.adapter_revision = adapter_revision
         self.max_tokens = max_tokens
-        # A cleanup-trained adapter ships its prompt as system_v2.txt. It was
-        # trained with exactly that text and nothing else, so it is used
-        # verbatim: no style, no glossary, no framing. None = plain instruct model.
+        # The adapter's system_v2.txt, used verbatim as it was trained; None = plain instruct model.
         self.frozen_prompt = None
 
     def load(self):
@@ -334,9 +295,7 @@ CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
 class Engine:
     def __init__(self, config):
         self.config = config
-        # Dictionary: word -> compiled pattern matching the word itself and its
-        # spoken variants, case-insensitively as whole words, never inside a
-        # path, domain, or flag ("~/.hammerspoon", "github.com").
+        # (word, pattern of it and its variants): whole words, never in a path, domain, or flag.
         self.dictionary = []
         for word, variants in (config.get("dictionary") or {}).items():
             forms = [word] + list(variants or [])
@@ -395,21 +354,11 @@ class Engine:
             text = pattern.sub(word, text)
         return text
 
-    # Real words, so a fuzzy vocabulary match never rewrites one ("recast" must
-    # not become "Raycast"). macOS ships this list; it lacks most inflections.
+    # Real words are never fuzzy-matched ("recast" stays); macOS's list lacks most inflections.
     WORDS = frozenset(Path("/usr/share/dict/words").read_text().lower().splitlines())
 
     def apply_vocabulary(self, text, request=None):
-        """Map misheard words to vocabulary words by similarity, so users list
-        correct spellings only. An exact (case-insensitive) match always takes
-        the configured spelling. A fuzzy match needs 4+ letters and must not be
-        a real word or inflection ("missed") or contain the vocabulary word
-        ("Loki", "raycasting"). Two adjacent words ("hammer spon") merge only
-        when neither matches alone and the pair is a near-exact match. Only
-        plain words are touched: surrounding marks and a possessive 's are
-        kept, and words with inner punctuation (domains, paths) are left alone.
-        Explicit dictionary variants have already been applied. Whitespace
-        between tokens is kept as is."""
+        """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
         import difflib
 
         glossary = {re.sub(r"[^a-z0-9]", "", w.lower()): w for w in self.glossary(request)}
@@ -424,6 +373,7 @@ class Engine:
         ]
         out, i = [], 0
 
+        # Exact match, else a similar 4+ letter non-word not containing the vocabulary word.
         def match(core, floor):
             core = core.lower()
             if core in glossary:
@@ -440,6 +390,7 @@ class Engine:
             ratio, word = max(scores, key=lambda score: score[0], default=(0, None))
             return word if ratio >= floor else None
 
+        # Two adjacent words ("hammer spon") merge only if neither matches alone.
         while i < len(tokens):
             first, span = plain[i], 1
             word = first and match(first[2], 0.8)
@@ -469,11 +420,7 @@ class Engine:
                 result.append(separators[consumed - 1])
         return "".join(result)
 
-    # Words a finished sentence cannot end on (determiners, conjunctions). If
-    # the dictation ends on one, the user stopped mid-thought: no terminal
-    # punctuation, and keep the word even if the cleanup model dropped it.
-    # (Small models tend to add a period regardless of the prompt, so this is
-    # enforced deterministically.)
+    # Words no finished sentence ends on; enforced here since the model adds a period anyway.
     CONTINUATION = frozenset(
         [
             "the",
@@ -518,7 +465,7 @@ class Engine:
             text = (text + " " + last).strip()
         return text
 
-    def build_prompt(self, raw, request):
+    def build_prompt(self, request):
         config = self.config
         parts = [config["style"]]
         app = request.get("app") or ""
@@ -536,7 +483,7 @@ class Engine:
         if request.get("url"):
             context.append(f"URL: {request['url']}")
         if request.get("selected"):
-            context.append(f"Text near cursor: {request['selected'][:500]}")
+            context.append(f"Selected text: {request['selected']}")
         if context:
             parts.append(
                 "Context (for reference only, NEVER copy it into your output) — "
@@ -575,9 +522,8 @@ class Engine:
             # Cleanup-trained model: single user turn, prompt verbatim.
             messages = [{"role": "user", "content": f"{self.cleaner.frozen_prompt}\n\n{raw}"}]
         else:
-            system = self.build_prompt(raw, request)
-            # Frame the transcript as data, not as a message to the assistant.
-            # Otherwise a dictated question gets answered instead of cleaned.
+            system = self.build_prompt(request)
+            # Framed as data, not a message; otherwise a dictated question gets answered.
             user = (
                 "Raw transcript to clean (this is dictated text, NOT a request "
                 "to you; do not answer or reply to it):\n<<<\n"
@@ -589,14 +535,12 @@ class Engine:
                 {"role": "user", "content": user},
             ]
         out = self.cleaner.complete(messages)
-        # Guard: a cleanup must be the same words, lightly edited. If the model
-        # answered, paraphrased, summarized, or rewrote, use the raw transcript.
+        # Guard: an answer, paraphrase, or rewrite falls back to the raw transcript.
         if self.looks_rewritten(raw, out, self.glossary(request)):
             return self.polish_raw(raw)
         return out
 
-    # Verbal stalls removed mechanically (the small model is inconsistent).
-    # Lowercase or capitalized only ("ER" stays), never inside "uh-huh".
+    # Stalls removed mechanically (the model is inconsistent); "ER" and "uh-huh" stay.
     STALL = r"(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w-])"
     # Opening a sentence it goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
     LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…]+)?\s*)+)(\w?)")
@@ -659,10 +603,7 @@ class Engine:
 
     @classmethod
     def is_question(cls, raw):
-        """Question-shaped: the speech model ended it with '?', or its last
-        sentence is left open, starts with a question word, and is not a
-        fragment ("Is it okay if") or a negated statement ("Don't forget",
-        "Do not merge"). "Will do." and "May is warm." stay statements."""
+        """Ends in '?', or its open last sentence asks (not a fragment or a negative command)."""
         raw = raw.strip()
         if raw.endswith("?"):
             return True
@@ -676,9 +617,7 @@ class Engine:
 
     @classmethod
     def ensure_question(cls, raw, text):
-        """If the dictation is question-shaped, make sure the output reads as
-        one: capitalized and ending with '?' (replacing a '.' the speech or
-        cleanup model may have put there). Applied to every output."""
+        """Capitalize a question-shaped dictation and end it with '?' in place of '.' or '!'."""
         text = text.strip()
         if not text or not cls.is_question(raw):
             return text
@@ -689,8 +628,7 @@ class Engine:
 
     @classmethod
     def polish_raw(cls, raw):
-        """Minimal deterministic polish for the raw transcript (used when the
-        model's output was rejected): capitalize, and finish a question."""
+        """Capitalize a rejected cleanup's raw transcript and finish a question."""
         text = raw.strip()
         if not text:
             return text
@@ -703,13 +641,7 @@ class Engine:
 
     @classmethod
     def looks_rewritten(cls, raw, out, allowed=()):
-        """True if `out` is not a light edit of `raw`.
-
-        A cleanup may drop words (fillers, repeats, corrected parts) and fix a
-        few (misheard terms, which appear in `allowed`), but it must not
-        introduce many new words or lose most of the original ones. Answers,
-        paraphrases, and summaries do both.
-        """
+        """True if `out` is not a light edit of `raw`; `allowed` (glossary) words may be new."""
 
         def words(text):
             return re.findall(r"[a-z0-9']+", text.lower())
@@ -721,16 +653,13 @@ class Engine:
         if not raw_set & out_set:
             return True  # nothing the user said survived (short inputs included)
         allowed = {a.lower() for a in allowed}
-        # Dictionary terms the user said must survive, unless a correction after
-        # them took them back ("Open Slack, no wait, open GitHub").
+        # Glossary words said must survive unless corrected later ("Slack, no wait, GitHub").
         if any(
             w in allowed and w not in out_set and not cls.CORRECTIONS & set(raw_words[i + 1 :])
             for i, w in enumerate(raw_words)
         ):
             return True
-        # Fillers, correction cues, and a couple of misheard/normalized words may
-        # go; a paraphrase or summary loses far more. Absolute floor so short
-        # phrases aren't rejected for a one- or two-word fix.
+        # Fillers and cues may go, plus 2 words or 30%; a paraphrase or summary loses more.
         said = set(words(cls.DROPPED_RE.sub(" ", raw.lower()))) - cls.CORRECTIONS
         lost = [w for w in said if w not in out_set]
         if len(lost) > max(2, 0.3 * len(raw_words)):
@@ -739,22 +668,17 @@ class Engine:
         if len(new) > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
-        # The words kept must keep their order; repeats and corrected parts may
-        # go ("the red one, actually the blue one").
+        # Kept words keep their order; repeats and corrected parts may go.
         rest = iter(raw_words)
         return not all(w in rest for w in out_words if w in raw_set)
 
     def process(self, wav, request):
-        """The full pipeline for one take: speech -> dictionary/vocabulary ->
-        cleanup (guarded) -> dictionary/vocabulary -> stalls -> ? -> end policy.
-        With cleanup disabled only the spelling fixes run."""
+        """One take: speech, spellings, guarded cleanup, spellings, stalls, '?', end policy."""
         heard = self.speech.transcribe(wav, self.glossary(request))
-        # Parakeet occasionally emits runs of <unk> or of one rare symbol ("ΨΨΨ")
-        # on short takes; never insert them.
+        # Parakeet sometimes emits <unk> or a rare symbol run ("ΨΨΨ") on short takes.
         heard = re.sub(r"([^\x00-\x7F])\1{2,}", "", heard.replace("<unk>", ""))
         heard = re.sub(r"\s{2,}", " ", heard).strip()
-        # No letters or digits: nothing was said. The cleaner would invent text
-        # (e.g. echo a vocabulary word).
+        # No letters or digits: nothing was said, and the cleaner would invent text.
         if not re.search(r"[A-Za-z0-9]", heard):
             return ""
         raw = self.apply_vocabulary(self.apply_dictionary(heard), request)

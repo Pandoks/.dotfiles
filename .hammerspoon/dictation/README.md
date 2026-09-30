@@ -59,7 +59,7 @@ Edit `stt` in `config.lua`; the backend must match the model. `revision` pins
 the model's commit (`.venv/bin/hf models info <repo> --expand sha`): the
 backend's first start downloads that commit, later launches load it from the
 cache with no network, and an upstream change is used only once you change
-`revision`. The existing local model reference is listed below.
+`revision`. Models and the backend each needs:
 
 | Model | Backend | Approx. download | License | Recorded mean WER | Notes |
 |---|---|---|---|---|---|

@@ -82,14 +82,11 @@ local config = {
   -- Option+Space: press to start, again to stop. Escape aborts.
   hotkey = { mods = { "alt" }, key = "space" },
 
-  -- Raycast-style tap of a modifier. Used only when trigger = "modifierTap".
   modifierTap = { keycode = 54, flag = "cmd", taps = 2, window = 0.4 },
 
-  -- macOS mic key event. Used only when trigger = "dictationKey" (unreliable).
   dictationKey = { subtype = 7, data1 = 1, swallow = true },
 
-  -- English-only Parakeet: v3 is multilingual with automatic language
-  -- detection and occasionally transcribes English as another language.
+  -- English-only: v3 sometimes transcribes English as another language.
   stt = {
     backend = "parakeet-mlx",
     model = "mlx-community/parakeet-tdt-0.6b-v2",
@@ -97,11 +94,7 @@ local config = {
     boost = 4.5,
   },
 
-  -- simplewords v3: a LoRA trained only to clean dictation (fixes fillers and
-  -- self-corrections like "Thursday no Friday", never answers or paraphrases),
-  -- on Qwen3.5-2B. ~0.8s per utterance. Base ~1.7 GB + adapter 67 MB, fetched
-  -- at the backend's first start. Set adapter = nil to use a generic instruct
-  -- model with the `style`/`apps` prompt instead.
+  -- simplewords v3: a Qwen3.5-2B LoRA trained only to clean dictation ("Thursday no Friday").
   cleanup = {
     enabled = true,
     model = "mlx-community/Qwen3.5-2B-MLX-4bit",
@@ -111,16 +104,11 @@ local config = {
     max_tokens = 400,
   },
 
-  -- Global instructions (the "fine tuning"). Only used with a plain instruct
-  -- cleanup model (cleanup.adapter = nil); a cleanup-trained adapter ships its
-  -- own prompt.
   style = "You clean up dictated speech into text the user meant to type. "
     .. "Fix transcription errors, add sensible punctuation and capitalization, "
     .. "remove filler words (um, uh, like), but keep the user's wording and voice. "
     .. "Do not answer questions or add commentary. Output ONLY the cleaned text.",
 
-  -- Correct spellings of names, tools, jargon. This is the list to maintain:
-  -- misheard tokens close to one of these are rewritten to it.
   vocabulary = {
     "yabai",
     "Raycast",
@@ -136,9 +124,7 @@ local config = {
     "Uniqlo",
   },
 
-  -- Explicit spoken variants for stubborn mishearings the vocabulary match
-  -- cannot reach ("meez" for mise) or that collide with real words ("ghosty").
-  -- Word -> variants, replaced case-insensitively at word boundaries.
+  -- Real-word mishearings ("ghosty") go here: `vocabulary` never fuzzy-matches a real word.
   dictionary = {
     Raycast = { "ray cast", "re cast", "ray cost" },
     yabai = { "yabe", "ya bye", "yah bye", "ya buy" },
@@ -167,9 +153,7 @@ local config = {
     },
   },
 
-  -- Every transcript as a .txt file; 10 MB on disk is ~2,500 takes (each file
-  -- occupies at least one 4 KB block, however short). Caches
-  -- survives reboots (unlike $TMPDIR) and is private to this user.
+  -- 10 MB is ~2,500 takes (a 4 KB block each); Caches survives reboots, unlike $TMPDIR.
   history = { directory = "~/Library/Caches/dictation", maxMegabytes = 10 },
 
   insert = "auto",
