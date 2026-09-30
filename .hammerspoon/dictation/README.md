@@ -20,7 +20,8 @@ it with `require("dictation")`.
 ## Setup
 
 1. Install the backend (syncs `.venv` to the hashed lock `requirements.txt`;
-   needs `uv` and `ffmpeg`, both from the dotfiles' `mise install`):
+   needs Apple Silicon and macOS 14+ for MLX, plus `uv` and `ffmpeg`, both from
+   the dotfiles' `mise install`):
 
    ```sh
    ~/.hammerspoon/dictation/setup.sh
