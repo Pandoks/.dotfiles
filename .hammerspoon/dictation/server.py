@@ -292,14 +292,16 @@ class Engine:
     def __init__(self, config):
         self.config = config
         # Dictionary: word -> compiled pattern matching the word itself and its
-        # spoken variants, case-insensitively at word boundaries.
+        # spoken variants, case-insensitively as whole words, never inside a
+        # path, domain, or flag ("~/.hammerspoon", "github.com").
         self.dictionary = []
         for word, variants in (config.get("dictionary") or {}).items():
             forms = [word] + list(variants or [])
             alternatives = "|".join(
                 re.escape(form) for form in sorted(set(forms), key=len, reverse=True)
             )
-            self.dictionary.append((word, re.compile(rf"\b(?:{alternatives})\b", re.IGNORECASE)))
+            pattern = rf"(?<![\w./~-])(?:{alternatives})(?![\w/-]|\.\w)"
+            self.dictionary.append((word, re.compile(pattern, re.IGNORECASE)))
 
         stt = config["stt"]
         backend = stt["backend"]
@@ -343,51 +345,68 @@ class Engine:
             text = pattern.sub(word, text)
         return text
 
-    # Real words (plurals via a stripped "s"), so a fuzzy vocabulary match never
-    # rewrites one ("recast" must not become "Raycast"). macOS ships this list.
+    # Real words, so a fuzzy vocabulary match never rewrites one ("recast" must
+    # not become "Raycast"). macOS ships this list; it lacks most inflections.
     WORDS = frozenset(Path("/usr/share/dict/words").read_text().lower().splitlines())
 
     def apply_vocabulary(self, text, request=None):
-        """Map misheard tokens to vocabulary words by similarity, so users list
-        correct spellings only. A single token must be close and not a real
-        word; a pair of adjacent tokens ("hammer spoon") must be a near-exact
-        match. An exact (case-insensitive) match always takes the configured
-        spelling. Explicit dictionary variants have already been applied.
-        Whitespace between tokens is kept as is."""
+        """Map misheard words to vocabulary words by similarity, so users list
+        correct spellings only. An exact (case-insensitive) match always takes
+        the configured spelling. A fuzzy match needs 4+ letters and must not be
+        a real word or inflection ("missed") or contain the vocabulary word
+        ("Loki", "raycasting"). Two adjacent words ("hammer spon") merge only
+        when neither matches alone and the pair is a near-exact match. Only
+        plain words are touched: surrounding marks and a possessive 's are
+        kept, and words with inner punctuation (domains, paths) are left alone.
+        Explicit dictionary variants have already been applied. Whitespace
+        between tokens is kept as is."""
         import difflib
 
-        glossary = self.glossary(request)
+        glossary = {re.sub(r"[^a-z0-9]", "", w.lower()): w for w in self.glossary(request)}
         if not glossary or not text:
             return text
         parts = re.split(r"(\s+)", text)  # tokens at even indexes, separators at odd
         tokens = parts[0::2]
+        # Groups: opening marks, core, possessive, closing marks.
+        plain = [
+            re.fullmatch(r"([\"'“‘(\[]*)([A-Za-z0-9]+)(['’]s)?([\"'”’)\].,!?;:…]*)", t)
+            for t in tokens
+        ]
         out, i = [], 0
 
-        def normalize(token):
-            return re.sub(r"[^a-z0-9]", "", token.lower())
+        def match(core, floor):
+            core = core.lower()
+            if core in glossary:
+                return glossary[core]
+            suffixes = ("", "s", "es", "d", "ed", "ing")
+            stems = (core[: len(core) - len(s)] for s in suffixes if core.endswith(s))
+            if len(core) < 4 or any(stem in self.WORDS for stem in stems):
+                return None
+            scores = [
+                (difflib.SequenceMatcher(None, core, key).ratio(), word)
+                for key, word in glossary.items()
+                if key not in core
+            ]
+            ratio, word = max(scores, key=lambda score: score[0], default=(0, None))
+            return word if ratio >= floor else None
 
         while i < len(tokens):
-            best = None
-            for span, floor in ((1, 0.8), (2, 0.9)):
-                if i + span > len(tokens):
-                    continue
-                candidate = "".join(normalize(t) for t in tokens[i : i + span])
-                if len(candidate) < 4:
-                    continue
-                real = span == 1 and (
-                    candidate in self.WORDS or candidate.rstrip("s") in self.WORDS
-                )
-                for word in glossary:
-                    ratio = difflib.SequenceMatcher(None, candidate, word.lower()).ratio()
-                    close = ratio == 1.0 or (ratio >= floor and not real)
-                    if close and (not best or ratio > best[0]):
-                        best = (ratio, word, span)
-            if best:
-                first, last = tokens[i], tokens[i + best[2] - 1]
-                lead = re.match(r"^[^\w]*", first).group(0)
-                trail = re.search(r"[^\w]*$", last).group(0)
-                out.append((lead + best[1] + trail, best[2]))
-                i += best[2]
+            first, span = plain[i], 1
+            word = first and match(first[2], 0.8)
+            second = plain[i + 1] if i + 1 < len(plain) else None
+            if (
+                not word
+                and first
+                and second
+                and not (first[3] or first[4] or second[1])
+                and min(len(first[2]), len(second[2])) >= 2
+                and not match(second[2], 0.8)
+            ):
+                word, span = match(first[2] + second[2], 0.9), 2
+            if word:
+                last = plain[i + span - 1]
+                out.append((first[1] + word + (last[3] or "") + last[4], span))
+                i += span
             else:
                 out.append((tokens[i], 1))
                 i += 1
@@ -400,63 +419,13 @@ class Engine:
                 result.append(separators[consumed - 1])
         return "".join(result)
 
-    # Words a finished sentence essentially never ends on. If the dictation ends
-    # on one, the user stopped mid-thought: no terminal punctuation, and keep
-    # the word even if the cleanup model dropped it. (Small models tend to add a
-    # period regardless of the prompt, so this is enforced deterministically.)
+    # Words a finished sentence cannot end on (determiners, conjunctions). If
+    # the dictation ends on one, the user stopped mid-thought: no terminal
+    # punctuation, and keep the word even if the cleanup model dropped it.
+    # (Small models tend to add a period regardless of the prompt, so this is
+    # enforced deterministically.)
     CONTINUATION = frozenset(
         [
-            "and",
-            "but",
-            "or",
-            "nor",
-            "so",
-            "yet",
-            "because",
-            "since",
-            "although",
-            "though",
-            "while",
-            "if",
-            "unless",
-            "until",
-            "when",
-            "whenever",
-            "where",
-            "whereas",
-            "whether",
-            "that",
-            "which",
-            "who",
-            "whom",
-            "whose",
-            "to",
-            "of",
-            "for",
-            "with",
-            "in",
-            "on",
-            "at",
-            "by",
-            "from",
-            "into",
-            "onto",
-            "about",
-            "over",
-            "under",
-            "between",
-            "through",
-            "during",
-            "before",
-            "after",
-            "than",
-            "as",
-            "like",
-            "via",
-            "per",
-            "versus",
-            "plus",
-            "minus",
             "the",
             "a",
             "an",
@@ -464,32 +433,34 @@ class Engine:
             "your",
             "our",
             "their",
-            "his",
-            "her",
             "its",
-            "some",
-            "any",
-            "each",
             "every",
-            "will",
-            "would",
-            "can",
-            "could",
-            "should",
-            "may",
-            "might",
-            "must",
-            "shall",
-            "then",
-            "also",
+            "and",
+            "but",
+            "or",
+            "nor",
+            "because",
+            "although",
+            "whereas",
+            "whether",
+            "unless",
+            "if",
+            "than",
+            "via",
+            "versus",
+            "per",
         ]
     )
 
     def end_policy(self, raw, text):
         """Automatic end-of-text punctuation: leave unfinished dictations open."""
         raw_words = re.sub(r"[.!?,;:]+$", "", raw.strip()).split()
-        if not raw_words or raw_words[-1].lower() not in self.CONTINUATION or self.is_question(raw):
-            return text  # "What is this for?" ends on a preposition and is complete
+        if (
+            not raw_words
+            or raw_words[-1].lower() not in self.CONTINUATION
+            or raw.rstrip().endswith("?")
+        ):
+            return text  # "What if?" is complete
         last = raw_words[-1].lower()
         text = re.sub(r"[.!?]+$", "", text.rstrip()).rstrip()
         out_words = text.split()
@@ -548,10 +519,6 @@ class Engine:
         return "\n".join(p for p in parts if p)
 
     def cleanup(self, raw, request):
-        # Never let the LLM invent text from nothing: on empty / trivial input it
-        # would otherwise echo a vocabulary word (e.g. ".tcc"). Return empty.
-        if not raw or not raw.strip():
-            return ""
         if not self.cleaner:
             return raw
         if self.cleaner.frozen_prompt:
@@ -579,18 +546,22 @@ class Engine:
         return out
 
     # Verbal stalls removed mechanically (the small model is inconsistent).
-    # Not matched inside hyphenated forms like "uh-huh".
-    STALL_RE = re.compile(r"(?<![\w-])(?:um+|uh+|erm?|hm)(?![\w-])[,]?\s*", re.IGNORECASE)
+    # Lowercase or capitalized only ("ER" stays), never inside "uh-huh".
+    STALL = r"(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w-])"
+    # Opening a sentence it goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
+    LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…]+)?\s*)+)(\w?)")
+    # Elsewhere with its commas: "We need, uh, three things." -> "We need three things."
+    STALL_RE = re.compile(rf",?\s*(?<![\w-]){STALL},?")
 
     @classmethod
     def strip_stalls(cls, text):
-        out = cls.STALL_RE.sub("", text)
-        out = re.sub(r"\s+([.!?,;:])", r"\1", out)
+        out = cls.LEAD_STALL_RE.sub(
+            lambda m: m[1] + (m[3].upper() if m[2][0].isupper() else m[3]), text
+        )
+        out = cls.STALL_RE.sub("", out)
+        out = re.sub(r"\s+([.!?,;:])(?=\s|$)", r"\1", out)
         out = re.sub(r"\s{2,}", " ", out).strip()
-        out = re.sub(r"^[,;:]\s*", "", out)
-        if out and text and text[0].isupper() and out[0].islower():
-            out = out[0].upper() + out[1:]
-        return out
+        return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
     QUESTION_STARTS = frozenset(
         [
@@ -633,18 +604,25 @@ class Engine:
         ]
     )
 
+    # Subjects that make a negated opener a question ("Don't you think").
+    SUBJECTS = frozenset(["i", "you", "we", "they", "he", "she", "it", "this", "that", "there"])
+
     @classmethod
     def is_question(cls, raw):
-        """Question-shaped: the speech model ended it with '?', or it opens with
-        a question word and the speech model did not close it as a statement
-        ("Will do." and "May is warm." stay statements)."""
+        """Question-shaped: the speech model ended it with '?', or its last
+        sentence is left open, starts with a question word, and is not a
+        fragment ("Is it okay if") or a negated statement ("Don't forget",
+        "Do not merge"). "Will do." and "May is warm." stay statements."""
         raw = raw.strip()
         if raw.endswith("?"):
             return True
         if raw.endswith((".", "!")):
             return False
-        first = re.findall(r"[a-z']+", raw.lower())
-        return bool(first) and first[0] in cls.QUESTION_STARTS
+        words = re.findall(r"[a-z']+", re.split(r"[.!?]\s+", raw)[-1].lower())
+        if not words or words[0] not in cls.QUESTION_STARTS or words[-1] in cls.CONTINUATION:
+            return False
+        negated = words[0].endswith("n't") or words[1:2] == ["not"]
+        return not negated or (len(words) > 1 and words[1] in cls.SUBJECTS)
 
     @classmethod
     def ensure_question(cls, raw, text):
@@ -668,46 +646,50 @@ class Engine:
             return text
         return cls.ensure_question(raw, text[0].upper() + text[1:])
 
-    @staticmethod
-    def looks_rewritten(raw, out, allowed=()):
+    # Self-correction cues the adapter acts on ("no wait", "I mean", "scratch that").
+    CORRECTIONS = frozenset(["no", "wait", "mean", "scratch", "actually"])
+
+    @classmethod
+    def looks_rewritten(cls, raw, out, allowed=()):
         """True if `out` is not a light edit of `raw`.
 
-        A cleanup may drop words (fillers) and fix a few (misheard terms, which
-        appear in `allowed`), but it must not introduce many new words or lose
-        most of the original ones. Answers, paraphrases, and summaries do both.
+        A cleanup may drop words (fillers, repeats, corrected parts) and fix a
+        few (misheard terms, which appear in `allowed`), but it must not
+        introduce many new words or lose most of the original ones. Answers,
+        paraphrases, and summaries do both.
         """
 
         def words(text):
             return re.findall(r"[a-z0-9']+", text.lower())
 
         raw_words, out_words = words(raw), words(out)
-        if not raw_words:
-            return False
         if not out_words or len(out_words) > 1.6 * len(raw_words) + 3:
             return True  # far longer than what was said: an answer/explanation
         raw_set, out_set = set(raw_words), set(out_words)
         if not raw_set & out_set:
             return True  # nothing the user said survived (short inputs included)
         allowed = {a.lower() for a in allowed}
-        # Dictionary terms the user said must survive; dropping one is a rewrite.
-        if any(w in allowed and w not in out_set for w in raw_set):
+        # Dictionary terms the user said must survive, unless a correction after
+        # them took them back ("Open Slack, no wait, open GitHub").
+        if any(
+            w in allowed and w not in out_set and not cls.CORRECTIONS & set(raw_words[i + 1 :])
+            for i, w in enumerate(raw_words)
+        ):
             return True
-        # Fillers and a couple of misheard/normalized words may go; a paraphrase
-        # or summary loses far more. Absolute floor so short phrases aren't
-        # rejected for a one- or two-word fix.
-        lost = [w for w in raw_set if w not in out_set]
+        # Fillers, correction cues, and a couple of misheard/normalized words may
+        # go; a paraphrase or summary loses far more. Absolute floor so short
+        # phrases aren't rejected for a one- or two-word fix.
+        lost = [w for w in raw_set - cls.CORRECTIONS if w not in out_set]
         if len(lost) > max(2, 0.3 * len(raw_words)):
             return True
         new = [w for w in out_words if w not in raw_set and w not in allowed]
         if len(new) > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
-        # The words kept must keep their order (repeats collapsed: "I I think").
-        def kept(sequence, other):
-            shared = [w for w in sequence if w in other]
-            return [w for i, w in enumerate(shared) if i == 0 or w != shared[i - 1]]
-
-        return kept(raw_words, out_set) != kept(out_words, raw_set)
+        # The words kept must keep their order; repeats and corrected parts may
+        # go ("the red one, actually the blue one").
+        rest = iter(raw_words)
+        return not all(w in rest for w in out_words if w in raw_set)
 
     def process(self, wav, request):
         """The full pipeline for one take: speech -> dictionary/vocabulary ->
@@ -716,8 +698,12 @@ class Engine:
         heard = self.speech.transcribe(wav, self.glossary(request))
         # Parakeet occasionally emits runs of <unk> or of one rare symbol ("ΨΨΨ")
         # on short takes; never insert them.
-        heard = re.sub(r"([^\x00-\x7F])\1{3,}", "", heard.replace("<unk>", ""))
+        heard = re.sub(r"([^\x00-\x7F])\1{2,}", "", heard.replace("<unk>", ""))
         heard = re.sub(r"\s{2,}", " ", heard).strip()
+        # No letters or digits: nothing was said. The cleaner would invent text
+        # (e.g. echo a vocabulary word).
+        if not re.search(r"[A-Za-z0-9]", heard):
+            return ""
         raw = self.apply_vocabulary(self.apply_dictionary(heard), request)
         if not self.cleaner:
             return raw  # cleanup off: the speech model's text, spellings fixed

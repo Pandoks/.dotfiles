@@ -67,9 +67,12 @@ the model. The existing local model reference is listed below.
 
 `vocabulary` in `config.lua` is the list to maintain: just the correct
 spellings. Any transcript token close to one of them ("ghosty", "hammer spoon",
-"ray cast") is rewritten to it, before and after cleanup. Real English words are
-never rewritten ("recast" stays "recast"), and a vocabulary word you said is
-protected from being dropped by the cleanup model. With the Whisper backend the
+"ray cast") is rewritten to it, before and after cleanup. A real English word
+or its inflection is never fuzzy-matched ("recast" and "missed" stay), but an
+exact case-insensitive match takes your spelling ("slack" → "Slack"). Paths and
+domains are left alone ("github.com"). A vocabulary word you said is protected
+from being dropped by the cleanup model unless you corrected yourself ("Slack,
+no wait, GitHub"). With the Whisper backend the
 list is also passed to the speech model as a prompt. With Parakeet it biases
 decoding instead (`stt.boost`, default 4.5): once the model has spelled the
 first letter of one of your words, pieces that continue it get a small bonus,
@@ -90,8 +93,9 @@ dictionary = { mise = { "meez", "mees" } },
 no code), so lua-language-server gives completion and hover docs on every key.
 
 End-of-text punctuation is automatic: the cleanup model ends a complete
-sentence with the right mark and leaves a mid-sentence fragment (one you will
-keep typing after) with no trailing punctuation. Internal punctuation is normal.
+sentence with the right mark, and a take that ends on a word no sentence ends
+on ("the", "and", "because") is left open with no trailing punctuation, for you
+to keep typing after. Internal punctuation is normal.
 
 ## The cleanup model
 
