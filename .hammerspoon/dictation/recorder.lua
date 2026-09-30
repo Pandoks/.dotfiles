@@ -11,7 +11,7 @@ local Spectrum = require("dictation.spectrum")
 ---@field stopping? boolean
 ---@field discarded? boolean
 ---@field error? string
----@field done? fun(wav: string?, peak: number, duration: number)
+---@field done? fun(wav: string, peak: number, duration: number)
 
 local recorder = {}
 
@@ -50,7 +50,7 @@ function recorder.start(bands, onError)
     if message == "" or recording.error or recording.discarded then
       return
     end
-    recording.error = message
+    recording.error, recording.done = message, nil
     onError(message)
   end
   -- sh execs ffmpeg in its place; its child SIGINTs ffmpeg when stdin closes (Hammerspoon exited).
@@ -66,11 +66,7 @@ function recorder.start(bands, onError)
       os.remove(wav)
     end
     if recording.done then
-      recording.done(
-        not recording.error and not recording.discarded and wav or nil,
-        recording.peak,
-        recording.offset / (2 * rate)
-      )
+      recording.done(wav, recording.peak, recording.offset / (2 * rate))
     end
   end, function(_, _, errors)
     failure(errors or "") -- a streaming task keeps stdin open
@@ -152,9 +148,9 @@ function recorder.poll(recording)
   return bands
 end
 
--- SIGINT lets ffmpeg finalize the wav; `done` gets it (nil on failure) and the seconds polled.
+-- SIGINT lets ffmpeg finalize the wav; `done` gets it and the seconds polled (failures: onError).
 ---@param recording DictationRecording
----@param done fun(wav: string?, peak: number, duration: number)
+---@param done fun(wav: string, peak: number, duration: number)
 function recorder.stop(recording, done)
   recording.stopping, recording.done = true, done
   assert(recording.task):interrupt()

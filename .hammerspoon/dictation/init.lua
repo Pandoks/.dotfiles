@@ -277,15 +277,9 @@ local function toggle()
     end)
   elseif state == "recording" then
     state = "thinking"
-    target, targetError = focused() -- the text goes here only if it still has focus on delivery
     local capture = assert(recording)
     local backend, pill = assert(engine), assert(overlay)
     recorder.stop(capture, function(wav, peak, duration)
-      if not wav then
-        fail("Dictation: " .. (capture.error or "capture failed"))
-        finish(nil)
-        return
-      end
       -- A too-short take is an accidental tap; a quiet one is a mic problem worth showing.
       if duration < config.minDuration then
         print(("Dictation: discarded (%.2fs < %.2fs)"):format(duration, config.minDuration))
@@ -307,6 +301,8 @@ local function toggle()
       requests[id], inflight, recording = capture, id, nil
       pill:setThinking()
     end)
+    -- After SIGINT so a slow app cannot extend the take; the text goes here only if it keeps focus.
+    target, targetError = focused()
   end
 end
 
@@ -446,7 +442,9 @@ dictation.cancelHotkey = hs.hotkey.new({}, "escape", function()
   finish(nil)
 end)
 
-function dictation.stop()
+-- Chain into Hammerspoon's shutdown so reloads clean up the backend process.
+local previousShutdown = hs.shutdownCallback
+hs.shutdownCallback = function()
   finish(nil)
   if engine then
     engine:stop()
@@ -467,12 +465,6 @@ function dictation.stop()
     dictation.hotkey:delete()
   end
   dictation.cancelHotkey:delete()
-end
-
--- Chain into Hammerspoon's shutdown so reloads clean up the backend process.
-local previousShutdown = hs.shutdownCallback
-hs.shutdownCallback = function()
-  dictation.stop()
   if previousShutdown then
     previousShutdown()
   end
