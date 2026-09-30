@@ -379,10 +379,12 @@ class Engine:
     def apply_vocabulary(self, text, request=None):
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
         import difflib
+        import unicodedata
 
-        # Words joined by spaces, dots, hyphens, or apostrophes; "C++" would key as "c".
+        # Words joined by spaces, dots, hyphens, or apostrophes, accents folded ("José" keys as
+        # "jose"); "C++" would key as "c".
         glossary = {
-            re.sub(r"[^a-z0-9]", "", w.lower()): w
+            re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", w.lower())): w
             for w in self.glossary(request)
             if re.fullmatch(r"\w+(?:[ .'-]\w+)*", w)
         }
@@ -397,14 +399,19 @@ class Engine:
         ]
         out, i = [], 0
 
+        # A word or its inflection ("missed", "tacos").
+        def real(core):
+            core = core.lower()
+            suffixes = ("", "s", "es", "d", "ed", "ing")
+            stems = (core[: len(core) - len(s)] for s in suffixes if core.endswith(s))
+            return any(stem in self.words for stem in stems)
+
         # Exact match, else a similar 4+ letter non-word not containing the vocabulary word.
         def match(core, floor):
             core = core.lower()
             if core in glossary:
                 return glossary[core]
-            suffixes = ("", "s", "es", "d", "ed", "ing")
-            stems = (core[: len(core) - len(s)] for s in suffixes if core.endswith(s))
-            if len(core) < 4 or any(stem in self.words for stem in stems):
+            if len(core) < 4 or real(core):
                 return None
             scores = [
                 (difflib.SequenceMatcher(None, core, key).ratio(), word)
@@ -414,7 +421,8 @@ class Engine:
             ratio, word = max(scores, key=lambda score: score[0], default=(0, None))
             return word if ratio >= floor else None
 
-        # Two adjacent words ("hammer spon") merge only if neither matches alone.
+        # Two adjacent words ("hammer spon") merge only if neither matches alone; two real words
+        # only into an exact entry ("no vim" stays).
         while i < len(tokens):
             first, span = plain[i], 1
             word = first and match(first[2], 0.8)
@@ -427,7 +435,8 @@ class Engine:
                 and min(len(first[2]), len(second[2])) >= 2
                 and not match(second[2], 0.8)
             ):
-                word, span = match(first[2] + second[2], 0.9), 2
+                joined, both = first[2] + second[2], real(first[2]) and real(second[2])
+                word, span = glossary.get(joined.lower()) if both else match(joined, 0.9), 2
             if first and word:
                 last = second if span == 2 and second else first
                 out.append((first[1] + word + (last[3] or "") + last[4], span))
@@ -566,12 +575,12 @@ class Engine:
         # Guard: an answer, paraphrase, or rewrite falls back to the raw transcript.
         return raw if self.looks_rewritten(raw, out, self.glossary(request)) else out
 
-    # Stalls removed mechanically (the model is inconsistent); "ER" and "uh-huh" stay.
-    STALL = r"(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w-])"
+    # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
+    STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w/@-]|\.\w)"
     # Opening a sentence it goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
     LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…]+)?\s*)+)(\w*)")
     # Elsewhere with its commas: "We need, uh, three things." -> "We need three things."
-    STALL_RE = re.compile(rf",?\s*(?<![\w-]){STALL},?")
+    STALL_RE = re.compile(rf",?\s*{STALL},?")
 
     @classmethod
     def strip_stalls(cls, text):
@@ -585,7 +594,7 @@ class Engine:
         out = re.sub(r"\s{2,}", " ", out).strip()
         return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
-    QUESTION_STARTS = frozenset(
+    QUESTION_WORDS = frozenset(
         [
             "what",
             "what's",
@@ -599,6 +608,10 @@ class Engine:
             "who",
             "who's",
             "which",
+        ]
+    )
+    AUXILIARIES = frozenset(
+        [
             "can",
             "could",
             "would",
@@ -626,8 +639,45 @@ class Engine:
         ]
     )
 
-    # Subjects that make a negated opener a question ("Don't you think").
-    SUBJECTS = frozenset(["i", "you", "we", "they", "he", "she", "it", "this", "that", "there"])
+    # Subjects that make an auxiliary opener a question ("Will you", not "Will do").
+    SUBJECTS = frozenset(
+        [
+            "i",
+            "you",
+            "we",
+            "they",
+            "he",
+            "she",
+            "it",
+            "this",
+            "that",
+            "these",
+            "those",
+            "there",
+            "the",
+            "a",
+            "an",
+            "my",
+            "your",
+            "our",
+            "their",
+            "his",
+            "her",
+            "its",
+            "any",
+            "some",
+            "every",
+            "anyone",
+            "anybody",
+            "anything",
+            "everyone",
+            "everybody",
+            "everything",
+            "someone",
+            "somebody",
+            "something",
+        ]
+    )
 
     @classmethod
     def is_question(cls, raw):
@@ -639,18 +689,21 @@ class Engine:
             return False
         cased = re.findall(r"[A-Za-z']+", re.split(r"[.!?]\s+", raw)[-1])
         words = [w.lower() for w in cased]
-        if not words or words[0] not in cls.QUESTION_STARTS or cls.dangles(cased):
+        if not words or cls.dangles(cased):
             return False
-        negated = words[0].endswith("n't") or words[1:2] == ["not"]
-        return not negated or (len(words) > 1 and words[1] in cls.SUBJECTS)
+        if words[0] in cls.QUESTION_WORDS:
+            return words[1:2] != ["not"]  # "What not to do"
+        # A name counts as a subject: "Did GitHub go down"; "Don't forget" has none.
+        subject = len(words) > 1 and (words[1] in cls.SUBJECTS or cased[1][0].isupper())
+        return words[0] in cls.AUXILIARIES and subject
 
     @classmethod
     def ensure_question(cls, raw, text):
-        """End a question-shaped dictation with '?' in place of '.' or '!'."""
+        """End a question-shaped dictation with '?' in place of its end mark, inside quotes too."""
         text = text.strip()
         if not text or not cls.is_question(raw) or text.endswith("?"):
             return text
-        return re.sub(r"[.!]+$", "", text).rstrip() + "?"
+        return re.sub(r"\s*[.!,;:]+([\"”’)\]]*)$", r"\1", text) + "?"
 
     # Self-correction cues the adapter acts on ("no wait", "sorry, I mean", "scratch that").
     CORRECTIONS = frozenset(["no", "wait", "sorry", "mean", "scratch", "actually"])
@@ -707,7 +760,9 @@ class Engine:
         # Stalls first: the vocabulary restores a spelling their removal capitalized ("yabai").
         text = self.strip_stalls(self.cleanup(raw, request).strip())
         text = self.apply_vocabulary(self.apply_dictionary(text), request)
-        return self.end_policy(raw, self.ensure_question(raw, text))
+        # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
+        said = self.strip_stalls(raw)
+        return self.end_policy(said, self.ensure_question(said, text))
 
     def handle(self, request):
         command = request.get("cmd")

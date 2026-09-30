@@ -120,14 +120,23 @@ check(
             "Check GitHub's API docs.",
             "Open github.com please.",
             "Edit ~/.hammerspoon/init.lua now.",
+            "It has no vim bindings.",
+            "I'll hammer soon.",
         ]
     ],
     lambda text: engine.apply_vocabulary(engine.apply_dictionary(text)),
 )
-symbols = server.Engine(dict(engine.config, vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp"]))
+symbols = server.Engine(
+    dict(engine.config, vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve"])
+)
 check(
-    "vocabulary skips symbol entries",
-    [("I got a C on the net.", "I got a C on the net."), ("Run ytdlp now.", "Run yt-dlp now.")],
+    "vocabulary skips symbol entries and folds accents",
+    [
+        ("I got a C on the net.", "I got a C on the net."),
+        ("Run ytdlp now.", "Run yt-dlp now."),
+        ("Jose is here.", "José is here."),
+        ("The nave of the church.", "The nave of the church."),
+    ],
     symbols.apply_vocabulary,
 )
 check(
@@ -142,6 +151,9 @@ check(
         ("Type :wq to save.", "Type :wq to save."),
         ("Uh-huh, sure.", "Uh-huh, sure."),
         ("The umbrella is here.", "The umbrella is here."),
+        ("Order it from hm.com today.", "Order it from hm.com today."),
+        ("Open ~/um/notes.txt now.", "Open ~/um/notes.txt now."),
+        ("Email er@acme.com please.", "Email er@acme.com please."),
     ],
     server.Engine.strip_stalls,
 )
@@ -171,6 +183,12 @@ check(
         ("iPhone or Android?", "iPhone or Android?"),
         ("Um, yabai crashed again.", "yabai crashed again."),
         ("Uh, iPhone sales are up.", "iPhone sales are up."),
+        ("Let me check and, uh.", "Let me check and"),
+        ("Um, can you check it", "Can you check it?"),
+        ("Will do", "Will do"),
+        ("Can confirm", "Can confirm"),
+        ("Did GitHub go down", "Did GitHub go down?"),
+        ("Can you send it,", "Can you send it?"),
     ],
     dictate,
 )
@@ -182,6 +200,8 @@ check(
         (("What time is it", "What time is it."), "What time is it?"),
         (("Should we pick A", "Should we pick A."), "Should we pick A?"),
         (("Thanks. But", "Thanks."), "Thanks. But"),
+        (("Will do", "Will do."), "Will do."),
+        (('Did he say "yes"', 'Did he say "yes."'), 'Did he say "yes"?'),
     ],
     lambda pair: dictate(*pair),
 )
