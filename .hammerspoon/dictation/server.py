@@ -89,9 +89,10 @@ def _letters(piece):
 
 
 def vocabulary_prefixes(words):
-    """Every prefix of every single-word vocabulary entry, as lowercase letters."""
-    full = {_letters(w) for w in words if " " not in w.strip()}
-    return {w[:i] for w in full if w for i in range(1, len(w) + 1)}
+    """Every lowercase prefix of every entry made only of letters, digits, and
+    apostrophes ("GitHub's"); "hammer spoon", "yt-dlp", and "Node.js" get none."""
+    full = {w.lower() for w in map(str.strip, words) if w and _letters(w) == w.lower()}
+    return {w[:i] for w in full for i in range(1, len(w) + 1)}
 
 
 def boosted_greedy(
@@ -695,8 +696,10 @@ class Engine:
             return text
         return cls.ensure_question(raw, text[0].upper() + text[1:])
 
-    # Self-correction cues the adapter acts on ("no wait", "I mean", "scratch that").
-    CORRECTIONS = frozenset(["no", "wait", "mean", "scratch", "actually"])
+    # Self-correction cues the adapter acts on ("no wait", "sorry, I mean", "scratch that").
+    CORRECTIONS = frozenset(["no", "wait", "sorry", "mean", "scratch", "actually"])
+    # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
+    DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
 
     @classmethod
     def looks_rewritten(cls, raw, out, allowed=()):
@@ -728,7 +731,8 @@ class Engine:
         # Fillers, correction cues, and a couple of misheard/normalized words may
         # go; a paraphrase or summary loses far more. Absolute floor so short
         # phrases aren't rejected for a one- or two-word fix.
-        lost = [w for w in raw_set - cls.CORRECTIONS if w not in out_set]
+        said = set(words(cls.DROPPED_RE.sub(" ", raw.lower()))) - cls.CORRECTIONS
+        lost = [w for w in said if w not in out_set]
         if len(lost) > max(2, 0.3 * len(raw_words)):
             return True
         new = [w for w in out_words if w not in raw_set and w not in allowed]

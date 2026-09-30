@@ -213,3 +213,14 @@ with an alert.
 | `engine.lua` | manages the resident Python backend over a JSON pipe |
 | `server.py` | speech-to-text + LLM cleanup, kept resident; `Speech`/`Cleaner` classes, one per runtime, picked by `backend` |
 | `setup.sh` | builds `.venv` from `requirements.txt` (hashed lock of `requirements.in`) |
+
+## Tests
+
+```sh
+~/.hammerspoon/dictation/.venv/bin/python ~/.hammerspoon/tests/dictation_test.py
+```
+
+It pins the text pipeline (vocabulary, stalls, end punctuation, rewrite guard)
+and checks the boosted decoder against parakeet-mlx's own on a weightless model,
+so run it after editing `server.py` or bumping parakeet-mlx. It loads no model
+and uses no microphone, network, or Hammerspoon.
