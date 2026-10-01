@@ -520,6 +520,7 @@ check(
             ("Set it to only fifteen.", "Set it to 15."),
             ("Turn logging off.", "Turn logging on."),
             ("Run this before Friday.", "Run this after Friday."),
+            ("Enable access for all users.", "Enable access for some users."),
             ("Send fifteen Canadian dollars.", "Send fifteen US dollars."),
             ("Wait fifteen very long minutes.", "Wait 15 very long seconds."),
             ("Set it to approximately fifteen.", "Set it to 15."),

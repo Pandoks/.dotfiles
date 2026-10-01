@@ -65,6 +65,23 @@ local function fft(re, im)
   end
 end
 
+-- Loudness 0..1 (-50..-10 dBFS) of the window starting at byte `from`, and its energy.
+---@param pcm string s16le mono
+---@param from integer
+---@return number level
+---@return number energy
+function spectrum:loudness(pcm, from)
+  local energy = 0
+  for i = from, from + 2 * self.size - 1, 2 do
+    local lo, hi = pcm:byte(i, i + 1)
+    local sample = hi * 256 + lo
+    sample = (sample >= 32768 and sample - 65536 or sample) / 32768
+    energy = energy + sample * sample
+  end
+  local rms = math.sqrt(energy / self.size) + 1e-9
+  return math.max(0, math.min(1, (20 * math.log(rms, 10) + 50) / 40)), energy
+end
+
 -- Analyze the most recent window of PCM.
 ---@param pcm string >= `size * 2` bytes of s16le mono; the last window is used
 ---@return number[] bands each 0..1: auto-gained shape times loudness over the room
@@ -73,20 +90,16 @@ function spectrum:analyze(pcm)
   local size = self.size
   local re, im = {}, {}
   local base = #pcm - size * 2
-  local energy = 0
   for i = 1, size do
     local lo, hi = pcm:byte(base + 2 * i - 1, base + 2 * i)
     local sample = hi * 256 + lo
     if sample >= 32768 then
       sample = sample - 65536
     end
-    sample = sample / 32768
-    energy = energy + sample * sample
-    re[i] = sample * self.window[i]
+    re[i] = sample / 32768 * self.window[i]
     im[i] = 0
   end
-  local rms = math.sqrt(energy / size) + 1e-9
-  local level = math.max(0, math.min(1, (20 * math.log(rms, 10) + 50) / 40))
+  local level, energy = self:loudness(pcm, base + 1)
   -- Room noise sets the floor, so silence reads flat and only sound above it moves the bars. It
   -- starts at most at a room's level (~-38 dBFS): a take may open on speech, after a Bluetooth
   -- mic's digital silence.

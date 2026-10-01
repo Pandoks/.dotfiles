@@ -850,6 +850,8 @@ class Engine:
         for pair in ["on/off", "enable/disable", "enabled/disabled", "before/after", "start/stop"]
         + ["open/close", "true/false", "left/right", "add/remove", "allow/deny", "show/hide"]
         + ["lock/unlock", "increase/decrease", "first/last", "min/max", "up/down"]
+        + ["all/some", "every/some", "each/some", "always/sometimes", "everyone/someone"]
+        + ["everything/something", "everybody/somebody"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")

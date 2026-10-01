@@ -151,13 +151,18 @@ function recorder.poll(recording)
     return nil
   end
   recording.offset = recording.offset + #new
-  recording.tail = (recording.tail .. new):sub(-size * 2)
+  local data = recording.tail .. new
+  recording.tail = data:sub(-size * 2)
   if #recording.tail < size * 2 then
     return nil
   end
-  local bands, level = recording.spectrum:analyze(recording.tail)
-  recording.peak = math.max(recording.peak, level)
-  return bands
+  -- Every window since the last tick counts toward the peak, not only the one shown: a busy
+  -- main thread can leave several.
+  for last = #data, size * 2, -size * 2 do
+    local level = recording.spectrum:loudness(data, last - size * 2 + 1)
+    recording.peak = math.max(recording.peak, level)
+  end
+  return (recording.spectrum:analyze(recording.tail))
 end
 
 -- SIGINT lets ffmpeg finalize the wav; `done` gets it and the seconds polled (failures: onError).
