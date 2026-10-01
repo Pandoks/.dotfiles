@@ -199,6 +199,12 @@ check(
         ("Line one.\n\nUh, line two.", "Line one.\n\nLine two."),
         ("Hi Anna,\n\nUm, I wanted to check in.", "Hi Anna,\n\nI wanted to check in."),
         ("Okay. Um\n\nNext paragraph.", "Okay.\n\nNext paragraph."),
+        # Opening a quote or bracket too; a closing '"' does not open one.
+        ('She said, "Um, I\'m not sure."', 'She said, "I\'m not sure."'),
+        ("She said, “uh, maybe.”", "She said, “maybe.”"),
+        ("(Um, maybe later.)", "(Maybe later.)"),
+        ('He said "yes." Um, okay.', 'He said "yes." Okay.'),
+        ('He said "fine" um.', 'He said "fine".'),
     ],
     server.Engine.strip_stalls,
 )
@@ -276,6 +282,22 @@ check(
         (("He said I want the", "He said, “I want the.”"), "He said, “I want the”"),
         (("He said I want the", "He said, “I want.”"), "He said, “I want the”"),
         (("Did he say yes", "Did he say “yes?”"), "Did he say “yes?”"),
+        (("He said I want the", "He said, ‘I want.’"), "He said, ‘I want the’"),
+        (("Send it to the dogs and", "Send it to the dogs’."), "Send it to the dogs’ and"),
+        (("Don't you think so", "Don’t you think so."), "Don’t you think so?"),
+        # A straight ' after an end mark closes a quote too.
+        (("He said I want the", "He said, 'I want.'"), "He said, 'I want the'"),
+        (("Did he say yes", "Did he say 'yes?'"), "Did he say 'yes?'"),
+        # '?' only on a last sentence that asks: not a split statement or a retracted question.
+        (
+            ("Can you check this I think it's broken", "Can you check this? I think it's broken."),
+            "Can you check this? I think it's broken.",
+        ),
+        (("Is it ready no wait just ship it", "Just ship it."), "Just ship it."),
+        (
+            ("Can you send it to John no wait to Jane", "Can you send it to Jane."),
+            "Can you send it to Jane?",
+        ),
     ],
     lambda pair: dictate(*pair),
 )

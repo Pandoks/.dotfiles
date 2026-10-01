@@ -493,10 +493,10 @@ class Engine:
             return text  # "What if?" and "Oh my!" are complete
         last, text = raw_words[-1], text.rstrip()
         # The end mark goes, closing quotes stay: '"I want the."' -> '"I want the"'.
-        open_text = re.sub(r"\s*[.!?…—]+([\"”’)\]]*)$", r"\1", text)
+        open_text = re.sub(r"\s*[.!?…—]+([\"”’')\]]*)$", r"\1", text)
 
         def core(word):
-            return re.sub(r"[^\w']", "", word.replace("’", "'")).lower()
+            return re.sub(r"[^\w']", "", word.replace("’", "'")).strip("'").lower()
 
         end = core((open_text.split() or [""])[-1])
         # Re-add the word only where the cleanup cut it ("to the" -> "to."), not respelled ("vs.").
@@ -508,7 +508,9 @@ class Engine:
             return f"{text} {last}".strip()
         # It goes inside the cleanup's closing quotes, unless said after them: '"yes", and'.
         said_after = re.search(r"[\"”)\]]\W*$", raw_words[-2])
-        body = open_text if said_after else open_text.rstrip('"”)]')
+        # A lone ’ or ' may be a possessive ("dogs’"): it closes only a quote the text opened.
+        closing = "\"”)]’'" if re.search(r"‘|(?<!\w)'\w", open_text) else '"”)]'
+        body = open_text if said_after else open_text.rstrip(closing)
         close = open_text[len(body) :]
         # After the comma said before it: "John, and".
         if mark in ",;:" and not body.endswith((",", ";", ":")):
@@ -590,8 +592,10 @@ class Engine:
 
     # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
     STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+)(?![\w/@-]|\.\w)"
-    # A sentence or line opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
-    LEAD_STALL_RE = re.compile(rf"(?<![^.!?\n])([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
+    # Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
+    START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
+    # A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
+    LEAD_STALL_RE = re.compile(rf"(?:{START})([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
     # Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
     STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
 
@@ -723,7 +727,8 @@ class Engine:
             return True
         if raw.endswith((".", "!")):
             return False
-        cased = re.findall(r"[A-Za-z']+", re.split(r"[.!?]\s+", raw)[-1])
+        last = re.split(r"[.!?]\s+", raw.replace("’", "'"))[-1]
+        cased = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)*", last)  # "Don’t", not "the’" or "‘Is"
         words = [w.lower() for w in cased]
         if not words or cls.dangles(cased):
             return False
@@ -741,9 +746,12 @@ class Engine:
     def ensure_question(cls, raw, text):
         """End a question-shaped dictation with '?' in place of its end mark, inside quotes too."""
         text = text.strip()
-        if not text or not cls.is_question(raw) or re.search(r"\?[\"”’)\]]*$", text):
+        if not text or not cls.is_question(raw) or re.search(r"\?[\"”’')\]]*$", text):
             return text
-        return re.sub(r"\s*[.!,;:]+([\"”’)\]]*)$", r"\1", text) + "?"
+        open_text = re.sub(r"\s*[.!,;:]+([\"”’')\]]*)$", r"\1", text)
+        # Its last sentence must still ask: not "Can you check this? I think it's broken."
+        asks = raw.strip().endswith("?") or cls.is_question(open_text)
+        return open_text + "?" if asks else text
 
     # Self-correction cues the adapter acts on ("no wait", "sorry, I mean", "scratch that").
     CORRECTIONS = frozenset(["no", "wait", "sorry", "mean", "scratch", "actually"])
