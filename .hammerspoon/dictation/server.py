@@ -803,7 +803,9 @@ class Engine:
                 re.fullmatch(r"\w+(?:ed|en)|\w*[ao]ught", w) or w in cls.PARTICIPLES
                 for w in words[2:6]
             )
-            return after in ("i", "you", "we", "they") or (after in cls.DETERMINERS and done)
+            return after in ("i", "you", "we", "they") or (
+                (after in cls.DETERMINERS or named) and done  # "Have John arrived"
+            )
         return words[0] in cls.AUXILIARIES and subject
 
     @classmethod

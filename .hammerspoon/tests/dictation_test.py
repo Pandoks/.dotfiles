@@ -296,10 +296,10 @@ check(
     ],
     dictate,
 )
-# A glossary name in any script is a subject.
+# A name, in any script, is a subject: after "have" too.
 check(
-    "question subjects in any script",
-    [("Did 東京 fail", True)],
+    "names are question subjects",
+    [("Did 東京 fail", True), ("Have 東京 replied", True), ("Have John arrived", True)],
     lambda text: server.Engine.is_question(text, {"東京"}),
 )
 check(
