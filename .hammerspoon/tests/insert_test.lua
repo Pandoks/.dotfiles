@@ -202,6 +202,8 @@ test("spacing joins the text to its neighbors", function()
     { "", "Sam", "'s car", "John", "John" }, -- an apostrophe inside a word
     { "Sam", "", "'s", "uel", " uel" },
     { "a ", "foo ", "'quoted'", "bar", "bar " },
+    { "run `", "", "`", "ls", "ls" }, -- an inline code span
+    { "", "", "`ls`", "Run", "Run " },
     { "😀", "", "", "hi", " hi" },
     { "😀 ", "", "world", "hi", "hi " }, -- an emoji is two units
     { "a ", "foo", " b", "bar", "bar" },

@@ -103,7 +103,7 @@ local function paste(text)
   dictation.restore = hs.timer.doAfter(0.25, function()
     dictation.restore = nil
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
-    if previous and hs.pasteboard.changeCount() == count then
+    if hs.pasteboard.changeCount() == count then
       previous[transient] = ""
       if not hs.pasteboard.writeAllData(previous) then
         fail("Dictation: could not restore the clipboard")
@@ -203,8 +203,8 @@ local function insertText(text)
       ["<"] = true,
       ["/"] = true,
     }
-    -- A straight quote opens after the start, a space, or an opener, and before a word.
-    local quotes = { ['"'] = true, ["'"] = true }
+    -- A straight quote or backtick opens after the start, a space, or an opener, and before a word.
+    local quotes = { ['"'] = true, ["'"] = true, ["`"] = true }
     local function starts(char)
       return char == "" or char:match("^%s$") or openers[char]
     end
