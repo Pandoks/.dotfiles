@@ -803,9 +803,10 @@ class Engine:
             after in cls.ORDERS or (after in cls.DETERMINERS and len(words) == 3)
         ):
             return False
-        # A quantifier or number too ("Can all users log in"), but "Do two things" orders.
+        # A quantifier or number too ("Can all users log in"), but "Do two things" and "Don't all
+        # talk at once" order.
         counts = after in cls.DETERMINERS or bool(cls.numbers(after))
-        subject = after in cls.SUBJECTS or named or (words[0] != "do" and counts)
+        subject = after in cls.SUBJECTS or named or (words[0] not in ("do", "don't") and counts)
         if words[0] in ("have", "had"):
             # "Have the tests passed" asks; "Have a good day" and "Had a great time" don't.
             # After the subject: "oven" in "Have the oven ready" is no participle.
@@ -975,7 +976,8 @@ class Engine:
                 and re.search(r"\d", core)
                 and not re.fullmatch(ending, core)
             ):
-                tokens.append("#" + re.sub(r"[\W_]", "", core))  # "SHA-256" is "SHA256"
+                # Only a hyphen is optional: "SHA-256" is "SHA256", but "TLS1.3" is not "TLS13".
+                tokens.append("#" + core.replace("-", ""))
             else:
                 tokens += re.findall(rf"{number}|[a-z]+|[%°$€£]", w)
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
@@ -1116,7 +1118,15 @@ class Engine:
         # its own written one ("15 files into 15 folders"); a run may be several ("3:30").
         # In order too: "width fifteen, height twenty" is not "width 20, height 15".
         written = [w for w, _ in cls.numbers(out)]
-        taken = cls.numbers(" ".join(raw_words[k] for k in sorted(corrected)))
+        # With the rest of its written word: "256" in "SHA-256, no wait" takes back "SHA-256".
+        pieces = list(re.finditer(r"\S+", raw))
+        back_words = {
+            p.start(): p.group()
+            for k in corrected
+            for p in pieces
+            if p.start() <= spans[k].start() < p.end()
+        }
+        taken = cls.numbers(" ".join(back_words[start] for start in sorted(back_words)))
         back, at = set().union(*(n for n, _ in taken)), 0
         for n, parts in cls.numbers(raw):
             k = next((k for k in range(at, len(written)) if written[k] & n), None)
