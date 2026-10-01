@@ -235,6 +235,7 @@ test("spacing joins the text to its neighbors", function()
     { "foo.", "local", ".bar", "remote", "remote" }, -- a dotted name's part
     { "foo.", "", "bar", "remote", "remote" },
     { "/usr/", "", "bin", "local", "local" },
+    { "/usr", "", "/bin", "local", "local" },
     { "", "", "”", "hello", "hello" },
   }) do
     local before, selected, after, text, want = table.unpack(case)

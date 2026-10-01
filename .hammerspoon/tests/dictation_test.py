@@ -537,6 +537,7 @@ check(
             ("Enable 2FA.", "Enable 2."),
             ("Use SHA256.", "Use 56."),
             ("Use TLS1.3.", "Use 3."),
+            ("Use SHA-256.", "Use 256."),
             ("The panel is shown.", "The panel is hidden."),
             ("Set it to one point five.", "Set it to 1 5."),
             ("Send fifteen Canadian dollars.", "Send fifteen US dollars."),

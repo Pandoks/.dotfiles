@@ -939,10 +939,10 @@ class Engine:
             found.append(({sign + v + unit for v in values}, parts))
             sign, unit, fresh = "", "", True
 
-        # Not digits in a name ("SHA256", "IPv6", "2FA", "TLS1.3"); a range's ("10-15") count, and
+        # Not digits in a name ("SHA256", "SHA-256", "2FA", "TLS1.3"); a range's ("10-15") count, and
         # "15th", "3pm", "1990s".
         end = r"(?=(?:st|nd|rd|th|s|am|pm)?\b)"
-        number = rf"(?<![\w+.-])[-+]?\d+(?:\.\d+)?{end}|(?<![a-z\d.])\d+(?:\.\d+)?{end}"
+        number = rf"(?<![\w+.-])[-+]?\d+(?:\.\d+)?{end}|(?<![a-z\d.])(?<![a-z]-)\d+(?:\.\d+)?{end}"
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in re.findall(rf"{number}|[a-z]+|[%°$€£]", text) + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):

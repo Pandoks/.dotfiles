@@ -248,9 +248,11 @@ local function insertText(text)
       end
       return code > 0x7F
     end
-    -- A part of a dotted name or path stays joined: "foo.[local].bar", "foo.|bar", "/usr/|bin".
+    -- A part of a dotted name or path stays joined: "foo.[local].bar", "foo.|bar", "/usr/|bin",
+    -- and before one: "/usr|/bin", "foo|.bar".
     local joined = (before == "." and wordy(prior) or before == "/")
-      and (last ~= "" or wordy(after))
+        and (last ~= "" or wordy(after))
+      or wordy(before) and (after == "/" or after == "." and wordy(beyond))
     if not starts(before) and not (quotes[before] and starts(prior)) and not joined then
       text = " " .. text
     end
