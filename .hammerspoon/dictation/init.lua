@@ -296,12 +296,10 @@ local function finish(text)
     end
     -- "clipboard" always copies; "auto" copies when nothing could be inserted.
     if mode == "clipboard" or (mode == "auto" and not inserted) then
-      if hs.pasteboard.setContents(text) then
-        if mode == "auto" then
-          hs.alert.show("Dictation copied to clipboard", 1.5)
-        end
-      else
+      if not hs.pasteboard.setContents(text) then
         fail("Dictation: could not write clipboard")
+      elseif mode == "auto" then
+        hs.alert.show("Dictation copied to clipboard", 1.5)
       end
     end
   end
@@ -314,10 +312,8 @@ local function finish(text)
     animation = nil
   end
   dictation.cancelHotkey:disable()
-  if recording then
-    recorder.cleanup(recording)
-    recording = nil
-  end
+  recorder.cleanup(recording)
+  recording = nil
   state = "idle"
 end
 
@@ -422,9 +418,6 @@ end
 
 -- Each reply owns its recording; cancelled replies cannot finish a later take.
 engine, engineError = Engine.new(config, {
-  onReady = function()
-    print("Dictation: backend ready")
-  end,
   onFinal = function(result)
     -- Saved before anything else, even for a cancelled take, so no result is lost.
     local problem = #result.text > 0 and history.save(result.text, config.history)
@@ -440,11 +433,9 @@ engine, engineError = Engine.new(config, {
       finish(result.text)
     end
     -- nil means saved (false: nothing to save); prune after delivery since it stats every file.
-    if problem == nil then
-      problem = history.prune(config.history)
-      if problem then
-        fail("Dictation: " .. problem)
-      end
+    problem = problem == nil and history.prune(config.history)
+    if problem then
+      fail("Dictation: " .. problem)
     end
   end,
   onError = function(message, id)
@@ -462,9 +453,6 @@ engine, engineError = Engine.new(config, {
     end
     fail("Dictation backend: " .. message)
     finish(nil)
-  end,
-  onLog = function(message)
-    print("Dictation backend: " .. message)
   end,
 })
 if not engine then
@@ -515,11 +503,7 @@ else
         -- our modifier went up: a clean, quick tap?
         down = false
         if not otherUsed and (now - downAt) <= modifier.window then
-          if (now - lastTapAt) <= modifier.window then
-            tapCount = tapCount + 1
-          else
-            tapCount = 1
-          end
+          tapCount = (now - lastTapAt) <= modifier.window and tapCount + 1 or 1
           lastTapAt = now
           if tapCount >= modifier.taps then
             tapCount = 0

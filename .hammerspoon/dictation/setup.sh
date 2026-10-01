@@ -1,8 +1,6 @@
 #!/bin/sh
 set -eu
-
 dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-venv="$dir/.venv"
 
 # Apple Silicon even from a Rosetta shell, where uname -m says x86_64.
 [ "$(sysctl -n hw.optional.arm64 2> /dev/null)" = 1 ] \
@@ -11,17 +9,6 @@ venv="$dir/.venv"
     echo "dictation needs Apple Silicon and macOS 14+ (MLX)" >&2
     exit 1
   }
-uv --version > /dev/null 2>&1 || {
-  echo "uv missing: run mise install" >&2
-  exit 1
-}
-uv venv --allow-existing -p 3.12 "$venv"
-uv pip sync -p "$venv/bin/python" "$dir/requirements.txt"
-
-echo
-echo "Done. Verify with:"
-echo "  \"$venv/bin/python\" -c \\"
-echo "    'import parakeet_mlx, mlx_audio, mlx_whisper, mlx_lm; print(\"ok\")'"
-echo
-echo "Reload Hammerspoon: the backend's first start downloads the models pinned in config.lua"
-echo "into ~/.cache/huggingface."
+uv sync --project "$dir" --locked
+"$dir/.venv/bin/python" -c 'import parakeet_mlx, mlx_audio, mlx_whisper, mlx_lm'
+echo "Done. Reload Hammerspoon; its first start downloads the models pinned in config.lua."

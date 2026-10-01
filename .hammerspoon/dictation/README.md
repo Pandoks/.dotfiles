@@ -1,265 +1,58 @@
 # Local dictation for Hammerspoon
 
-A free, fully local replacement for macOS F5 dictation, styled after Raycast's
-dictation pill. Press Option+Space to record, press again to stop; a local speech model
-transcribes, a local LLM cleans it up (fillers, self-corrections), your
-vocabulary fixes names and jargon, and the result is inserted into the focused
-field (or copied to the clipboard, per `insert` in config.lua).
-
-Everything is self-contained in this directory; `~/.hammerspoon/init.lua` loads
-it with `require("dictation")` only on Apple Silicon with macOS 14+ (MLX).
-
-## What runs where
-
-| Piece | Where | Notes |
-|---|---|---|
-| Hotkey, overlay, capture, insert | Hammerspoon (Lua) | this directory |
-| Speech-to-text + LLM cleanup | `.venv` Python (`server.py`) | resident process, fast after first load |
-| Mic capture + equalizer | `ffmpeg` child + `spectrum.lua` | PCM via temp file, FFT in Lua; high-pass only, no denoising |
+A free, fully local Raycast-style dictation pill. Press Option+Space to record, again to stop
+(Escape cancels): a local speech model transcribes, a local LLM cleans up fillers and
+self-corrections, your vocabulary fixes names, and the text goes into the focused field.
+`~/.hammerspoon/init.lua` loads it only on Apple Silicon with macOS 14+ (MLX).
 
 ## Setup
 
-1. Install the backend (syncs `.venv` to the hashed lock `requirements.txt`;
-   needs Apple Silicon and macOS 14+ for MLX, plus `uv` and `ffmpeg`, both from
-   the dotfiles' `mise install`):
+1. `~/.hammerspoon/dictation/setup.sh` (needs `uv` and `ffmpeg` from `mise install`).
+2. Grant **Hammerspoon** Microphone and Accessibility in **System Settings > Privacy & Security**.
+   Browsers ask once for Automation (URL context, plain instruct cleanup models only).
+3. Reload Hammerspoon. The first start downloads the models pinned in `config.lua` into
+   `~/.cache/huggingface`; later starts load them offline.
 
-   ```sh
-   ~/.hammerspoon/dictation/setup.sh
-   ```
+Every setting lives in `config.lua`, typed, with hover docs from lua-language-server.
+If Raycast also uses Option+Space, Hammerspoon wins; rebind one. The macOS dictation (mic)
+key cannot be used: macOS 26 always handles it itself.
 
-2. Pick a trigger. By default (`trigger = "hotkey"`) press **Option+Space** to
-   start and again to stop. Change it in `config.lua`:
-   - A different combo: edit `hotkey` (mods + key).
-   - Tap a modifier like Raycast: set `trigger = "modifierTap"` and pick
-     `modifierTap.keycode` (Right Command 54, Right Option 61, Right Shift 60,
-     Right Control 62) and its `flag`; `taps = 1` or `2`.
+## Speech models
 
-   If Raycast is also bound to Option+Space, Hammerspoon takes precedence and
-   Raycast will stop opening; change one of them.
+Set `stt.backend`, `stt.model`, and `stt.revision` (`.venv/bin/hf models info <repo> --expand sha`).
+WER is the Open ASR Leaderboard English average of the upstream model.
 
-   The physical macOS dictation key (mic glyph) cannot be used: macOS 26 owns it
-   and always runs its own dictation, or an "enable Dictation?" prompt when
-   Dictation is off, and no third-party app can suppress that. Leave **System
-   Settings > Keyboard > Dictation** on or off as you like; it no longer matters.
-
-3. Grant permissions to **Hammerspoon** in **System Settings > Privacy &
-   Security**: Microphone (for ffmpeg), Accessibility (for the key event,
-   inserting, pasting, and reading context). Slack and other Electron apps only
-   expose their text field after accessibility is granted, and even then
-   selection can be flaky. The window title, browser URL, and (opt-in) selection
-   are read only for a plain instruct cleanup model (`cleanup.adapter = nil`);
-   the default adapter ships its own prompt and never sees them. The URL needs
-   Automation access, which macOS asks for once per browser.
-
-4. Reload Hammerspoon. The backend loads models in the background (~10s the
-   first time, plus a one-time model download).
-
-## Choosing a speech model
-
-Edit `stt` in `config.lua`; the backend must match the model. `revision` pins
-the model's commit (`.venv/bin/hf models info <repo> --expand sha`): the
-backend's first start downloads that commit, later launches load it from the
-cache with no network, and an upstream change is used only once you change
-`revision`. Models and the backend each needs:
-
-| Model | Backend | Approx. download | License | Recorded mean WER | Notes |
+| Model | Backend | Download | License | WER | Notes |
 |---|---|---|---|---|---|
-| `mlx-community/parakeet-tdt-0.6b-v2` | `parakeet-mlx` | ~2.5 GB | CC-BY-4.0 | 4.70 | English only, so it never outputs another language. Fastest. Default. |
-| `mlx-community/parakeet-tdt-0.6b-v3` | `parakeet-mlx` | ~2.5 GB | CC-BY-4.0 | 4.86 | 25 EU languages with automatic detection: short English takes occasionally come out in another language. |
-| `mlx-community/Qwen3-ASR-1.7B-4bit` | `mlx-audio` | ~1.6 GB | Apache-2.0 | 4.31 | Most accurate open model. 50+ languages. Slower than Parakeet. |
-| `ibm-granite/granite-speech-4.1-2b` | `mlx-audio` | ~4.9 GB | Apache-2.0 | 4.62 | Strong EN/EU accuracy. Heavier. Its keyword biasing is not wired up. |
-| `mlx-community/whisper-large-v3-turbo` | `mlx-whisper` | ~1.6 GB | MIT | 6.36 | 99 languages, most battle-tested. Higher English WER. Verified working. |
-| `mistralai/Voxtral-Mini-4B-Realtime-2602` | `mlx-audio` | ~18 GB (two weight copies) | Apache-2.0 | 6.46 | Realtime/streaming oriented, multilingual. |
+| `mlx-community/parakeet-tdt-0.6b-v2` | `parakeet-mlx` | 2.5 GB | CC-BY-4.0 | 4.70 | English only, fastest. Default. |
+| `mlx-community/parakeet-tdt-0.6b-v3` | `parakeet-mlx` | 2.5 GB | CC-BY-4.0 | 4.86 | 25 EU languages; short English takes can come out in another. |
+| `mlx-community/Qwen3-ASR-1.7B-4bit` | `mlx-audio` | 1.6 GB | Apache-2.0 | 4.31 | 50+ languages, slower. |
+| `ibm-granite/granite-speech-4.1-2b` | `mlx-audio` | 4.9 GB | Apache-2.0 | 4.62 | Keyword biasing not wired up. |
+| `mlx-community/whisper-large-v3-turbo` | `mlx-whisper` | 1.6 GB | MIT | 6.36 | 99 languages; vocabulary passed as a prompt. |
+| `mistralai/Voxtral-Mini-4B-Realtime-2602` | `mlx-audio` | 18 GB | Apache-2.0 | 6.46 | Two weight copies. |
 
-## Vocabulary and dictionary (names, tools, jargon)
+The default cleanup model is the simplewords v3 LoRA on Qwen3.5-2B (1.7 GB + 67 MB). It
+ships its own prompt, so `style`, per-app `style`, and the window/URL/selection context
+apply only to a plain instruct model (`cleanup.adapter = nil`). Pin only repos you trust:
+mlx-lm runs Python a model repo names in its config.
 
-`vocabulary` in `config.lua` is the list to maintain: just the correct
-spellings. Any transcript token close to one of them ("yabay", "hammer spoon",
-"ray cast") is rewritten to it, before and after cleanup. A real word or its
-inflection is never fuzzy-matched ("recast", "missed", "tacos", "Emacs" stay):
-real means in macOS's word list or, with cleanup on, a whole word of the cleanup
-model's tokenizer. An unlisted name can still be ("Maisie" → "mise"), so list it
-too. An exact case-insensitive match takes your spelling ("slack" → "Slack").
-Entries with symbols other than inner spaces, dots, hyphens, or apostrophes
-("C++", ".NET", "A/B") are skipped here; give them `dictionary` variants instead
-("c plus plus"). Paths and domains are left alone ("github.com"). A vocabulary
-word you said is protected from being dropped by the cleanup model unless you
-corrected yourself ("Slack, no wait, GitHub"). With the Whisper backend the list
-is also passed to the speech model as a prompt, and mlx-audio models get only
-the text fixes. With Parakeet it biases decoding instead (`stt.boost`, default
-4.5): once the model has spelled the first letter of one of your words, pieces
-that continue it get a small bonus, so a word it hears ambiguously ("oki" vs
-"okay") comes out as you listed it, at no extra latency. Only single-word
-entries of letters, digits, and apostrophes are boosted, and only on TDT models;
-multi-word, hyphenated, or dotted entries ("yt-dlp", "Node.js") get just the
-text fixes above. Measured on 80 takes of listed words: 42 → 58 correct, with no
-listed word inserted into 60 look-alike sentences ("okay", "ghostly", "a torrent
-of rain") and ordinary dictation unchanged (error rate and casing).
+## Limitations
 
-`dictionary`, also in `config.lua`, is only for stubborn mishearings the
-similarity match cannot reach, real words included ("ghosty"), mapping the
-correct spelling to explicit spoken variants:
+- Electron/Chromium fields, terminals, Messages, and Mail get the text by ⌘V; the clipboard
+  is restored 0.25 s later (first item only, with an alert).
+- Firefox and other Gecko browsers are not supported (text would be inserted twice).
+- A read-only text view looks like a terminal, so the ⌘V silently does nothing; every take
+  is still saved to `history.directory`.
 
-```lua
-dictionary = { mise = { "meez", "mees" } },
-```
+## Adding a runtime
 
-`config.lua` is the single settings file and is pure data (a typed Lua table,
-no code), so lua-language-server gives completion and hover docs on every key.
-
-End-of-text punctuation is automatic: the cleanup model ends a complete
-sentence with the right mark, and a take that ends on a word no sentence ends
-on ("the", "and", "because") is left open with no trailing punctuation, for you
-to keep typing after (enforced after the model, which adds a period anyway).
-Internal punctuation is normal.
-
-## The cleanup model
-
-Default: simplewords v3, a LoRA adapter trained only to clean dictation, on
-`mlx-community/Qwen3.5-2B-MLX-4bit` (base ~1.7 GB + adapter 67 MB, downloaded
-at the backend's first start into `~/.cache/huggingface`). Greedy decoding. On
-this Mac it was the only candidate that handled self-corrections ("Thursday no
-Friday" -> "Friday"), never answered a dictated question, and ran in ~0.8 s. It
-ships its own prompt, which is used verbatim; a vocabulary list cannot be added
-to it (it echoes the list back), so vocabulary is applied deterministically as
-above.
-
-`style` and per-app `apps` instructions only take effect with a plain instruct
-model: set `cleanup.adapter = nil` and `cleanup.model` (and its `revision`) to
-e.g. `mlx-community/Qwen2.5-1.5B-Instruct-4bit`. Generic models measured worse
-here (no self-correction handling) but are steerable.
-
-Set `cleanup.enabled = false` for raw transcription with no LLM pass. Only
-macOS's word list then keeps real words from `vocabulary` fuzzy matching, so
-"tacos" can become "macOS".
-
-## Transcript history
-
-Every result is written to `~/Library/Caches/dictation/<timestamp>.txt` the
-moment the backend returns it, before insertion, so a paste that lands in the
-wrong place (or an Escape) never loses the text. Once the transcripts pass
-`history.maxMegabytes` of disk space (default 10, about 2,500 takes: every
-file occupies at least one 4 KB block) the oldest are deleted; other files in
-the folder are never touched. Set the folder and the cap in `history` in
-`config.lua`.
-
-## Swapping models and runtimes
-
-Models are swapped in `config.lua` alone: `stt.model` / `stt.backend` and
-`cleanup.model` / `cleanup.adapter` / `cleanup.backend` (default `mlx-lm`), each
-repo with its commit SHA (`revision` / `adapterRevision`). Any Hugging Face repo
-the chosen runtime can load works; the backend's next start downloads the pinned
-commit. Pin only repos you trust: mlx-lm runs Python a model repo names in its
-config.
-
-Runtimes are classes in `server.py`. Each model role is an abstract base with
-one subclass per runtime, registered by name:
-
-| Role | Method | Runtimes (`backend`) |
-|---|---|---|
-| `Speech` | `transcribe(wav, hint) -> str` | `parakeet-mlx`, `mlx-whisper`, `mlx-audio` |
-| `Cleaner` | `complete(messages, raw) -> str` | `mlx-lm` |
-
-To add one (say whisper.cpp, or a GGUF cleanup model through llama.cpp),
-subclass the role, set its `name`, implement `load` and the one method, and add
-the class to `SPEECH_BACKENDS` / `CLEANUP_BACKENDS`; then name it in
-`config.lua` (and its alias in the annotations). `Engine` owns everything
-around the models, in order: dictionary and vocabulary, the prompt (or the
-adapter's frozen prompt), the rewrite guard, stall stripping, the question
-mark, and the end policy, so a new runtime gets the same behavior for free.
-
-## Capture and insertion
-
-Capture errors stop dictation and show a logged alert, as does a take quieter
-than `minLevel` or with no recognized words; one shorter than `minDuration` is
-dropped as an accidental tap. Capture uses the system's current default
-microphone. The audio is only high-passed (90 Hz): denoising
-(`afftdn`) and silence trimming were measured to make things worse, because
-their fixed dB thresholds delete a quiet or distant speaker outright (a take
-25 dB below full scale came back empty), while Parakeet itself is flat at
-7–9% WER from full scale down to -35 dB and across pink, brown, fan, and
-20–10 dB babble noise. Only loud overlapping speech (babble at ≤5 dB SNR)
-defeats it, and no filter recovers that. ffmpeg writes the wav and, in
-parallel, raw PCM to a flushed temp file; the 30 fps tick reads the new bytes
-and `spectrum.lua` runs the FFT in Lua (~0.4 ms/frame). No Python is involved
-in capture: Hammerspoon decodes task output as text (dropping PCM bytes) and
-`io.popen` would block the main thread, while a page-cached file read costs
-~13 µs per frame.
-
-Stopping sends SIGINT so ffmpeg finalizes the WAV before transcription; if
-Hammerspoon quits or crashes mid-take, a watchdog on ffmpeg's stdin sends it
-instead, so the mic never stays open, and the next load deletes a crashed
-take's temp files. Escape cancels capture and discards pending transcription
-results by request ID. One timer drives the pill: a glowing ripple from the
-center until the mic opens, crossfading (~0.4 s) into the equalizer while
-recording (flat in silence, brighter when louder), a glowing shimmer while
-transcribing.
-
-Insertion (`insert` in config.lua): `auto` (default) inserts into the focused
-field and, when there is no field or insertion fails, copies the text to the
-clipboard and shows a brief alert; `direct` inserts only and reports failures;
-`clipboard` only copies. The text goes only to the field that was focused when
-dictation stopped: if focus moved while transcribing, that counts as a failure.
-Direct insertion writes through Accessibility and leaves the clipboard
-untouched. Chromium/Electron fields (Slack, VS Code, browsers) report
-Accessibility writes as supported and then ignore them, and terminals (Ghostty),
-Messages, and Mail's compose body take none, so for those the text is pasted
-with the app's own ⌘V (whole text at once, not typed) and the previous
-clipboard is restored 0.25 s later; macOS gives no signal for when the app has
-read the clipboard, so that delay is unavoidable. Firefox and other Gecko
-browsers apply Accessibility writes asynchronously, so their web page fields
-would get the text twice; they are not supported. A focused read-only text view
-(a log pane, a read-only editor, a `readonly` web field) looks the same as a
-terminal to Accessibility, so it gets the ⌘V too; that does nothing and is not
-reported (`auto` copies nothing either), and the text is then only in the
-history folder. Both writes carry `org.nspasteboard.TransientType`, so
-clipboard managers that honor it (Raycast, Maccy, Alfred, ...) record neither.
-`hs.pasteboard` restores only the first clipboard item, so several copied files
-come back as the first one, with an alert.
-
-## Files
-
-| File | Role |
-|---|---|
-| `config.lua` | the only settings file: trigger, models, style, vocabulary, dictionary, per-app, insertion (pure data) |
-| `init.lua` | hotkey, orchestration, context, insertion |
-| `overlay.lua` | the Raycast-style waveform pill (`hs.canvas`) |
-| `recorder.lua` | asynchronous mic capture and completion |
-| `history.lua` | saves every transcript as a `.txt` file, deleting the oldest past a size cap |
-| `spectrum.lua` | pure-Lua FFT: PCM window -> equalizer bands + level |
-| `engine.lua` | manages the resident Python backend over a JSON pipe |
-| `server.py` | speech-to-text + LLM cleanup, kept resident; `Speech`/`Cleaner` classes, one per runtime, picked by `backend` |
-| `setup.sh` | syncs `.venv` to `requirements.txt` (hashed lock of `requirements.in`, minus `excludes.txt`) |
+Subclass `Speech` or `Cleaner` in `server.py`, set `name`, implement `load` and
+`transcribe`/`complete`, register it in `SPEECH_BACKENDS`/`CLEANUP_BACKENDS`, and add it to
+the alias in `config.lua`.
 
 ## Tests
 
 ```sh
-~/.hammerspoon/dictation/.venv/bin/python ~/.hammerspoon/tests/dictation_test.py
+~/.hammerspoon/dictation/.venv/bin/python ~/.hammerspoon/tests/dictation_test.py  # server.py
+sh ~/.hammerspoon/tests/dictation_test.sh  # init.lua's insertion and history.lua
 ```
-
-It pins the text pipeline (vocabulary, stalls, end punctuation, rewrite guard)
-and checks the boosted decoder against parakeet-mlx's own on a weightless model,
-so run it after editing `server.py` or bumping parakeet-mlx. It loads only the
-cleanup model's cached tokenizer and uses no microphone, network, or Hammerspoon.
-
-```sh
-sh ~/.hammerspoon/tests/history_test.sh
-```
-
-It builds a Lua runner against Hammerspoon's LuaSkin and checks, in a temporary
-folder with Hammerspoon's real `hs.fs`, that `history.lua` names takes as
-`prune` expects and deletes only the oldest transcripts past the cap, never the
-newest or any other file. Run it after editing `history.lua`.
-
-```sh
-sh ~/.hammerspoon/tests/insert_test.sh
-```
-
-It loads `init.lua` with stub Hammerspoon APIs and a fake text field and pins
-the spaces added around inserted text (words, straight and curly quotes,
-openers, U+00A0, emoji, selections), which roles count as text fields (text
-fields, text areas, combo boxes; not sliders or plain web pages), the ⌘V paste
-when a field ignores the write or takes none (terminals, Mail's compose body),
-what each `insert` mode copies, the errors when focus moves or Accessibility
-fails, and that a take cancelled with Escape is still saved to history. Run it
-after editing how `init.lua` inserts text.

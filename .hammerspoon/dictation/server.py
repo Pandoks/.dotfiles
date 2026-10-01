@@ -367,10 +367,10 @@ class Engine:
             self.words = self.words | cleaner.words
             log("cleanup LLM ready" + (" (frozen prompt)" if cleaner.frozen_prompt else ""))
 
-    def glossary(self, request=None):
+    def glossary(self, request):
         """All words the models should spell correctly: dictionary + vocabulary."""
         words = list(self.config.get("vocabulary") or []) + [w for w, _ in self.dictionary]
-        app = (self.config.get("apps") or {}).get((request or {}).get("app") or "")
+        app = (self.config.get("apps") or {}).get(request.get("app") or "")
         if app:
             words += list(app.get("vocabulary") or [])
         return list(dict.fromkeys(words))
@@ -383,7 +383,7 @@ class Engine:
     # Real words are never fuzzy-matched ("recast"); load() adds the tokenizer's ("tacos").
     words = frozenset(Path("/usr/share/dict/words").read_text().lower().splitlines())
 
-    def apply_vocabulary(self, text, request=None):
+    def apply_vocabulary(self, text, request):
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
 
         # Words joined by " .'-", accents folded ("José" -> "jose"); "C++" is skipped (key "c").
@@ -457,47 +457,20 @@ class Engine:
                 word, span = glossary.get(joined.lower()) if both else match(joined, 0.9), 2
             if first and word:
                 last = second if span == 2 and second else first
-                out.append((first[1] + word + (last[3] or "") + last[4], span))
-                i += span
+                out.append(first[1] + word + (last[3] or "") + last[4])
             else:
-                out.append((tokens[i], 1))
-                i += 1
-        # Re-interleave the original separators; a merged pair keeps the one after it.
-        separators, result, consumed = parts[1::2], [], 0
-        for token, span in out:
-            result.append(token)
-            consumed += span
-            if consumed - 1 < len(separators):
-                result.append(separators[consumed - 1])
-        return "".join(result)
+                out.append(tokens[i])
+                span = 1
+            # The original separator after it; a merged pair drops the one inside.
+            out += parts[2 * (i + span) - 1 : 2 * (i + span)]
+            i += span
+        return "".join(out)
 
     # Words no finished sentence ends on; enforced here since the model adds a period anyway.
     CONTINUATION = frozenset(
-        [
-            "the",
-            "a",
-            "an",
-            "my",
-            "your",
-            "our",
-            "their",
-            "its",
-            "every",
-            "and",
-            "but",
-            "or",
-            "nor",
-            "because",
-            "although",
-            "whereas",
-            "whether",
-            "unless",
-            "if",
-            "than",
-            "via",
-            "versus",
-            "per",
-        ]
+        ["the", "a", "an", "my", "your", "our", "their", "its", "every"]
+        + ["and", "but", "or", "nor", "because", "although", "whereas", "whether", "unless", "if"]
+        + ["than", "via", "versus", "per"]
     )
 
     @classmethod
@@ -516,7 +489,7 @@ class Engine:
             or re.search(r"[?!][\"”’')\]]*$", raw.rstrip())
         ):
             return text  # "What if?" and "Oh my!" are complete
-        last, text = raw_words[-1], text.rstrip()
+        text = text.rstrip()
         # The end mark goes, closing quotes stay: '"I want the."' -> '"I want the"'.
         open_text = re.sub(r"\s*[.!?…—]+([\"”’')\]]*)$", r"\1", text)
 
@@ -558,15 +531,8 @@ class Engine:
         glossary = self.glossary(request)
         if glossary:
             parts.append("Domain vocabulary (spell these exactly): " + ", ".join(glossary) + ".")
-        context = []
-        if app:
-            context.append(f"Active app: {app}")
-        if request.get("title"):
-            context.append(f"Window: {request['title']}")
-        if request.get("url"):
-            context.append(f"URL: {request['url']}")
-        if request.get("selected"):
-            context.append(f"Selected text: {request['selected']}")
+        labels = {"app": "Active app", "title": "Window", "url": "URL", "selected": "Selected text"}
+        context = [f"{label}: {request[key]}" for key, label in labels.items() if request.get(key)]
         if context:
             parts.append(
                 "Context (for reference only, NEVER copy it into your output) — "
@@ -641,193 +607,13 @@ class Engine:
         out = re.sub(r"[^\S\n]+\n", "\n", out).strip()  # no space left before a line break
         return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
-    QUESTION_WORDS = frozenset(
-        [
-            "what",
-            "what's",
-            "why",
-            "how",
-            "how's",
-            "when",
-            "when's",
-            "where",
-            "where's",
-            "who",
-            "who's",
-            "which",
-        ]
-    )
-    AUXILIARIES = frozenset(
-        [
-            "can",
-            "could",
-            "would",
-            "should",
-            "shall",
-            "will",
-            "do",
-            "does",
-            "did",
-            "has",
-            "need",
-            "ought",
-            "must",
-            "mustn't",
-            "hadn't",
-            "am",
-            "is",
-            "are",
-            "was",
-            "were",
-            "isn't",
-            "aren't",
-            "wasn't",
-            "weren't",
-            "don't",
-            "doesn't",
-            "didn't",
-            "hasn't",
-            "haven't",
-            "can't",
-            "couldn't",
-            "won't",
-            "wouldn't",
-            "shouldn't",
-            "may",
-            "might",
-        ]
-    )
-
-    # Subjects that make an auxiliary opener a question ("Will you", not "Will do").
-    SUBJECTS = frozenset(
-        [
-            "i",
-            "you",
-            "we",
-            "they",
-            "he",
-            "she",
-            "it",
-            "this",
-            "that",
-            "these",
-            "those",
-            "there",
-            "the",
-            "a",
-            "an",
-            "my",
-            "your",
-            "our",
-            "their",
-            "his",
-            "her",
-            "its",
-            "any",
-            "some",
-            "every",
-            "anyone",
-            "anybody",
-            "anything",
-            "everyone",
-            "everybody",
-            "everything",
-            "someone",
-            "somebody",
-            "something",
-        ]
-    )
-    # After a bare wh-word they open a clause, not a question: "When I get home", "What a day".
-    CLAUSES = frozenset(
-        [
-            "i",
-            "you",
-            "we",
-            "they",
-            "he",
-            "she",
-            "it",
-            "a",
-            "an",
-            "the",
-            "this",
-            "that",
-            "these",
-            "those",
-        ]
-    )
-    # Singular subjects "do" never asks with: "Do it now", "Don't anyone move".
-    ORDERS = frozenset(
-        [
-            "it",
-            "this",
-            "that",
-            "he",
-            "she",
-            "a",
-            "an",
-            "every",
-            "anyone",
-            "anybody",
-            "anything",
-            "everyone",
-            "everybody",
-            "everything",
-            "someone",
-            "somebody",
-            "something",
-        ]
-    )
-
     @classmethod
-    def is_question(cls, raw, names):
-        """Ends in '?', or its open last sentence asks (not a fragment or a negative command)."""
-        raw = raw.strip()
-        if re.search(r"\?[!?]*[\"”’')\]]*$", raw):
-            return True  # "Can you believe it?!"
-        if re.search(r"[.!][\"”’')\]]*$", raw):
-            return False
-        last = re.split(r"[.!?][\"”’')\]]*\s+", raw.replace("’", "'"))[-1]  # 'He said "yes." Can'
-        cased = re.findall(r"[^\W_]+(?:'[^\W_]+)*", last)  # "Don’t", not "the’" or "‘Is"; "2" too
-        words = [w.lower() for w in cased]
-        if not words or cls.dangles(cased):
-            return False
-        after = words[1] if len(words) > 1 else ""
-        # A name, or a glossary word, is a subject: "Did GitHub go down", "Is yabai up".
-        named = len(words) > 1 and (cased[1][0].isupper() or re.sub(r"'s$", "", cased[1]) in names)
-        if words[0] in cls.QUESTION_WORDS:
-            # "What not to do", "When John arrives"; "What's it" stays a question.
-            return after != "not" and ("'" in words[0] or not (after in cls.CLAUSES or named))
-        # "Do it now", and a determiner with one noun: "Do the dishes", "Do your homework".
-        if words[0] in ("do", "don't") and (
-            after in cls.ORDERS or (after in cls.DETERMINERS and len(words) == 3)
-        ):
-            return False
-        # A quantifier or number too ("Can all users log in"), but "Do two things" and "Don't all
-        # talk at once" order.
-        counts = after in cls.DETERMINERS or bool(cls.numbers(after))
-        subject = after in cls.SUBJECTS or named or (words[0] not in ("do", "don't") and counts)
-        if words[0] in ("have", "had"):
-            # "Have the tests passed" asks; "Have a good day" and "Had a great time" don't.
-            # After the subject: "oven" in "Have the oven ready" is no participle.
-            start = 2 if named else 3
-            done = any(
-                re.fullmatch(r"\w+(?:ed|en)|\w*[ao]ught", w) or w in cls.PARTICIPLES
-                for w in words[start:6]
-            )
-            # "Had he arrived" asks; "Have it ready" orders.
-            pronouns = ("i", "you", "we", "they") + ("he", "she", "it") * (words[0] == "had")
-            return after in pronouns or (
-                (after in cls.DETERMINERS or named or cls.numbers(after))
-                and done  # "Have John arrived"
-            )
-        return words[0] in cls.AUXILIARIES and subject
-
-    @classmethod
-    def ensure_question(cls, raw, text, names):
-        """End a question-shaped dictation with '?' in place of its end mark, inside quotes too."""
+    def ensure_question(cls, raw, text):
+        """The speech model's '?' survives the cleanup's end mark, inside quotes too."""
         text = text.strip()
-        if not text or not cls.is_question(raw, names) or re.search(r"\?!*[\"”’')\]]*$", text):
+        if not text or not re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()):  # "?!" too
+            return text
+        if re.search(r"\?!*[\"”’')\]]*$", text):
             return text  # "?!" asks too
         open_text = re.sub(r"\s*[.!?,;:]+([\"”’')\]]*)$", r"\1", text)
 
@@ -840,13 +626,10 @@ class Engine:
             ]
             return [clause[0] for clause in words if clause]
 
-        # The speech model's "?" stands while the word that opened the question still opens a clause:
-        # not "Is it ready, no wait, just ship it?" -> "Just ship it.", or "Is it ready, no wait,
-        # the status is green?" -> "The status is green."
-        asked = re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip())
-        asked = asked and set(openers(raw)[:1]) <= set(openers(text))
-        # Its last sentence must still ask: not "Can you check this? I think it's broken."
-        if not (asked or cls.is_question(open_text, names)):
+        # It stands while the word that opened the question still opens a clause: not "Is it ready,
+        # no wait, just ship it?" -> "Just ship it.", or "..., the status is green?" -> "The status
+        # is green."
+        if not set(openers(raw)[:1]) <= set(openers(text)):
             return text
         # Inside quotes that open the question ('"Can you help?"'), not ones within it
         # ('Did he say "yes"?').
@@ -900,19 +683,6 @@ class Engine:
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
-    # Determiners that open a noun subject after "have": "Have the tests passed".
-    DETERMINERS = frozenset(
-        ["the", "any", "all", "these", "those", "your", "our", "their", "my", "his", "her", "its"]
-        + ["some", "every", "each", "both", "many", "few", "several", "no"]
-    )
-    # Irregular participles unlike their base: "Have the workers left". Not "run" or "put":
-    # "Have the tests run nightly" orders, and a missed "?" leaves cleanup's own mark.
-    PARTICIPLES = frozenset(
-        ["been", "done", "seen", "gone", "had", "got", "made", "left", "sent", "spent", "built"]
-        + ["lost", "found", "held", "kept", "told", "sold", "paid", "said", "heard", "won", "met"]
-        + ["flown", "shown", "known", "grown", "thrown", "drawn", "blown", "torn", "worn", "led"]
-        + ["begun", "sung", "swum", "drunk", "stuck", "struck", "hung", "slept", "felt", "fed"]
-    )
     # Discourse markers a filler "you know" or "I mean" follows: "so you know we should".
     MARKERS = frozenset(["so", "and", "but", "well", "yeah", "okay", "ok", "oh", "um", "uh"])
     # Words after which "like" is a filler ("it was like", "so like"); after others it is meant.
@@ -1059,12 +829,10 @@ class Engine:
             nots = cls.NEGATIONS | {"no"} if no else cls.NEGATIONS
             return any(w in nots or w.endswith("n't") for w in tokens)
 
-        raw_words, out_words = words(raw), words(out)
-        if not out_words or len(out_words) > 1.6 * len(raw_words) + 3:
-            return True  # far longer than what was said: an answer/explanation
+        spans = list(re.finditer(word, raw))
+        raw_words, out_words = [s.group() for s in spans], words(out)
 
         # Fillers by word index: "like" after "I" and a "you know" running on are meant words.
-        spans = list(re.finditer(word, raw))
         fillers, meant = set(), set()
         for m in cls.DROPPED_RE.finditer(raw):
             before = [s.group() for s in spans if s.end() <= m.start()][-1:]
@@ -1280,7 +1048,7 @@ class Engine:
         text = self.apply_vocabulary(self.apply_dictionary(text), request)
         # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
         said = self.strip_stalls(raw)
-        return self.end_policy(said, self.ensure_question(said, text, self.glossary(request)))
+        return self.end_policy(said, self.ensure_question(said, text))
 
     def handle(self, request):
         command = request.get("cmd")
@@ -1316,7 +1084,7 @@ def main():
         engine.load()
     except Exception as error:  # noqa: BLE001 - Convert backend failures into protocol errors.
         # Traceback first: Hammerspoon stops reading at the error.
-        emit({"event": "log", "msg": traceback.format_exc()})
+        log(traceback.format_exc())
         emit({"event": "error", "msg": f"load failed: {error!r}"})
         return 1
     # MLX keeps freed buffers (up to most of RAM): release the load's and each take's.
@@ -1339,7 +1107,7 @@ def main():
             engine.handle(request)
         except Exception as error:  # noqa: BLE001 - Every request gets a terminal response.
             emit({"event": "error", "id": request.get("id"), "msg": str(error)})
-            emit({"event": "log", "msg": traceback.format_exc()})
+            log(traceback.format_exc())
         mx.clear_cache()
     return 0
 

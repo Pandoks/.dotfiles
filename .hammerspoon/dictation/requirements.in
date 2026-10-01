@@ -1,8 +1,0 @@
-# Direct deps; setup.sh syncs .venv to the hashed lock requirements.txt (regenerate: its header).
-parakeet-mlx==0.5.2  # server.py copies its TDT greedy decoder
-mlx
-mlx-audio
-mlx-whisper
-mlx-lm
-huggingface-hub
-numpy

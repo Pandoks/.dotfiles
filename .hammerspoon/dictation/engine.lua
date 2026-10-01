@@ -17,10 +17,8 @@ local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 
 ---@param config DictationConfig
 ---@param handlers {
----  onReady: fun(),
 ---  onFinal: fun(result: { id: integer, text: string }),
 ---  onError: fun(message: string, id?: integer),
----  onLog: fun(message: string),
 ---}
 function engine.new(config, handlers)
   local python = directory .. ".venv/bin/python"
@@ -43,19 +41,14 @@ function engine.new(config, handlers)
     if self.stopped then
       -- hs.task may deliver the last stderr after the exit callback; keep it in the log.
       if stderr and stderr ~= "" then
-        handlers.onLog(stderr)
+        print("Dictation backend: " .. stderr)
       end
       return true
     end
     self.errors = (self.errors .. (stderr or "")):sub(-4000)
-    self.buffer = self.buffer .. (stdout or "")
-    while true do
-      local newline = self.buffer:find("\n")
-      if not newline then
-        break
-      end
-      local line = self.buffer:sub(1, newline - 1)
-      self.buffer = self.buffer:sub(newline + 1)
+    local buffer = self.buffer .. (stdout or "")
+    self.buffer = buffer:match("[^\n]*$") -- a partial line waits for the next chunk
+    for line in buffer:gmatch("(.-)\n") do
       if line ~= "" then
         local ok, event = pcall(hs.json.decode, line)
         if not ok or type(event) ~= "table" then
@@ -64,7 +57,7 @@ function engine.new(config, handlers)
         elseif event.event == "ready" then
           -- Load chatter (HF warnings, progress bars) is no crash reason.
           self.ready, self.errors = true, ""
-          handlers.onReady()
+          print("Dictation: backend ready")
         elseif event.event == "final" then
           if type(event.id) ~= "number" or type(event.text) ~= "string" then
             failure("invalid transcription response")
@@ -78,7 +71,7 @@ function engine.new(config, handlers)
             failure(event.msg or "unknown error")
           end
         elseif event.event == "log" then
-          handlers.onLog(event.msg or "")
+          print("Dictation backend: " .. (event.msg or ""))
         else
           -- Not one this client knows: a take waiting on it would never end.
           failure("unknown backend event: " .. line)

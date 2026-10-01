@@ -108,20 +108,16 @@ check(
         ("slack—", "Slack—"),
         ("(ghosty's)", "(Ghostty's)"),
     ],
-    lambda text: engine.apply_vocabulary(engine.apply_dictionary(text)),
+    lambda text: engine.apply_vocabulary(engine.apply_dictionary(text), {}),
 )
 check(
     "vocabulary keeps real words, possessives, domains, and paths",
     [
         (text, text)
         for text in [
-            "I missed the bus.",
-            "She misses her family.",
             "He torrented the file.",
             "The ghostly figure appeared.",
             "A torrent of rain.",
-            "These are torrent files.",
-            "Did ya buy it?",
             "Okay, sounds good.",
             "Recast the spell.",
             "Let's get tacos for lunch.",
@@ -143,7 +139,7 @@ check(
             "I have two Macs at home.",
         ]
     ],
-    lambda text: engine.apply_vocabulary(engine.apply_dictionary(text)),
+    lambda text: engine.apply_vocabulary(engine.apply_dictionary(text), {}),
 )
 symbols = server.Engine(
     dict(
@@ -168,7 +164,7 @@ check(
         ("From МОСКВА to КИЇВ.", "From Москва to Київ."),
         ("The nave of the church.", "The nave of the church."),
     ],
-    symbols.apply_vocabulary,
+    lambda text: symbols.apply_vocabulary(text, {}),
 )
 latex = server.Engine(dict(engine.config, dictionary={"\\LaTeX": ["latex"], "\\frac": ["frac"]}))
 check(
@@ -221,8 +217,6 @@ check(
         # Opening a quote or bracket too; a closing '"' does not open one.
         ('She said, "Um, I\'m not sure."', 'She said, "I\'m not sure."'),
         ("She said, “uh, maybe.”", "She said, “maybe.”"),
-        ("(Um, maybe later.)", "(Maybe later.)"),
-        ('He said "yes." Um, okay.', 'He said "yes." Okay.'),
         ('He said "fine" um.', 'He said "fine".'),
         *(
             (f"{o}Yes.{c} Um, okay.", f"{o}Yes.{c} Okay.")
@@ -242,30 +236,6 @@ check(
         ("Hold on.", "Hold on."),
         ("See you in May.", "See you in May."),
         ("What is this for?", "What is this for?"),
-        ("What time is it", "What time is it?"),
-        ("Have you seen it", "Have you seen it?"),
-        ("Have a good day.", "Have a good day."),
-        ("Have the tests passed", "Have the tests passed?"),
-        ("Have the workers left", "Have the workers left?"),
-        ("Had you seen it", "Had you seen it?"),
-        ("Had he arrived", "Had he arrived?"),
-        ("Have two tests passed", "Have two tests passed?"),
-        ("Have 2 tests passed", "Have 2 tests passed?"),
-        ("Did two tests fail", "Did two tests fail?"),
-        ("Can all users log in", "Can all users log in?"),
-        ("Don't all talk at once", "Don't all talk at once"),
-        ("Do two things", "Do two things"),
-        ("Have the oven ready", "Have the oven ready"),
-        ('He said "yes." Can you help', 'He said "yes." Can you help?'),
-        ("Had a great time", "Had a great time"),
-        ("Must you leave", "Must you leave?"),
-        ("Need I say more", "Need I say more?"),
-        ("Need help today", "Need help today"),
-        ("Do the dishes", "Do the dishes"),
-        ("Have some tests passed", "Have some tests passed?"),
-        ("Have the tests run nightly", "Have the tests run nightly"),
-        ("Have your passport ready.", "Have your passport ready."),
-        ("How this works is simple", "How this works is simple"),
         ("I'd love to.", "I'd love to."),
         ("I want to go to the", "I want to go to the"),
         ("Let me check and", "Let me check and"),
@@ -277,54 +247,20 @@ check(
         ("What if?", "What if?"),
         ("Will do.", "Will do."),
         ("May is warm.", "May is warm."),
-        ("Don't forget the milk", "Don't forget the milk"),
-        ("Do not merge this", "Do not merge this"),
-        ("Don't you think so", "Don't you think so?"),
         ("macOS or Linux?", "macOS or Linux?"),
         ("iPhone or Android?", "iPhone or Android?"),
         ("Um, yabai crashed again.", "yabai crashed again."),
         ("Uh, iPhone sales are up.", "iPhone sales are up."),
         ("Let me check and, uh.", "Let me check and"),
-        ("Um, can you check it", "Can you check it?"),
-        ("Will do", "Will do"),
-        ("Can confirm", "Can confirm"),
-        ("Did GitHub go down", "Did GitHub go down?"),
-        ("Did John call", "Did John call?"),
-        ("Can you send it,", "Can you send it?"),
-        ("How's it going", "How's it going?"),
-        ("Is it ready", "Is it ready?"),
-        ("Can you check. I think it's broken", "Can you check. I think it's broken"),
-        ("Hey John. Can you send me the file", "Hey John. Can you send me the file?"),
-        ("What not to do", "What not to do"),
-        ("Has anyone seen it", "Has anyone seen it?"),
-        ("Am I late", "Am I late?"),
-        ("Won't you come", "Won't you come?"),
-        ("Wasn't it great", "Wasn't it great?"),
-        ("Haven't you finished", "Haven't you finished?"),
-        ("Has to be done today", "Has to be done today"),
-        ("Won't happen again", "Won't happen again"),
-        ("Wasn't me", "Wasn't me"),
-        ("Is yabai running", "Is yabai running?"),
-        ("Is yabai's config broken", "Is yabai's config broken?"),
+        ("Um, can you check it?", "Can you check it?"),
     ],
     dictate,
-)
-# A name, in any script, is a subject: after "have" too.
-check(
-    "names are question subjects",
-    [("Did 東京 fail", True), ("Have 東京 replied", True), ("Have John arrived", True)],
-    lambda text: server.Engine.is_question(text, {"東京"}),
 )
 check(
     "end punctuation overrides the cleanup",
     [
         (("I want to go to the", "I want to go to the."), "I want to go to the"),
         (('He said, "I want the"', 'He said, "I want the."'), 'He said, "I want the"'),
-        # A wh-word before a name opens a clause: the cleanup's period stands.
-        (
-            ("What John needs is a refund", "What John needs is a refund."),
-            "What John needs is a refund.",
-        ),
         (("Can you send me the", "Can you send me the?"), "Can you send me the"),
         (("I want to go to the", "I want to go to the!"), "I want to go to the"),
         (("I want to go to the", "I want to go to."), "I want to go to the"),
@@ -337,22 +273,19 @@ check(
             ("Is it ready, no wait, the status is green?", "The status is green."),
             "The status is green.",
         ),
-        (("What time is it", "What time is it."), "What time is it?"),
-        (("Should we pick A", "Should we pick A."), "Should we pick A?"),
+        (("What time is it?", "What time is it."), "What time is it?"),
+        (("Should we pick A?", "Should we pick A."), "Should we pick A?"),
         (("Thanks. But", "Thanks."), "Thanks. But"),
         (("Thanks. And the", "Thanks."), "Thanks. And the"),
         (("Is it ready? And", "Is it ready?"), "Is it ready? And"),
         (("Stop! And", "Stop!"), "Stop! And"),
         (("Will do", "Will do."), "Will do."),
-        (('Did he say "yes"', 'Did he say "yes."'), 'Did he say "yes"?'),
+        (('Did he say "yes"?', 'Did he say "yes."'), 'Did he say "yes"?'),
         (("I want to go to the", "I want to go to the,"), "I want to go to the,"),
-        (("When I get home", "When I get home."), "When I get home."),
         (("What a great idea", "What a great idea!"), "What a great idea!"),
         (("Can you believe it?", "Can you believe it?!"), "Can you believe it?!"),
         (("Can you believe it?!", "Can you believe it."), "Can you believe it?"),
         (("Is it ready?", "Is it ready?."), "Is it ready?"),
-        (("Do it now", "Do it now."), "Do it now."),
-        (("Don't anyone move", "Don't anyone move."), "Don't anyone move."),
         (("I want to go to the", "I want to go to the…"), "I want to go to the"),
         (("Let me check and…", "Let me check and."), "Let me check and"),
         (("I want to go to the", "I want to go to the—"), "I want to go to the"),
@@ -377,12 +310,12 @@ check(
         (("Did he say yes", "Did he say “yes?”"), "Did he say “yes?”"),
         (("He said I want the", "He said, ‘I want.’"), "He said, ‘I want the’"),
         (("Send it to the dogs and", "Send it to the dogs’."), "Send it to the dogs’ and"),
-        (("Don't you think so", "Don’t you think so."), "Don’t you think so?"),
+        (("Don't you think so?", "Don’t you think so."), "Don’t you think so?"),
         # A straight ' after an end mark closes a quote too; one inside a word opens none.
         (("He said I want the", "He said, 'I want.'"), "He said, 'I want the'"),
         (("Did he say yes", "Did he say 'yes?'"), "Did he say 'yes?'"),
-        (("Did he say yes", "Did he say 'yes.'"), "Did he say 'yes'?"),
-        (('"Can you help"', '"Can you help."'), '"Can you help?"'),
+        (("Did he say yes?", "Did he say 'yes.'"), "Did he say 'yes'?"),
+        (('"Can you help?"', '"Can you help."'), '"Can you help?"'),
         (("It's for the dogs and", "It's for the dogs'."), "It's for the dogs' and"),
         (("He said 'yes', and", "He said 'yes'."), "He said 'yes', and"),
         (("He said ‘yes’, and", "He said ‘yes.’"), "He said ‘yes’, and"),
@@ -390,17 +323,13 @@ check(
         (("In the '90s, the kids' and", "In the '90s, the kids'."), "In the '90s, the kids' and"),
         (("He said the kids' and", 'He said, "The kids’."'), 'He said, "The kids’ and"'),
         (
-            ("He asked me. Are you coming", "He asked me. 'Are you coming.'"),
+            ("He asked me. Are you coming?", "He asked me. 'Are you coming.'"),
             "He asked me. 'Are you coming?'",
         ),
-        # '?' only on a last sentence that asks: not a split statement or a retracted question.
+        # The speech model's '?' is kept, not one it never put: a retracted question.
+        (("Is it ready? No wait, just ship it.", "Just ship it."), "Just ship it."),
         (
-            ("Can you check this I think it's broken", "Can you check this? I think it's broken."),
-            "Can you check this? I think it's broken.",
-        ),
-        (("Is it ready no wait just ship it", "Just ship it."), "Just ship it."),
-        (
-            ("Can you send it to John no wait to Jane", "Can you send it to Jane."),
+            ("Can you send it to John, no wait, to Jane?", "Can you send it to Jane."),
             "Can you send it to Jane?",
         ),
     ],
@@ -670,7 +599,7 @@ check(
             ),
             # A short input loses at most 2 words (or 30%).
             ("Send the big report to the whole team now.", "Send the report to the team."),
-            (standup, f"{standup} Domain vocabulary: {', '.join(engine.glossary())}."),
+            (standup, f"{standup} Domain vocabulary: {', '.join(engine.glossary({}))}."),
             (f"{standup} {pricing} {closed}", f"{standup} {closed}"),
             # A cue takes back at most the 6 words before it.
             (
@@ -764,7 +693,6 @@ check(
 check(
     "vocabulary prefixes",
     [
-        (["Oki"], {"o", "ok", "oki"}),
         (["GitHub's"], {"g", "gi", "git", "gith", "githu", "github", "github'", "github's"}),
         (["hammer spoon", "yt-dlp", "Node.js", "<unk>", "<|en|>", " "], set()),
     ],

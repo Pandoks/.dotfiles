@@ -23,9 +23,6 @@ local fade = 12 -- frames (~0.4 s at 30 fps) from the ripple intro to the live e
 function overlay.new(height, bands)
   local self = setmetatable({}, overlay)
   self.height = height
-  self.thinking = false
-  self.warmth = 1
-  self.phase = 0
   -- Baseline diamond envelope so an idle pill still looks like Raycast's.
   self.baseline = {}
   self.bars = {}
@@ -65,7 +62,6 @@ function overlay.new(height, bands)
   end
   self.canvas = canvas
   self.width, self.barWidth = width, barWidth
-  self:_layout()
   return self
 end
 
