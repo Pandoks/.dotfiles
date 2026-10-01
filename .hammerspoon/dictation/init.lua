@@ -28,6 +28,7 @@ local browsers = {
   ["com.brave.Browser"] = "Brave Browser",
   ["company.thebrowser.Browser"] = "Arc",
   ["com.microsoft.edgemac"] = "Microsoft Edge",
+  ["net.imput.helium"] = "Helium",
 }
 
 -- The focused UI element; nil and an error string when accessibility fails.
