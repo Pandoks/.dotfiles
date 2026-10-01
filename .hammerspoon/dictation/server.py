@@ -784,7 +784,7 @@ class Engine:
         if re.search(r"[.!][\"”’')\]]*$", raw):
             return False
         last = re.split(r"[.!?][\"”’')\]]*\s+", raw.replace("’", "'"))[-1]  # 'He said "yes." Can'
-        cased = re.findall(r"[^\W\d_]+(?:'[^\W\d_]+)*", last)  # "Don’t", not "the’" or "‘Is"
+        cased = re.findall(r"[^\W_]+(?:'[^\W_]+)*", last)  # "Don’t", not "the’" or "‘Is"; "2" too
         words = [w.lower() for w in cased]
         if not words or cls.dangles(cased):
             return False
@@ -843,6 +843,13 @@ class Engine:
         + ["hardly", "barely", "scarcely", "rarely", "seldom", "approximately", "roughly"]
         + ["nearly", "almost", "about", "around", "exactly", "least", "most", "more", "less"]
         + ["fewer", "over", "under", "above", "below", "greater", "only", "up"]
+    )
+    # Opposites a cleanup must not swap: "Turn logging off" is not "on".
+    OPPOSITES = frozenset(
+        frozenset(pair.split("/"))
+        for pair in ["on/off", "enable/disable", "enabled/disabled", "before/after", "start/stop"]
+        + ["open/close", "true/false", "left/right", "add/remove", "allow/deny", "show/hide"]
+        + ["lock/unlock", "increase/decrease", "first/last", "min/max", "up/down"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
@@ -1123,6 +1130,9 @@ class Engine:
                 return True  # a dropped sentence or "not" the user never took back
             if negative(out_words[j1:j2]) and not negative(raw_words[i1:i2]):
                 return True  # a "not" or "no" the user never said
+            said, wrote = set(raw_words[i1:i2]), set(out_words[j1:j2])
+            if any({a, b} in cls.OPPOSITES for a in said - wrote for b in wrote - said):
+                return True  # an opposite swapped in
             if tag != "equal" and any(k in meant and k not in corrected for k in range(i1, i2)):
                 return True  # a meant "like" or "you know" cut: "I like cats" -> "I cats"
             # Unsaid words first, last, or as a sentence of their own are a reply: "Sure. Thanks."
