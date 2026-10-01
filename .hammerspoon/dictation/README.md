@@ -256,8 +256,10 @@ sh ~/.hammerspoon/tests/insert_test.sh
 ```
 
 It loads `init.lua` with stub Hammerspoon APIs and a fake text field and pins
-the spaces added around inserted text (words, quotes, openers, U+00A0, emoji,
-selections), which roles count as text fields (text fields, text areas, combo
-boxes; not sliders or plain web pages), the ⌘V paste when a field ignores the
-write or takes none (terminals, Mail's compose body), and the error when focus
-moves. Run it after editing how `init.lua` inserts text.
+the spaces added around inserted text (words, straight and curly quotes,
+openers, U+00A0, emoji, selections), which roles count as text fields (text
+fields, text areas, combo boxes; not sliders or plain web pages), the ⌘V paste
+when a field ignores the write or takes none (terminals, Mail's compose body),
+what each `insert` mode copies, the errors when focus moves or Accessibility
+fails, and that a take cancelled with Escape is still saved to history. Run it
+after editing how `init.lua` inserts text.

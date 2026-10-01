@@ -271,13 +271,16 @@ check(
         (("He said I want the", 'He said, "I want the."'), 'He said, "I want the"'),
         (("Let us compare Python versus", "Let us compare Python vs."), "Let us compare Python vs"),
         (("Did he say yes", 'Did he say "yes?"'), 'Did he say "yes?"'),
-        # A cut word comes back after the comma said before it, inside the cleanup's quotes.
+        # A cut word comes back after the comma or colon said before it, inside closing quotes.
         (("Send it to John, and", "Send it to John."), "Send it to John, and"),
         (("We need eggs, milk, and", "We need eggs, milk."), "We need eggs, milk, and"),
         (("Send it to John and", "Send it to John,"), "Send it to John, and"),
+        (("Send it to John, and", "Send it to John,"), "Send it to John, and"),
+        (("The plan is simple: the", "The plan is simple."), "The plan is simple: the"),
         (("He said I want the", 'He said, "I want."'), 'He said, "I want the"'),
         (('He said "yes", and', 'He said "yes."'), 'He said "yes", and'),
-        # The cleanup's curly marks: "it’s" still matches the raw "it's".
+        # The cleanup's capitals and curly marks: "API" matches "api", "it’s" matches "it's".
+        (("Check the api and", "Check the API."), "Check the API and"),
         (("I think it's the", "I think it’s."), "I think it’s the"),
         (("He said I want the", "He said, “I want the.”"), "He said, “I want the”"),
         (("He said I want the", "He said, “I want.”"), "He said, “I want the”"),
@@ -336,6 +339,11 @@ check(
             ("Send it to Bob, no wait, nobody.", "Send it to nobody."),
             ("Ship it without, uh, the migration.", "Ship it without the migration."),
             ("I want go home.", "I want to go home."),
+            # Glossary entries may replace the misheard words they fix.
+            (
+                "After the update ghostly, recast, and mice all broke again.",
+                "After the update Ghostty, Raycast, and mise all broke again.",
+            ),
             (
                 "Here's a list. Eggs, milk, and bread.",
                 "Here's a list:\n\n- Eggs\n- Milk\n- Bread",
@@ -440,6 +448,17 @@ check(
                 "Send the final quarterly sales report to the team today.",
             ),
             ("The capital of France is", "The capital of France is Paris."),
+            # A synonym is no fix, and glossary words replace only words that were lost.
+            (
+                "Please check the server logs and tell me what broke.",
+                "Please review the server logs and inform me what failed.",
+            ),
+            (
+                "Open the terminal, then run the update.",
+                "Open the Ghostty terminal, then run the mise yabai update.",
+            ),
+            # A short input loses at most 2 words (or 30%).
+            ("Send the big report to the whole team now.", "Send the report to the team."),
             (standup, f"{standup} Domain vocabulary: {', '.join(engine.glossary())}."),
             (f"{standup} {pricing} {closed}", f"{standup} {closed}"),
             # A cue takes back at most the 6 words before it.

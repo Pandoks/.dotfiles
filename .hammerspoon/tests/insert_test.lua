@@ -1,6 +1,6 @@
 local root = assert(arg[1], "pass the dictation directory")
 local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
-local toggle, handlers, done, focus, copied
+local toggle, handlers, done, escape, focus, copied, saved
 local config = {
   insert = "direct",
   trigger = "hotkey",
@@ -48,7 +48,12 @@ assert(loadfile(
           end,
         },
         ["dictation.overlay"] = { new = stub },
-        ["dictation.history"] = stub(),
+        ["dictation.history"] = {
+          save = function(text)
+            saved[#saved + 1] = text
+          end,
+          prune = function() end,
+        },
         ["dictation.recorder"] = {
           start = function()
             return {}
@@ -72,7 +77,10 @@ assert(loadfile(
           toggle = callback
           return stub()
         end,
-        new = stub,
+        new = function(_, _, callback)
+          escape = callback
+          return stub()
+        end,
       },
       timer = {
         doEvery = stub,
@@ -160,7 +168,7 @@ end
 
 -- One take: start, stop with `element` focused, then the backend's result after `moved` focus.
 local function dictate(element, text, moved)
-  alerts, strokes, focus = {}, {}, element
+  alerts, strokes, focus, copied, saved = {}, {}, element, nil, {}
   toggle()
   toggle()
   done("take.wav", 1, 1)
@@ -178,9 +186,17 @@ test("spacing joins the text to its neighbors", function()
     { "Hi\u{a0}", "", "", "there.", "there." }, -- browsers' typed trailing space
     { "Hello\n", "", "", "there.", "there." },
     { "(", "", ")", "aside", "aside" },
+    { "[", "", "]", "link", "link" },
+    { "{", "", "}", "x", "x" },
+    { "<", "", ">", "div", "div" },
+    { "“", "", "”", "hi", "hi" }, -- smart quotes (Notes, Pages, Mail)
+    { "‘", "", "’", "hi", "hi" },
+    { "", "", "(aside)", "Note", "Note " },
     { "~/", "", "", "notes", "notes" },
     { "end", "", ".", "word", " word" },
     { 'He said "', "", '"', "hi", "hi" }, -- opening straight quote
+    { "He said '", "", "'", "hi", "hi" },
+    { '("', "", "", "hi", "hi" }, -- a quote opening after an opener
     { 'He said "hi"', "", "", "and left.", " and left." }, -- closing straight quote
     { "", "", '"quoted"', "Say", "Say " },
     { "😀", "", "", "hi", " hi" },
@@ -215,13 +231,23 @@ end)
 test("a slider is not a text field: auto copies, direct says so", function()
   -- Chromium sliders take the write and drop it, like their fields do.
   local slider = field("", "", "1 minute of 3", true, "AXSlider")
-  config.insert, copied = "auto", nil
+  config.insert = "auto"
   dictate(slider, "Note to self.")
   config.insert = "direct"
   assert(slider.written == nil and #strokes == 0, "wrote into the slider")
   assert(copied == "Note to self." and alerts[1] == "Dictation copied to clipboard", "no copy")
   dictate(slider, "Note to self.")
   assert(slider.written == nil and alerts[1] == "Dictation: no text field is focused")
+  assert(copied == nil, "direct mode copied")
+end)
+
+test("clipboard mode copies and inserts nothing", function()
+  local element = field("Hello", "", "")
+  config.insert = "clipboard"
+  dictate(element, "there.")
+  config.insert = "direct"
+  assert(element.written == nil and #strokes == 0 and #alerts == 0, "inserted")
+  assert(copied == "there.", "no copy")
 end)
 
 test("a combo box (search, autocomplete) is a text field", function()
@@ -272,11 +298,45 @@ end)
 
 test("a plain web page is not a text field: auto copies", function()
   local web = page(false)
-  config.insert, copied = "auto", nil
+  config.insert = "auto"
   dictate(web, "Note to self.")
   config.insert = "direct"
   assert(web.written == nil and #strokes == 0, "pasted into a plain page")
   assert(copied == "Note to self." and alerts[1] == "Dictation copied to clipboard", "no copy")
+end)
+
+-- A field whose isAttributeSettable fails with hs.axuielement's `problem` message.
+local function unsettable(problem)
+  local element = field("$ ", "", "")
+  function element:isAttributeSettable()
+    return nil, problem
+  end
+  return element
+end
+
+test("an accessibility error is reported, not pasted over", function()
+  local element = unsettable("Messaging failed") -- kAXErrorCannotComplete, e.g. a hung app
+  dictate(element, "ls")
+  assert(element.written == nil and #strokes == 0, "wrote or pasted")
+  local message = "Dictation: could not check the focused field's AXSelectedText: Messaging failed"
+  assert(alerts[1] == message, tostring(alerts[1]))
+end)
+
+test("a field without a settable selection attribute is pasted with ⌘V", function()
+  local element = unsettable("Attribute is not supported by target")
+  dictate(element, "ls")
+  assert(element.written == nil and strokes[1] == "cmd+v" and #alerts == 0, "not pasted")
+end)
+
+test("a take cancelled while transcribing is saved, not inserted", function()
+  local element = field("", "", "")
+  alerts, strokes, focus, saved = {}, {}, element, {}
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  escape()
+  handlers.onFinal({ id = serial, text = "Keep this." })
+  assert(saved[1] == "Keep this." and element.written == nil and #alerts == 0)
 end)
 
 print(passed .. " insert tests passed")
