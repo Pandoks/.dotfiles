@@ -664,6 +664,9 @@ class Engine:
             "does",
             "did",
             "has",
+            "must",
+            "mustn't",
+            "hadn't",
             "am",
             "is",
             "are",
@@ -791,8 +794,8 @@ class Engine:
         if words[0] in ("do", "don't") and after in cls.ORDERS:
             return False
         subject = after in cls.SUBJECTS or named
-        if words[0] == "have":
-            # "Have the tests passed" asks; "Have a good day" and "Have your passport ready" don't.
+        if words[0] in ("have", "had"):
+            # "Have the tests passed" asks; "Have a good day" and "Had a great time" don't.
             done = any(
                 re.fullmatch(r"\w+(?:ed|en)|\w*[ao]ught", w) or w in cls.PARTICIPLES
                 for w in words[2:6]
@@ -822,6 +825,7 @@ class Engine:
     # Words whose loss or addition flips the meaning ("nothing" -> "something"), besides "n't".
     NEGATIONS = frozenset(
         ["not", "never", "cannot", "nothing", "nobody", "none", "nowhere", "neither", "without"]
+        + ["hardly", "barely", "scarcely", "rarely", "seldom"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
@@ -869,6 +873,7 @@ class Engine:
     def numbers(cls, text):
         """Each number in `text` as the forms it may be written in: "three thirty" 3, 30, 330."""
         text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
+        text = re.sub(r"([-+])([$€£])(?=\d)", r"\2\1", text)  # "-$15" is "$-15"
         found, chunks, sign, unit, fresh = [], [], "", "", False
 
         def said(values):  # signed, and with a unit said before it ("$15")
@@ -876,7 +881,7 @@ class Engine:
             found.append({sign + v + unit for v in values})
             sign, unit, fresh = "", "", True
 
-        for token in re.findall(r"(?<![\w-])-?\d+|\d+|[a-z]+|[%°$€£]", text) + [""]:
+        for token in re.findall(r"(?<![\w+-])[-+]?\d+|\d+|[a-z]+|[%°$€£]", text) + [""]:
             if token == "and" and chunks and chunks[-1][2] >= 100:
                 continue  # "two hundred and five"
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
@@ -887,7 +892,7 @@ class Engine:
                     runs = [str(total + part) for total, part, _ in chunks]
                     said({"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)})
                     chunks = []
-                if token.lstrip("-").isdigit():
+                if token.lstrip("-+").isdigit():
                     said({token})
                 elif token in cls.MEASURES and fresh:  # after it: "15%", "fifteen dollars"
                     found[-1] = {n + cls.MEASURES[token] for n in found[-1]}
@@ -896,7 +901,8 @@ class Engine:
                     unit, fresh = cls.MEASURES[token], False
                 else:
                     # A sign word signs the number said next: "negative fifteen" is -15.
-                    sign, unit, fresh = "-" if token in ("minus", "negative") else "", "", False
+                    signs = {"minus": "-", "negative": "-", "positive": "+"}
+                    sign, unit, fresh = signs.get(token, ""), "", False
                 continue
             # Scales and words after one join a chunk, as do ones after tens ("ninety nine");
             # anything else starts one ("nineteen | ninety nine").

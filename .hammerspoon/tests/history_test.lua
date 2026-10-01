@@ -100,6 +100,18 @@ test("prune goes by creation time when the clock went back", function()
   expect(settings.directory, { newer })
 end)
 
+test("save never writes through a symlink planted at its name", function()
+  local settings = { directory = scratch .. "/planted", maxMegabytes = 10 }
+  clock = 1790000000
+  assert(fs.mkdir(settings.directory))
+  -- Dangling, so the name looks free; the take would land in the link's target.
+  local target, name = scratch .. "/stolen.txt", date("%Y-%m-%d_%H-%M-%S", clock) .. ".txt"
+  assert(fs.link(target, settings.directory .. "/" .. name, true))
+  local failure = history.save("secret", settings)
+  assert(failure and failure:find("could not write", 1, true), tostring(failure))
+  assert(not fs.attributes(target), "wrote through the symlink")
+end)
+
 test("prune reports a take it cannot delete", function()
   local settings = { directory = scratch .. "/locked", maxMegabytes = 10 }
   for _, time in ipairs({ 1790000000, 1790000001 }) do

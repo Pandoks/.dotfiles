@@ -38,6 +38,13 @@ local function focused()
   return systemWide:attributeValue("AXFocusedUIElement")
 end
 
+-- At most 200 characters: a whole document or a data: URL would flood the prompt.
+---@param text string
+local function clip(text)
+  local cut = utf8.offset(text, 201) -- byte after the 200th character, or nil if shorter
+  return cut and text:sub(1, cut - 1) or text
+end
+
 -- Frontmost app; window title, browser URL, and (opt-in) selection for our own prompt only.
 local function gatherContext()
   ---@type DictationTranscribeRequest
@@ -53,7 +60,7 @@ local function gatherContext()
   end
   local window = app:focusedWindow()
   if window then
-    context.title = window:title()
+    context.title = clip(window:title())
   end
   -- URL of the front tab when the app is a known browser.
   local browser = context.app and browsers[context.app]
@@ -66,10 +73,10 @@ local function gatherContext()
       local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage
       print("Dictation: could not read the URL: " .. tostring(message))
     elseif type(url) == "string" and #url > 0 then
-      context.url = url
+      context.url = clip(url)
     end
   end
-  -- Only a real selection, capped: the whole field leaks the document and gets echoed back.
+  -- Only a real selection: the whole field leaks the document and gets echoed back.
   if config.includeSelection then
     -- The field focused at stop, which is also the one the text goes into.
     local selection, problem = nil, targetError
@@ -80,8 +87,7 @@ local function gatherContext()
     if problem and problem ~= "Attribute is not supported by target" then
       print("Dictation: could not read the selection: " .. problem)
     elseif type(selection) == "string" and #selection > 0 then
-      local cut = utf8.offset(selection, 201) -- byte after the 200th character, or nil if shorter
-      context.selected = cut and selection:sub(1, cut - 1) or selection
+      context.selected = clip(selection)
     end
   end
   return context

@@ -1,10 +1,9 @@
 local history = {}
 
--- Run `command path` owner-only: transcripts may hold anything said.
----@param command string
----@param path string
-local function private(command, path)
-  return os.execute(("umask 077 && %s '%s'"):format(command, (path:gsub("'", "'\\''"))))
+-- Quoted for the shell.
+---@param text string
+local function quote(text)
+  return "'" .. text:gsub("'", "'\\''") .. "'"
 end
 
 ---@param settings DictationHistoryConfig
@@ -20,7 +19,11 @@ end
 ---@return string? failure
 function history.save(text, settings)
   local directory = folder(settings)
-  if not hs.fs.attributes(directory, "mode") and not private("mkdir -p", directory) then
+  -- Owner-only: transcripts may hold anything said.
+  if
+    not hs.fs.attributes(directory, "mode")
+    and not os.execute("umask 077 && mkdir -p " .. quote(directory))
+  then
     return "could not create " .. directory
   end
 
@@ -32,20 +35,10 @@ function history.save(text, settings)
     name = ("%s_%d.txt"):format(stamp, count)
   end
   local path = directory .. "/" .. name
-  -- Created 0600 first; writing keeps the mode.
-  if not private(": >", path) then
-    return "could not create " .. path
-  end
-  local file, message = io.open(path, "w")
-  if not file then
-    return "could not write " .. path .. ": " .. tostring(message)
-  end
-  -- Writes are buffered: a full disk surfaces only at close.
-  local written, problem = file:write(text, "\n")
-  local closed, reason = file:close()
-  if not (written and closed) then
-    os.remove(path)
-    return "could not write " .. path .. ": " .. tostring(problem or reason)
+  -- Owner-only, and set -C never writes through a file or symlink planted at the name.
+  local write = "umask 077 && set -C && printf '%%s\\n' %s > %s"
+  if not os.execute(write:format(quote(text), quote(path))) then
+    return "could not write " .. path
   end
 end
 
