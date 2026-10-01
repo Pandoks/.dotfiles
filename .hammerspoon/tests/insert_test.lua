@@ -1,6 +1,6 @@
 local root = assert(arg[1], "pass the dictation directory")
 local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
-local toggle, handlers, done, escape, focus, copied, saved
+local toggle, handlers, done, escape, focus, copied, saved, refused
 local config = {
   insert = "direct",
   trigger = "hotkey",
@@ -79,7 +79,12 @@ assert(loadfile(
         end,
         new = function(_, _, callback)
           escape = callback
-          return stub()
+          local key = stub()
+          -- The hotkey, or nil when macOS refuses the binding.
+          function key:enable()
+            return not refused and self or nil
+          end
+          return key
         end,
       },
       timer = {
@@ -343,6 +348,13 @@ test("a field without a settable selection attribute is pasted with ⌘V", funct
   local element = unsettable("Attribute is not supported by target")
   dictate(element, "ls")
   assert(element.written == nil and strokes[1] == "cmd+v" and #alerts == 0, "not pasted")
+end)
+
+test("an Escape binding macOS refuses is reported", function()
+  refused = true
+  dictate(field("", "", ""), "Hi.")
+  refused = false
+  assert(alerts[1] == "Dictation: could not bind Escape to cancel", tostring(alerts[1]))
 end)
 
 test("a take cancelled while transcribing is saved, not inserted", function()

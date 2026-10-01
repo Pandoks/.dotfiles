@@ -489,8 +489,13 @@ class Engine:
 
     def end_policy(self, raw, text):
         """Automatic end-of-text punctuation: leave unfinished dictations open."""
-        raw_words = re.sub(r"[.!?,;:]+$", "", raw.strip()).split()
-        if not raw_words or not self.dangles(raw_words) or raw.rstrip().endswith(("?", "!")):
+        # Closing quotes too: 'He said, "I want the"' ends on "the".
+        raw_words = re.sub(r"[.!?,;:\"”’')\]]+$", "", raw.strip()).split()
+        if (
+            not raw_words
+            or not self.dangles(raw_words)
+            or re.search(r"[?!][\"”’')\]]*$", raw.rstrip())
+        ):
             return text  # "What if?" and "Oh my!" are complete
         last, text = raw_words[-1], text.rstrip()
         # The end mark goes, closing quotes stay: '"I want the."' -> '"I want the"'.
@@ -764,15 +769,14 @@ class Engine:
         if not words or cls.dangles(cased):
             return False
         after = words[1] if len(words) > 1 else ""
+        # A name, or a glossary word, is a subject: "Did GitHub go down", "Is yabai up".
+        named = len(words) > 1 and (cased[1][0].isupper() or re.sub(r"'s$", "", cased[1]) in names)
         if words[0] in cls.QUESTION_WORDS:
-            # "What not to do"; "What's it" stays a question.
-            return after != "not" and ("'" in words[0] or after not in cls.CLAUSES)
+            # "What not to do", "When John arrives"; "What's it" stays a question.
+            return after != "not" and ("'" in words[0] or not (after in cls.CLAUSES or named))
         if words[0] in ("do", "don't") and after in cls.ORDERS:
             return False
-        # A name, or a glossary word, is a subject: "Did GitHub go down", "Is yabai up".
-        subject = len(words) > 1 and (
-            after in cls.SUBJECTS or cased[1][0].isupper() or re.sub(r"'s$", "", cased[1]) in names
-        )
+        subject = after in cls.SUBJECTS or named
         if words[0] == "have":
             # "Have the tests passed" asks; "Have a good day" and "Have your passport ready" don't.
             done = any(
@@ -877,8 +881,8 @@ class Engine:
     def looks_rewritten(cls, raw, out, allowed):
         """True if `out` is not a light edit of `raw`; `allowed` words may replace misheard ones."""
 
-        # Words keep inner apostrophes, curly ones too ("don’t"), not a quote's ("'yes'").
-        word = r"[a-z0-9]+(?:'[a-z0-9]+)*"
+        # Words in any script keep inner apostrophes, curly ones too ("don’t"), not a quote's.
+        word = r"[^\W_]+(?:'[^\W_]+)*"
         raw, out = raw.lower().replace("’", "'"), out.lower().replace("’", "'")
 
         def words(text):
@@ -927,19 +931,26 @@ class Engine:
             return any(tokens[k : k + len(run)] == run for k in range(len(tokens)))
 
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
-        # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one").
+        # A cue is set off by a mark ("no, make it Friday"); a negating "no" is not ("no tests").
+        paused = {k for k, m in enumerate(spans) if re.match(r"[,.;:!?…—]", raw[m.end() :])}
+        set_off = paused | {
+            k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
+        }
+        phrases = {("no", "wait"), ("i", "mean"), ("scratch", "that")}
+        # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one"). Besides
+        # "no", a cue is set off or a cue phrase: not "please wait for" or "it actually works".
         cues = [
             k
             for k, w in enumerate(raw_words)
             # "not actually" is no cue; "no wait" is.
-            if w in cls.CORRECTIONS and not negative(raw_words[k - 1 : k], no=False)
+            if w in cls.CORRECTIONS
+            and not negative(raw_words[k - 1 : k], no=False)
+            and (
+                w == "no"
+                or k in set_off
+                or {tuple(raw_words[k - 1 : k + 1]), tuple(raw_words[k : k + 2])} & phrases
+            )
         ]
-        # A cue is set off by a mark ("no, make it Friday"); a negating "no" is not ("no tests").
-        paused = {
-            k
-            for k, m in enumerate(re.finditer(word, raw))
-            if re.match(r"[,.;:!?…—]", raw[m.end() :])
-        }
         corrected = {
             k
             for tag, i1, i2, _, _ in edits
@@ -949,11 +960,18 @@ class Engine:
         }
 
         # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15", "fifteen" -> "15")
-        # or taken back ("15, no, 50"), never replaced, dropped, or invented.
+        # or taken back ("15, no, 50"), never replaced, dropped, or invented. Each said one needs
+        # its own written one ("15 files into 15 folders"); a run may be several ("3:30").
         said, written = cls.numbers(raw), cls.numbers(out)
-        heard, shown = set().union(*said), set().union(*written)
-        taken = set().union(*cls.numbers(" ".join(raw_words[k] for k in sorted(corrected))))
-        if any(not n & (shown | taken) for n in said) or any(not n & heard for n in written):
+        back = set().union(*cls.numbers(" ".join(raw_words[k] for k in sorted(corrected))))
+        unclaimed = list(written)
+        for n in sorted(said, key=len):  # exact digits claim theirs first
+            match = next((w for w in unclaimed if w & n), None)
+            if match:
+                unclaimed.remove(match)
+            elif not n & back:
+                return True
+        if any(not w & set().union(*said) for w in written):
             return True
 
         def uncorrected(i1, i2):

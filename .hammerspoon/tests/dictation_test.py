@@ -287,6 +287,12 @@ check(
     "end punctuation overrides the cleanup",
     [
         (("I want to go to the", "I want to go to the."), "I want to go to the"),
+        (('He said, "I want the"', 'He said, "I want the."'), 'He said, "I want the"'),
+        # A wh-word before a name opens a clause: the cleanup's period stands.
+        (
+            ("What John needs is a refund", "What John needs is a refund."),
+            "What John needs is a refund.",
+        ),
         (("Can you send me the", "Can you send me the?"), "Can you send me the"),
         (("I want to go to the", "I want to go to the!"), "I want to go to the"),
         (("I want to go to the", "I want to go to."), "I want to go to the"),

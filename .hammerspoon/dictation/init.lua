@@ -309,7 +309,9 @@ local function toggle()
     overlay = pill
     state = "recording"
     pill:show()
-    dictation.cancelHotkey:enable()
+    if not dictation.cancelHotkey:enable() then
+      fail("Dictation: could not bind Escape to cancel")
+    end
     local capture, message = recorder.start(config.eqBands, function(failure)
       fail("Dictation recorder: " .. failure)
       finish(nil)
