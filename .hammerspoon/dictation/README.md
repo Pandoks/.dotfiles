@@ -202,18 +202,18 @@ clipboard and shows a brief alert; `direct` inserts only and reports failures;
 dictation stopped: if focus moved while transcribing, that counts as a failure.
 Direct insertion writes through Accessibility and leaves the clipboard
 untouched. Chromium/Electron fields (Slack, VS Code, browsers) report
-Accessibility writes as supported and then ignore them, and terminals (Ghostty)
-and Messages take none, so for those the text is pasted with the app's own ⌘V
-(whole text at once, not typed) and the previous clipboard is restored 0.25 s
-later; macOS gives no signal for when the app has read the clipboard, so that
-delay is unavoidable. A focused read-only text view (a log pane, a read-only
-editor, a `readonly` web field) looks the same as a terminal to Accessibility,
-so it gets the ⌘V too; that does nothing and is not reported (`auto` copies
-nothing either), and the text is then only in the history folder. Both writes
-carry `org.nspasteboard.TransientType`, so clipboard managers that honor it
-(Raycast, Maccy, Alfred, ...) record neither. `hs.pasteboard` restores only
-the first clipboard item, so several copied files come back as the first one,
-with an alert.
+Accessibility writes as supported and then ignore them, and terminals (Ghostty),
+Messages, and Mail's compose body take none, so for those the text is pasted
+with the app's own ⌘V (whole text at once, not typed) and the previous
+clipboard is restored 0.25 s later; macOS gives no signal for when the app has
+read the clipboard, so that delay is unavoidable. A focused read-only text view
+(a log pane, a read-only editor, a `readonly` web field) looks the same as a
+terminal to Accessibility, so it gets the ⌘V too; that does nothing and is not
+reported (`auto` copies nothing either), and the text is then only in the
+history folder. Both writes carry `org.nspasteboard.TransientType`, so
+clipboard managers that honor it (Raycast, Maccy, Alfred, ...) record neither.
+`hs.pasteboard` restores only the first clipboard item, so several copied files
+come back as the first one, with an alert.
 
 ## Files
 

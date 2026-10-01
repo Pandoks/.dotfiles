@@ -230,4 +230,39 @@ test("a combo box (search, autocomplete) is a text field", function()
   assert(search.written == "tacos" and #alerts == 0)
 end)
 
+-- A focused web page; an editable one (Mail's compose body) has a settable value, never selection.
+local function page(editable)
+  local element = {}
+  function element:attributeValue(name)
+    return ({ AXRole = "AXWebArea", AXValue = "" })[name]
+  end
+  function element:isAttributeSettable(name)
+    return editable and name == "AXValue"
+  end
+  function element:setAttributeValue(_, text)
+    element.written = text
+    return self
+  end
+  return element
+end
+
+test("Mail's compose body (an editable page) is pasted into with ⌘V", function()
+  clipboard = { ["public.utf8-plain-text"] = "mine" }
+  local body = page(true)
+  dictate(body, "Hi Sam, see you Friday.")
+  assert(body.written == nil and #strokes == 1 and strokes[1] == "cmd+v" and #alerts == 0)
+  assert(clipboard["public.utf8-plain-text"] == "Hi Sam, see you Friday.", "pasted the wrong text")
+  timers[#timers]()
+  assert(clipboard["public.utf8-plain-text"] == "mine", "did not restore the clipboard")
+end)
+
+test("a plain web page is not a text field: auto copies", function()
+  local web = page(false)
+  config.insert, copied = "auto", nil
+  dictate(web, "Note to self.")
+  config.insert = "direct"
+  assert(web.written == nil and #strokes == 0, "pasted into a plain page")
+  assert(copied == "Note to self." and alerts[1] == "Dictation copied to clipboard", "no copy")
+end)
+
 print(passed .. " insert tests passed")

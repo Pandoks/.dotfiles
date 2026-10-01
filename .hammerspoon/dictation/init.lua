@@ -128,6 +128,17 @@ local function read(element, name)
   return value
 end
 
+-- Whether an attribute of the focused field takes writes; nil when unsupported. Raises like `read`.
+---@param element hs.axuielement
+---@param name string
+local function settable(element, name)
+  local writable, problem = element:isAttributeSettable(name)
+  if problem and problem ~= "Attribute is not supported by target" then
+    error(("could not check the focused field's %s: %s"):format(name, problem), 0)
+  end
+  return writable
+end
+
 -- Insert into the field focused at stop; false when there is none. Raises on failure.
 ---@param text string
 local function insertText(text)
@@ -144,15 +155,16 @@ local function insertText(text)
   if element ~= target then
     error("focus moved while transcribing", 0)
   end
-  -- Text roles only: Chromium also takes (and drops) text writes on sliders, buttons, toolbars.
   local role = read(element, "AXRole")
+  -- Mail's compose body is an editable page: its value is settable, its selection is not.
+  if role == "AXWebArea" and settable(element, "AXValue") then
+    return paste(text)
+  end
+  -- Text roles only: Chromium also takes (and drops) text writes on sliders, buttons, toolbars.
   if role ~= "AXTextField" and role ~= "AXTextArea" and role ~= "AXComboBox" then
     return false
   end
-  local writable, failure = element:isAttributeSettable("AXSelectedText")
-  if failure and failure ~= "Attribute is not supported by target" then
-    error(failure, 0)
-  elseif not writable then
+  if not settable(element, "AXSelectedText") then
     -- Terminals and Messages take no writes: paste. Read-only views look alike; ⌘V fails silently.
     return paste(text)
   end
