@@ -253,8 +253,8 @@ local function insertText(text)
       return code > 0x7F
     end
     -- A part of a name, address, or path stays joined: "foo.[local].bar", "foo-|bar", "foo_[bar]",
-    -- "user@[example].com", "/usr/|bin", and before one: "/usr|/bin", "foo|.bar", "user|@host".
-    local joiners = { ["."] = true, ["-"] = true, ["_"] = true, ["@"] = true }
+    -- "user+[tag]@example.com", "/usr/|bin", and before one: "/usr|/bin", "foo|.bar", "user|@host".
+    local joiners = { ["."] = true, ["-"] = true, ["_"] = true, ["@"] = true, ["+"] = true }
     local joined = (joiners[before] and wordy(prior) or before == "/")
         and (last ~= "" or wordy(after))
       or wordy(before) and (after == "/" or joiners[after] and wordy(beyond))

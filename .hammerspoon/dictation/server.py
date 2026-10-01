@@ -831,14 +831,20 @@ class Engine:
             return text  # "?!" asks too
         open_text = re.sub(r"\s*[.!?,;:]+([\"”’')\]]*)$", r"\1", text)
 
-        def last(t):  # the last sentence's words, past fillers
+        def openers(t):  # the first word of each clause of the last sentence, past fillers
             t = re.split(r"[.!?][\"”’')\]]*\s+", t.strip().lower().replace("’", "'"))[-1]
-            return re.findall(r"[^\W_]+(?:'[^\W_]+)*", cls.DROPPED_RE.sub(" ", t))
+            clauses = re.split(r"[,;:—]", cls.DROPPED_RE.sub(" ", t))
+            words = [
+                [w for w in re.findall(r"[^\W_]+(?:'[^\W_]+)*", c) if w not in cls.MARKERS]
+                for c in clauses
+            ]
+            return [clause[0] for clause in words if clause]
 
-        # The speech model's "?" stands while the cleanup keeps the word that opened the question,
-        # not "Is it ready, no wait, just ship it?" -> "Just ship it."
-        opener = [w for w in last(raw) if w not in cls.MARKERS][:1]
-        asked = re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) and set(opener) <= set(last(text))
+        # The speech model's "?" stands while the word that opened the question still opens a clause:
+        # not "Is it ready, no wait, just ship it?" -> "Just ship it.", or "Is it ready, no wait,
+        # the status is green?" -> "The status is green."
+        asked = re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip())
+        asked = asked and set(openers(raw)[:1]) <= set(openers(text))
         # Its last sentence must still ask: not "Can you check this? I think it's broken."
         if not (asked or cls.is_question(open_text, names)):
             return text
@@ -1133,11 +1139,13 @@ class Engine:
             for p in pieces
             if p.start() <= spans[k].start() < p.end()
         }
-        taken = cls.numbers(" ".join(back_words[start] for start in sorted(back_words)))
-        back, at = set().union(*(n for n, _ in taken)), 0
+        taken = [n for n, _ in cls.numbers(" ".join(back_words[s] for s in sorted(back_words)))]
+        at = 0
         for n, parts in cls.numbers(raw):
             k = next((k for k in range(at, len(written)) if written[k] & n), None)
-            if k is None and n & back:
+            back = next((t for t in taken if t & n), None)
+            if k is None and back is not None:
+                taken.remove(back)  # once: not "15, no 50, with 15 retries" -> "50 with retries"
                 continue
             if k is None or k > at:
                 return True  # dropped, moved, or after one never said

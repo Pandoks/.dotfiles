@@ -333,6 +333,10 @@ check(
         (("You're coming?", "You're coming."), "You're coming?"),
         (("Like, you're coming?", "You're coming."), "You're coming?"),
         (("Is it ready, no wait, just ship it?", "Just ship it."), "Just ship it."),
+        (
+            ("Is it ready, no wait, the status is green?", "The status is green."),
+            "The status is green.",
+        ),
         (("What time is it", "What time is it."), "What time is it?"),
         (("Should we pick A", "Should we pick A."), "Should we pick A?"),
         (("Thanks. But", "Thanks."), "Thanks. But"),
@@ -554,6 +558,7 @@ check(
             ("Use SHA-256.", "Use SHA-512."),
             ("Use TLS1.3.", "Use TLS13."),
             ("Connect to 192.168.1.1.", "Connect to 192.168.1.2."),
+            ("Use 15, no 50, with 15 retries.", "Use 50 with retries."),
             ("Wait 20ms.", "Wait 50ms."),
             ("Buy 16GB.", "Buy 16MB."),
             ("My 3-year-old is here.", "My 5-year-old is here."),
