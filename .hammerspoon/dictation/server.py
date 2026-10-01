@@ -806,7 +806,9 @@ class Engine:
                 re.fullmatch(r"\w+(?:ed|en)|\w*[ao]ught", w) or w in cls.PARTICIPLES
                 for w in words[2:6]
             )
-            return after in ("i", "you", "we", "they") or (
+            # "Had he arrived" asks; "Have it ready" orders.
+            pronouns = ("i", "you", "we", "they") + ("he", "she", "it") * (words[0] == "had")
+            return after in pronouns or (
                 (after in cls.DETERMINERS or named) and done  # "Have John arrived"
             )
         return words[0] in cls.AUXILIARIES and subject
@@ -837,7 +839,7 @@ class Engine:
         ["not", "never", "cannot", "nothing", "nobody", "none", "nowhere", "neither", "without"]
         + ["hardly", "barely", "scarcely", "rarely", "seldom", "approximately", "roughly"]
         + ["nearly", "almost", "about", "around", "exactly", "least", "most", "more", "less"]
-        + ["fewer"]
+        + ["fewer", "over", "under", "above", "below", "greater"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
