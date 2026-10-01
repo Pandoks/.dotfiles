@@ -146,7 +146,7 @@ symbols = server.Engine(
     dict(
         engine.config,
         vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve", "Node.js", "O'Reilly"]
-        + ["Shell"],
+        + ["Shell", "Visual Studio Code"],
     )
 )
 check(
@@ -156,6 +156,7 @@ check(
         ("Use YT-DLP to grab it.", "Use yt-dlp to grab it."),
         ("Read o'reilly's book.", "Read O'Reilly's book."),
         ("She'll be fine.", "She'll be fine."),
+        ("Open visual studio code now.", "Open Visual Studio Code now."),
         ("I got a C on the net.", "I got a C on the net."),
         ("Run ytdlp now.", "Run yt-dlp now."),
         ("Jose is here.", "José is here."),
@@ -378,6 +379,7 @@ check(
             ("The invoice is 1,240 dollars.", "The invoice is 1240 dollars."),
             ("Send fifteen dollars.", "Send 15 dollars."),
             ("Back in twenty twenty six.", "Back in 2026."),
+            ("Set it to negative fifteen.", "Set it to -15."),
             ("Send 15, no, 50 dollars.", "Send 50 dollars."),
             ("Due March 15th.", "Due March 15."),
             ("It was like really good.", "It was really good."),
@@ -476,6 +478,8 @@ check(
             ("Send 15 dollars.", "Send dollars."),
             ("Send fifteen dollars.", "Send dollars."),
             ("Send fifteen dollars.", "Send 15 15 dollars."),
+            ("Set it to negative 15.", "Set it to 15."),
+            ("Set it to 15.", "Set it to -15."),
             ("Move 15 files into 15 folders.", "Move 15 files into folders."),
             ("Send dollars.", "Send 50 dollars."),
             ("I like cats.", "I cats."),

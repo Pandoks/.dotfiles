@@ -4,7 +4,9 @@ set -eu
 dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 venv="$dir/.venv"
 
-[ "$(uname -m)" = arm64 ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] \
+# Apple Silicon even from a Rosetta shell, where uname -m says x86_64.
+[ "$(sysctl -n hw.optional.arm64 2> /dev/null)" = 1 ] \
+  && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] \
   || {
     echo "dictation needs Apple Silicon and macOS 14+ (MLX)" >&2
     exit 1

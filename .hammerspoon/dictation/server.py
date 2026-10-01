@@ -382,13 +382,18 @@ class Engine:
     def apply_vocabulary(self, text, request=None):
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
         # Words joined by " .'-", accents folded ("José" -> "jose"); "C++" is skipped (key "c").
+        entries = [w for w in self.glossary(request) if re.fullmatch(r"\w+(?:[ .'-]\w+)*", w)]
         glossary = {
-            re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", w.lower())): w
-            for w in self.glossary(request)
-            if re.fullmatch(r"\w+(?:[ .'-]\w+)*", w)
+            re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", w.lower())): w for w in entries
         }
         if not glossary or not text:
             return text
+        # A phrase said exactly takes its spelling, however long: "visual studio code".
+        for w in (w for w in entries if " " in w):
+            phrase = r"[^\S\n]+".join(map(re.escape, w.split()))
+            text = re.sub(
+                rf"(?<![\w.-]){phrase}(?![\w-])", lambda _, w=w: w, text, flags=re.IGNORECASE
+            )
         parts = re.split(r"(\s+)", text)  # tokens at even indexes, separators at odd
         tokens = parts[0::2]
         # Groups: opening marks, core (may hold . - or an inner '), possessive, closing marks.
@@ -854,8 +859,8 @@ class Engine:
     def numbers(cls, text):
         """Each number in `text` as the digits it may be written as: "three thirty" 3, 30, 330."""
         text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
-        found, chunks = [], []
-        for token in re.findall(r"\d+|[a-z]+", text) + [""]:
+        found, chunks, sign = [], [], ""
+        for token in re.findall(r"(?<![\w-])-?\d+|\d+|[a-z]+", text) + [""]:
             if token == "and" and chunks and chunks[-1][2] >= 100:
                 continue  # "two hundred and five"
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
@@ -865,11 +870,13 @@ class Engine:
                     # A run reads as its chunks joined too: "nineteen ninety nine" is 1999.
                     runs = [str(total + part) for total, part, _ in chunks]
                     found.append(
-                        {"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)}
+                        {sign + "".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)}
                     )
                     chunks = []
-                if token.isdigit():
-                    found.append({token})
+                if token.lstrip("-").isdigit():
+                    found.append({sign + token})
+                # A sign word signs the number said next: "negative fifteen" is -15.
+                sign = "-" if token in ("minus", "negative") else ""
                 continue
             # Scales and words after one join a chunk, as do ones after tens ("ninety nine");
             # anything else starts one ("nineteen | ninety nine").
