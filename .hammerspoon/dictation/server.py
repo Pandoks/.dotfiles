@@ -855,7 +855,8 @@ class Engine:
         + ["accept/reject", "import/export", "connect/disconnect", "install/uninstall"]
         + ["least/most", "over/under", "above/below", "more|greater/less|fewer"]
     )
-    # Each opposite and its inflections ("includes", "increasing", "stopped") -> (pair, side).
+    # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
+    # side).
     SIDES = types.MappingProxyType(
         {
             form: (n, side)
@@ -863,7 +864,7 @@ class Engine:
             for side, words in enumerate(pair.split("/"))
             for w in words.split("|")
             for form in (w, w + "s", w + "es", w + "d", w + "ed", w + "ing", w[:-1] + "ing")
-            + (w + w[-1] + "ed", w + w[-1] + "ing")
+            + (w + w[-1] + "ed", w + w[-1] + "ing", w[:-1] + "ies", w[:-1] + "ied")
         }
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.

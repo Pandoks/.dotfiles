@@ -1,7 +1,7 @@
 local root = assert(arg[1], "pass the dictation directory")
 local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
 -- Every clipboard write counts, as NSPasteboard's changeCount does; `pasteWrites` makes ⌘V write.
-local changes, pasteWrites, starts = 0, false, 0
+local changes, pasteWrites, starts, clearFails = 0, false, 0, false
 local toggle, handlers, done, escape, focus, copied, saved, refused
 local config = {
   insert = "direct",
@@ -120,11 +120,13 @@ local env = setmetatable({
         return clipboard
       end,
       clearContents = function()
-        clipboard = nil
-        return true
+        changes = changes + 1
+        if not clearFails then
+          clipboard = nil
+        end
       end,
       allContentTypes = function()
-        return { {} }
+        return clipboard and { {} } or {}
       end,
       writeAllData = function(data)
         clipboard, changes = data, changes + 1
@@ -397,6 +399,14 @@ test("an empty clipboard is empty again after a paste", function()
   dictate(field("Hello", "", "", true), "there.")
   timers[#timers]()
   assert(clipboard == nil, "left the dictation on the clipboard")
+end)
+
+test("a clipboard that cannot be emptied again is reported", function()
+  clipboard, clearFails = nil, true
+  dictate(field("Hello", "", "", true), "there.")
+  timers[#timers]()
+  clearFails = false
+  assert(alerts[#alerts] == "Dictation: could not clear the clipboard", tostring(alerts[#alerts]))
 end)
 
 -- Last: it tears everything down.

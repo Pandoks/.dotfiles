@@ -115,7 +115,10 @@ local function paste(text)
     if hs.pasteboard.changeCount() ~= count then
       return
     elseif next(previous) == nil then
-      hs.pasteboard.clearContents() -- it was empty
+      hs.pasteboard.clearContents() -- it was empty; this reports nothing, so look
+      if #hs.pasteboard.allContentTypes() > 0 then
+        fail("Dictation: could not clear the clipboard")
+      end
       return
     end
     previous[transient] = ""

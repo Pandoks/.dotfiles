@@ -527,6 +527,7 @@ check(
             ("Run this before Friday.", "Run this after Friday."),
             ("Enable access for all users.", "Enable access for some users."),
             ("Include the tests.", "Exclude the tests."),
+            ("The policy denies access.", "The policy allows access."),
             ("The config includes tests.", "The config excludes tests."),
             ("Set it to at least fifteen.", "Set it to at most 15."),
             ("Open settings. Delete files.", "Open settings."),
