@@ -274,9 +274,12 @@ class Cleaner:
 
         adapter_dir = snapshot_download(self.adapter_id, revision=self.adapter_revision)
         path = os.path.join(adapter_dir, "system_v2.txt")
+        # An adapter runs only with the prompt it was trained on, never the plain-model one.
         if os.path.exists(path):
             with open(path) as file:
                 self.frozen_prompt = file.read().strip()
+        if not self.frozen_prompt:
+            raise ValueError(f"cleanup adapter {self.adapter_id} has no system_v2.txt prompt")
         return adapter_dir
 
 
@@ -940,7 +943,7 @@ class Engine:
         ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm)"
         text = " ".join(
             w
-            if not (re.search(r"[a-z]", w) and re.search(r"\d", w))
+            if not (re.search(r"[^\W\d_]", w) and re.search(r"\d", w))  # letters of any script
             or re.fullmatch(ending, w.strip("\"'“‘([.,!?;:)]”’"))
             else ""
             for w in text.split()

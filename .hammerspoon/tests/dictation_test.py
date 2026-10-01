@@ -7,8 +7,10 @@ No model load, microphone, network, or Hammerspoon; the cleanup tokenizer comes 
 import functools
 import os
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 sys.dont_write_bytecode = True
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -539,6 +541,7 @@ check(
             ("Use TLS1.3.", "Use 3."),
             ("Use SHA-256.", "Use 256."),
             ("Use HTTP/2.", "Use 2."),
+            ("Use ГОСТ123.", "Use 123."),
             ("The minimum is fifteen.", "The maximum is 15."),
             ("The panel is shown.", "The panel is hidden."),
             ("Set it to one point five.", "Set it to 1 5."),
@@ -708,6 +711,35 @@ check(
         ("It cost 1000 dollars...", "It cost 1000 dollars..."),
     ],
     lambda text: parakeet.transcribe(text, []),
+)
+
+
+def load_adapter(files):
+    """MlxLmCleaner.load with an adapter download holding `files`; its prompt, or the failure."""
+    with tempfile.TemporaryDirectory() as folder:
+        for name, text in files.items():
+            Path(folder, name).write_text(text)
+        cleaner = server.MlxLmCleaner("stub", "0" * 40, "stub/adapter", "0" * 40, 400)
+        loaded = (None, SimpleNamespace(get_vocab=dict))
+        with (
+            mock.patch("huggingface_hub.snapshot_download", lambda *_, **__: folder),
+            mock.patch("mlx_lm.load", lambda *_, **__: loaded),
+        ):
+            try:
+                cleaner.load()
+            except ValueError as error:
+                return str(error)
+        return cleaner.frozen_prompt
+
+
+check(
+    "an adapter loads only with the prompt it was trained on",
+    [
+        ({"system_v2.txt": "Clean it.\n"}, "Clean it."),
+        ({}, "cleanup adapter stub/adapter has no system_v2.txt prompt"),
+        ({"system_v2.txt": " \n"}, "cleanup adapter stub/adapter has no system_v2.txt prompt"),
+    ],
+    load_adapter,
 )
 check(
     "vocabulary prefixes",
