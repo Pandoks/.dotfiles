@@ -836,7 +836,7 @@ class Engine:
     NEGATIONS = frozenset(
         ["not", "never", "cannot", "nothing", "nobody", "none", "nowhere", "neither", "without"]
         + ["hardly", "barely", "scarcely", "rarely", "seldom", "approximately", "roughly"]
-        + ["nearly", "almost", "about", "around"]
+        + ["nearly", "almost", "about", "around", "exactly"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
@@ -1067,12 +1067,16 @@ class Engine:
         lost = set(spoken) - kept
         # What a number counts survives too, past a modifier: "fifteen (long) minutes" is not
         # "15" or "15 (long) seconds".
-        counted = [
-            k + d
-            for k in numeric
-            for d in (1, 2)
-            if k + d < len(raw_words) and not {k + 1, k + d} & numeric
-        ]
+        counted = []
+        for k in numeric:
+            j = k + 1  # and on through "per": "fifteen miles per hour"
+            while (
+                j < len(raw_words)
+                and j not in numeric
+                and (j <= k + 2 or raw_words[j - 1] == "per")
+            ):
+                counted.append(j)
+                j += 1
         skipped = cls.MEASURES.keys() | cls.QUALIFIERS | {"and"}  # "fifteen dollars" -> "$15"
         if any(
             raw_words[k] not in kept | skipped and k not in corrected | fillers for k in counted

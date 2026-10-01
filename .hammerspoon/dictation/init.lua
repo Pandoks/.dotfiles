@@ -96,7 +96,7 @@ end
 -- The app's own ⌘V; macOS never signals when the clipboard was read, hence the delay.
 ---@param text string
 local function paste(text)
-  local previous = hs.pasteboard.readAllData()
+  local previous = hs.pasteboard.readAllData() or {} -- nil when the clipboard is empty
   local items = #hs.pasteboard.allContentTypes()
   -- Transient (nspasteboard.org): clipboard managers record neither this nor the restore.
   local transient = "org.nspasteboard.TransientType"
@@ -109,14 +109,18 @@ local function paste(text)
   dictation.restore = hs.timer.doAfter(0.25, function()
     dictation.restore = nil
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
-    if hs.pasteboard.changeCount() == count then
-      previous[transient] = ""
-      if not hs.pasteboard.writeAllData(previous) then
-        fail("Dictation: could not restore the clipboard")
-      elseif items > 1 then
-        -- readAllData sees only the first item (e.g. of several copied files).
-        fail(("Dictation: restored only the first of %d clipboard items"):format(items))
-      end
+    if hs.pasteboard.changeCount() ~= count then
+      return
+    elseif next(previous) == nil then
+      hs.pasteboard.clearContents() -- it was empty
+      return
+    end
+    previous[transient] = ""
+    if not hs.pasteboard.writeAllData(previous) then
+      fail("Dictation: could not restore the clipboard")
+    elseif items > 1 then
+      -- readAllData sees only the first item (e.g. of several copied files).
+      fail(("Dictation: restored only the first of %d clipboard items"):format(items))
     end
   end)
   return true

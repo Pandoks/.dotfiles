@@ -505,6 +505,8 @@ check(
             ("Wait fifteen minutes.", "Wait 15 seconds."),
             ("Wait fifteen minutes.", "Wait 15."),
             ("Wait fifteen long minutes.", "Wait 15 long seconds."),
+            ("Drive fifteen miles per hour.", "Drive 15 miles per minute."),
+            ("Set it to exactly fifteen.", "Set it to 15."),
             ("Set it to approximately fifteen.", "Set it to 15."),
             ("Set it to about fifteen.", "Set it to 15."),
             ("Buy fifteen apples then sell oranges.", "Buy apples then sell 15 oranges."),

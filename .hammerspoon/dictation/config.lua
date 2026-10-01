@@ -22,7 +22,7 @@
 ---@field boost? number parakeet-mlx TDT models only: bias decoding toward single-word `vocabulary`/`dictionary`/per-app entries made of letters, digits, and apostrophes (log-prob bonus per matching letter); multi-word, hyphenated, or dotted entries get only the text fixes. 4.5 measured best; 0 or nil = off. 6 already inserts vocabulary words that weren't said.
 
 ---@class DictationCleanupConfig
----@field enabled boolean Run the LLM cleanup pass. false = the speech model's text with only `dictionary`/`vocabulary` applied (no stall stripping or punctuation policy); only macOS's word list then keeps real words from `vocabulary` fuzzy matching, so "tacos" can become "macOS".
+---@field enabled boolean Run the LLM cleanup pass (English: the adapter and stall stripping; turn it off when dictating other languages). false = the speech model's text with only `dictionary`/`vocabulary` applied (no stall stripping or punctuation policy); only macOS's word list then keeps real words from `vocabulary` fuzzy matching, so "tacos" can become "macOS".
 ---@field backend? DictationCleanupBackend Which runtime loads the model. nil = "mlx-lm". Add runtimes by subclassing `Cleaner` in server.py.
 ---@field model string Hugging Face repo of an MLX model (the base when `adapter` is set), e.g. "mlx-community/Qwen3.5-2B-MLX-4bit".
 ---@field revision string Commit SHA of `model`, pinned like `stt.revision`.

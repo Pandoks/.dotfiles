@@ -116,6 +116,10 @@ local env = setmetatable({
       readAllData = function()
         return clipboard
       end,
+      clearContents = function()
+        clipboard = nil
+        return true
+      end,
       allContentTypes = function()
         return { {} }
       end,
@@ -369,6 +373,13 @@ test("a take cancelled while transcribing is saved, not inserted", function()
   escape()
   handlers.onFinal({ id = serial, text = "Keep this." })
   assert(saved[1] == "Keep this." and element.written == nil and #alerts == 0)
+end)
+
+test("an empty clipboard is empty again after a paste", function()
+  clipboard = nil -- readAllData has no first item to return
+  dictate(field("Hello", "", "", true), "there.")
+  timers[#timers]()
+  assert(clipboard == nil, "left the dictation on the clipboard")
 end)
 
 -- Last: it tears everything down.
