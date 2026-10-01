@@ -830,10 +830,17 @@ class Engine:
         if not text or not cls.is_question(raw, names) or re.search(r"\?!*[\"”’')\]]*$", text):
             return text  # "?!" asks too
         open_text = re.sub(r"\s*[.!?,;:]+([\"”’')\]]*)$", r"\1", text)
+
+        def last(t):  # the last sentence's words, past fillers
+            t = re.split(r"[.!?][\"”’')\]]*\s+", t.strip().lower().replace("’", "'"))[-1]
+            return re.findall(r"[^\W_]+(?:'[^\W_]+)*", cls.DROPPED_RE.sub(" ", t))
+
+        # The speech model's "?" stands while the cleanup keeps the word that opened the question,
+        # not "Is it ready, no wait, just ship it?" -> "Just ship it."
+        opener = [w for w in last(raw) if w not in cls.MARKERS][:1]
+        asked = re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) and set(opener) <= set(last(text))
         # Its last sentence must still ask: not "Can you check this? I think it's broken."
-        if not (
-            re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) or cls.is_question(open_text, names)
-        ):
+        if not (asked or cls.is_question(open_text, names)):
             return text
         # Inside quotes that open the question ('"Can you help?"'), not ones within it
         # ('Did he say "yes"?').
@@ -964,7 +971,7 @@ class Engine:
         # Not digits in a name ("SHA256", "SHA-256", "2FA", "TLS1.3"); a range's ("10-15") count, and
         # "15th", "3pm", "1990s".
         end = r"(?=(?:st|nd|rd|th|s|am|pm)?\b)"
-        number = rf"(?<![\w+.-])[-+]?\d+(?:\.\d+)?{end}|(?<![a-z\d.])(?<![a-z]-)\d+(?:\.\d+)?{end}"
+        number = rf"(?<![\w+.-])[-+]?\d+(?:\.\d+)*{end}|(?<![a-z\d.])(?<![a-z]-)\d+(?:\.\d+)*{end}"
         # A name mixing letters and digits is a value of its own, not a number: "HTTP/2" is not
         # "HTTP/3" or "2" ("C++20", "SHA3-256", "2FA"). "15th", "3pm", "1990s", "3-year-old" count.
         ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm|-.+)"
@@ -1000,7 +1007,7 @@ class Engine:
                         len(runs),
                     )
                 point, chunks = "", []
-                if token[:1] == "#" or re.fullmatch(r"[-+]?\d+(?:\.\d+)?", token):
+                if token[:1] == "#" or re.fullmatch(r"[-+]?\d+(?:\.\d+)*", token):  # "1.2.3" too
                     said({token})
                 elif token in cls.MEASURES and fresh:  # after it: "15%", "fifteen dollars"
                     found[-1] = ({n + cls.MEASURES[token] for n in found[-1][0]}, found[-1][1])
