@@ -207,6 +207,13 @@ check(
         ("(Um, maybe later.)", "(Maybe later.)"),
         ('He said "yes." Um, okay.', 'He said "yes." Okay.'),
         ('He said "fine" um.', 'He said "fine".'),
+        *(
+            (f"{o}Yes.{c} Um, okay.", f"{o}Yes.{c} Okay.")
+            for o, c in ['""', "''", "“”", "‘’", "()", "[]"]
+        ),
+        *((f"{o}Um, maybe.{c}", f"{o}Maybe.{c}") for o, c in ["“”", "‘’", "()", "[]"]),
+        ('("Um, maybe.")', '("Maybe.")'),
+        ('["Um, maybe."]', '["Maybe."]'),
     ],
     server.Engine.strip_stalls,
 )
@@ -300,9 +307,15 @@ check(
         (("He said I want the", "He said, ‘I want.’"), "He said, ‘I want the’"),
         (("Send it to the dogs and", "Send it to the dogs’."), "Send it to the dogs’ and"),
         (("Don't you think so", "Don’t you think so."), "Don’t you think so?"),
-        # A straight ' after an end mark closes a quote too.
+        # A straight ' after an end mark closes a quote too; one inside a word opens none.
         (("He said I want the", "He said, 'I want.'"), "He said, 'I want the'"),
         (("Did he say yes", "Did he say 'yes?'"), "Did he say 'yes?'"),
+        (("Did he say yes", "Did he say 'yes.'"), "Did he say 'yes'?"),
+        (("It's for the dogs and", "It's for the dogs'."), "It's for the dogs' and"),
+        (
+            ("He asked me. Are you coming", "He asked me. 'Are you coming.'"),
+            "He asked me. 'Are you coming'?",
+        ),
         # '?' only on a last sentence that asks: not a split statement or a retracted question.
         (
             ("Can you check this I think it's broken", "Can you check this? I think it's broken."),
