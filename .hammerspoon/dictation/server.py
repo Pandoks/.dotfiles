@@ -404,7 +404,7 @@ class Engine:
         tokens = parts[0::2]
         # Groups: opening marks, core (may hold . - or an inner '), possessive, closing marks.
         core = r"[^\W_]+(?:[.-][^\W_]+|['’](?![sS](?:\W|$))[^\W_]+)*"
-        token = rf"([\"'“‘(\[]*)({core})(['’]s)?([\"'”’)\].,!?;:…]*)"
+        token = rf"([\"'“‘(\[«「『（]*)({core})(['’]s)?([\"'”’)\].,!?;:…—–。，、！？：；）」』»]*)"
         plain = [re.fullmatch(token, t) for t in tokens]
         out, i = [], 0
 
@@ -505,7 +505,7 @@ class Engine:
     def end_policy(self, raw, text):
         """Automatic end-of-text punctuation: leave unfinished dictations open."""
         # Closing quotes too: 'He said, "I want the"' ends on "the".
-        raw_words = re.sub(r"[.!?,;:\"”’')\]]+$", "", raw.strip()).split()
+        raw_words = re.sub(r"[.!?,;:…—–\"”’')\]]+$", "", raw.strip()).split()
         if (
             not raw_words
             or not self.dangles(raw_words)
@@ -836,13 +836,15 @@ class Engine:
     NEGATIONS = frozenset(
         ["not", "never", "cannot", "nothing", "nobody", "none", "nowhere", "neither", "without"]
         + ["hardly", "barely", "scarcely", "rarely", "seldom", "approximately", "roughly"]
-        + ["nearly", "almost", "about", "around", "exactly"]
+        + ["nearly", "almost", "about", "around", "exactly", "least", "most", "more", "less"]
+        + ["fewer"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
     # Determiners that open a noun subject after "have": "Have the tests passed".
     DETERMINERS = frozenset(
         ["the", "any", "all", "these", "those", "your", "our", "their", "my", "his", "her", "its"]
+        + ["some", "every", "each", "both", "many", "few", "several", "no"]
     )
     # Irregular participles unlike their base: "Have the workers left". Not "run" or "put":
     # "Have the tests run nightly" orders, and a missed "?" leaves cleanup's own mark.
@@ -876,7 +878,7 @@ class Engine:
     # Words between a sign or unit and its number: "negative about fifteen", "15 US dollars".
     QUALIFIERS = frozenset(
         ["um", "uh", "about", "approximately", "around", "roughly", "nearly", "almost"]
-        + ["exactly", "us", "u", "s", "canadian", "australian"]
+        + ["exactly", "us", "u", "s"]
     )
     # Units a number keeps, said or written: "15 percent" is "15%", "fifteen dollars" is "$15",
     # "pounds" weigh ("£" is money), and "noon" is "12 pm".
@@ -984,7 +986,7 @@ class Engine:
             )
             (meant if liked or running else fillers).update(inside)
         raw_set, out_set = set(raw_words), set(out_words)
-        if not raw_set & out_set:
+        if not raw_set & out_set and not any(cls.numbers(w) for w in out_words):
             return True  # nothing the user said survived (short inputs included)
 
         # A possessive is its name: "Ghostty's" is "ghostty".
@@ -1065,17 +1067,20 @@ class Engine:
         kept = out_set | cls.CORRECTIONS
         spoken = uncorrected(0, len(raw_words))
         lost = set(spoken) - kept
-        # What a number counts survives too, past a modifier: "fifteen (long) minutes" is not
-        # "15" or "15 (long) seconds".
+        # What a number counts survives too, past modifiers: "fifteen (very long) minutes" is
+        # not "15" or "15 (very long) seconds".
         counted = []
         for k in numeric:
-            j = k + 1  # and on through "per": "fifteen miles per hour"
+            # Up to four words in its clause, and on through "per": "fifteen miles per hour".
+            j = k + 1
             while (
                 j < len(raw_words)
                 and j not in numeric
-                and (j <= k + 2 or raw_words[j - 1] == "per")
+                and (j <= k + 4 or raw_words[j - 1] == "per")
             ):
                 counted.append(j)
+                if j in paused:
+                    break
                 j += 1
         skipped = cls.MEASURES.keys() | cls.QUALIFIERS | {"and"}  # "fifteen dollars" -> "$15"
         if any(

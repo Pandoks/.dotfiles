@@ -63,18 +63,29 @@ function history.save(text, settings)
   end
 end
 
+-- A name save() writes: a real local time ("2026-99-99" is not), alone or with _2, _3, ...
+---@param entry string
+local function ours(entry)
+  local stamp, rest = entry:match("^(%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d)(.*)%.txt$")
+  if not stamp then
+    return false
+  end
+  local y, m, d, H, M, S = stamp:match("(%d+)%-(%d+)%-(%d+)_(%d+)%-(%d+)%-(%d+)")
+  local time = os.time({ year = y, month = m, day = d, hour = H, min = M, sec = S })
+  local suffix = tonumber(rest:match("^_([1-9]%d*)$"))
+  return os.date("%Y-%m-%d_%H-%M-%S", time) == stamp and (rest == "" or (suffix or 0) >= 2)
+end
+
 -- Delete the oldest transcripts over the cap, never the newest; sizes are du-style blocks.
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.prune(settings)
   local directory = folder(settings)
   local limit = settings.maxMegabytes * 1024 * 1024
-  local stamp = "^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d"
   local files, total = {}, 0
   for entry in hs.fs.dir(directory) do
     -- Only names save() writes: the folder may hold the user's own files.
-    local suffix = tonumber(entry:match(stamp .. "_([1-9]%d*)%.txt$"))
-    if entry:match(stamp .. "%.txt$") or (suffix and suffix >= 2) then
+    if ours(entry) then
       local attributes = hs.fs.attributes(directory .. "/" .. entry) or {}
       local size = (attributes.blocks or 0) * 512
       files[#files + 1] = { name = entry, size = size, created = attributes.creation or 0 }

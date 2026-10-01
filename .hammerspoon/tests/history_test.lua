@@ -9,8 +9,8 @@ local history = assert(loadfile(
   setmetatable({
     hs = { fs = fs },
     os = setmetatable({
-      date = function(format)
-        return date(format, clock)
+      date = function(format, time)
+        return date(format, time or clock)
       end,
       execute = function(command)
         commands[#commands + 1] = command
@@ -71,6 +71,8 @@ test("prune deletes the oldest takes past the cap, never the newest or other fil
   end
   local takes = list(settings.directory)
   local mine = { "notes.txt", "2020-01-01.txt", "todo.md", "2020-01-01_00-00-00__.txt" }
+  -- Not a time os.date could write.
+  mine[#mine + 1] = "2026-99-99_99-99-99.txt"
   -- Suffixes save() never writes: it starts at _2.
   table.move({ "2020-01-01_00-00-00_1.txt", "2020-01-01_00-00-00_02.txt" }, 1, 2, #mine + 1, mine)
   for _, name in ipairs(mine) do
