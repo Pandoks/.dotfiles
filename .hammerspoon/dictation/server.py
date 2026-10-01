@@ -198,7 +198,7 @@ class ParakeetSpeech(Speech):
         # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
         text = self.model.transcribe(wav, chunk_duration=120).text
         # Parakeet sometimes emits a special piece (<unk>) or symbol run ("ΨΨΨ") on short takes.
-        text = re.sub(r"([^\x00-\x7F])\1{2,}", "", re.sub(r"<[^<>]+>", "", text))
+        text = re.sub(r"(?<!\S)([^\x00-\x7F])\1{2,}(?!\S)", "", re.sub(r"<[^<>]+>", "", text))
         return re.sub(r"\s{2,}", " ", text).strip()
 
 
@@ -829,7 +829,7 @@ class Engine:
     NEGATIONS = frozenset(
         ["not", "never", "cannot", "nothing", "nobody", "none", "nowhere", "neither", "without"]
         + ["hardly", "barely", "scarcely", "rarely", "seldom", "approximately", "roughly"]
-        + ["nearly", "almost"]
+        + ["nearly", "almost", "about", "around"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
@@ -864,18 +864,20 @@ class Engine:
         | {w: 20 + 10 * n for n, w in enumerate(TENS)}
         | {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
         | {"first": 1, "second": 2, "third": 3, "fifth": 5, "eighth": 8, "ninth": 9}
-        | {"twelfth": 12, "dozen": 12, "noon": 12, "midnight": 12}
+        | {"twelfth": 12, "dozen": 12}
     )
     # Words between a sign or unit and its number: "negative about fifteen", "15 US dollars".
     QUALIFIERS = frozenset(
         ["um", "uh", "about", "approximately", "around", "roughly", "nearly", "almost"]
         + ["exactly", "us", "u", "s", "canadian", "australian"]
     )
-    # Units a number keeps, said or written: "15 percent" is "15%", "fifteen dollars" is "$15".
+    # Units a number keeps, said or written: "15 percent" is "15%", "fifteen dollars" is "$15",
+    # "pounds" weigh ("£" is money), and "noon" is "12 pm".
     MEASURES = (
         {"%": "%", "percent": "%", "°": "°", "degree": "°", "degrees": "°", "€": "€", "£": "£"}
         | {"$": "$", "dollar": "$", "dollars": "$", "buck": "$", "bucks": "$"}
-        | {"euro": "€", "euros": "€", "pound": "£", "pounds": "£"}
+        | {"euro": "€", "euros": "€", "pound": "lb", "pounds": "lb", "lb": "lb", "lbs": "lb"}
+        | {"am": "am", "pm": "pm"}
     )
 
     @classmethod
@@ -883,6 +885,8 @@ class Engine:
         """Each number in `text`: the forms it may be written in and how many numbers it may be
         written as ("three thirty": 3, 30, or 330, as 2)."""
         text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
+        text = re.sub(r"\b([ap])\.m\.", r"\1m", text)  # "p.m." is "pm"
+        text = re.sub(r"\bnoon\b", "12 pm", re.sub(r"\bmidnight\b", "12 am", text))
         text = re.sub(r"([-+])([$€£])(?=\d)", r"\2\1", text)  # "-$15" is "$-15"
         found, chunks, sign, unit, fresh = [], [], "", "", False
 
@@ -910,7 +914,7 @@ class Engine:
                 elif token in cls.MEASURES and fresh:  # after it: "15%", "fifteen dollars"
                     found[-1] = ({n + cls.MEASURES[token] for n in found[-1][0]}, found[-1][1])
                     fresh = False
-                elif token in cls.MEASURES:
+                elif token in ("$", "€", "£"):  # before it: "$15"
                     unit, fresh = cls.MEASURES[token], False
                 else:
                     # A sign word signs the number said next: "negative fifteen" is -15.
@@ -1085,9 +1089,14 @@ class Engine:
             if tag in ("insert", "replace") and set(range(i1, i2)) <= fillers and alone:
                 return True
 
-        # Kept words keep their order; repeats and corrected parts may go.
-        rest = iter(raw_words)
-        return not all(w in rest for w in out_words if w in raw_set)
+        # Kept words keep their order, numbers too ("fifteen apples" is not "apples ... 15");
+        # repeats and corrected parts may go.
+        def ordered(tokens):
+            marks = ["#" if cls.numbers(t) else t for t in tokens]  # "15th", "fourth", "15"
+            return [t for k, t in enumerate(marks) if t != "#" or marks[k - 1 : k] != ["#"]]
+
+        rest = iter(ordered(raw_words))
+        return not all(w in rest for w in ordered(out_words) if w in raw_set or w == "#")
 
     def process(self, wav, request):
         """One take: speech, spellings, guarded cleanup, stalls, spellings, '?', end policy."""

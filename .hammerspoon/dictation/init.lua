@@ -215,7 +215,16 @@ local function insertText(text)
       return char == "" or char:match("^%s$") or openers[char]
     end
     -- A letter or digit in any script ("é", "日"); punctuation blocks and Latin-1 marks are not.
-    local marks = { { 0x80, 0xBF }, { 0x2000, 0x206F }, { 0x3000, 0x303F }, { 0xFF01, 0xFF0F } }
+    local marks = {
+      { 0x80, 0xBF },
+      { 0x2000, 0x206F },
+      { 0x3000, 0x303F },
+      -- Fullwidth punctuation: "！", "？", "：", "［", "｛", "｡".
+      { 0xFF01, 0xFF0F },
+      { 0xFF1A, 0xFF20 },
+      { 0xFF3B, 0xFF40 },
+      { 0xFF5B, 0xFF65 },
+    }
     local function wordy(char)
       if char:match("^%w$") then
         return true
@@ -465,7 +474,7 @@ else
         -- our modifier went down; another modifier already held is not a solo tap
         local others = false
         for flag in pairs(flags) do
-          others = others or flag ~= modifier.flag
+          others = others or (flag ~= modifier.flag and flag ~= "capslock") -- latched, not held
         end
         down, downAt, otherUsed = true, now, others
       else
