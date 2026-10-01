@@ -22,7 +22,6 @@ local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 ---  onError: fun(message: string, id?: integer),
 ---  onLog: fun(message: string),
 ---}
----@return DictationEngine?, string?
 function engine.new(config, handlers)
   local python = directory .. ".venv/bin/python"
   if not hs.fs.attributes(python) then

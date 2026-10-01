@@ -39,10 +39,9 @@ local function focused()
 end
 
 -- Frontmost app; window title, browser URL, and (opt-in) selection for our own prompt only.
----@return DictationTranscribeRequest context `wav` is filled in by the caller
 local function gatherContext()
   ---@type DictationTranscribeRequest
-  local context = { wav = "" }
+  local context = { wav = "" } -- the caller sets wav
   local app = hs.application.frontmostApplication()
   if not app then
     return context

@@ -1,6 +1,4 @@
 #!/bin/sh
-# Create the local Python backend for Hammerspoon dictation.
-# Syncs dictation/.venv to the hashed lock requirements.txt. Safe to re-run.
 set -eu
 
 dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)

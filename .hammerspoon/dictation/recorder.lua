@@ -46,7 +46,6 @@ end
 
 ---@param bands integer equalizer bands
 ---@param onError fun(message: string)
----@return DictationRecording?, string?
 function recorder.start(bands, onError)
   local base = temporary .. "dictation-" .. hs.host.uuid()
   local wav, pcm = base .. ".wav", base .. ".pcm"
