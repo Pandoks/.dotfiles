@@ -849,7 +849,14 @@ class Engine:
     # Opposites a cleanup must not swap, alternatives per side: "Turn logging off" is not "on".
     OPPOSITES = (
         ["on/off", "enable/disable", "before/after", "start/stop", "open/close", "true/false"]
-        + ["left/right", "add/remove", "allow/deny", "show/hide", "lock/unlock", "first/last"]
+        + [
+            "left/right",
+            "add/remove",
+            "allow/deny",
+            "show|shown/hide|hid|hidden",
+            "lock/unlock",
+            "first/last",
+        ]
         + ["increase/decrease", "min/max", "up/down", "all|every|each/some", "always/sometimes"]
         + ["everyone|everybody/someone|somebody", "everything/something", "include/exclude"]
         + ["accept/reject", "import/export", "connect/disconnect", "install/uninstall"]
@@ -932,10 +939,10 @@ class Engine:
             found.append(({sign + v + unit for v in values}, parts))
             sign, unit, fresh = "", "", True
 
-        # Not digits in a name ("SHA256", "IPv6", "2FA", "4bit"); a range's ("10-15") count, and
+        # Not digits in a name ("SHA256", "IPv6", "2FA", "TLS1.3"); a range's ("10-15") count, and
         # "15th", "3pm", "1990s".
         end = r"(?=(?:st|nd|rd|th|s|am|pm)?\b)"
-        number = rf"(?<![\w+-])[-+]?\d+(?:\.\d+)?{end}|(?<![a-z])\d+(?:\.\d+)?{end}"
+        number = rf"(?<![\w+.-])[-+]?\d+(?:\.\d+)?{end}|(?<![a-z\d.])\d+(?:\.\d+)?{end}"
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in re.findall(rf"{number}|[a-z]+|[%°$€£]", text) + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
