@@ -46,6 +46,12 @@ test("save stamps each take and suffixes a repeat within the second", function()
   assert(history.save("first", settings) == nil and history.save("second", settings) == nil)
   local names = list(settings.directory)
   assert(#names == 2 and names[2] == names[1]:gsub("%.txt$", "_2.txt"), table.concat(names, " "))
+  -- Owner-only whatever the umask: transcripts may hold anything said.
+  assert(fs.attributes(settings.directory, "permissions") == "rwx------", "folder not private")
+  for _, name in ipairs(names) do
+    local mode = fs.attributes(settings.directory .. "/" .. name, "permissions")
+    assert(mode == "rw-------", name .. " is " .. tostring(mode))
+  end
   for i, text in ipairs({ "first\n", "second\n" }) do
     local file = assert(io.open(settings.directory .. "/" .. names[i]))
     assert(file:read("a") == text, names[i] .. " holds the wrong text")

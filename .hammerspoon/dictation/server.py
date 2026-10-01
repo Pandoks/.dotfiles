@@ -391,11 +391,10 @@ class Engine:
             return text
         parts = re.split(r"(\s+)", text)  # tokens at even indexes, separators at odd
         tokens = parts[0::2]
-        # Groups: opening marks, core, possessive, closing marks.
-        plain = [
-            re.fullmatch(r"([\"'“‘(\[]*)([A-Za-z0-9]+)(['’]s)?([\"'”’)\].,!?;:…]*)", t)
-            for t in tokens
-        ]
+        # Groups: opening marks, core (may hold . - or an inner '), possessive, closing marks.
+        core = r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+|['’](?![sS](?:\W|$))[A-Za-z0-9]+)*"
+        token = rf"([\"'“‘(\[]*)({core})(['’]s)?([\"'”’)\].,!?;:…]*)"
+        plain = [re.fullmatch(token, t) for t in tokens]
         out, i = [], 0
 
         # A word or its inflection ("missed", "tacos").
@@ -408,9 +407,10 @@ class Engine:
         # Exact match, else a similar 4+ letter non-word not containing the vocabulary word.
         def match(core, floor):
             core = core.lower()
-            if core in glossary:
-                return glossary[core]
-            if len(core) < 4 or real(core):
+            key = re.sub(r"[.'’-]", "", core)
+            if key in glossary:
+                return glossary[key]
+            if key != core or len(core) < 4 or real(core):  # punctuated ("node.js"): exact only
                 return None
             scores = [
                 (difflib.SequenceMatcher(None, core, key).ratio(), word)
@@ -431,6 +431,7 @@ class Engine:
                 and second
                 and not (first[3] or first[4] or second[1])
                 and min(len(first[2]), len(second[2])) >= 2
+                and (first[2] + second[2]).isalnum()
                 and not match(second[2], 0.8)
             ):
                 joined, both = first[2] + second[2], real(first[2]) and real(second[2])
@@ -773,7 +774,12 @@ class Engine:
             after in cls.SUBJECTS or cased[1][0].isupper() or re.sub(r"'s$", "", cased[1]) in names
         )
         if words[0] == "have":
-            return after in ("i", "you", "we", "they")
+            # "Have the tests passed" asks; "Have a good day" and "Have your passport ready" don't.
+            done = any(
+                re.fullmatch(r"\w+(?:ed|en)|been|done|seen|gone|had|got|made", w)
+                for w in words[2:6]
+            )
+            return after in ("i", "you", "we", "they") or (after in cls.DETERMINERS and done)
         return words[0] in cls.AUXILIARIES and subject
 
     @classmethod
@@ -795,13 +801,24 @@ class Engine:
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
+    # Determiners that open a noun subject after "have": "Have the tests passed".
+    DETERMINERS = frozenset(
+        ["the", "any", "all", "these", "those", "your", "our", "their", "my", "his", "her", "its"]
+    )
     # Discourse markers a filler "you know" or "I mean" follows: "so you know we should".
     MARKERS = frozenset(["so", "and", "but", "well", "yeah", "okay", "ok", "oh", "um", "uh"])
-    # Words after which "like" is the verb or comparison, not a filler: "I like cats", "looks like".
-    LIKERS = frozenset(
-        ["i", "you", "we", "they", "he", "she", "it", "would", "i'd", "you'd", "we'd", "they'd"]
-        + ["do", "does", "did", "don't", "doesn't", "didn't", "really", "just", "much", "more"]
-        + ["look", "looks", "looked", "feel", "feels", "felt", "seem", "seems", "sound", "sounds"]
+    # Words after which "like" is a filler ("it was like", "so like"); after others it is meant.
+    FILLER_LEADS = frozenset(
+        ["is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're"]
+        + ["and", "but", "so", "or", "then", "like", "um", "uh", "well", "yeah", "okay"]
+    )
+    # Number words a cleanup may write as digits ("fifteen" -> "15", "noon" -> "12:00").
+    NUMBER_WORDS = re.compile(
+        r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+        r"(?:thir|four|fif|six|seven|eigh|nine)teen(?:th)?|"
+        r"(?:twen|thir|for|fif|six|seven|eigh|nine)t(?:y|ieth)|"
+        r"hundred|thousand|million|billion|first|second|third|fourth|fifth|sixth|"
+        r"seventh|eighth|ninth|tenth|eleventh|twelfth|half|quarter|dozen|noon|midnight|o'clock)\b"
     )
 
     @classmethod
@@ -824,13 +841,6 @@ class Engine:
         if not out_words or len(out_words) > 1.6 * len(raw_words) + 3:
             return True  # far longer than what was said: an answer/explanation
 
-        # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15"), not replaced.
-        def numbers(text):
-            return set(re.findall(r"\d+", re.sub(r"(?<=\d),(?=\d{3})", "", text)))
-
-        if numbers(raw) - numbers(out) and numbers(out) - numbers(raw):
-            return True
-
         # Fillers by word index: "like" after "I" and a "you know" running on are meant words.
         spans = list(re.finditer(word, raw))
         fillers, meant = set(), set()
@@ -839,7 +849,8 @@ class Engine:
             inside = {
                 k for k, s in enumerate(spans) if m.start() <= s.start() and s.end() <= m.end()
             }
-            liked = m.group() == "like" and before and before[0] in cls.LIKERS
+            led = not before or re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
+            liked = m.group() == "like" and not (led or before[0] in cls.FILLER_LEADS)
             # Set off by a mark or after a discourse marker it is filler or a cue (", I mean Jane",
             # "so you know we"); "I mean it" and "You know the answer" are meant.
             running = m.group() in ("you know", "i mean") and not (
@@ -884,6 +895,18 @@ class Engine:
             for k in range(i1, i2)
             if any(k < c < i2 and c - k <= 6 for c in cues)
         }
+
+        # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15", "fifteen" -> "15")
+        # or taken back ("15, no, 50"), never replaced, dropped, or invented.
+        def numbers(text):
+            return set(re.findall(r"\d+", re.sub(r"(?<=\d),(?=\d{3})", "", text)))
+
+        lost = numbers(raw) - numbers(out) - numbers(" ".join(raw_words[k] for k in corrected))
+        new = numbers(out) - numbers(raw)
+        if (lost and (new or not cls.NUMBER_WORDS.search(out))) or (
+            new and not cls.NUMBER_WORDS.search(raw)
+        ):
+            return True
 
         def uncorrected(i1, i2):
             return [raw_words[k] for k in range(i1, i2) if k not in corrected and k not in fillers]

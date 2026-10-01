@@ -477,8 +477,8 @@ else
         end
       end
     elseif next(flags) ~= nil then
-      -- a different modifier is involved; not a clean solo tap
-      otherUsed = true
+      -- a different modifier is involved; not a clean solo tap, and a pending tap starts over
+      otherUsed, tapCount = true, 0
     end
     return false
   end)

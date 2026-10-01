@@ -141,11 +141,18 @@ check(
     lambda text: engine.apply_vocabulary(engine.apply_dictionary(text)),
 )
 symbols = server.Engine(
-    dict(engine.config, vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve"])
+    dict(
+        engine.config,
+        vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve", "Node.js", "O'Reilly"],
+    )
 )
 check(
-    "vocabulary skips symbol entries and folds accents",
+    "vocabulary skips symbol entries, folds accents, and matches punctuated words exactly",
     [
+        ("Install node.js now.", "Install Node.js now."),
+        ("Use YT-DLP to grab it.", "Use yt-dlp to grab it."),
+        ("Read o'reilly's book.", "Read O'Reilly's book."),
+        ("Don't stop, it's fine.", "Don't stop, it's fine."),
         ("I got a C on the net.", "I got a C on the net."),
         ("Run ytdlp now.", "Run yt-dlp now."),
         ("Jose is here.", "José is here."),
@@ -228,6 +235,8 @@ check(
         ("What time is it", "What time is it?"),
         ("Have you seen it", "Have you seen it?"),
         ("Have a good day.", "Have a good day."),
+        ("Have the tests passed", "Have the tests passed?"),
+        ("Have your passport ready.", "Have your passport ready."),
         ("How this works is simple", "How this works is simple"),
         ("I'd love to.", "I'd love to."),
         ("I want to go to the", "I want to go to the"),
@@ -353,8 +362,10 @@ check(
     [
         ((raw, cleaned), cleaned)
         for raw, cleaned in [
-            # A reformatted number, a filler "like", and a set-off "you know" may go.
+            # A reformatted or corrected number, a filler "like", and a set-off "you know" may go.
             ("The invoice is 1,240 dollars.", "The invoice is 1240 dollars."),
+            ("Send fifteen dollars.", "Send 15 dollars."),
+            ("Send 15, no, 50 dollars.", "Send 50 dollars."),
             ("Due March 15th.", "Due March 15."),
             ("It was like really good.", "It was really good."),
             ("So, you know, we should ship it.", "So we should ship it."),
@@ -445,9 +456,12 @@ check(
     [
         ((raw, rewritten), raw)
         for raw, rewritten in [
-            # A replaced number, a cut verb "like", and a meant "you know" change the meaning.
+            # A replaced, dropped, or invented number, a cut verb "like", and a meant "you know".
             ("Send 15 dollars.", "Send 50 dollars."),
+            ("Send 15 dollars.", "Send dollars."),
+            ("Send dollars.", "Send 50 dollars."),
             ("I like cats.", "I cats."),
+            ("Children like cats.", "Children cats."),
             ("You know the answer.", "The answer."),
             ("I mean it.", "It."),
             ("What is the capital of France?", "The capital of France is Paris."),

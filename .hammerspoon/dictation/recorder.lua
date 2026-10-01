@@ -69,6 +69,10 @@ function recorder.start(bands, onError)
     if not recording.stopping or (code ~= 0 and code ~= 255) then
       failure("capture exited (code " .. tostring(code) .. ")")
     end
+    -- The last chunk arrives after the final tick: count it in the duration and peak.
+    if recording.done then
+      recorder.poll(recording)
+    end
     os.remove(pcm)
     if recording.discarded or recording.error then
       os.remove(wav)

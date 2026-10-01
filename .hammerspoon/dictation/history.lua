@@ -1,5 +1,12 @@
 local history = {}
 
+-- Run `command path` owner-only: transcripts may hold anything said.
+---@param command string
+---@param path string
+local function private(command, path)
+  return os.execute(("umask 077 && %s '%s'"):format(command, (path:gsub("'", "'\\''"))))
+end
+
 ---@param settings DictationHistoryConfig
 local function folder(settings)
   return (
@@ -13,11 +20,8 @@ end
 ---@return string? failure
 function history.save(text, settings)
   local directory = folder(settings)
-  if not hs.fs.attributes(directory, "mode") then
-    local ok, message = hs.fs.mkdir(directory)
-    if not ok then
-      return "could not create " .. directory .. ": " .. tostring(message)
-    end
+  if not hs.fs.attributes(directory, "mode") and not private("mkdir -p", directory) then
+    return "could not create " .. directory
   end
 
   -- Timestamped names sort oldest first; a second take in the same second gets a suffix.
@@ -28,6 +32,10 @@ function history.save(text, settings)
     name = ("%s_%d.txt"):format(stamp, count)
   end
   local path = directory .. "/" .. name
+  -- Created 0600 first; writing keeps the mode.
+  if not private(": >", path) then
+    return "could not create " .. path
+  end
   local file, message = io.open(path, "w")
   if not file then
     return "could not write " .. path .. ": " .. tostring(message)
