@@ -535,6 +535,7 @@ check(
             ("Open settings. Delete files.", "Open settings. Deliver secrets."),
             ("Use SHA256.", "Use 256."),
             ("Enable 2FA.", "Enable 2."),
+            ("Set it to one point five.", "Set it to 1 5."),
             ("Send fifteen Canadian dollars.", "Send fifteen US dollars."),
             ("Wait fifteen very long minutes.", "Wait 15 very long seconds."),
             ("Set it to approximately fifteen.", "Set it to 15."),

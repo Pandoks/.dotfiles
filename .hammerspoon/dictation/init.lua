@@ -99,6 +99,7 @@ end
 ---@param text string
 local function paste(text)
   local previous = hs.pasteboard.readAllData() or {} -- nil when the clipboard is empty
+  -- One entry per item, each its own list of types: the item count, not the type count.
   local items = #hs.pasteboard.allContentTypes()
   -- Transient (nspasteboard.org): clipboard managers record neither this nor the restore.
   local transient = "org.nspasteboard.TransientType"

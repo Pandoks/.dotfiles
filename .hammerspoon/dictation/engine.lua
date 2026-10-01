@@ -79,6 +79,10 @@ function engine.new(config, handlers)
           end
         elseif event.event == "log" then
           handlers.onLog(event.msg or "")
+        else
+          -- Not one this client knows: a take waiting on it would never end.
+          failure("unknown backend event: " .. line)
+          return true
         end
       end
     end

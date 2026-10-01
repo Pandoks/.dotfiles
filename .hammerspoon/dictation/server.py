@@ -935,22 +935,28 @@ class Engine:
         # Not digits in a name ("SHA256", "IPv6", "2FA", "4bit"); a range's ("10-15") count, and
         # "15th", "3pm", "1990s".
         end = r"(?=(?:st|nd|rd|th|s|am|pm)?\b)"
-        number = rf"(?<![\w+-])[-+]?\d+{end}|(?<![a-z])\d+{end}"
+        number = rf"(?<![\w+-])[-+]?\d+(?:\.\d+)?{end}|(?<![a-z])\d+(?:\.\d+)?{end}"
+        point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in re.findall(rf"{number}|[a-z]+|[%°$€£]", text) + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
                 continue  # "negative about fifteen", "two hundred and five"
+            if token == "point" and chunks and not point:  # "one point five" is 1.5
+                point, chunks = "".join(str(total + part) for total, part, _ in chunks) + ".", []
+                continue
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
             value = cls.NUMBERS.get(token, ordinal)
             if value is None:
-                if chunks:
+                runs = [str(total + part) for total, part, _ in chunks]
+                if point:  # its digits follow the point: "one point two five" is 1.25
+                    said({point + "".join(runs) if runs else point[:-1]})
+                elif chunks:
                     # A run reads as its chunks joined too: "nineteen ninety nine" is 1999.
-                    runs = [str(total + part) for total, part, _ in chunks]
                     said(
                         {"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)},
                         len(runs),
                     )
-                    chunks = []
-                if token.lstrip("-+").isdigit():
+                point, chunks = "", []
+                if re.fullmatch(r"[-+]?\d+(?:\.\d+)?", token):
                     said({token})
                 elif token in cls.MEASURES and fresh:  # after it: "15%", "fifteen dollars"
                     found[-1] = ({n + cls.MEASURES[token] for n in found[-1][0]}, found[-1][1])
