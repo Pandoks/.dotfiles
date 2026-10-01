@@ -179,6 +179,10 @@ check(
         ("Okay. Um, let's go.", "Okay. Let's go."),
         ("Um... I think so.", "I think so."),
         ("Uh… okay.", "Okay."),
+        ("Erm, I think so.", "I think so."),
+        ("I was, er, thinking.", "I was thinking."),
+        ("Hm, okay.", "Okay."),
+        ("Hmm, okay.", "Okay."),
         ("I went to the ER last night.", "I went to the ER last night."),
         ("HM Revenue sent a letter.", "HM Revenue sent a letter."),
         ("Use the .env file.", "Use the .env file."),
@@ -469,6 +473,7 @@ check(
         (" Hello <unk> there ", "Hello there"),
         ("N<|eo|>vim<|endoftext|>", "Nvim"),
         ("Привет", "Привет"),
+        ("It cost 1000 dollars...", "It cost 1000 dollars..."),
     ],
     lambda text: parakeet.transcribe(text, []),
 )

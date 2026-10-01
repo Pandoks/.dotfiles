@@ -134,8 +134,9 @@ local function units(text)
   return count
 end
 
--- A text field around a selection; `deaf` accepts writes but keeps its value (Chromium, Electron).
-local function field(before, selected, after, deaf, role)
+-- A text field around a selection; `deaf` accepts writes but keeps its value (Chromium, Electron);
+-- `fixed` takes no writes at all (terminals).
+local function field(before, selected, after, deaf, role, fixed)
   local element = {}
   function element:attributeValue(name)
     return ({
@@ -146,7 +147,7 @@ local function field(before, selected, after, deaf, role)
     })[name]
   end
   function element:isAttributeSettable()
-    return true
+    return not fixed
   end
   function element:setAttributeValue(_, text)
     element.written = text
@@ -228,6 +229,20 @@ test("a combo box (search, autocomplete) is a text field", function()
   local search = field("", "", "", false, "AXComboBox")
   dictate(search, "tacos")
   assert(search.written == "tacos" and #alerts == 0)
+end)
+
+test("a single-line text field takes the text", function()
+  local input = field("Hello", "", "", false, "AXTextField")
+  dictate(input, "there.")
+  assert(input.written == " there." and #alerts == 0)
+end)
+
+test("a terminal (no settable selection) is pasted with ⌘V", function()
+  -- Ghostty and Terminal: an AXTextArea whose AXSelectedText is read-only.
+  local terminal = field("$ ", "", "", false, "AXTextArea", true)
+  dictate(terminal, "ls")
+  assert(terminal.written == nil and strokes[1] == "cmd+v" and #alerts == 0, "not pasted")
+  assert(clipboard["public.utf8-plain-text"] == "ls", "pasted the wrong text")
 end)
 
 -- A focused web page; an editable one (Mail's compose body) has a settable value, never selection.

@@ -589,7 +589,7 @@ class Engine:
         return raw if self.looks_rewritten(raw, out, self.glossary(request)) else out
 
     # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
-    STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w/@-]|\.\w)"
+    STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+)(?![\w/@-]|\.\w)"
     # A sentence or line opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
     LEAD_STALL_RE = re.compile(rf"(?<![^.!?\n])([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
     # Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
