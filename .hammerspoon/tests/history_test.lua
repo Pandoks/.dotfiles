@@ -1,13 +1,15 @@
 local root, frameworks, scratch = assert(arg[1], "pass the dictation directory"), arg[2], arg[3]
 ---@type hs.fs
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
+local xattr =
+  assert(package.loadlib(frameworks .. "/hs/libfsxattr.dylib", "luaopen_hs_libfsxattr"))()
 local date, execute, clock, passed, commands = os.date, os.execute, 0, 0, {}
 -- save() stamps takes in its own format, at a clock the tests set; its shell commands are kept.
 local history = assert(loadfile(
   root .. "/history.lua",
   "t",
   setmetatable({
-    hs = { fs = fs },
+    hs = { fs = setmetatable({ xattr = xattr }, { __index = fs }) },
     os = setmetatable({
       date = function(format, time)
         return date(format, time or clock)
@@ -70,19 +72,15 @@ test("prune deletes the oldest takes past the cap, never the newest or other fil
     assert(history.save("take", settings) == nil)
   end
   local takes = list(settings.directory)
-  -- A folder with a take's name is not a take.
-  assert(fs.mkdir(settings.directory .. "/2020-01-01_00-00-00.txt"))
-  local mine = { "notes.txt", "2020-01-01.txt", "todo.md", "2020-01-01_00-00-00__.txt" }
-  -- Not a time os.date could write.
-  mine[#mine + 1] = "2026-99-99_99-99-99.txt"
-  -- Suffixes save() never writes: it starts at _2.
-  table.move({ "2020-01-01_00-00-00_1.txt", "2020-01-01_00-00-00_02.txt" }, 1, 2, #mine + 1, mine)
+  -- The user's own files, one named like a take, and a link to a take.
+  local mine = { "notes.txt", "2020-01-01_00-00-00.txt" }
   for _, name in ipairs(mine) do
     local file = assert(io.open(settings.directory .. "/" .. name, "w"))
     file:write(("mine "):rep(4096))
     file:close()
   end
-  mine[#mine + 1] = "2020-01-01_00-00-00.txt"
+  mine[#mine + 1] = "link.txt"
+  assert(fs.link(settings.directory .. "/" .. takes[3], settings.directory .. "/link.txt", true))
 
   -- A cap of two takes deletes only the oldest.
   local blocks = fs.attributes(settings.directory .. "/" .. takes[1], "blocks")

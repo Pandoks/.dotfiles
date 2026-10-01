@@ -620,15 +620,17 @@ class Engine:
         def openers(t):  # the first word of each clause of the last sentence, past fillers
             t = re.split(r"[.!?][\"”’')\]]*\s+", t.strip().lower().replace("’", "'"))[-1]
             clauses = re.split(r"[,;:—]", cls.DROPPED_RE.sub(" ", t))
-            words = [
-                [w for w in re.findall(r"[^\W_]+(?:'[^\W_]+)*", c) if w not in cls.MARKERS]
-                for c in clauses
+            words = [re.findall(r"[^\W_]+(?:'[^\W_]+)*", c) for c in clauses]
+            # A later clause led by "and", "but", or "or" goes on with the one before it.
+            return [
+                next(w for w in c if w not in cls.MARKERS)
+                for i, c in enumerate(words)
+                if set(c) - cls.MARKERS and not (i and c[0] in ("and", "but", "or"))
             ]
-            return [clause[0] for clause in words if clause]
 
         # It stands while the word that opened the question still opens a clause: not "Is it ready,
-        # no wait, just ship it?" -> "Just ship it.", or "..., the status is green?" -> "The status
-        # is green."
+        # no wait, just ship it?" -> "Just ship it.", or "..., the status is green, and is stable?"
+        # -> "The status is green, and is stable."
         if not set(openers(raw)[:1]) <= set(openers(text)):
             return text
         # Inside quotes that open the question ('"Can you help?"'), not ones within it
@@ -718,12 +720,10 @@ class Engine:
         | {"am": "am", "pm": "pm"}
     )
 
-    # A unit written on is the number and the unit: "20ms" is "20 ms", "16GB" is "16 GB".
-    UNIT_RE = re.compile(
-        r"(?<![\w.])([-+$€£]?\d+(?:\.\d+)?)([kmgtp]?i?b(?:ps)?|[kmg]?hz|[nµμm]?s|sec|min|hr|h"
-        r"|[kcm]?m|ft|mi|mph|kph|[km]?g|lbs?|oz|[km]?w|v|m?l|px|fps|x|k|°[cf]?)(?!\w)",
-        re.IGNORECASE,
-    )
+    # Units a number keeps too, written on or apart: "20ms" is "20 ms", and either is "20ms".
+    UNIT = r"[kmgtp]?i?b(?:ps)?|[kmg]?hz|[nµμm]?s|sec|min|hr|h|[kcm]?m|ft|mi|mph|kph|[km]?g"
+    UNIT += r"|lbs?|oz|[km]?w|v|m?l|px|fps|x|k|°[cf]?"
+    UNIT_RE = re.compile(rf"(?<![\w.])([-+$€£]?\d+(?:\.\d+)?)({UNIT})(?!\w)", re.IGNORECASE)
 
     @classmethod
     def spaced(cls, text):
@@ -785,8 +785,10 @@ class Engine:
                 point, chunks = "", []
                 if token[:1] == "#" or re.fullmatch(r"[-+]?\d+(?:\.\d+)*", token):  # "1.2.3" too
                     said({token})
-                elif token in cls.MEASURES and fresh:  # after it: "15%", "fifteen dollars"
-                    found[-1] = ({n + cls.MEASURES[token] for n in found[-1][0]}, found[-1][1])
+                elif fresh and (token in cls.MEASURES or re.fullmatch(cls.UNIT, token)):
+                    # After it: "15%", "fifteen dollars", "20 ms" (not "20")
+                    measure = cls.MEASURES.get(token, token)
+                    found[-1] = ({n + measure for n in found[-1][0]}, found[-1][1])
                     fresh = False
                 elif token in ("$", "€", "£"):  # before it: "$15"
                     unit, fresh = cls.MEASURES[token], False

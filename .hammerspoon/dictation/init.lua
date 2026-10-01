@@ -240,17 +240,17 @@ local function insertText(text)
       { 0xFF3B, 0xFF40 },
       { 0xFF5B, 0xFF65 },
     }
-    local function wordy(char)
-      if char:match("^%w$") then
-        return true
-      end
+    local function within(char, blocks)
       local code = char ~= "" and utf8.codepoint(char) or 0
-      for _, block in ipairs(marks) do
+      for _, block in ipairs(blocks) do
         if code >= block[1] and code <= block[2] then
-          return false
+          return true
         end
       end
-      return code > 0x7F
+      return false
+    end
+    local function wordy(char)
+      return char:match("^%w$") ~= nil or (#char > 1 and not within(char, marks))
     end
     -- A part of a name, address, or path stays joined: "foo.[local].bar", "foo-|bar", "foo_[bar]",
     -- "user+[tag]@example.com", "/usr/|bin", and before one: "/usr|/bin", "foo|.bar", "user|@host".
@@ -258,12 +258,34 @@ local function insertText(text)
     local joined = (joiners[before] and wordy(prior) or before == "/")
         and (last ~= "" or wordy(after))
       or wordy(before) and (after == "/" or joiners[after] and wordy(beyond))
-    if not starts(before) and not (quotes[before] and starts(prior)) and not joined then
+    -- Chinese, Japanese, Thai, and the like put no space between words: "你好|世界" + "漂亮".
+    local unspaced = {
+      { 0x0E00, 0x0EFF }, -- Thai, Lao
+      { 0x1000, 0x109F }, -- Myanmar
+      { 0x1780, 0x17FF }, -- Khmer
+      { 0x2E80, 0x2FDF }, -- CJK radicals
+      { 0x3000, 0x31FF }, -- CJK punctuation, kana, Bopomofo
+      { 0x3400, 0x9FFF }, -- CJK ideographs
+      { 0xF900, 0xFAFF },
+      { 0xFF00, 0xFFEF }, -- fullwidth and halfwidth forms
+      { 0x20000, 0x3FFFF },
+    }
+    local first, final = utf8.char(utf8.codepoint(text, 1)), text:sub(utf8.offset(text, -1))
+    if
+      not starts(before)
+      and not (quotes[before] and starts(prior))
+      and not joined
+      and not (within(before, unspaced) and within(first, unspaced))
+    then
       text = " " .. text
     end
     local opens = quotes[after] and starts(last ~= "" and last or before) and wordy(beyond)
     -- A "/" after is a path going on ("/usr/share/bin"), not an opener.
-    if (wordy(after) or (openers[after] and after ~= "/") or opens) and not joined then
+    if
+      (wordy(after) or (openers[after] and after ~= "/") or opens)
+      and not joined
+      and not (within(final, unspaced) and within(after, unspaced))
+    then
       text = text .. " "
     end
   end

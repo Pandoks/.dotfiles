@@ -273,6 +273,13 @@ check(
             ("Is it ready, no wait, the status is green?", "The status is green."),
             "The status is green.",
         ),
+        (
+            (
+                "Is it ready, no wait, the status is green, and is stable?",
+                "The status is green, and is stable.",
+            ),
+            "The status is green, and is stable.",
+        ),
         (("What time is it?", "What time is it."), "What time is it?"),
         (("Should we pick A?", "Should we pick A."), "Should we pick A?"),
         (("Thanks. But", "Thanks."), "Thanks. But"),
@@ -487,6 +494,7 @@ check(
             ("Use SHA-256.", "Use SHA-512."),
             ("Use TLS1.3.", "Use TLS13."),
             ("Connect to 192.168.1.1.", "Connect to 192.168.1.2."),
+            ("Set timeout to 20 before retrying.", "Set timeout to 20ms before retrying."),
             ("Use 15, no 50, with 15 retries.", "Use 50 with retries."),
             ("Wait 20ms.", "Wait 50ms."),
             ("Buy 16GB.", "Buy 16MB."),

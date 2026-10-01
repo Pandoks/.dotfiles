@@ -232,6 +232,9 @@ test("spacing joins the text to its neighbors", function()
     { "", "", "日本", "hello", "hello " },
     { "", "", "—then", "hello", "hello" }, -- a dash is a mark, not a word
     { "", "", "？", "hello", "hello" }, -- fullwidth punctuation
+    { "你好", "", "世界", "漂亮", "漂亮" }, -- scripts without spaces between words
+    { "你好。", "", "", "漂亮", "漂亮" },
+    { "你好", "", "", "hello", " hello" },
     { "/usr/", "local", "/bin", "share", "share" }, -- a path segment
     { "foo.", "local", ".bar", "remote", "remote" }, -- a dotted name's part
     { "foo.", "", "bar", "remote", "remote" },
