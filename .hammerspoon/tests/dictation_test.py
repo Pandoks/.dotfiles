@@ -127,6 +127,8 @@ check(
             "Loki and raycasting.",
             "Check GitHub's API docs.",
             "Open github.com please.",
+            "Mail ghosty@example.com now.",
+            "Ping me at me@ghosty.",
             "Edit ~/.hammerspoon/init.lua now.",
             "cd ~/.hammerspoon",
             "Open ~/.config/ghostty",
@@ -342,6 +344,7 @@ check(
         (("He said I want the", "He said, 'I want.'"), "He said, 'I want the'"),
         (("Did he say yes", "Did he say 'yes?'"), "Did he say 'yes?'"),
         (("Did he say yes", "Did he say 'yes.'"), "Did he say 'yes'?"),
+        (('"Can you help"', '"Can you help."'), '"Can you help?"'),
         (("It's for the dogs and", "It's for the dogs'."), "It's for the dogs' and"),
         (("He said 'yes', and", "He said 'yes'."), "He said 'yes', and"),
         (("He said ‘yes’, and", "He said ‘yes.’"), "He said ‘yes’, and"),
@@ -350,7 +353,7 @@ check(
         (("He said the kids' and", 'He said, "The kids’."'), 'He said, "The kids’ and"'),
         (
             ("He asked me. Are you coming", "He asked me. 'Are you coming.'"),
-            "He asked me. 'Are you coming'?",
+            "He asked me. 'Are you coming?'",
         ),
         # '?' only on a last sentence that asks: not a split statement or a retracted question.
         (
@@ -471,8 +474,13 @@ check(
             ("Send 15 dollars.", "Send fifty dollars."),
             ("Send 15 dollars.", "Send dollars."),
             ("Send fifteen dollars.", "Send dollars."),
+            ("Send fifteen dollars.", "Send 15 15 dollars."),
+            ("Move 15 files into 15 folders.", "Move 15 files into folders."),
             ("Send dollars.", "Send 50 dollars."),
             ("I like cats.", "I cats."),
+            # A cue word said as a word takes nothing back; a word in any script counts.
+            ("Can you please wait for the build to finish.", "For the build to finish."),
+            ("Привет Slack как дела сегодня", "Slack."),
             ("Children like cats.", "Children cats."),
             ("You know the answer.", "The answer."),
             ("I mean it.", "It."),

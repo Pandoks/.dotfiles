@@ -489,6 +489,10 @@ else
     fail("Dictation: allow Accessibility access in System Settings, then reload Hammerspoon")
   end
 end
+-- No trigger can start a take: free the backend's models.
+if engine and not (dictation.hotkey or (dictation.keyTap and dictation.keyTap:isEnabled())) then
+  engine:stop()
+end
 
 -- Bound but disabled; only enabled while dictating so Escape works normally.
 dictation.cancelHotkey = hs.hotkey.new({}, "escape", function()

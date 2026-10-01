@@ -316,14 +316,14 @@ CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
 class Engine:
     def __init__(self, config):
         self.config = config
-        # (word, pattern of it and variants): whole words, never in a path, domain, flag, or "it's".
+        # (word, pattern): whole words, never in a path, domain, address, flag, or "it's".
         self.dictionary = []
         for word, variants in (config.get("dictionary") or {}).items():
             forms = [word] + list(variants or [])
             alternatives = "|".join(
                 re.escape(form) for form in sorted(set(forms), key=len, reverse=True)
             )
-            pattern = rf"(?<![\w./~-])(?<!\w['’])(?:{alternatives})(?![\w/-]|\.\w)"
+            pattern = rf"(?<![\w./~@-])(?<!\w['’])(?:{alternatives})(?![\w/@-]|\.\w)"
             self.dictionary.append((word, re.compile(pattern, re.IGNORECASE)))
 
         stt = config["stt"]
@@ -794,8 +794,14 @@ class Engine:
             return text  # "?!" asks too
         open_text = re.sub(r"\s*[.!?,;:]+([\"”’')\]]*)$", r"\1", text)
         # Its last sentence must still ask: not "Can you check this? I think it's broken."
-        asks = raw.strip().endswith("?") or cls.is_question(open_text, names)
-        return open_text + "?" if asks else text
+        if not (raw.strip().endswith("?") or cls.is_question(open_text, names)):
+            return text
+        # Inside quotes that open the question ('"Can you help?"'), not ones within it
+        # ('Did he say "yes"?').
+        body = open_text.rstrip("\"”’')]")
+        if re.match(r"[\"“‘'(\[]", re.split(r"(?<=[.!?])\s+", body)[-1]):
+            return body + "?" + open_text[len(body) :]
+        return open_text + "?"
 
     # Self-correction cues the adapter acts on ("no wait", "sorry, I mean", "scratch that").
     CORRECTIONS = frozenset(["no", "wait", "sorry", "mean", "scratch", "actually"])
@@ -971,7 +977,8 @@ class Engine:
                 unclaimed.remove(match)
             elif not n & back:
                 return True
-        if any(not w & set().union(*said) for w in written):
+        # One left over is invented unless a run said it as several: "three thirty" -> "3:30".
+        if any(not any(w & n for n in said if len(n) > 1) for w in unclaimed):
             return True
 
         def uncorrected(i1, i2):

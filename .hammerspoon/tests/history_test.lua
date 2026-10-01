@@ -66,7 +66,7 @@ test("prune deletes the oldest takes past the cap, never the newest or other fil
     assert(history.save("take", settings) == nil)
   end
   local takes = list(settings.directory)
-  local mine = { "notes.txt", "2020-01-01.txt", "todo.md" }
+  local mine = { "notes.txt", "2020-01-01.txt", "todo.md", "2020-01-01_00-00-00__.txt" }
   for _, name in ipairs(mine) do
     local file = assert(io.open(settings.directory .. "/" .. name, "w"))
     file:write(("mine "):rep(4096))
@@ -83,6 +83,21 @@ test("prune deletes the oldest takes past the cap, never the newest or other fil
   settings.maxMegabytes = 0
   assert(history.prune(settings) == nil)
   expect(settings.directory, { takes[3], table.unpack(mine) })
+end)
+
+test("prune goes by creation time when the clock went back", function()
+  local settings = { directory = scratch .. "/clock", maxMegabytes = 10 }
+  -- The second take is stamped an hour earlier, as when daylight saving ends.
+  for _, time in ipairs({ 1790003600, 1790000000 }) do
+    clock = time
+    assert(history.save("take", settings) == nil)
+  end
+  local newer, older = table.unpack(list(settings.directory))
+  -- An older mtime moves the birth time back: the takes' creation order stays clear.
+  assert(os.execute(("touch -t 202601010000 %q"):format(settings.directory .. "/" .. older)))
+  settings.maxMegabytes = 0
+  assert(history.prune(settings) == nil)
+  expect(settings.directory, { newer })
 end)
 
 test("prune reports a take it cannot delete", function()

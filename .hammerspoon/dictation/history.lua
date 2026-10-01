@@ -55,17 +55,20 @@ end
 function history.prune(settings)
   local directory = folder(settings)
   local limit = settings.maxMegabytes * 1024 * 1024
+  local stamp = "^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d"
   local files, total = {}, 0
   for entry in hs.fs.dir(directory) do
     -- Only names save() writes: the folder may hold the user's own files.
-    if entry:match("^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d[_%d]*%.txt$") then
-      local size = (hs.fs.attributes(directory .. "/" .. entry, "blocks") or 0) * 512
-      files[#files + 1] = { name = entry, size = size }
+    if entry:match(stamp .. "%.txt$") or entry:match(stamp .. "_%d+%.txt$") then
+      local attributes = hs.fs.attributes(directory .. "/" .. entry) or {}
+      local size = (attributes.blocks or 0) * 512
+      files[#files + 1] = { name = entry, size = size, created = attributes.creation or 0 }
       total = total + size
     end
   end
+  -- By creation: names repeat an hour when daylight saving ends.
   table.sort(files, function(a, b)
-    return a.name < b.name
+    return a.created < b.created or (a.created == b.created and a.name < b.name)
   end)
   for i = 1, #files - 1 do
     if total <= limit then
