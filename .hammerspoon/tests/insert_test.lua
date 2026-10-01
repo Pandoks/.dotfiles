@@ -1,7 +1,7 @@
 local root = assert(arg[1], "pass the dictation directory")
 local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
 -- Every clipboard write counts, as NSPasteboard's changeCount does; `pasteWrites` makes ⌘V write.
-local changes, pasteWrites = 0, false
+local changes, pasteWrites, starts = 0, false, 0
 local toggle, handlers, done, escape, focus, copied, saved, refused
 local config = {
   insert = "direct",
@@ -56,6 +56,7 @@ local env = setmetatable({
       },
       ["dictation.recorder"] = {
         start = function()
+          starts = starts + 1
           return {}
         end,
         stop = function(_, callback)
@@ -362,10 +363,12 @@ test("a field without a settable selection attribute is pasted with ⌘V", funct
   assert(element.written == nil and strokes[1] == "cmd+v" and #alerts == 0, "not pasted")
 end)
 
-test("an Escape binding macOS refuses is reported", function()
-  refused = true
-  dictate(field("", "", ""), "Hi.")
+test("an Escape binding macOS refuses aborts the take", function()
+  alerts, refused = {}, true
+  local before = starts
+  toggle()
   refused = false
+  assert(starts == before, "recorded with no way to cancel")
   assert(alerts[1] == "Dictation: could not bind Escape to cancel", tostring(alerts[1]))
 end)
 

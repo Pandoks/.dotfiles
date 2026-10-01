@@ -334,6 +334,8 @@ local function toggle()
     pill:show()
     if not dictation.cancelHotkey:enable() then
       fail("Dictation: could not bind Escape to cancel")
+      finish(nil)
+      return
     end
     local capture, message = recorder.start(config.eqBands, function(failure)
       fail("Dictation recorder: " .. failure)

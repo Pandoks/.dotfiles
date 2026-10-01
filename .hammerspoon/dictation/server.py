@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import traceback
+import types
 import unicodedata
 import wave
 from pathlib import Path
@@ -844,15 +845,25 @@ class Engine:
         + ["nearly", "almost", "about", "around", "exactly", "least", "most", "more", "less"]
         + ["fewer", "over", "under", "above", "below", "greater", "only", "up"]
     )
-    # Opposites a cleanup must not swap: "Turn logging off" is not "on".
-    OPPOSITES = frozenset(
-        frozenset(pair.split("/"))
-        for pair in ["on/off", "enable/disable", "enabled/disabled", "before/after", "start/stop"]
-        + ["open/close", "true/false", "left/right", "add/remove", "allow/deny", "show/hide"]
-        + ["lock/unlock", "increase/decrease", "first/last", "min/max", "up/down"]
-        + ["all/some", "every/some", "each/some", "always/sometimes", "everyone/someone"]
-        + ["everything/something", "everybody/somebody", "include/exclude", "accept/reject"]
-        + ["import/export", "connect/disconnect", "install/uninstall"]
+    # Opposites a cleanup must not swap, alternatives per side: "Turn logging off" is not "on".
+    OPPOSITES = (
+        ["on/off", "enable/disable", "before/after", "start/stop", "open/close", "true/false"]
+        + ["left/right", "add/remove", "allow/deny", "show/hide", "lock/unlock", "first/last"]
+        + ["increase/decrease", "min/max", "up/down", "all|every|each/some", "always/sometimes"]
+        + ["everyone|everybody/someone|somebody", "everything/something", "include/exclude"]
+        + ["accept/reject", "import/export", "connect/disconnect", "install/uninstall"]
+        + ["least/most", "over/under", "above/below", "more|greater/less|fewer"]
+    )
+    # Each opposite and its inflections ("includes", "increasing", "stopped") -> (pair, side).
+    SIDES = types.MappingProxyType(
+        {
+            form: (n, side)
+            for n, pair in enumerate(OPPOSITES)
+            for side, words in enumerate(pair.split("/"))
+            for w in words.split("|")
+            for form in (w, w + "s", w + "es", w + "d", w + "ed", w + "ing", w[:-1] + "ing")
+            + (w + w[-1] + "ed", w + w[-1] + "ing")
+        }
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
@@ -919,7 +930,8 @@ class Engine:
             found.append(({sign + v + unit for v in values}, parts))
             sign, unit, fresh = "", "", True
 
-        for token in re.findall(r"(?<![\w+-])[-+]?\d+|\d+|[a-z]+|[%°$€£]", text) + [""]:
+        # Not digits inside a name ("SHA256", "IPv6", "v2"); a range's ("10-15") count.
+        for token in re.findall(r"(?<![\w+-])[-+]?\d+|(?<![a-z])\d+|[a-z]+|[%°$€£]", text) + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
                 continue  # "negative about fifteen", "two hundred and five"
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
@@ -1018,6 +1030,7 @@ class Engine:
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
         # A cue is set off by a mark ("no, make it Friday"); a negating "no" is not ("no tests").
         paused = {k for k, m in enumerate(spans) if re.match(r"[,.;:!?…—]", raw[m.end() :])}
+        ends = {k for k, m in enumerate(spans) if re.match(r"[\"”’')\]]*[.!?]", raw[m.end() :])}
         set_off = paused | {
             k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
         }
@@ -1138,8 +1151,17 @@ class Engine:
             if negative(out_words[j1:j2]) and not negative(raw_words[i1:i2]):
                 return True  # a "not" or "no" the user never said
             said, wrote = set(raw_words[i1:i2]), set(out_words[j1:j2])
-            if any({a, b} in cls.OPPOSITES for a in said - wrote for b in wrote - said):
-                return True  # an opposite swapped in
+            swapped = {cls.SIDES[w] for w in said - wrote if w in cls.SIDES}
+            if any(
+                (cls.SIDES[w][0], 1 - cls.SIDES[w][1]) in swapped
+                for w in wrote - said
+                if w in cls.SIDES
+            ):
+                return True  # an opposite swapped in: "off" -> "on", "includes" -> "excludes"
+            # A whole sentence dropped, not only a stall or "Okay.": "Open settings. Delete files."
+            whole = (i1 == 0 or i1 - 1 in ends) and (i2 == len(raw_words) or i2 - 1 in ends)
+            if tag == "delete" and whole and set(uncorrected(i1, i2)) - cls.MARKERS:
+                return True
             if tag != "equal" and any(k in meant and k not in corrected for k in range(i1, i2)):
                 return True  # a meant "like" or "you know" cut: "I like cats" -> "I cats"
             # Unsaid words first, last, or as a sentence of their own are a reply: "Sure. Thanks."

@@ -70,6 +70,8 @@ test("prune deletes the oldest takes past the cap, never the newest or other fil
     assert(history.save("take", settings) == nil)
   end
   local takes = list(settings.directory)
+  -- A folder with a take's name is not a take.
+  assert(fs.mkdir(settings.directory .. "/2020-01-01_00-00-00.txt"))
   local mine = { "notes.txt", "2020-01-01.txt", "todo.md", "2020-01-01_00-00-00__.txt" }
   -- Not a time os.date could write.
   mine[#mine + 1] = "2026-99-99_99-99-99.txt"
@@ -80,6 +82,7 @@ test("prune deletes the oldest takes past the cap, never the newest or other fil
     file:write(("mine "):rep(4096))
     file:close()
   end
+  mine[#mine + 1] = "2020-01-01_00-00-00.txt"
 
   -- A cap of two takes deletes only the oldest.
   local blocks = fs.attributes(settings.directory .. "/" .. takes[1], "blocks")

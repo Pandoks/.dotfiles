@@ -85,8 +85,8 @@ function history.prune(settings)
   local files, total = {}, 0
   for entry in hs.fs.dir(directory) do
     -- Only names save() writes: the folder may hold the user's own files.
-    if ours(entry) then
-      local attributes = hs.fs.attributes(directory .. "/" .. entry) or {}
+    local attributes = ours(entry) and hs.fs.attributes(directory .. "/" .. entry) or {}
+    if attributes.mode == "file" then -- not a folder of the same name
       local size = (attributes.blocks or 0) * 512
       files[#files + 1] = { name = entry, size = size, created = attributes.creation or 0 }
       total = total + size
