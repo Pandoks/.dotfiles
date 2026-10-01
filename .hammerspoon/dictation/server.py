@@ -938,8 +938,12 @@ class Engine:
         """Each number in `text`: the forms it may be written in and how many numbers it may be
         written as ("three thirty": 3, 30, or 330, as 2)."""
         text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
-        # A name mixing letters and digits holds no number ("HTTP/2", "C++20", "SHA3-256"), but
-        # "15th", "3pm", and "1990s" do.
+        # A unit written on is the number and the unit: "20ms" is "20 ms", "16GB" is "16 GB".
+        unit = r"[kmgtp]?i?b(?:ps)?|[kmg]?hz|[nµμm]?s|sec|min|hr|h|[kcm]?m|ft|mi|mph|kph|[km]?g"
+        unit += r"|lbs?|oz|[km]?w|v|m?l|px|fps|x|k|°[cf]?"
+        text = re.sub(rf"(?<![\w.])([-+$€£]?\d+(?:\.\d+)?)({unit})(?!\w)", r"\1 \2", text)
+        # A name mixing letters and digits holds no number ("HTTP/2", "C++20", "SHA3-256", "2FA"),
+        # but "15th", "3pm", and "1990s" do.
         ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm)"
         text = " ".join(
             w
