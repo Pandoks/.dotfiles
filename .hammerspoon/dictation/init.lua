@@ -208,11 +208,25 @@ local function insertText(text)
     local function starts(char)
       return char == "" or char:match("^%s$") or openers[char]
     end
+    -- A letter or digit in any script ("é", "日"); punctuation blocks and Latin-1 marks are not.
+    local marks = { { 0x80, 0xBF }, { 0x2000, 0x206F }, { 0x3000, 0x303F }, { 0xFF01, 0xFF0F } }
+    local function wordy(char)
+      if char:match("^%w$") then
+        return true
+      end
+      local code = char ~= "" and utf8.codepoint(char) or 0
+      for _, block in ipairs(marks) do
+        if code >= block[1] and code <= block[2] then
+          return false
+        end
+      end
+      return code > 0x7F
+    end
     if not starts(before) and not (quotes[before] and starts(prior)) then
       text = " " .. text
     end
-    local opens = quotes[after] and starts(last ~= "" and last or before) and beyond:match("^%w$")
-    if after:match("^%w$") or openers[after] or opens then
+    local opens = quotes[after] and starts(last ~= "" and last or before) and wordy(beyond)
+    if wordy(after) or openers[after] or opens then
       text = text .. " "
     end
   end
@@ -374,7 +388,10 @@ engine, engineError = Engine.new(config, {
     end
     -- nil means saved (false: nothing to save); prune after delivery since it stats every file.
     if problem == nil then
-      history.prune(config.history)
+      problem = history.prune(config.history)
+      if problem then
+        fail("Dictation: " .. problem)
+      end
     end
   end,
   onError = function(message, id)
@@ -425,6 +442,8 @@ else
     if kind ~= types.flagsChanged then
       if down then
         otherUsed = true -- a key, click, or scroll while the modifier was held
+      else
+        tapCount = 0 -- input between taps: the next tap starts over
       end
       return false
     end

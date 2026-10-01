@@ -70,13 +70,27 @@ test("prune deletes the oldest takes past the cap, never the newest or other fil
   -- A cap of two takes deletes only the oldest.
   local blocks = fs.attributes(settings.directory .. "/" .. takes[1], "blocks")
   settings.maxMegabytes = 2 * blocks * 512 / 1024 / 1024
-  history.prune(settings)
+  assert(history.prune(settings) == nil)
   expect(settings.directory, { takes[2], takes[3], table.unpack(mine) })
 
   -- Every take is over a zero cap: the newest still stays.
   settings.maxMegabytes = 0
-  history.prune(settings)
+  assert(history.prune(settings) == nil)
   expect(settings.directory, { takes[3], table.unpack(mine) })
+end)
+
+test("prune reports a take it cannot delete", function()
+  local settings = { directory = scratch .. "/locked", maxMegabytes = 10 }
+  for _, time in ipairs({ 1790000000, 1790000001 }) do
+    clock = time
+    assert(history.save("take", settings) == nil)
+  end
+  local oldest = settings.directory .. "/" .. list(settings.directory)[1]
+  assert(os.execute(("chflags uchg %q"):format(oldest)))
+  settings.maxMegabytes = 0
+  local failure = history.prune(settings)
+  assert(os.execute(("chflags nouchg %q"):format(oldest)))
+  assert(failure and failure:find("could not delete", 1, true), tostring(failure))
 end)
 
 print(passed .. " history tests passed")

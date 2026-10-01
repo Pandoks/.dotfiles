@@ -381,7 +381,7 @@ class Engine:
 
     def apply_vocabulary(self, text, request=None):
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
-        # Words joined by " .'-", accents folded ("José" -> "jose"); "C++" is skipped (keys as "c").
+        # Words joined by " .'-", accents folded ("José" -> "jose"); "C++" is skipped (key "c").
         glossary = {
             re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", w.lower())): w
             for w in self.glossary(request)
@@ -568,7 +568,7 @@ class Engine:
             "(period, question mark, or exclamation mark). If it stops "
             "mid-sentence or mid-clause, or is a fragment the user will keep "
             "typing after (for example it ends on a word like 'and', 'but', "
-            "'to', 'the', 'because', or the thought is unfinished), end with no "
+            "'the', 'because', or the thought is unfinished), end with no "
             "punctuation at all. Punctuate normally inside the text either way."
         )
         return "\n".join(p for p in parts if p)
@@ -708,7 +708,24 @@ class Engine:
         ]
     )
     # After a bare wh-word they open a clause, not a question: "When I get home", "What a day".
-    CLAUSES = frozenset(["i", "you", "we", "they", "he", "she", "it", "a", "an"])
+    CLAUSES = frozenset(
+        [
+            "i",
+            "you",
+            "we",
+            "they",
+            "he",
+            "she",
+            "it",
+            "a",
+            "an",
+            "the",
+            "this",
+            "that",
+            "these",
+            "those",
+        ]
+    )
     # Singular subjects "do" never asks with: "Do it now", "Don't anyone move".
     ORDERS = frozenset(
         [
@@ -755,6 +772,8 @@ class Engine:
         subject = len(words) > 1 and (
             after in cls.SUBJECTS or cased[1][0].isupper() or re.sub(r"'s$", "", cased[1]) in names
         )
+        if words[0] == "have":
+            return after in ("i", "you", "we", "they")
         return words[0] in cls.AUXILIARIES and subject
 
     @classmethod
@@ -776,6 +795,14 @@ class Engine:
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
+    # Discourse markers a filler "you know" or "I mean" follows: "so you know we should".
+    MARKERS = frozenset(["so", "and", "but", "well", "yeah", "okay", "ok", "oh", "um", "uh"])
+    # Words after which "like" is the verb or comparison, not a filler: "I like cats", "looks like".
+    LIKERS = frozenset(
+        ["i", "you", "we", "they", "he", "she", "it", "would", "i'd", "you'd", "we'd", "they'd"]
+        + ["do", "does", "did", "don't", "doesn't", "didn't", "really", "just", "much", "more"]
+        + ["look", "looks", "looked", "feel", "feels", "felt", "seem", "seems", "sound", "sounds"]
+    )
 
     @classmethod
     def looks_rewritten(cls, raw, out, allowed):
@@ -788,9 +815,6 @@ class Engine:
         def words(text):
             return re.findall(word, text)
 
-        def said(text):
-            return words(cls.DROPPED_RE.sub(" ", text))
-
         def negative(tokens, no=True):
             # A "no" may be a cue instead ("no wait", "Thursday no Friday"), not a negation.
             nots = cls.NEGATIONS | {"no"} if no else cls.NEGATIONS
@@ -799,6 +823,31 @@ class Engine:
         raw_words, out_words = words(raw), words(out)
         if not out_words or len(out_words) > 1.6 * len(raw_words) + 3:
             return True  # far longer than what was said: an answer/explanation
+
+        # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15"), not replaced.
+        def numbers(text):
+            return set(re.findall(r"\d+", re.sub(r"(?<=\d),(?=\d{3})", "", text)))
+
+        if numbers(raw) - numbers(out) and numbers(out) - numbers(raw):
+            return True
+
+        # Fillers by word index: "like" after "I" and a "you know" running on are meant words.
+        spans = list(re.finditer(word, raw))
+        fillers, meant = set(), set()
+        for m in cls.DROPPED_RE.finditer(raw):
+            before = [s.group() for s in spans if s.end() <= m.start()][-1:]
+            inside = {
+                k for k, s in enumerate(spans) if m.start() <= s.start() and s.end() <= m.end()
+            }
+            liked = m.group() == "like" and before and before[0] in cls.LIKERS
+            # Set off by a mark or after a discourse marker it is filler or a cue (", I mean Jane",
+            # "so you know we"); "I mean it" and "You know the answer" are meant.
+            running = m.group() in ("you know", "i mean") and not (
+                re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
+                or re.search(r"[,;:…—]\s*$", raw[: m.start()])
+                or (before and before[0] in cls.MARKERS)
+            )
+            (meant if liked or running else fillers).update(inside)
         raw_set, out_set = set(raw_words), set(out_words)
         if not raw_set & out_set:
             return True  # nothing the user said survived (short inputs included)
@@ -837,7 +886,7 @@ class Engine:
         }
 
         def uncorrected(i1, i2):
-            return said(" ".join(raw_words[k] for k in range(i1, i2) if k not in corrected))
+            return [raw_words[k] for k in range(i1, i2) if k not in corrected and k not in fillers]
 
         # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more.
         kept = out_set | cls.CORRECTIONS
@@ -874,9 +923,11 @@ class Engine:
                 return True  # a dropped sentence or "not" the user never took back
             if negative(out_words[j1:j2]) and not negative(raw_words[i1:i2]):
                 return True  # a "not" or "no" the user never said
+            if tag != "equal" and any(k in meant and k not in corrected for k in range(i1, i2)):
+                return True  # a meant "like" or "you know" cut: "I like cats" -> "I cats"
             # Unsaid words first, last, or as a sentence of their own are a reply: "Sure. Thanks."
             alone = n in (0, len(edits) - 1) or all(re.search(r"[.!?]", gaps[j]) for j in (j1, j2))
-            if tag in ("insert", "replace") and not said(" ".join(raw_words[i1:i2])) and alone:
+            if tag in ("insert", "replace") and set(range(i1, i2)) <= fillers and alone:
                 return True
 
         # Kept words keep their order; repeats and corrected parts may go.

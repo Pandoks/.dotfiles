@@ -210,6 +210,10 @@ test("spacing joins the text to its neighbors", function()
     { "😀 ", "", "world", "hi", "hi " }, -- an emoji is two units
     { "a ", "foo", " b", "bar", "bar" },
     { "a😀", "foo", "b", "bar", " bar " },
+    { "", "", "éclair", "hello", "hello " }, -- a word in any script
+    { "", "", "日本", "hello", "hello " },
+    { "", "", "—then", "hello", "hello" }, -- a dash is a mark, not a word
+    { "", "", "”", "hello", "hello" },
   }) do
     local before, selected, after, text, want = table.unpack(case)
     local element = field(before, selected, after)

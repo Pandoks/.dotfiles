@@ -43,6 +43,7 @@ end
 
 -- Delete the oldest transcripts over the cap, never the newest; sizes are du-style blocks.
 ---@param settings DictationHistoryConfig
+---@return string? failure
 function history.prune(settings)
   local directory = folder(settings)
   local limit = settings.maxMegabytes * 1024 * 1024
@@ -62,7 +63,10 @@ function history.prune(settings)
     if total <= limit then
       break
     end
-    os.remove(directory .. "/" .. files[i].name)
+    local removed, message = os.remove(directory .. "/" .. files[i].name)
+    if not removed then
+      return "could not delete " .. files[i].name .. ": " .. tostring(message)
+    end
     total = total - files[i].size
   end
 end

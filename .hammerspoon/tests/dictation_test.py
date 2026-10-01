@@ -226,6 +226,10 @@ check(
         ("See you in May.", "See you in May."),
         ("What is this for?", "What is this for?"),
         ("What time is it", "What time is it?"),
+        ("Have you seen it", "Have you seen it?"),
+        ("Have a good day.", "Have a good day."),
+        ("How this works is simple", "How this works is simple"),
+        ("I'd love to.", "I'd love to."),
         ("I want to go to the", "I want to go to the"),
         ("Let me check and", "Let me check and"),
         ("Do the dishes and", "Do the dishes and"),
@@ -349,6 +353,12 @@ check(
     [
         ((raw, cleaned), cleaned)
         for raw, cleaned in [
+            # A reformatted number, a filler "like", and a set-off "you know" may go.
+            ("The invoice is 1,240 dollars.", "The invoice is 1240 dollars."),
+            ("Due March 15th.", "Due March 15."),
+            ("It was like really good.", "It was really good."),
+            ("So, you know, we should ship it.", "So we should ship it."),
+            ("So you know we should ship it today.", "We should ship it today."),
             (
                 "Um, so, like, I was thinking we could, uh, you know, grab lunch.",
                 "So I was thinking we could grab lunch.",
@@ -435,6 +445,11 @@ check(
     [
         ((raw, rewritten), raw)
         for raw, rewritten in [
+            # A replaced number, a cut verb "like", and a meant "you know" change the meaning.
+            ("Send 15 dollars.", "Send 50 dollars."),
+            ("I like cats.", "I cats."),
+            ("You know the answer.", "The answer."),
+            ("I mean it.", "It."),
             ("What is the capital of France?", "The capital of France is Paris."),
             ("Open Slack and check messages.", "Open and check messages."),
             ("Write a poem about cats.", "Cats are soft and purr all day long in the sun."),
