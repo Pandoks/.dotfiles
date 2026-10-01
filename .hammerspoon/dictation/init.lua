@@ -328,7 +328,12 @@ local function toggle()
         finish(nil)
         return
       elseif peak < config.minLevel then
-        fail(("Dictation: no speech detected (peak %.2f < %.2f)"):format(peak, config.minLevel))
+        -- Name the input: a Bluetooth headset can deliver pure silence while it switches modes.
+        local input = hs.audiodevice.defaultInputDevice()
+        local name = input and input:name() or "the default input"
+        fail(
+          ("Dictation: no speech from %s (peak %.2f < %.2f)"):format(name, peak, config.minLevel)
+        )
         finish(nil)
         return
       end
