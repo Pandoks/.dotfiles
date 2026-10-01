@@ -933,18 +933,25 @@ class Engine:
         | {"am": "am", "pm": "pm"}
     )
 
+    # A unit written on is the number and the unit: "20ms" is "20 ms", "16GB" is "16 GB".
+    UNIT_RE = re.compile(
+        r"(?<![\w.])([-+$€£]?\d+(?:\.\d+)?)([kmgtp]?i?b(?:ps)?|[kmg]?hz|[nµμm]?s|sec|min|hr|h"
+        r"|[kcm]?m|ft|mi|mph|kph|[km]?g|lbs?|oz|[km]?w|v|m?l|px|fps|x|k|°[cf]?)(?!\w)",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def spaced(cls, text):
+        return cls.UNIT_RE.sub(r"\1 \2", text)
+
     @classmethod
     def numbers(cls, text):
         """Each number in `text`: the forms it may be written in and how many numbers it may be
         written as ("three thirty": 3, 30, or 330, as 2)."""
-        text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
-        # A unit written on is the number and the unit: "20ms" is "20 ms", "16GB" is "16 GB".
-        unit = r"[kmgtp]?i?b(?:ps)?|[kmg]?hz|[nµμm]?s|sec|min|hr|h|[kcm]?m|ft|mi|mph|kph|[km]?g"
-        unit += r"|lbs?|oz|[km]?w|v|m?l|px|fps|x|k|°[cf]?"
-        text = re.sub(rf"(?<![\w.])([-+$€£]?\d+(?:\.\d+)?)({unit})(?!\w)", r"\1 \2", text)
+        text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", cls.spaced(text.lower()))  # "1,240", "10:00"
         # A name mixing letters and digits holds no number ("HTTP/2", "C++20", "SHA3-256", "2FA"),
-        # but "15th", "3pm", and "1990s" do.
-        ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm)"
+        # but "15th", "3pm", "1990s", and "3-year-old" do.
+        ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm|-.+)"
         text = " ".join(
             w
             if not (re.search(r"[^\W\d_]", w) and re.search(r"\d", w))  # letters of any script
@@ -1021,7 +1028,8 @@ class Engine:
 
         # Words in any script keep inner apostrophes, curly ones too ("don’t"), not a quote's.
         word = r"[^\W_]+(?:'[^\W_]+)*"
-        raw, out = raw.lower().replace("’", "'"), out.lower().replace("’", "'")
+        # Its unit is checked as a word: "16GB" is not "16MB".
+        raw, out = (cls.spaced(t.lower().replace("’", "'")) for t in (raw, out))
 
         def words(text):
             return re.findall(word, text)
