@@ -496,7 +496,7 @@ class Engine:
         open_text = re.sub(r"\s*[.!?…—]+([\"”’)\]]*)$", r"\1", text)
 
         def core(word):
-            return re.sub(r"[^\w']", "", word).lower()
+            return re.sub(r"[^\w']", "", word.replace("’", "'")).lower()
 
         end = core((open_text.split() or [""])[-1])
         # Re-add the word only where the cleanup cut it ("to the" -> "to."), not respelled ("vs.").

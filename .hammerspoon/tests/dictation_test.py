@@ -261,6 +261,10 @@ check(
         (("He said I want the", 'He said, "I want the."'), 'He said, "I want the"'),
         (("Let us compare Python versus", "Let us compare Python vs."), "Let us compare Python vs"),
         (("Did he say yes", 'Did he say "yes?"'), 'Did he say "yes?"'),
+        # The cleanup's curly marks: "it’s" still matches the raw "it's".
+        (("I think it's the", "I think it’s."), "I think it’s the"),
+        (("He said I want the", "He said, “I want the.”"), "He said, “I want the”"),
+        (("Did he say yes", "Did he say “yes?”"), "Did he say “yes?”"),
     ],
     lambda pair: dictate(*pair),
 )
@@ -293,7 +297,9 @@ check(
             ("I don't, I don't know.", "I don't know."),
             ("It is not, it's not working.", "It's not working."),
             ("Let's meet Thursday, no, Friday. I don't know.", "Let’s meet Friday. I don’t know."),
-            ("He said yes.", "He said ‘yes’."),
+            ("He said don't do it.", "He said, ‘Don’t do it.’"),
+            ("It's not, not working.", "It's not working."),
+            ("I want go home.", "I want to go home."),
             (
                 "Here's a list. Eggs, milk, and bread.",
                 "Here's a list:\n\n- Eggs\n- Milk\n- Bread",
@@ -306,7 +312,7 @@ check(
     ],
     lambda pair: dictate(*pair),
 )
-# Short enough that one unlisted cue or filler exceeds the guard's 2-word slack.
+# An unlisted cue loses Slack uncorrected; an unlisted filler is a third lost word, over the slack.
 check(
     "guard accepts each cue and filler",
     [
@@ -317,11 +323,11 @@ check(
                 for cue in ["no,", "wait,", "sorry,", "I mean", "scratch that,", "actually"]
             ),
             *(
-                (f"So, {filler}, meet Friday, no, Monday.", "Meet Monday.")
-                for filler in ["um", "uh", "erm", "hmm", "like"]
+                (f"Okay, so, {filler}, meet Monday.", "Meet Monday.")
+                for filler in ["um", "uh", "erm", "hmm", "like", "you know"]
             ),
-            ("You know, meet Friday, no, Monday.", "Meet Monday."),
-            ("So, meet Friday, I mean Monday.", "Meet Monday."),
+            ("Okay, meet Friday, actually make that Monday.", "Meet Monday."),
+            ("Okay, so, meet Friday, scratch that, Monday.", "Meet Monday."),
         ]
     ],
     lambda pair: dictate(*pair),
@@ -387,6 +393,11 @@ check(
                 "Tell me a joke. Why did the chicken cross the road? To get to the other side.",
             ),
             ("Send the report to the team.", "Send the report to the entire marketing team today."),
+            (
+                "Send the report to the team today.",
+                "Send the final quarterly sales report to the team today.",
+            ),
+            ("The capital of France is", "The capital of France is Paris."),
             (standup, f"{standup} Domain vocabulary: {', '.join(engine.glossary())}."),
             (f"{standup} {pricing} {closed}", f"{standup} {closed}"),
             # A cue takes back at most the 6 words before it.
