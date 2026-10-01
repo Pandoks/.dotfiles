@@ -782,7 +782,7 @@ class Engine:
         if raw.endswith((".", "!")):
             return False
         last = re.split(r"[.!?]\s+", raw.replace("’", "'"))[-1]
-        cased = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)*", last)  # "Don’t", not "the’" or "‘Is"
+        cased = re.findall(r"[^\W\d_]+(?:'[^\W\d_]+)*", last)  # "Don’t", not "the’" or "‘Is"
         words = [w.lower() for w in cased]
         if not words or cls.dangles(cased):
             return False
@@ -1011,25 +1011,24 @@ class Engine:
         # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15", "fifteen" -> "15")
         # or taken back ("15, no, 50"), never replaced, dropped, or invented. Each said one needs
         # its own written one ("15 files into 15 folders"); a run may be several ("3:30").
-        said, written = cls.numbers(raw), cls.numbers(out)
+        # In order too: "width fifteen, height twenty" is not "width 20, height 15".
+        written = [w for w, _ in cls.numbers(out)]
         taken = cls.numbers(" ".join(raw_words[k] for k in sorted(corrected)))
-        back = set().union(*(n for n, _ in taken))
-        unclaimed, room = [w for w, _ in written], []
-        for n, parts in sorted(said, key=lambda m: len(m[0])):  # exact digits claim theirs first
-            match = next((w for w in unclaimed if w & n), None)
-            if match:
-                unclaimed.remove(match)
-                if parts > 1:  # digits left for its other parts: "30" after "3" of "three thirty"
-                    room.append([n, max(map(len, n)) - min(map(len, match & n))])
-            elif not n & back:
-                return True
-        # One left over is invented unless it fits a run said as several: "three thirty" ->
-        # "3:30", not "330 330".
-        for w in unclaimed:
-            fit = next((r for r in room if any(len(f) <= r[1] for f in w & r[0])), None)
-            if not fit:
-                return True
-            fit[1] -= min(len(f) for f in w & fit[0])
+        back, at = set().union(*(n for n, _ in taken)), 0
+        for n, parts in cls.numbers(raw):
+            k = next((k for k in range(at, len(written)) if written[k] & n), None)
+            if k is None and n & back:
+                continue
+            if k is None or k > at:
+                return True  # dropped, moved, or after one never said
+            # A run said as several goes on while its digits last: "three thirty" -> "3:30",
+            # not "330 330".
+            room, at = max(map(len, n)) - min(map(len, written[k] & n)), k + 1
+            while parts > 1 and at < len(written) and any(len(f) <= room for f in written[at] & n):
+                room -= min(len(f) for f in written[at] & n)
+                at += 1
+        if at < len(written):
+            return True  # a number never said
 
         def uncorrected(i1, i2):
             return [raw_words[k] for k in range(i1, i2) if k not in corrected and k not in fillers]

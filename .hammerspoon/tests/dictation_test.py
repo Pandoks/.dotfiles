@@ -292,6 +292,12 @@ check(
     ],
     dictate,
 )
+# A glossary name in any script is a subject.
+check(
+    "question subjects in any script",
+    [("Did 東京 fail", True)],
+    lambda text: server.Engine.is_question(text, {"東京"}),
+)
 check(
     "end punctuation overrides the cleanup",
     [
@@ -486,6 +492,7 @@ check(
             ("Send fifteen dollars.", "Send dollars."),
             ("Send fifteen dollars.", "Send 15 15 dollars."),
             ("Meet at three thirty.", "Meet at 330 330."),
+            ("Set width to fifteen and height to twenty.", "Set width to 20 and height to 15."),
             ("Set it to negative 15.", "Set it to 15."),
             ("Set it to 15.", "Set it to -15."),
             ("Set opacity to 15%.", "Set opacity to 15."),
