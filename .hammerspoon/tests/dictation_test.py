@@ -146,7 +146,7 @@ symbols = server.Engine(
     dict(
         engine.config,
         vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve", "Node.js", "O'Reilly"]
-        + ["Shell", "Visual Studio Code"],
+        + ["Shell", "Visual Studio Code", "Москва", "Київ"],
     )
 )
 check(
@@ -162,6 +162,7 @@ check(
         ("Run ytdlp now.", "Run yt-dlp now."),
         ("Jose is here.", "José is here."),
         ("JOSÉ is here.", "José is here."),
+        ("From МОСКВА to КИЇВ.", "From Москва to Київ."),
         ("The nave of the church.", "The nave of the church."),
     ],
     symbols.apply_vocabulary,
@@ -247,6 +248,8 @@ check(
         ('He said "yes." Can you help', 'He said "yes." Can you help?'),
         ("Had a great time", "Had a great time"),
         ("Must you leave", "Must you leave?"),
+        ("Need I say more", "Need I say more?"),
+        ("Need help today", "Need help today"),
         ("Have the tests run nightly", "Have the tests run nightly"),
         ("Have your passport ready.", "Have your passport ready."),
         ("How this works is simple", "How this works is simple"),
@@ -495,6 +498,7 @@ check(
             ("Send fifteen dollars.", "Send 15 15 dollars."),
             ("Meet at three thirty.", "Meet at 330 330."),
             ("Meet at three thirty.", "Meet at 3 3."),
+            ("Meet at three thirty.", "Meet at 3."),
             ("Set it to approximately fifteen.", "Set it to 15."),
             ("Set it to about fifteen.", "Set it to 15."),
             ("Buy fifteen apples then sell oranges.", "Buy apples then sell 15 oranges."),

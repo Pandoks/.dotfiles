@@ -383,8 +383,8 @@ class Engine:
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
 
         # Words joined by " .'-", accents folded ("José" -> "jose"); "C++" is skipped (key "c").
-        def fold(word):
-            return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", word.lower()))
+        def fold(word):  # letters and digits of any script, accents dropped
+            return "".join(c for c in unicodedata.normalize("NFKD", word.lower()) if c.isalnum())
 
         entries = [w for w in self.glossary(request) if re.fullmatch(r"\w+(?:[ .'-]\w+)*", w)]
         glossary = {fold(w): w for w in entries}
@@ -665,6 +665,8 @@ class Engine:
             "does",
             "did",
             "has",
+            "need",
+            "ought",
             "must",
             "mustn't",
             "hadn't",
@@ -1041,6 +1043,8 @@ class Engine:
                 if not more:
                     break
                 joined, at = joined + more[0], at + 1
+            if parts > 1 and joined != max(n, key=len):
+                return True  # part of it dropped: "three thirty" -> "3"
         if at < len(written):
             return True  # a number never said
 
