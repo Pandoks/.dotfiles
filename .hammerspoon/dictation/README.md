@@ -181,8 +181,8 @@ their fixed dB thresholds delete a quiet or distant speaker outright (a take
 20–10 dB babble noise. Only loud overlapping speech (babble at ≤5 dB SNR)
 defeats it, and no filter recovers that. ffmpeg writes the wav and, in
 parallel, raw PCM to a flushed temp file; the 30 fps tick reads the new bytes
-and `spectrum.lua` runs the FFT in Lua (~2 ms/frame). No Python is involved in
-capture: Hammerspoon decodes task output as text (dropping PCM bytes) and
+and `spectrum.lua` runs the FFT in Lua (~0.4 ms/frame). No Python is involved
+in capture: Hammerspoon decodes task output as text (dropping PCM bytes) and
 `io.popen` would block the main thread, while a page-cached file read costs
 ~13 µs per frame.
 
