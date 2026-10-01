@@ -236,6 +236,8 @@ check(
         ("Have you seen it", "Have you seen it?"),
         ("Have a good day.", "Have a good day."),
         ("Have the tests passed", "Have the tests passed?"),
+        ("Have the workers left", "Have the workers left?"),
+        ("Have the tests run nightly", "Have the tests run nightly"),
         ("Have your passport ready.", "Have your passport ready."),
         ("How this works is simple", "How this works is simple"),
         ("I'd love to.", "I'd love to."),
@@ -365,6 +367,7 @@ check(
             # A reformatted or corrected number, a filler "like", and a set-off "you know" may go.
             ("The invoice is 1,240 dollars.", "The invoice is 1240 dollars."),
             ("Send fifteen dollars.", "Send 15 dollars."),
+            ("Back in twenty twenty six.", "Back in 2026."),
             ("Send 15, no, 50 dollars.", "Send 50 dollars."),
             ("Due March 15th.", "Due March 15."),
             ("It was like really good.", "It was really good."),
@@ -458,7 +461,10 @@ check(
         for raw, rewritten in [
             # A replaced, dropped, or invented number, a cut verb "like", and a meant "you know".
             ("Send 15 dollars.", "Send 50 dollars."),
+            ("Send fifteen dollars.", "Send 50 dollars."),
+            ("Send 15 dollars.", "Send fifty dollars."),
             ("Send 15 dollars.", "Send dollars."),
+            ("Send fifteen dollars.", "Send dollars."),
             ("Send dollars.", "Send 50 dollars."),
             ("I like cats.", "I cats."),
             ("Children like cats.", "Children cats."),

@@ -776,7 +776,7 @@ class Engine:
         if words[0] == "have":
             # "Have the tests passed" asks; "Have a good day" and "Have your passport ready" don't.
             done = any(
-                re.fullmatch(r"\w+(?:ed|en)|been|done|seen|gone|had|got|made", w)
+                re.fullmatch(r"\w+(?:ed|en)|\w*[ao]ught", w) or w in cls.PARTICIPLES
                 for w in words[2:6]
             )
             return after in ("i", "you", "we", "they") or (after in cls.DETERMINERS and done)
@@ -805,6 +805,14 @@ class Engine:
     DETERMINERS = frozenset(
         ["the", "any", "all", "these", "those", "your", "our", "their", "my", "his", "her", "its"]
     )
+    # Irregular participles unlike their base: "Have the workers left". Not "run" or "put":
+    # "Have the tests run nightly" orders, and a missed "?" leaves cleanup's own mark.
+    PARTICIPLES = frozenset(
+        ["been", "done", "seen", "gone", "had", "got", "made", "left", "sent", "spent", "built"]
+        + ["lost", "found", "held", "kept", "told", "sold", "paid", "said", "heard", "won", "met"]
+        + ["flown", "shown", "known", "grown", "thrown", "drawn", "blown", "torn", "worn", "led"]
+        + ["begun", "sung", "swum", "drunk", "stuck", "struck", "hung", "slept", "felt", "fed"]
+    )
     # Discourse markers a filler "you know" or "I mean" follows: "so you know we should".
     MARKERS = frozenset(["so", "and", "but", "well", "yeah", "okay", "ok", "oh", "um", "uh"])
     # Words after which "like" is a filler ("it was like", "so like"); after others it is meant.
@@ -812,14 +820,58 @@ class Engine:
         ["is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're"]
         + ["and", "but", "so", "or", "then", "like", "um", "uh", "well", "yeah", "okay"]
     )
-    # Number words a cleanup may write as digits ("fifteen" -> "15", "noon" -> "12:00").
-    NUMBER_WORDS = re.compile(
-        r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
-        r"(?:thir|four|fif|six|seven|eigh|nine)teen(?:th)?|"
-        r"(?:twen|thir|for|fif|six|seven|eigh|nine)t(?:y|ieth)|"
-        r"hundred|thousand|million|billion|first|second|third|fourth|fifth|sixth|"
-        r"seventh|eighth|ninth|tenth|eleventh|twelfth|half|quarter|dozen|noon|midnight|o'clock)\b"
+    # Number words by value; other ordinals are a cardinal + "th" ("fourth") or "ieth" ("fiftieth").
+    UNITS = (
+        ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+        + ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen"]
+        + ["eighteen", "nineteen"]
     )
+    TENS = ("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+    NUMBERS = (
+        {w: n for n, w in enumerate(UNITS)}
+        | {w: 20 + 10 * n for n, w in enumerate(TENS)}
+        | {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
+        | {"first": 1, "second": 2, "third": 3, "fifth": 5, "eighth": 8, "ninth": 9}
+        | {"twelfth": 12, "dozen": 12, "noon": 12, "midnight": 12}
+    )
+
+    @classmethod
+    def numbers(cls, text):
+        """Each number in `text` as the digits it may be written as: "three thirty" 3, 30, 330."""
+        text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
+        found, chunks = [], []
+        for token in re.findall(r"\d+|[a-z]+", text) + [""]:
+            if token == "and" and chunks and chunks[-1][2] >= 100:
+                continue  # "two hundred and five"
+            ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
+            value = cls.NUMBERS.get(token, ordinal)
+            if value is None:
+                if chunks:
+                    # A run reads as its chunks joined too: "nineteen ninety nine" is 1999.
+                    runs = [str(total + part) for total, part, _ in chunks]
+                    found.append(
+                        {"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)}
+                    )
+                    chunks = []
+                if token.isdigit():
+                    found.append({token})
+                continue
+            # Scales and words after one join a chunk, as do ones after tens ("ninety nine");
+            # anything else starts one ("nineteen | ninety nine").
+            last = chunks[-1][2] if chunks else 0
+            if not chunks or not (
+                value >= 100 or last >= 100 or (last in range(20, 100, 10) and value < 10)
+            ):
+                chunks.append([0, 0, 0])  # total, the part under the scale, the last word
+            chunk = chunks[-1]
+            if value == 100:
+                chunk[1] = (chunk[1] or 1) * 100
+            elif value > 100:
+                chunk[0], chunk[1] = chunk[0] + (chunk[1] or 1) * value, 0
+            else:
+                chunk[1] += value
+            chunk[2] = value
+        return found
 
     @classmethod
     def looks_rewritten(cls, raw, out, allowed):
@@ -898,14 +950,10 @@ class Engine:
 
         # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15", "fifteen" -> "15")
         # or taken back ("15, no, 50"), never replaced, dropped, or invented.
-        def numbers(text):
-            return set(re.findall(r"\d+", re.sub(r"(?<=\d),(?=\d{3})", "", text)))
-
-        lost = numbers(raw) - numbers(out) - numbers(" ".join(raw_words[k] for k in corrected))
-        new = numbers(out) - numbers(raw)
-        if (lost and (new or not cls.NUMBER_WORDS.search(out))) or (
-            new and not cls.NUMBER_WORDS.search(raw)
-        ):
+        said, written = cls.numbers(raw), cls.numbers(out)
+        heard, shown = set().union(*said), set().union(*written)
+        taken = set().union(*cls.numbers(" ".join(raw_words[k] for k in sorted(corrected))))
+        if any(not n & (shown | taken) for n in said) or any(not n & heard for n in written):
             return True
 
         def uncorrected(i1, i2):
