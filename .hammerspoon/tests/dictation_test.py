@@ -282,6 +282,8 @@ check(
         (("Should we pick A", "Should we pick A."), "Should we pick A?"),
         (("Thanks. But", "Thanks."), "Thanks. But"),
         (("Thanks. And the", "Thanks."), "Thanks. And the"),
+        (("Is it ready? And", "Is it ready?"), "Is it ready? And"),
+        (("Stop! And", "Stop!"), "Stop! And"),
         (("Will do", "Will do."), "Will do."),
         (('Did he say "yes"', 'Did he say "yes."'), 'Did he say "yes"?'),
         (("I want to go to the", "I want to go to the,"), "I want to go to the,"),
@@ -324,6 +326,7 @@ check(
         (("He said ‘yes’, and", "He said ‘yes.’"), "He said ‘yes’, and"),
         (("He said 'yes.' And", "He said 'yes.'"), "He said 'yes.' And"),
         (("In the '90s, the kids' and", "In the '90s, the kids'."), "In the '90s, the kids' and"),
+        (("He said the kids' and", 'He said, "The kids’."'), 'He said, "The kids’ and"'),
         (
             ("He asked me. Are you coming", "He asked me. 'Are you coming.'"),
             "He asked me. 'Are you coming'?",
@@ -531,8 +534,8 @@ check(
     [(("Thanks, um.", "Thanks. You're welcome!"), "Thanks.")],
     lambda pair: dictate(*pair),
 )
-# Entries match as word runs: "Node.js" is "node js", and "A/B" protects no lone "a".
-entries = ["yt-dlp", "Node.js", "Claude Code", "A/B"]
+# Entries match as word runs, 's dropped: "Node.js" is "node js", "A/B" protects no lone "a".
+entries = ["yt-dlp", "Node.js", "Claude Code", "A/B", "McDonald's"]
 check(
     "guard keeps hyphenated, dotted, and multi-word glossary entries",
     [
@@ -540,6 +543,7 @@ check(
         (("Rewrite the server in Node.js today.", "Rewrite the server in Deno today."), True),
         (("Open it in Claude Code.", "Open it in Cloud Code."), True),
         (("Open Claude Code's config.", "Open Cloud Code's config."), True),
+        (("Meet me at McDonald's.", "Meet me at Macy's."), True),
         (("Open it in cloud code.", "Open it in Claude Code."), False),
         (("Open Claude Code, no wait, open Cursor.", "Open Cursor."), False),
         (("I need a, uh, the report.", "I need the report."), False),

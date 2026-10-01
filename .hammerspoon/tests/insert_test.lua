@@ -229,6 +229,12 @@ test("a write the field ignores is pasted with ⌘V and the clipboard restored",
   assert(clipboard["public.utf8-plain-text"] == "mine", "did not restore the clipboard")
 end)
 
+test("dictating the selected text again writes it once", function()
+  local element = field("a ", "hello", " b")
+  dictate(element, "hello")
+  assert(element.written == "hello" and #strokes == 0 and #alerts == 0, "pasted it again")
+end)
+
 test("focus moved while transcribing writes nothing and says so", function()
   local element = field("Hello", "", "")
   dictate(element, "there.", field("Other", "", ""))
