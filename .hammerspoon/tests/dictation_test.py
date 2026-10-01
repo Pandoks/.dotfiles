@@ -261,9 +261,16 @@ check(
         (("He said I want the", 'He said, "I want the."'), 'He said, "I want the"'),
         (("Let us compare Python versus", "Let us compare Python vs."), "Let us compare Python vs"),
         (("Did he say yes", 'Did he say "yes?"'), 'Did he say "yes?"'),
+        # A cut word comes back after the comma said before it, inside the cleanup's quotes.
+        (("Send it to John, and", "Send it to John."), "Send it to John, and"),
+        (("We need eggs, milk, and", "We need eggs, milk."), "We need eggs, milk, and"),
+        (("Send it to John and", "Send it to John,"), "Send it to John, and"),
+        (("He said I want the", 'He said, "I want."'), 'He said, "I want the"'),
+        (('He said "yes", and', 'He said "yes."'), 'He said "yes", and'),
         # The cleanup's curly marks: "it’s" still matches the raw "it's".
         (("I think it's the", "I think it’s."), "I think it’s the"),
         (("He said I want the", "He said, “I want the.”"), "He said, “I want the”"),
+        (("He said I want the", "He said, “I want.”"), "He said, “I want the”"),
         (("Did he say yes", "Did he say “yes?”"), "Did he say “yes?”"),
     ],
     lambda pair: dictate(*pair),
@@ -299,6 +306,9 @@ check(
             ("Let's meet Thursday, no, Friday. I don't know.", "Let’s meet Friday. I don’t know."),
             ("He said don't do it.", "He said, ‘Don’t do it.’"),
             ("It's not, not working.", "It's not working."),
+            ("Nobody, nobody came.", "Nobody came."),
+            ("Send it to Bob, no wait, nobody.", "Send it to nobody."),
+            ("Ship it without, uh, the migration.", "Ship it without the migration."),
             ("I want go home.", "I want to go home."),
             (
                 "Here's a list. Eggs, milk, and bread.",
@@ -383,6 +393,12 @@ check(
             ),
             ("It doesn't build and it doesn't run.", "It builds and it doesn't run."),
             ("Never push to main and never force push.", "Push to main and never force push."),
+            ("Nobody touched the database.", "Somebody touched the database."),
+            ("There's nothing wrong with the build.", "There's something wrong with the build."),
+            ("None of the tests pass.", "All of the tests pass."),
+            ("Ship it without the migration.", "Ship it with the migration."),
+            ("Neither option works for me.", "Either option works for me."),
+            ("We should go nowhere near prod.", "We should go somewhere near prod."),
             ("Can you send it? Thanks.", "Can you send it? Sure. Thanks."),
             (
                 "What's the capital of France? I need it for the quiz.",
@@ -417,6 +433,20 @@ check(
     "guard rejects a reply after a stall",
     [(("Thanks, um.", "Thanks. You're welcome!"), "Thanks.")],
     lambda pair: dictate(*pair),
+)
+# Entries match as word runs: "Node.js" is "node js", and "A/B" protects no lone "a".
+entries = ["yt-dlp", "Node.js", "Claude Code", "A/B"]
+check(
+    "guard keeps hyphenated, dotted, and multi-word glossary entries",
+    [
+        (("Use yt-dlp for that.", "Use YouTube-DL for that."), True),
+        (("Rewrite the server in Node.js today.", "Rewrite the server in Deno today."), True),
+        (("Open it in Claude Code.", "Open it in Cloud Code."), True),
+        (("Open it in cloud code.", "Open it in Claude Code."), False),
+        (("Open Claude Code, no wait, open Cursor.", "Open Cursor."), False),
+        (("I need a, uh, the report.", "I need the report."), False),
+    ],
+    lambda pair: server.Engine.looks_rewritten(pair[0], pair[1], entries),
 )
 check(
     "any script's letters or digits count as speech",

@@ -502,9 +502,18 @@ class Engine:
         # Re-add the word only where the cleanup cut it ("to the" -> "to."), not respelled ("vs.").
         if end == core(last) or len(raw_words) < 2 or end != core(raw_words[-2]):
             return open_text
+        mark = raw_words[-2][-1]
         # Opening a new sentence ("Thanks. But"), it leaves the one before finished.
-        opens = raw_words[-2][-1] in ".!?"
-        return f"{text if opens else open_text} {last}".strip()
+        if mark in ".!?":
+            return f"{text} {last}".strip()
+        # It goes inside the cleanup's closing quotes, unless said after them: '"yes", and'.
+        said_after = re.search(r"[\"”)\]]\W*$", raw_words[-2])
+        body = open_text if said_after else open_text.rstrip('"”)]')
+        close = open_text[len(body) :]
+        # After the comma said before it: "John, and".
+        if mark in ",;:" and not body.endswith((",", ";", ":")):
+            body += mark
+        return f"{body} {last}{close}".strip()
 
     def build_prompt(self, request):
         config = self.config
@@ -738,6 +747,10 @@ class Engine:
 
     # Self-correction cues the adapter acts on ("no wait", "sorry, I mean", "scratch that").
     CORRECTIONS = frozenset(["no", "wait", "sorry", "mean", "scratch", "actually"])
+    # Words whose loss or addition flips the meaning ("nothing" -> "something"), besides "n't".
+    NEGATIONS = frozenset(
+        ["not", "never", "cannot", "nothing", "nobody", "none", "nowhere", "neither", "without"]
+    )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
 
@@ -757,7 +770,7 @@ class Engine:
 
         def negative(tokens, no=True):
             # A "no" may be a cue instead ("no wait", "Thursday no Friday"), not a negation.
-            nots = ("no", "not", "never", "cannot") if no else ("not", "never", "cannot")
+            nots = cls.NEGATIONS | {"no"} if no else cls.NEGATIONS
             return any(w in nots or w.endswith("n't") for w in tokens)
 
         raw_words, out_words = words(raw), words(out)
@@ -766,7 +779,12 @@ class Engine:
         raw_set, out_set = set(raw_words), set(out_words)
         if not raw_set & out_set:
             return True  # nothing the user said survived (short inputs included)
-        allowed = {a.lower() for a in allowed}
+        # Glossary entries as word runs: "Node.js" is "node js", and "A/B" is no lone "a".
+        glossary = [words(a.lower().replace("’", "'")) for a in allowed]
+
+        def has(tokens, run):
+            return any(tokens[k : k + len(run)] == run for k in range(len(tokens)))
+
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
         # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one").
         cues = [
@@ -788,13 +806,17 @@ class Engine:
 
         # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more.
         kept = out_set | cls.CORRECTIONS
-        lost = set(uncorrected(0, len(raw_words))) - kept
-        # Glossary words said must survive unless corrected ("Slack, no wait, GitHub").
-        if len(lost) > max(2, 0.3 * len(raw_words)) or lost & allowed:
+        spoken = uncorrected(0, len(raw_words))
+        lost = set(spoken) - kept
+        # Glossary entries said must survive unless corrected ("Slack, no wait, GitHub").
+        if len(lost) > max(2, 0.3 * len(raw_words)) or any(
+            has(spoken, run) and not has(out_words, run) for run in glossary
+        ):
             return True
         new = [w for w in out_words if w not in raw_set]
-        # A glossary word may replace a lost (misheard) word; an echoed list replaces none.
-        fixes = min(len(lost), sum(w in allowed for w in new))
+        # A glossary entry may replace a lost (misheard) word; an echoed list replaces none.
+        named = {w for run in glossary if has(out_words, run) for w in run}
+        fixes = min(len(lost), sum(w in named for w in new))
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
