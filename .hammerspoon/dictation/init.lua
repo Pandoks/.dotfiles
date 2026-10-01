@@ -71,7 +71,7 @@ local function gatherContext()
     local ok, url, descriptor = hs.osascript.applescript(script)
     if not ok then
       local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage
-      print("Dictation: could not read the URL: " .. tostring(message))
+      fail("Dictation: could not read the URL: " .. tostring(message))
     elseif type(url) == "string" and #url > 0 then
       context.url = clip(url)
     end
@@ -85,7 +85,7 @@ local function gatherContext()
     end
     -- Unsupported just means the focus is not a text field.
     if problem and problem ~= "Attribute is not supported by target" then
-      print("Dictation: could not read the selection: " .. problem)
+      fail("Dictation: could not read the selection: " .. problem)
     elseif type(selection) == "string" and #selection > 0 then
       context.selected = clip(selection)
     end
@@ -343,6 +343,7 @@ local function toggle()
     state = "thinking"
     local capture = assert(recording)
     local backend, pill = assert(engine), assert(overlay)
+    local context ---@type DictationTranscribeRequest read at stop, below
     recorder.stop(capture, function(wav, peak, duration)
       -- A too-short take is an accidental tap; a quiet one is a mic problem worth showing.
       if duration < config.minDuration then
@@ -359,7 +360,6 @@ local function toggle()
         finish(nil)
         return
       end
-      local context = gatherContext()
       context.wav = wav
       local id, message = backend:transcribe(context)
       if not id then
@@ -372,6 +372,8 @@ local function toggle()
     end)
     -- After SIGINT so a slow app cannot extend the take; the text goes here only if it keeps focus.
     target, targetError = focused()
+    -- The app at stop, not whichever is in front once the wav is final.
+    context = gatherContext()
   end
 end
 

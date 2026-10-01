@@ -381,11 +381,13 @@ class Engine:
 
     def apply_vocabulary(self, text, request=None):
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
+
         # Words joined by " .'-", accents folded ("José" -> "jose"); "C++" is skipped (key "c").
+        def fold(word):
+            return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", word.lower()))
+
         entries = [w for w in self.glossary(request) if re.fullmatch(r"\w+(?:[ .'-]\w+)*", w)]
-        glossary = {
-            re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", w.lower())): w for w in entries
-        }
+        glossary = {fold(w): w for w in entries}
         if not glossary or not text:
             return text
         # A phrase said exactly takes its spelling, however long ("visual studio code"), as the
@@ -401,7 +403,7 @@ class Engine:
         parts = re.split(r"(\s+)", text)  # tokens at even indexes, separators at odd
         tokens = parts[0::2]
         # Groups: opening marks, core (may hold . - or an inner '), possessive, closing marks.
-        core = r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+|['’](?![sS](?:\W|$))[A-Za-z0-9]+)*"
+        core = r"[^\W_]+(?:[.-][^\W_]+|['’](?![sS](?:\W|$))[^\W_]+)*"
         token = rf"([\"'“‘(\[]*)({core})(['’]s)?([\"'”’)\].,!?;:…]*)"
         plain = [re.fullmatch(token, t) for t in tokens]
         out, i = [], 0
@@ -416,10 +418,9 @@ class Engine:
         # Exact match, else a similar 4+ letter non-word not containing the vocabulary word.
         def match(core, floor):
             core = core.lower().replace("’", "'")
-            key = re.sub(r"[.'-]", "", core)
-            if (
-                key != core
-            ):  # punctuated: only the same spelling ("node.js"), not "she'll" -> "Shell"
+            key = fold(core)
+            # Punctuated or accented: only the same spelling ("node.js", "josé"), not "she'll".
+            if key != core:
                 word = glossary.get(key)
                 return word if word and word.lower().replace("’", "'") == core else None
             if key in glossary:
@@ -871,14 +872,15 @@ class Engine:
 
     @classmethod
     def numbers(cls, text):
-        """Each number in `text` as the forms it may be written in: "three thirty" 3, 30, 330."""
+        """Each number in `text`: the forms it may be written in and how many numbers it may be
+        written as ("three thirty": 3, 30, or 330, as 2)."""
         text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
         text = re.sub(r"([-+])([$€£])(?=\d)", r"\2\1", text)  # "-$15" is "$-15"
         found, chunks, sign, unit, fresh = [], [], "", "", False
 
-        def said(values):  # signed, and with a unit said before it ("$15")
+        def said(values, parts=1):  # signed, and with a unit said before it ("$15")
             nonlocal sign, unit, fresh
-            found.append({sign + v + unit for v in values})
+            found.append(({sign + v + unit for v in values}, parts))
             sign, unit, fresh = "", "", True
 
         for token in re.findall(r"(?<![\w+-])[-+]?\d+|\d+|[a-z]+|[%°$€£]", text) + [""]:
@@ -890,12 +892,15 @@ class Engine:
                 if chunks:
                     # A run reads as its chunks joined too: "nineteen ninety nine" is 1999.
                     runs = [str(total + part) for total, part, _ in chunks]
-                    said({"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)})
+                    said(
+                        {"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)},
+                        len(runs),
+                    )
                     chunks = []
                 if token.lstrip("-+").isdigit():
                     said({token})
                 elif token in cls.MEASURES and fresh:  # after it: "15%", "fifteen dollars"
-                    found[-1] = {n + cls.MEASURES[token] for n in found[-1]}
+                    found[-1] = ({n + cls.MEASURES[token] for n in found[-1][0]}, found[-1][1])
                     fresh = False
                 elif token in cls.MEASURES:
                     unit, fresh = cls.MEASURES[token], False
@@ -1007,17 +1012,24 @@ class Engine:
         # or taken back ("15, no, 50"), never replaced, dropped, or invented. Each said one needs
         # its own written one ("15 files into 15 folders"); a run may be several ("3:30").
         said, written = cls.numbers(raw), cls.numbers(out)
-        back = set().union(*cls.numbers(" ".join(raw_words[k] for k in sorted(corrected))))
-        unclaimed = list(written)
-        for n in sorted(said, key=len):  # exact digits claim theirs first
+        taken = cls.numbers(" ".join(raw_words[k] for k in sorted(corrected)))
+        back = set().union(*(n for n, _ in taken))
+        unclaimed, room = [w for w, _ in written], []
+        for n, parts in sorted(said, key=lambda m: len(m[0])):  # exact digits claim theirs first
             match = next((w for w in unclaimed if w & n), None)
             if match:
                 unclaimed.remove(match)
+                if parts > 1:  # digits left for its other parts: "30" after "3" of "three thirty"
+                    room.append([n, max(map(len, n)) - min(map(len, match & n))])
             elif not n & back:
                 return True
-        # One left over is invented unless a run said it as several: "three thirty" -> "3:30".
-        if any(not any(w & n for n in said if len(n) > 1) for w in unclaimed):
-            return True
+        # One left over is invented unless it fits a run said as several: "three thirty" ->
+        # "3:30", not "330 330".
+        for w in unclaimed:
+            fit = next((r for r in room if any(len(f) <= r[1] for f in w & r[0])), None)
+            if not fit:
+                return True
+            fit[1] -= min(len(f) for f in w & fit[0])
 
         def uncorrected(i1, i2):
             return [raw_words[k] for k in range(i1, i2) if k not in corrected and k not in fillers]

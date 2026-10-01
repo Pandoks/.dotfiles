@@ -1,8 +1,8 @@
 local root, frameworks, scratch = assert(arg[1], "pass the dictation directory"), arg[2], arg[3]
 ---@type hs.fs
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
-local date, clock, passed = os.date, 0, 0
--- save() stamps takes in its own format, at a clock the tests set.
+local date, execute, clock, passed, commands = os.date, os.execute, 0, 0, {}
+-- save() stamps takes in its own format, at a clock the tests set; its shell commands are kept.
 local history = assert(loadfile(
   root .. "/history.lua",
   "t",
@@ -11,6 +11,10 @@ local history = assert(loadfile(
     os = setmetatable({
       date = function(format)
         return date(format, clock)
+      end,
+      execute = function(command)
+        commands[#commands + 1] = command
+        return execute(command)
       end,
     }, { __index = os }),
   }, { __index = _G })
@@ -108,8 +112,24 @@ test("save never writes through a symlink planted at its name", function()
   local target, name = scratch .. "/stolen.txt", date("%Y-%m-%d_%H-%M-%S", clock) .. ".txt"
   assert(fs.link(target, settings.directory .. "/" .. name, true))
   local failure = history.save("secret", settings)
-  assert(failure and failure:find("could not write", 1, true), tostring(failure))
+  assert(failure and failure:find("could not create", 1, true), tostring(failure))
   assert(not fs.attributes(target), "wrote through the symlink")
+end)
+
+test("save keeps the text out of shell commands, which other users can see", function()
+  local settings = { directory = scratch .. "/argv", maxMegabytes = 10 }
+  commands = {}
+  assert(history.save("my password is hunter2", settings) == nil)
+  assert(#commands > 0 and not table.concat(commands, "\n"):find("hunter2", 1, true))
+end)
+
+test("save refuses a folder other users can write", function()
+  local settings = { directory = scratch .. "/shared", maxMegabytes = 10 }
+  assert(fs.mkdir(settings.directory))
+  assert(os.execute(("chmod 777 %q"):format(settings.directory)))
+  local failure = history.save("secret", settings)
+  assert(failure and failure:find("writable only by you", 1, true), tostring(failure))
+  expect(settings.directory, {})
 end)
 
 test("prune reports a take it cannot delete", function()

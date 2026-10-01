@@ -26,6 +26,16 @@ function history.save(text, settings)
   then
     return "could not create " .. directory
   end
+  -- Anyone else who could write the folder could swap a take for a symlink while it is written.
+  local owner = hs.fs.attributes(directory) or {}
+  local mode = owner.permissions or ""
+  if
+    owner.uid ~= hs.fs.attributes(os.getenv("HOME") --[[@as string]], "uid")
+    or mode:find("^....w")
+    or mode:find("^.......w")
+  then
+    return directory .. " must be yours and writable only by you"
+  end
 
   -- Timestamped names sort oldest first; a second take in the same second gets a suffix.
   local stamp = tostring(os.date("%Y-%m-%d_%H-%M-%S"))
@@ -35,10 +45,21 @@ function history.save(text, settings)
     name = ("%s_%d.txt"):format(stamp, count)
   end
   local path = directory .. "/" .. name
-  -- Owner-only, and set -C never writes through a file or symlink planted at the name.
-  local write = "umask 077 && set -C && printf '%%s\\n' %s > %s"
-  if not os.execute(write:format(quote(text), quote(path))) then
-    return "could not write " .. path
+  -- Created owner-only first, and set -C never through a file or symlink planted at the name;
+  -- the text stays out of the command line, which other users can see.
+  if not os.execute("umask 077 && set -C && : > " .. quote(path)) then
+    return "could not create " .. path
+  end
+  local file, message = io.open(path, "w")
+  if not file then
+    return "could not write " .. path .. ": " .. tostring(message)
+  end
+  -- Writes are buffered: a full disk surfaces only at close.
+  local written, problem = file:write(text, "\n")
+  local closed, reason = file:close()
+  if not (written and closed) then
+    os.remove(path)
+    return "could not write " .. path .. ": " .. tostring(problem or reason)
   end
 end
 
