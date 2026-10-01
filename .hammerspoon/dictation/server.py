@@ -637,17 +637,24 @@ class Engine:
             "do",
             "does",
             "did",
+            "has",
+            "am",
             "is",
             "are",
             "was",
             "were",
             "isn't",
             "aren't",
+            "wasn't",
+            "weren't",
             "don't",
             "doesn't",
             "didn't",
+            "hasn't",
+            "haven't",
             "can't",
             "couldn't",
+            "won't",
             "wouldn't",
             "shouldn't",
             "may",
@@ -720,7 +727,7 @@ class Engine:
     )
 
     @classmethod
-    def is_question(cls, raw):
+    def is_question(cls, raw, names):
         """Ends in '?', or its open last sentence asks (not a fragment or a negative command)."""
         raw = raw.strip()
         if raw.endswith("?"):
@@ -738,19 +745,21 @@ class Engine:
             return after != "not" and ("'" in words[0] or after not in cls.CLAUSES)
         if words[0] in ("do", "don't") and after in cls.ORDERS:
             return False
-        # A name counts as a subject: "Did GitHub go down"; "Don't forget" has none.
-        subject = len(words) > 1 and (after in cls.SUBJECTS or cased[1][0].isupper())
+        # A name, or a glossary word, is a subject: "Did GitHub go down", "Is yabai up".
+        subject = len(words) > 1 and (
+            after in cls.SUBJECTS or cased[1][0].isupper() or re.sub(r"'s$", "", cased[1]) in names
+        )
         return words[0] in cls.AUXILIARIES and subject
 
     @classmethod
-    def ensure_question(cls, raw, text):
+    def ensure_question(cls, raw, text, names):
         """End a question-shaped dictation with '?' in place of its end mark, inside quotes too."""
         text = text.strip()
-        if not text or not cls.is_question(raw) or re.search(r"\?[\"”’')\]]*$", text):
+        if not text or not cls.is_question(raw, names) or re.search(r"\?[\"”’')\]]*$", text):
             return text
         open_text = re.sub(r"\s*[.!,;:]+([\"”’')\]]*)$", r"\1", text)
         # Its last sentence must still ask: not "Can you check this? I think it's broken."
-        asks = raw.strip().endswith("?") or cls.is_question(open_text)
+        asks = raw.strip().endswith("?") or cls.is_question(open_text, names)
         return open_text + "?" if asks else text
 
     # Self-correction cues the adapter acts on ("no wait", "sorry, I mean", "scratch that").
@@ -787,10 +796,16 @@ class Engine:
         raw_set, out_set = set(raw_words), set(out_words)
         if not raw_set & out_set:
             return True  # nothing the user said survived (short inputs included)
+
+        # A possessive is its name: "Ghostty's" is "ghostty".
+        def bare(tokens):
+            return [re.sub(r"'s$", "", w) for w in tokens]
+
         # Glossary entries as word runs: "Node.js" is "node js", and "A/B" is no lone "a".
-        glossary = [words(a.lower().replace("’", "'")) for a in allowed]
+        glossary = [bare(words(a.lower().replace("’", "'"))) for a in allowed]
 
         def has(tokens, run):
+            tokens = bare(tokens)
             return any(tokens[k : k + len(run)] == run for k in range(len(tokens)))
 
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
@@ -824,7 +839,7 @@ class Engine:
         new = [w for w in out_words if w not in raw_set]
         # A glossary entry may replace a lost (misheard) word; an echoed list replaces none.
         named = {w for run in glossary if has(out_words, run) for w in run}
-        fixes = min(len(lost), sum(w in named for w in new))
+        fixes = min(len(lost), sum(w in named for w in bare(new)))
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
@@ -866,7 +881,7 @@ class Engine:
         text = self.apply_vocabulary(self.apply_dictionary(text), request)
         # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
         said = self.strip_stalls(raw)
-        return self.end_policy(said, self.ensure_question(said, text))
+        return self.end_policy(said, self.ensure_question(said, text, self.glossary(request)))
 
     def handle(self, request):
         command = request.get("cmd")
