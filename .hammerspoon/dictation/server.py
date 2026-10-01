@@ -388,11 +388,15 @@ class Engine:
         }
         if not glossary or not text:
             return text
-        # A phrase said exactly takes its spelling, however long: "visual studio code".
+        # A phrase said exactly takes its spelling, however long ("visual studio code"), as the
+        # dictionary does: never in a path, domain, or address.
         for w in (w for w in entries if " " in w):
             phrase = r"[^\S\n]+".join(map(re.escape, w.split()))
             text = re.sub(
-                rf"(?<![\w.-]){phrase}(?![\w-])", lambda _, w=w: w, text, flags=re.IGNORECASE
+                rf"(?<![\w./~@-]){phrase}(?![\w/@-]|\.\w)",
+                lambda _, w=w: w,
+                text,
+                flags=re.IGNORECASE,
             )
         parts = re.split(r"(\s+)", text)  # tokens at even indexes, separators at odd
         tokens = parts[0::2]
@@ -854,13 +858,25 @@ class Engine:
         | {"first": 1, "second": 2, "third": 3, "fifth": 5, "eighth": 8, "ninth": 9}
         | {"twelfth": 12, "dozen": 12, "noon": 12, "midnight": 12}
     )
+    # Units a number keeps, said or written: "15 percent" is "15%", "fifteen dollars" is "$15".
+    MEASURES = (
+        {"%": "%", "percent": "%", "°": "°", "degree": "°", "degrees": "°", "€": "€", "£": "£"}
+        | {"$": "$", "dollar": "$", "dollars": "$", "buck": "$", "bucks": "$"}
+        | {"euro": "€", "euros": "€", "pound": "£", "pounds": "£"}
+    )
 
     @classmethod
     def numbers(cls, text):
-        """Each number in `text` as the digits it may be written as: "three thirty" 3, 30, 330."""
+        """Each number in `text` as the forms it may be written in: "three thirty" 3, 30, 330."""
         text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
-        found, chunks, sign = [], [], ""
-        for token in re.findall(r"(?<![\w-])-?\d+|\d+|[a-z]+", text) + [""]:
+        found, chunks, sign, unit, fresh = [], [], "", "", False
+
+        def said(values):  # signed, and with a unit said before it ("$15")
+            nonlocal sign, unit, fresh
+            found.append({sign + v + unit for v in values})
+            sign, unit, fresh = "", "", True
+
+        for token in re.findall(r"(?<![\w-])-?\d+|\d+|[a-z]+|[%°$€£]", text) + [""]:
             if token == "and" and chunks and chunks[-1][2] >= 100:
                 continue  # "two hundred and five"
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
@@ -869,14 +885,18 @@ class Engine:
                 if chunks:
                     # A run reads as its chunks joined too: "nineteen ninety nine" is 1999.
                     runs = [str(total + part) for total, part, _ in chunks]
-                    found.append(
-                        {sign + "".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)}
-                    )
+                    said({"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)})
                     chunks = []
                 if token.lstrip("-").isdigit():
-                    found.append({sign + token})
-                # A sign word signs the number said next: "negative fifteen" is -15.
-                sign = "-" if token in ("minus", "negative") else ""
+                    said({token})
+                elif token in cls.MEASURES and fresh:  # after it: "15%", "fifteen dollars"
+                    found[-1] = {n + cls.MEASURES[token] for n in found[-1]}
+                    fresh = False
+                elif token in cls.MEASURES:
+                    unit, fresh = cls.MEASURES[token], False
+                else:
+                    # A sign word signs the number said next: "negative fifteen" is -15.
+                    sign, unit, fresh = "-" if token in ("minus", "negative") else "", "", False
                 continue
             # Scales and words after one join a chunk, as do ones after tens ("ninety nine");
             # anything else starts one ("nineteen | ninety nine").
