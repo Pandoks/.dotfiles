@@ -492,12 +492,18 @@ class Engine:
         if not raw_words or not self.dangles(raw_words) or raw.rstrip().endswith(("?", "!")):
             return text  # "What if?" and "Oh my!" are complete
         last, text = raw_words[-1], text.rstrip()
-        open_text = re.sub(r"[.!?]+$", "", text).rstrip()
-        out_words = open_text.split()
-        if out_words and out_words[-1].lower().strip(",;:") == last.lower():
+        # The end mark goes, closing quotes stay: 'He said, "I want the."' -> '"I want the"'.
+        open_text = re.sub(r"\s*[.!?…—]+([\"”’)\]]*)$", r"\1", text)
+
+        def core(word):
+            return re.sub(r"[^\w']", "", word).lower()
+
+        end = core((open_text.split() or [""])[-1])
+        # Re-add the word only where the cleanup cut it ("to the" -> "to."), not respelled ("vs.").
+        if end == core(last) or len(raw_words) < 2 or end != core(raw_words[-2]):
             return open_text
         # Opening a new sentence ("Thanks. But"), it leaves the one before finished.
-        opens = len(raw_words) > 1 and raw_words[-2][-1] in ".!?"
+        opens = raw_words[-2][-1] in ".!?"
         return f"{text if opens else open_text} {last}".strip()
 
     def build_prompt(self, request):
@@ -588,7 +594,7 @@ class Engine:
             text,
         )
         out = cls.STALL_RE.sub("", out)
-        out = re.sub(r"\s{2,}", " ", out).strip()
+        out = re.sub(r"[^\S\n]{2,}", " ", out).strip()  # blank lines between paragraphs stay
         return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
     QUESTION_WORDS = frozenset(
@@ -726,7 +732,7 @@ class Engine:
     def ensure_question(cls, raw, text):
         """End a question-shaped dictation with '?' in place of its end mark, inside quotes too."""
         text = text.strip()
-        if not text or not cls.is_question(raw) or text.endswith("?"):
+        if not text or not cls.is_question(raw) or re.search(r"\?[\"”’)\]]*$", text):
             return text
         return re.sub(r"\s*[.!,;:]+([\"”’)\]]*)$", r"\1", text) + "?"
 
@@ -739,11 +745,15 @@ class Engine:
     def looks_rewritten(cls, raw, out, allowed):
         """True if `out` is not a light edit of `raw`; `allowed` words may replace misheard ones."""
 
+        # Words keep inner apostrophes, curly ones too ("don’t"), not a quote's ("'yes'").
+        word = r"[a-z0-9]+(?:'[a-z0-9]+)*"
+        raw, out = raw.lower().replace("’", "'"), out.lower().replace("’", "'")
+
         def words(text):
-            return re.findall(r"[a-z0-9']+", text.lower())
+            return re.findall(word, text)
 
         def said(text):
-            return words(cls.DROPPED_RE.sub(" ", text.lower()))
+            return words(cls.DROPPED_RE.sub(" ", text))
 
         def negative(ws):
             return any(w in ("not", "never", "cannot") or w.endswith("n't") for w in ws)
@@ -763,7 +773,11 @@ class Engine:
             return True
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
         # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one").
-        cues = [k for k, w in enumerate(raw_words) if w in cls.CORRECTIONS]
+        cues = [
+            k
+            for k, w in enumerate(raw_words)
+            if w in cls.CORRECTIONS and not negative(raw_words[k - 1 : k])  # "not actually"
+        ]
         corrected = {
             k
             for tag, i1, i2, _, _ in edits
@@ -786,15 +800,20 @@ class Engine:
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
-        for _, i1, i2, j1, j2 in edits:
-            gone = [w for w in uncorrected(i1, i2) if w not in kept]
-            if len(gone) > 3 or (negative(gone) and not negative(out_words[j1:j2])):
+        gaps = re.split(word, out)  # gaps[j] precedes out_words[j]
+        for n, (tag, i1, i2, j1, j2) in enumerate(edits):
+            cut = uncorrected(i1, i2)
+            gone = [w for w in cut if w not in kept]
+            # A false start's "not" is said again right beside it ("I don't, I don't know").
+            again = set(raw_words[max(0, i1 - len(cut)) : i1] + raw_words[i2 : i2 + len(cut)])
+            dropped = [w for w in cut if w not in again]
+            if len(gone) > 3 or (negative(dropped) and not negative(out_words[j1:j2])):
                 return True  # a dropped sentence or "not" the user never took back
             if negative(out_words[j1:j2]) and not negative(raw_words[i1:i2]):
                 return True  # a "not" the user never said
-        # Words before the first or after the last one said are a reply: "Sure. Thanks."
-        for tag, i1, i2, _, _ in (edits[0], edits[-1]):
-            if tag in ("insert", "replace") and not said(" ".join(raw_words[i1:i2])):
+            # Unsaid words first, last, or as a sentence of their own are a reply: "Sure. Thanks."
+            alone = n in (0, len(edits) - 1) or all(re.search(r"[.!?]", gaps[j]) for j in (j1, j2))
+            if tag in ("insert", "replace") and not said(" ".join(raw_words[i1:i2])) and alone:
                 return True
 
         # Kept words keep their order; repeats and corrected parts may go.

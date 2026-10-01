@@ -186,6 +186,7 @@ check(
         ("Okay. Um?", "Okay."),
         ("I think, um .", "I think."),
         ("git add .", "git add ."),
+        ("Line one.\n\nUh, line two.", "Line one.\n\nLine two."),
     ],
     server.Engine.strip_stalls,
 )
@@ -244,6 +245,11 @@ check(
         (("What a great idea", "What a great idea!"), "What a great idea!"),
         (("Do it now", "Do it now."), "Do it now."),
         (("Don't anyone move", "Don't anyone move."), "Don't anyone move."),
+        (("I want to go to the", "I want to go to the…"), "I want to go to the"),
+        (("I want to go to the", "I want to go to the—"), "I want to go to the"),
+        (("He said I want the", 'He said, "I want the."'), 'He said, "I want the"'),
+        (("Let us compare Python versus", "Let us compare Python vs."), "Let us compare Python vs"),
+        (("Did he say yes", 'Did he say "yes?"'), 'Did he say "yes?"'),
     ],
     lambda pair: dictate(*pair),
 )
@@ -271,6 +277,18 @@ check(
             ("I do not know.", "I don't know."),
             ("Order the large blue ceramic mug, actually, the small one.", "Order the small one."),
             ("It's not ready, actually, it's ready.", "It's ready."),
+            ("I don't, I don't know.", "I don't know."),
+            ("It is not, it's not working.", "It's not working."),
+            ("Let's meet Thursday, no, Friday. I don't know.", "Let’s meet Friday. I don’t know."),
+            ("He said yes.", "He said ‘yes’."),
+            (
+                "Here's a list. Eggs, milk, and bread.",
+                "Here's a list:\n\n- Eggs\n- Milk\n- Bread",
+            ),
+            (
+                "Two things. One, fix the build. Two, ship it.",
+                "Two things:\n\n1. Fix the build.\n2. Ship it.",
+            ),
         ]
     ],
     lambda pair: dictate(*pair),
@@ -333,6 +351,20 @@ check(
             ("Send the draft to Anna and then to Ben.", "Send the draft to Ben and then to Anna."),
             ("I never said that.", "I said that."),
             ("We cannot ship this today.", "We can ship this today."),
+            ("We should deploy on Friday.", "We shouldn’t deploy on Friday."),
+            ("It's not actually broken.", "It's broken."),
+            ("I don't actually know.", "I know."),
+            (
+                "We should not merge it if CI is not green.",
+                "We should merge it if CI is not green.",
+            ),
+            ("It doesn't build and it doesn't run.", "It builds and it doesn't run."),
+            ("Never push to main and never force push.", "Push to main and never force push."),
+            ("Can you send it? Thanks.", "Can you send it? Sure. Thanks."),
+            (
+                "What's the capital of France? I need it for the quiz.",
+                "What's the capital of France? Paris. I need it for the quiz.",
+            ),
             (
                 "Tell me a joke.",
                 "Tell me a joke. Why did the chicken cross the road? To get to the other side.",
