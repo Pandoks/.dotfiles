@@ -538,6 +538,8 @@ check(
             ("Use SHA256.", "Use 56."),
             ("Use TLS1.3.", "Use 3."),
             ("Use SHA-256.", "Use 256."),
+            ("Use HTTP/2.", "Use 2."),
+            ("The minimum is fifteen.", "The maximum is 15."),
             ("The panel is shown.", "The panel is hidden."),
             ("Set it to one point five.", "Set it to 1 5."),
             ("Send fifteen Canadian dollars.", "Send fifteen US dollars."),

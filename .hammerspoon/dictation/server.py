@@ -857,7 +857,13 @@ class Engine:
             "lock/unlock",
             "first/last",
         ]
-        + ["increase/decrease", "min/max", "up/down", "all|every|each/some", "always/sometimes"]
+        + [
+            "increase/decrease",
+            "min|minimum/max|maximum",
+            "up/down",
+            "all|every|each/some",
+            "always/sometimes",
+        ]
         + ["everyone|everybody/someone|somebody", "everything/something", "include/exclude"]
         + ["accept/reject", "import/export", "connect/disconnect", "install/uninstall"]
         + ["least/most", "over/under", "above/below", "more|greater/less|fewer"]
@@ -929,6 +935,16 @@ class Engine:
         """Each number in `text`: the forms it may be written in and how many numbers it may be
         written as ("three thirty": 3, 30, or 330, as 2)."""
         text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", text.lower())  # "1,240"; "10:00" is 10
+        # A name mixing letters and digits holds no number ("HTTP/2", "C++20", "SHA3-256"), but
+        # "15th", "3pm", and "1990s" do.
+        ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm)"
+        text = " ".join(
+            w
+            if not (re.search(r"[a-z]", w) and re.search(r"\d", w))
+            or re.fullmatch(ending, w.strip("\"'“‘([.,!?;:)]”’"))
+            else ""
+            for w in text.split()
+        )
         text = re.sub(r"\b([ap])\.m\.", r"\1m", text)  # "p.m." is "pm"
         text = re.sub(r"\bnoon\b", "12 pm", re.sub(r"\bmidnight\b", "12 am", text))
         text = re.sub(r"([-+])([$€£])(?=\d)", r"\2\1", text)  # "-$15" is "$-15"

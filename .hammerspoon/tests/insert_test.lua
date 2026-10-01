@@ -236,6 +236,8 @@ test("spacing joins the text to its neighbors", function()
     { "foo.", "", "bar", "remote", "remote" },
     { "/usr/", "", "bin", "local", "local" },
     { "/usr", "", "/bin", "local", "local" },
+    { "foo-", "bar", "", "remote", "remote" }, -- a hyphenated name's part
+    { "foo_", "", "bar", "remote", "remote" },
     { "", "", "”", "hello", "hello" },
   }) do
     local before, selected, after, text, want = table.unpack(case)
