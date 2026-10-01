@@ -519,6 +519,10 @@ end)
 -- Chain into Hammerspoon's shutdown so reloads clean up the backend process.
 local previousShutdown = hs.shutdownCallback
 hs.shutdownCallback = function()
+  -- A pending clipboard restore runs now: a reload must not leave the dictation on it.
+  if dictation.restore then
+    dictation.restore:fire()
+  end
   finish(nil)
   if engine then
     engine:stop()

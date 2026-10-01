@@ -1057,6 +1057,17 @@ class Engine:
         kept = out_set | cls.CORRECTIONS
         spoken = uncorrected(0, len(raw_words))
         lost = set(spoken) - kept
+        # What a number counts survives too: "fifteen minutes" is not "15" or "15 seconds".
+        counted = [
+            k + 1
+            for k in range(len(raw_words) - 1)
+            if cls.numbers(raw_words[k]) and not cls.numbers(raw_words[k + 1])
+        ]
+        skipped = cls.MEASURES.keys() | cls.QUALIFIERS | {"and"}  # "fifteen dollars" -> "$15"
+        if any(
+            raw_words[k] not in kept | skipped and k not in corrected | fillers for k in counted
+        ):
+            return True
         # Glossary entries said must survive unless corrected ("Slack, no wait, GitHub").
         if len(lost) > max(2, 0.3 * len(raw_words)) or any(
             has(spoken, run) and not has(out_words, run) for run in glossary

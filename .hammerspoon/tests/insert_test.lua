@@ -28,115 +28,117 @@ local function stub()
 end
 
 -- init.lua with the real insertion code; hotkey, recorder, and backend are stubs the tests drive.
-assert(loadfile(
-  root .. "/init.lua",
-  "t",
-  setmetatable({
-    require = function(name)
-      return ({
-        ["dictation.config"] = config,
-        ["dictation.engine"] = {
-          new = function(_, callbacks)
-            handlers = callbacks
-            return {
-              ready = true,
-              transcribe = function()
-                serial = serial + 1
-                return serial
-              end,
-            }
-          end,
-        },
-        ["dictation.overlay"] = { new = stub },
-        ["dictation.history"] = {
-          save = function(text)
-            saved[#saved + 1] = text
-          end,
-          prune = function() end,
-        },
-        ["dictation.recorder"] = {
-          start = function()
-            return {}
-          end,
-          stop = function(_, callback)
-            done = callback
-          end,
-          cleanup = function() end,
-        },
-      })[name]
-    end,
-    print = function() end,
-    hs = {
-      alert = {
-        show = function(message)
-          alerts[#alerts + 1] = message
-        end,
-      },
-      hotkey = {
-        bind = function(_, _, callback)
-          toggle = callback
-          return stub()
-        end,
-        new = function(_, _, callback)
-          escape = callback
-          local key = stub()
-          -- The hotkey, or nil when macOS refuses the binding.
-          function key:enable()
-            return not refused and self or nil
-          end
-          return key
-        end,
-      },
-      timer = {
-        doEvery = stub,
-        doAfter = function(_, callback)
-          timers[#timers + 1] = callback
-          return stub()
-        end,
-      },
-      microphoneState = function()
-        return true
-      end,
-      accessibilityState = function()
-        return true
-      end,
-      application = { frontmostApplication = function() end },
-      axuielement = {
-        systemWideElement = function()
+local env = setmetatable({
+  require = function(name)
+    return ({
+      ["dictation.config"] = config,
+      ["dictation.engine"] = {
+        new = function(_, callbacks)
+          handlers = callbacks
           return {
-            attributeValue = function()
-              return focus
+            ready = true,
+            stop = function() end,
+            transcribe = function()
+              serial = serial + 1
+              return serial
             end,
           }
         end,
       },
-      pasteboard = {
-        readAllData = function()
-          return clipboard
+      ["dictation.overlay"] = { new = stub },
+      ["dictation.history"] = {
+        save = function(text)
+          saved[#saved + 1] = text
         end,
-        allContentTypes = function()
-          return { {} }
-        end,
-        writeAllData = function(data)
-          clipboard = data
-          return true
-        end,
-        changeCount = function()
-          return 1
-        end,
-        setContents = function(text)
-          copied = text
-          return true
-        end,
+        prune = function() end,
       },
-      eventtap = {
-        keyStroke = function(mods, key)
-          strokes[#strokes + 1] = mods[1] .. "+" .. key
+      ["dictation.recorder"] = {
+        start = function()
+          return {}
         end,
+        stop = function(_, callback)
+          done = callback
+        end,
+        cleanup = function() end,
       },
+    })[name]
+  end,
+  print = function() end,
+  hs = {
+    alert = {
+      show = function(message)
+        alerts[#alerts + 1] = message
+      end,
     },
-  }, { __index = _G })
-))()
+    hotkey = {
+      bind = function(_, _, callback)
+        toggle = callback
+        return stub()
+      end,
+      new = function(_, _, callback)
+        escape = callback
+        local key = stub()
+        -- The hotkey, or nil when macOS refuses the binding.
+        function key:enable()
+          return not refused and self or nil
+        end
+        return key
+      end,
+    },
+    timer = {
+      doEvery = stub,
+      doAfter = function(_, callback)
+        timers[#timers + 1] = callback
+        local timer = stub()
+        function timer.fire()
+          callback()
+        end
+        return timer
+      end,
+    },
+    microphoneState = function()
+      return true
+    end,
+    accessibilityState = function()
+      return true
+    end,
+    application = { frontmostApplication = function() end },
+    axuielement = {
+      systemWideElement = function()
+        return {
+          attributeValue = function()
+            return focus
+          end,
+        }
+      end,
+    },
+    pasteboard = {
+      readAllData = function()
+        return clipboard
+      end,
+      allContentTypes = function()
+        return { {} }
+      end,
+      writeAllData = function(data)
+        clipboard = data
+        return true
+      end,
+      changeCount = function()
+        return 1
+      end,
+      setContents = function(text)
+        copied = text
+        return true
+      end,
+    },
+    eventtap = {
+      keyStroke = function(mods, key)
+        strokes[#strokes + 1] = mods[1] .. "+" .. key
+      end,
+    },
+  },
+}, { __index = _G })
+assert(loadfile(root .. "/init.lua", "t", env))()
 
 -- AX ranges count UTF-16 units.
 local function units(text)
@@ -367,6 +369,14 @@ test("a take cancelled while transcribing is saved, not inserted", function()
   escape()
   handlers.onFinal({ id = serial, text = "Keep this." })
   assert(saved[1] == "Keep this." and element.written == nil and #alerts == 0)
+end)
+
+-- Last: it tears everything down.
+test("a reload during a paste restores the clipboard", function()
+  clipboard = { ["public.utf8-plain-text"] = "mine" }
+  dictate(field("Hello", "", "", true), "there.")
+  env.hs.shutdownCallback()
+  assert(clipboard["public.utf8-plain-text"] == "mine", "did not restore the clipboard")
 end)
 
 print(passed .. " insert tests passed")
