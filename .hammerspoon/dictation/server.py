@@ -800,7 +800,8 @@ class Engine:
             after in cls.ORDERS or (after in cls.DETERMINERS and len(words) == 3)
         ):
             return False
-        subject = after in cls.SUBJECTS or named
+        # A number too, but "Do two things" orders.
+        subject = after in cls.SUBJECTS or named or (words[0] != "do" and bool(cls.numbers(after)))
         if words[0] in ("have", "had"):
             # "Have the tests passed" asks; "Have a good day" and "Had a great time" don't.
             # After the subject: "oven" in "Have the oven ready" is no participle.
@@ -1159,8 +1160,12 @@ class Engine:
             ):
                 return True  # an opposite swapped in: "off" -> "on", "includes" -> "excludes"
             # A whole sentence dropped, not only a stall or "Okay.": "Open settings. Delete files."
+            # Or replaced by unrelated words: "Delete files." -> "Upload logs.", not "Thanks." ->
+            # "Thank you." or "Hammer spoon." -> "Hammerspoon.".
             whole = (i1 == 0 or i1 - 1 in ends) and (i2 == len(raw_words) or i2 - 1 in ends)
-            if tag == "delete" and whole and set(uncorrected(i1, i2)) - cls.MARKERS:
+            related = any(a.startswith(b[:3]) or b.startswith(a[:3]) for a in said for b in wrote)
+            gone_words = set(uncorrected(i1, i2)) - cls.MARKERS
+            if whole and gone_words and (tag == "delete" or (tag == "replace" and not related)):
                 return True
             if tag != "equal" and any(k in meant and k not in corrected for k in range(i1, i2)):
                 return True  # a meant "like" or "you know" cut: "I like cats" -> "I cats"

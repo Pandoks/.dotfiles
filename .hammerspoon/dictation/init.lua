@@ -46,6 +46,8 @@ local function clip(text)
 end
 
 -- Frontmost app; window title, browser URL, and (opt-in) selection for our own prompt only.
+-- nil and why when asked-for context cannot be read: the take stops rather than go without it.
+---@return DictationTranscribeRequest?, string?
 local function gatherContext()
   ---@type DictationTranscribeRequest
   local context = { wav = "" } -- the caller sets wav
@@ -71,7 +73,7 @@ local function gatherContext()
     local ok, url, descriptor = hs.osascript.applescript(script)
     if not ok then
       local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage
-      fail("Dictation: could not read the URL: " .. tostring(message))
+      return nil, "could not read the URL: " .. tostring(message)
     elseif type(url) == "string" and #url > 0 then
       context.url = clip(url)
     end
@@ -85,7 +87,7 @@ local function gatherContext()
     end
     -- Unsupported just means the focus is not a text field.
     if problem and problem ~= "Attribute is not supported by target" then
-      fail("Dictation: could not read the selection: " .. problem)
+      return nil, "could not read the selection: " .. problem
     elseif type(selection) == "string" and #selection > 0 then
       context.selected = clip(selection)
     end
@@ -362,7 +364,7 @@ local function toggle()
     state = "thinking"
     local capture = assert(recording)
     local backend, pill = assert(engine), assert(overlay)
-    local context ---@type DictationTranscribeRequest read at stop, below
+    local context ---@type DictationTranscribeRequest? read at stop, below
     recorder.stop(capture, function(wav, peak, duration)
       -- A too-short take is an accidental tap; a quiet one is a mic problem worth showing.
       if duration < config.minDuration then
@@ -379,6 +381,9 @@ local function toggle()
         finish(nil)
         return
       end
+      if not context then
+        return -- the take ended at stop: its context could not be read
+      end
       context.wav = wav
       local id, message = backend:transcribe(context)
       if not id then
@@ -392,7 +397,12 @@ local function toggle()
     -- After SIGINT so a slow app cannot extend the take; the text goes here only if it keeps focus.
     target, targetError = focused()
     -- The app at stop, not whichever is in front once the wav is final.
-    context = gatherContext()
+    local problem
+    context, problem = gatherContext()
+    if not context then
+      fail("Dictation: " .. tostring(problem))
+      finish(nil)
+    end
   end
 end
 
