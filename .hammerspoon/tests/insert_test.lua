@@ -134,8 +134,7 @@ local function units(text)
   return count
 end
 
--- A text field around a selection; `deaf` accepts writes but keeps its value (Chromium, Electron);
--- `fixed` takes no writes at all (terminals).
+-- A text field; `deaf` takes writes but keeps its value (Chromium), `fixed` takes none (terminal).
 local function field(before, selected, after, deaf, role, fixed)
   local element = {}
   function element:attributeValue(name)
