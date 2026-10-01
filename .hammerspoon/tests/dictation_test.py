@@ -133,6 +133,7 @@ check(
             "It has no vim bindings.",
             "I'll hammer soon.",
             "You're cast as the lead.",
+            "I have two Macs at home.",
         ]
     ],
     lambda text: engine.apply_vocabulary(engine.apply_dictionary(text)),
@@ -149,6 +150,20 @@ check(
         ("The nave of the church.", "The nave of the church."),
     ],
     symbols.apply_vocabulary,
+)
+# Cleanup off: no tokenizer words, so only macOS's word list keeps real words.
+off = server.Engine(engine.config)
+off.speech = SimpleNamespace(transcribe=lambda wav, hint: wav)
+check(
+    "cleanup off keeps inflected real words and fixes spellings",
+    [
+        ("I missed the bus.", "I missed the bus."),
+        ("She misses her family.", "She misses her family."),
+        ("Torrents of rain.", "Torrents of rain."),
+        ("Ghost tea is my terminal.", "Ghostty is my terminal."),
+        ("Open hammer spon.", "Open Hammerspoon."),
+    ],
+    lambda text: off.process(text, {}),
 )
 check(
     "stalls",
@@ -255,6 +270,7 @@ check(
             ("Send it to the team. Scratch that. Send it to John.", "Send it to John."),
             ("I do not know.", "I don't know."),
             ("Order the large blue ceramic mug, actually, the small one.", "Order the small one."),
+            ("It's not ready, actually, it's ready.", "It's ready."),
         ]
     ],
     lambda pair: dictate(*pair),
@@ -314,6 +330,9 @@ check(
                 "The planning meeting is on Thursday.",
             ),
             ("No, I use Neovim.", "No, I use Vim."),
+            ("Send the draft to Anna and then to Ben.", "Send the draft to Ben and then to Anna."),
+            ("I never said that.", "I said that."),
+            ("We cannot ship this today.", "We can ship this today."),
             (
                 "Tell me a joke.",
                 "Tell me a joke. Why did the chicken cross the road? To get to the other side.",
@@ -321,8 +340,22 @@ check(
             ("Send the report to the team.", "Send the report to the entire marketing team today."),
             (standup, f"{standup} Domain vocabulary: {', '.join(engine.glossary())}."),
             (f"{standup} {pricing} {closed}", f"{standup} {closed}"),
+            # A cue takes back at most the 6 words before it.
+            (
+                (
+                    "I think we should move the standup to ten tomorrow because half the team is "
+                    "out, actually nobody has prepared the demo yet."
+                ),
+                "Nobody has prepared the demo yet.",
+            ),
         ]
     ],
+    lambda pair: dictate(*pair),
+)
+# A reply in place of a trailing stall: the rejected take loses only the stall.
+check(
+    "guard rejects a reply after a stall",
+    [(("Thanks, um.", "Thanks. You're welcome!"), "Thanks.")],
     lambda pair: dictate(*pair),
 )
 check(
@@ -427,6 +460,8 @@ check(
         (([{"▁g": 30}, {"it": 20, "e": 26}], ["GitHub"], 4.5), " git"),
         # Special pieces spell nothing: v3's "<|eo|>" must not outscore "e" in "Meow".
         (([{"▁M": 30}, {"e": 20, "<|eo|>": 16}], ["Meow"], 4.5), " Me"),
+        # Punctuation ends the word: "ok." never continues into "oki".
+        (([{"▁ok": 30}, {".": 30}, {"i": 20, "▁me": 21}], ["Oki"], 4.5), " ok. me"),
     ],
     lambda case: speak(*case),
 )
