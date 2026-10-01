@@ -794,7 +794,10 @@ class Engine:
         if words[0] in cls.QUESTION_WORDS:
             # "What not to do", "When John arrives"; "What's it" stays a question.
             return after != "not" and ("'" in words[0] or not (after in cls.CLAUSES or named))
-        if words[0] in ("do", "don't") and after in cls.ORDERS:
+        # "Do it now", and a determiner with one noun: "Do the dishes", "Do your homework".
+        if words[0] in ("do", "don't") and (
+            after in cls.ORDERS or (after in cls.DETERMINERS and len(words) == 3)
+        ):
             return False
         subject = after in cls.SUBJECTS or named
         if words[0] in ("have", "had"):
@@ -1050,18 +1053,25 @@ class Engine:
         if at < len(written):
             return True  # a number never said
 
+        # Number words checked above may go as digits: "one hundred and five" -> "105".
+        numeric = {k for k, w in enumerate(raw_words) if cls.numbers(w)}
+        numeric |= {k for k, w in enumerate(raw_words) if w == "and" and {k - 1, k + 1} <= numeric}
+
         def uncorrected(i1, i2):
-            return [raw_words[k] for k in range(i1, i2) if k not in corrected and k not in fillers]
+            gone = corrected | fillers | numeric
+            return [raw_words[k] for k in range(i1, i2) if k not in gone]
 
         # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more.
         kept = out_set | cls.CORRECTIONS
         spoken = uncorrected(0, len(raw_words))
         lost = set(spoken) - kept
-        # What a number counts survives too: "fifteen minutes" is not "15" or "15 seconds".
+        # What a number counts survives too, past a modifier: "fifteen (long) minutes" is not
+        # "15" or "15 (long) seconds".
         counted = [
-            k + 1
-            for k in range(len(raw_words) - 1)
-            if cls.numbers(raw_words[k]) and not cls.numbers(raw_words[k + 1])
+            k + d
+            for k in numeric
+            for d in (1, 2)
+            if k + d < len(raw_words) and not {k + 1, k + d} & numeric
         ]
         skipped = cls.MEASURES.keys() | cls.QUALIFIERS | {"and"}  # "fifteen dollars" -> "$15"
         if any(
@@ -1073,7 +1083,7 @@ class Engine:
             has(spoken, run) and not has(out_words, run) for run in glossary
         ):
             return True
-        new = [w for w in out_words if w not in raw_set]
+        new = [w for w in out_words if w not in raw_set and not cls.numbers(w)]
         # A glossary entry may replace a lost (misheard) word; an echoed list replaces none.
         named = {w for run in glossary if has(out_words, run) for w in run}
         fixes = min(len(lost), sum(w in named for w in bare(new)))
