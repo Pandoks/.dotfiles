@@ -781,7 +781,7 @@ class Engine:
             return True
         if raw.endswith((".", "!")):
             return False
-        last = re.split(r"[.!?]\s+", raw.replace("’", "'"))[-1]
+        last = re.split(r"[.!?][\"”’')\]]*\s+", raw.replace("’", "'"))[-1]  # 'He said "yes." Can'
         cased = re.findall(r"[^\W\d_]+(?:'[^\W\d_]+)*", last)  # "Don’t", not "the’" or "‘Is"
         words = [w.lower() for w in cased]
         if not words or cls.dangles(cased):
@@ -863,6 +863,11 @@ class Engine:
         | {"first": 1, "second": 2, "third": 3, "fifth": 5, "eighth": 8, "ninth": 9}
         | {"twelfth": 12, "dozen": 12, "noon": 12, "midnight": 12}
     )
+    # Words between a sign or unit and its number: "negative about fifteen", "15 US dollars".
+    QUALIFIERS = frozenset(
+        ["um", "uh", "about", "approximately", "around", "roughly", "nearly", "almost"]
+        + ["exactly", "us", "u", "s", "canadian", "australian"]
+    )
     # Units a number keeps, said or written: "15 percent" is "15%", "fifteen dollars" is "$15".
     MEASURES = (
         {"%": "%", "percent": "%", "°": "°", "degree": "°", "degrees": "°", "€": "€", "£": "£"}
@@ -884,8 +889,8 @@ class Engine:
             sign, unit, fresh = "", "", True
 
         for token in re.findall(r"(?<![\w+-])[-+]?\d+|\d+|[a-z]+|[%°$€£]", text) + [""]:
-            if token == "and" and chunks and chunks[-1][2] >= 100:
-                continue  # "two hundred and five"
+            if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
+                continue  # "negative about fifteen", "two hundred and five"
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
             value = cls.NUMBERS.get(token, ordinal)
             if value is None:
