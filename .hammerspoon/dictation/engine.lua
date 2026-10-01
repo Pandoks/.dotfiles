@@ -10,7 +10,7 @@ local recorder = require("dictation.recorder")
 ---@field id? integer
 
 ---@class DictationEngine
----@field task? hs.task
+---@field task hs.task
 local engine = {}
 engine.__index = engine
 local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
@@ -137,7 +137,7 @@ end
 
 function engine:stop()
   self.stopped, self.ready = true, false
-  if self.task and self.task:isRunning() then
+  if self.task:isRunning() then
     self.task:terminate()
   end
 end

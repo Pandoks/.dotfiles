@@ -762,7 +762,7 @@ class Engine:
         ):
             return True
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
-        # Taken back: up to 6 words cut along with a cue after them ("mug, actually, the small one").
+        # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one").
         cues = [k for k, w in enumerate(raw_words) if w in cls.CORRECTIONS]
         corrected = {
             k
