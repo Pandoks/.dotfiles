@@ -199,6 +199,9 @@ test("spacing joins the text to its neighbors", function()
     { '("', "", "", "hi", "hi" }, -- a quote opening after an opener
     { 'He said "hi"', "", "", "and left.", " and left." }, -- closing straight quote
     { "", "", '"quoted"', "Say", "Say " },
+    { "", "Sam", "'s car", "John", "John" }, -- an apostrophe inside a word
+    { "Sam", "", "'s", "uel", " uel" },
+    { "a ", "foo ", "'quoted'", "bar", "bar " },
     { "😀", "", "", "hi", " hi" },
     { "😀 ", "", "world", "hi", "hi " }, -- an emoji is two units
     { "a ", "foo", " b", "bar", "bar" },

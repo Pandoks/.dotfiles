@@ -175,8 +175,8 @@ local function insertText(text)
   local range = read(element, "AXSelectedTextRange")
   local selected = read(element, "AXSelectedText")
   if type(range) == "table" and range.location then
-    -- Two characters on each side of the selection (AX ranges count UTF-16 units).
-    local prior, before, after, beyond, units = "", "", "", "", 0
+    -- Two characters on each side of the selection and its last one (AX ranges count UTF-16 units).
+    local prior, before, last, after, beyond, units = "", "", "", "", "", 0
     for _, codepoint in utf8.codes(value) do
       -- Browsers store a typed trailing space in a contenteditable as U+00A0.
       local char = codepoint == 0xA0 and " " or utf8.char(codepoint)
@@ -188,6 +188,8 @@ local function insertText(text)
         after = char
       elseif units < range.location then
         prior, before = before, char
+      else
+        last = char
       end
       units = units + (codepoint > 0xFFFF and 2 or 1)
     end
@@ -203,11 +205,14 @@ local function insertText(text)
     }
     -- A straight quote opens after the start, a space, or an opener, and before a word.
     local quotes = { ['"'] = true, ["'"] = true }
-    local opening = quotes[before] and (prior == "" or prior:match("^%s$") or openers[prior])
-    if before ~= "" and not before:match("^%s$") and not openers[before] and not opening then
+    local function starts(char)
+      return char == "" or char:match("^%s$") or openers[char]
+    end
+    if not starts(before) and not (quotes[before] and starts(prior)) then
       text = " " .. text
     end
-    if after:match("^%w$") or openers[after] or (quotes[after] and beyond:match("^%w$")) then
+    local opens = quotes[after] and starts(last ~= "" and last or before) and beyond:match("^%w$")
+    if after:match("^%w$") or openers[after] or opens then
       text = text .. " "
     end
   end
