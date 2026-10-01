@@ -206,7 +206,9 @@ Accessibility writes as supported and then ignore them, and terminals (Ghostty),
 Messages, and Mail's compose body take none, so for those the text is pasted
 with the app's own ⌘V (whole text at once, not typed) and the previous
 clipboard is restored 0.25 s later; macOS gives no signal for when the app has
-read the clipboard, so that delay is unavoidable. A focused read-only text view
+read the clipboard, so that delay is unavoidable. Firefox and other Gecko
+browsers apply Accessibility writes asynchronously, so their web page fields
+would get the text twice; they are not supported. A focused read-only text view
 (a log pane, a read-only editor, a `readonly` web field) looks the same as a
 terminal to Accessibility, so it gets the ⌘V too; that does nothing and is not
 reported (`auto` copies nothing either), and the text is then only in the
