@@ -71,6 +71,8 @@ test("prune deletes the oldest takes past the cap, never the newest or other fil
   end
   local takes = list(settings.directory)
   local mine = { "notes.txt", "2020-01-01.txt", "todo.md", "2020-01-01_00-00-00__.txt" }
+  -- Suffixes save() never writes: it starts at _2.
+  table.move({ "2020-01-01_00-00-00_1.txt", "2020-01-01_00-00-00_02.txt" }, 1, 2, #mine + 1, mine)
   for _, name in ipairs(mine) do
     local file = assert(io.open(settings.directory .. "/" .. name, "w"))
     file:write(("mine "):rep(4096))

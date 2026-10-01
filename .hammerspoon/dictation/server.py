@@ -777,9 +777,9 @@ class Engine:
     def is_question(cls, raw, names):
         """Ends in '?', or its open last sentence asks (not a fragment or a negative command)."""
         raw = raw.strip()
-        if raw.endswith("?"):
-            return True
-        if raw.endswith((".", "!")):
+        if re.search(r"\?[!?]*[\"”’')\]]*$", raw):
+            return True  # "Can you believe it?!"
+        if re.search(r"[.!][\"”’')\]]*$", raw):
             return False
         last = re.split(r"[.!?][\"”’')\]]*\s+", raw.replace("’", "'"))[-1]  # 'He said "yes." Can'
         cased = re.findall(r"[^\W\d_]+(?:'[^\W\d_]+)*", last)  # "Don’t", not "the’" or "‘Is"
@@ -812,7 +812,9 @@ class Engine:
             return text  # "?!" asks too
         open_text = re.sub(r"\s*[.!?,;:]+([\"”’')\]]*)$", r"\1", text)
         # Its last sentence must still ask: not "Can you check this? I think it's broken."
-        if not (raw.strip().endswith("?") or cls.is_question(open_text, names)):
+        if not (
+            re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) or cls.is_question(open_text, names)
+        ):
             return text
         # Inside quotes that open the question ('"Can you help?"'), not ones within it
         # ('Did he say "yes"?').
@@ -823,10 +825,11 @@ class Engine:
 
     # Self-correction cues the adapter acts on ("no wait", "sorry, I mean", "scratch that").
     CORRECTIONS = frozenset(["no", "wait", "sorry", "mean", "scratch", "actually"])
-    # Words whose loss or addition flips the meaning ("nothing" -> "something"), besides "n't".
+    # Words whose loss or addition changes the meaning ("nothing", "almost"), besides "n't".
     NEGATIONS = frozenset(
         ["not", "never", "cannot", "nothing", "nobody", "none", "nowhere", "neither", "without"]
-        + ["hardly", "barely", "scarcely", "rarely", "seldom"]
+        + ["hardly", "barely", "scarcely", "rarely", "seldom", "approximately", "roughly"]
+        + ["nearly", "almost"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
@@ -1026,12 +1029,14 @@ class Engine:
                 continue
             if k is None or k > at:
                 return True  # dropped, moved, or after one never said
-            # A run said as several goes on while its digits last: "three thirty" -> "3:30",
-            # not "330 330".
-            room, at = max(map(len, n)) - min(map(len, written[k] & n)), k + 1
-            while parts > 1 and at < len(written) and any(len(f) <= room for f in written[at] & n):
-                room -= min(len(f) for f in written[at] & n)
-                at += 1
+            # A run said as several goes on in the next written numbers while they spell it:
+            # "three thirty" -> "3:30", not "330 330" or "3 3".
+            joined, at = min(written[k] & n, key=len), k + 1
+            while parts > 1 and at < len(written):
+                more = [f for f in written[at] if joined + f in n]
+                if not more:
+                    break
+                joined, at = joined + more[0], at + 1
         if at < len(written):
             return True  # a number never said
 
