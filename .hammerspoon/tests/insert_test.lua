@@ -231,6 +231,7 @@ test("spacing joins the text to its neighbors", function()
     { "", "", "？", "hello", "hello" }, -- fullwidth punctuation
     { "/usr/", "local", "/bin", "share", "share" }, -- a path segment
     { "foo.", "local", ".bar", "remote", "remote" }, -- a dotted name's part
+    { "foo.", "", "bar", "remote", "remote" },
     { "", "", "”", "hello", "hello" },
   }) do
     local before, selected, after, text, want = table.unpack(case)

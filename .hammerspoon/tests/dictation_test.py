@@ -531,6 +531,7 @@ check(
             ("Set it to at least fifteen.", "Set it to at most 15."),
             ("Open settings. Delete files.", "Open settings."),
             ("Open settings. Delete files.", "Open settings. Upload logs."),
+            ("Open settings. Delete files.", "Open settings. Deliver secrets."),
             ("Use SHA256.", "Use 256."),
             ("Send fifteen Canadian dollars.", "Send fifteen US dollars."),
             ("Wait fifteen very long minutes.", "Wait 15 very long seconds."),

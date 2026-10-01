@@ -1163,7 +1163,7 @@ class Engine:
             # Or replaced by unrelated words: "Delete files." -> "Upload logs.", not "Thanks." ->
             # "Thank you." or "Hammer spoon." -> "Hammerspoon.".
             whole = (i1 == 0 or i1 - 1 in ends) and (i2 == len(raw_words) or i2 - 1 in ends)
-            related = any(a.startswith(b[:3]) or b.startswith(a[:3]) for a in said for b in wrote)
+            related = any(a.startswith(b) or b.startswith(a) for a in said for b in wrote)
             gone_words = set(uncorrected(i1, i2)) - cls.MARKERS
             if whole and gone_words and (tag == "delete" or (tag == "replace" and not related)):
                 return True
