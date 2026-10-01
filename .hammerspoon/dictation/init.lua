@@ -45,7 +45,12 @@ local function clip(text)
   return cut and text:sub(1, cut - 1) or text
 end
 
--- Frontmost app; window title, browser URL, and (opt-in) selection for our own prompt only.
+-- Window title, browser URL, and selection feed only our own prompt; an adapter ships its own.
+local function prompted()
+  return config.cleanup.enabled and not config.cleanup.adapter
+end
+
+-- Frontmost app; when prompted(), window title, browser URL, and (opt-in) selection.
 -- nil and why when asked-for context cannot be read: the take stops rather than go without it.
 ---@return DictationTranscribeRequest?, string?
 local function gatherContext()
@@ -56,8 +61,7 @@ local function gatherContext()
     return context
   end
   context.app = app:bundleID()
-  -- The rest only feeds our own prompt; a cleanup adapter ships its own.
-  if not config.cleanup.enabled or config.cleanup.adapter then
+  if not prompted() then
     return context
   end
   local window = app:focusedWindow()
@@ -334,7 +338,9 @@ local function toggle()
       fail("Dictation: allow Microphone access in System Settings")
       return
     end
-    if config.insert ~= "clipboard" and not hs.accessibilityState(true) then
+    -- AX inserts the text and reads the selection sent as context.
+    local selects = config.includeSelection and prompted()
+    if (config.insert ~= "clipboard" or selects) and not hs.accessibilityState(true) then
       fail("Dictation: allow Accessibility access in System Settings")
       return
     end

@@ -3,6 +3,7 @@ local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
 -- Every clipboard write counts, as NSPasteboard's changeCount does; `pasteWrites` makes ⌘V write.
 local changes, pasteWrites, starts, clearFails = 0, false, 0, false
 local toggle, handlers, done, escape, focus, copied, saved, refused
+local trusted = true -- Accessibility granted
 local config = {
   insert = "direct",
   trigger = "hotkey",
@@ -103,7 +104,7 @@ local env = setmetatable({
       return true
     end,
     accessibilityState = function()
-      return true
+      return trusted
     end,
     application = { frontmostApplication = function() end },
     axuielement = {
@@ -377,6 +378,18 @@ test("an Escape binding macOS refuses aborts the take", function()
   refused = false
   assert(starts == before, "recorded with no way to cancel")
   assert(alerts[1] == "Dictation: could not bind Escape to cancel", tostring(alerts[1]))
+end)
+
+test("a selection sent as context needs Accessibility first, in clipboard mode too", function()
+  config.insert, config.includeSelection, config.cleanup = "clipboard", true, { enabled = true }
+  alerts, trusted = {}, false
+  local before = starts
+  toggle()
+  config.insert, config.includeSelection, config.cleanup = "direct", nil, { enabled = false }
+  trusted = true
+  local message = "Dictation: allow Accessibility access in System Settings"
+  assert(starts == before, "recorded a take whose context it could not read")
+  assert(alerts[1] == message, tostring(alerts[1]))
 end)
 
 test("a take cancelled while transcribing is saved, not inserted", function()

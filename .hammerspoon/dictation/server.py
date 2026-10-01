@@ -803,8 +803,9 @@ class Engine:
             after in cls.ORDERS or (after in cls.DETERMINERS and len(words) == 3)
         ):
             return False
-        # A number too, but "Do two things" orders.
-        subject = after in cls.SUBJECTS or named or (words[0] != "do" and bool(cls.numbers(after)))
+        # A quantifier or number too ("Can all users log in"), but "Do two things" orders.
+        counts = after in cls.DETERMINERS or bool(cls.numbers(after))
+        subject = after in cls.SUBJECTS or named or (words[0] != "do" and counts)
         if words[0] in ("have", "had"):
             # "Have the tests passed" asks; "Have a good day" and "Had a great time" don't.
             # After the subject: "oven" in "Have the oven ready" is no participle.
@@ -949,16 +950,6 @@ class Engine:
         """Each number in `text`: the forms it may be written in and how many numbers it may be
         written as ("three thirty": 3, 30, or 330, as 2)."""
         text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", cls.spaced(text.lower()))  # "1,240", "10:00"
-        # A name mixing letters and digits holds no number ("HTTP/2", "C++20", "SHA3-256", "2FA"),
-        # but "15th", "3pm", "1990s", and "3-year-old" do.
-        ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm|-.+)"
-        text = " ".join(
-            w
-            if not (re.search(r"[^\W\d_]", w) and re.search(r"\d", w))  # letters of any script
-            or re.fullmatch(ending, w.strip("\"'“‘([.,!?;:)]”’"))
-            else ""
-            for w in text.split()
-        )
         text = re.sub(r"\b([ap])\.m\.", r"\1m", text)  # "p.m." is "pm"
         text = re.sub(r"\bnoon\b", "12 pm", re.sub(r"\bmidnight\b", "12 am", text))
         text = re.sub(r"([-+])([$€£])(?=\d)", r"\2\1", text)  # "-$15" is "$-15"
@@ -973,8 +964,22 @@ class Engine:
         # "15th", "3pm", "1990s".
         end = r"(?=(?:st|nd|rd|th|s|am|pm)?\b)"
         number = rf"(?<![\w+.-])[-+]?\d+(?:\.\d+)?{end}|(?<![a-z\d.])(?<![a-z]-)\d+(?:\.\d+)?{end}"
+        # A name mixing letters and digits is a value of its own, not a number: "HTTP/2" is not
+        # "HTTP/3" or "2" ("C++20", "SHA3-256", "2FA"). "15th", "3pm", "1990s", "3-year-old" count.
+        ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm|-.+)"
+        tokens = []
+        for w in text.split():
+            core = w.strip("\"'“‘([.,!?;:)]”’")
+            if (
+                re.search(r"[^\W\d_]", core)  # letters of any script
+                and re.search(r"\d", core)
+                and not re.fullmatch(ending, core)
+            ):
+                tokens.append("#" + re.sub(r"[\W_]", "", core))  # "SHA-256" is "SHA256"
+            else:
+                tokens += re.findall(rf"{number}|[a-z]+|[%°$€£]", w)
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
-        for token in re.findall(rf"{number}|[a-z]+|[%°$€£]", text) + [""]:
+        for token in tokens + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
                 continue  # "negative about fifteen", "two hundred and five"
             if token == "point" and chunks and not point:  # "one point five" is 1.5
@@ -993,7 +998,7 @@ class Engine:
                         len(runs),
                     )
                 point, chunks = "", []
-                if re.fullmatch(r"[-+]?\d+(?:\.\d+)?", token):
+                if token[:1] == "#" or re.fullmatch(r"[-+]?\d+(?:\.\d+)?", token):
                     said({token})
                 elif token in cls.MEASURES and fresh:  # after it: "15%", "fifteen dollars"
                     found[-1] = ({n + cls.MEASURES[token] for n in found[-1][0]}, found[-1][1])
@@ -1132,8 +1137,13 @@ class Engine:
         if at < len(written):
             return True  # a number never said
 
-        # Number words checked above may go as digits: "one hundred and five" -> "105".
-        numeric = {k for k, w in enumerate(raw_words) if cls.numbers(w)}
+        # Number words checked above may go as digits: "one hundred and five" -> "105". A name
+        # ("#2fa") counts nothing.
+        numeric = {
+            k
+            for k, w in enumerate(raw_words)
+            if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
+        }
         numeric |= {  # "two hundred and five", "one point five"
             k
             for k, w in enumerate(raw_words)
