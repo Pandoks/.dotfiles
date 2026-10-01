@@ -151,6 +151,12 @@ check(
     ],
     symbols.apply_vocabulary,
 )
+latex = server.Engine(dict(engine.config, dictionary={"\\LaTeX": ["latex"], "\\frac": ["frac"]}))
+check(
+    "dictionary inserts its spelling as written",
+    [("Write it in latex with frac.", "Write it in \\LaTeX with \\frac.")],
+    latex.apply_dictionary,
+)
 # Cleanup off: no tokenizer words, so only macOS's word list keeps real words.
 off = server.Engine(engine.config)
 off.speech = SimpleNamespace(transcribe=lambda wav, hint: wav)
@@ -187,6 +193,8 @@ check(
         ("I think, um .", "I think."),
         ("git add .", "git add ."),
         ("Line one.\n\nUh, line two.", "Line one.\n\nLine two."),
+        ("Hi Anna,\n\nUm, I wanted to check in.", "Hi Anna,\n\nI wanted to check in."),
+        ("Okay. Um\n\nNext paragraph.", "Okay.\n\nNext paragraph."),
     ],
     server.Engine.strip_stalls,
 )
@@ -273,6 +281,8 @@ check(
                 "Book the flight for Tuesday.",
             ),
             ("Open Slack, no wait, open GitHub.", "Open GitHub."),
+            ("No wait, open GitHub.", "Open GitHub."),
+            ("No, no, it's fine.", "No, it's fine."),
             ("I am going to the store.", "I'm going to the store."),
             ("Meet me at three thirty.", "Meet me at 3:30."),
             ("Can you send me the, can you send me the report?", "Can you send me the report?"),
@@ -351,6 +361,10 @@ check(
                 "The planning meeting is on Thursday.",
             ),
             ("No, I use Neovim.", "No, I use Vim."),
+            # A cue word that takes nothing back leaves glossary words and "no" protected.
+            ("Open Ghostty. No idea why it crashed.", "Open ghostly. No idea why it crashed."),
+            ("We have no tests for this.", "We have tests for this."),
+            ("We have tests for this.", "We have no tests for this."),
             ("Send the draft to Anna and then to Ben.", "Send the draft to Ben and then to Anna."),
             ("I never said that.", "I said that."),
             ("We cannot ship this today.", "We can ship this today."),

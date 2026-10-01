@@ -373,7 +373,7 @@ class Engine:
 
     def apply_dictionary(self, text):
         for word, pattern in self.dictionary:
-            text = pattern.sub(word, text)
+            text = pattern.sub(word.replace("\\", r"\\"), text)  # "\LaTeX" as written
         return text
 
     # Real words are never fuzzy-matched ("recast"); load() adds the tokenizer's ("tacos").
@@ -582,9 +582,10 @@ class Engine:
     # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
     STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w/@-]|\.\w)"
     # Opening a sentence it goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
-    LEAD_STALL_RE = re.compile(rf"(?<![^.!?])(\s*)((?:{STALL}(?:,|[.…?!]+)?\s*)+)(\w*)")
+    # A line start counts, and neither regex takes a line break ("Hi Anna,\n\nUm, I wanted").
+    LEAD_STALL_RE = re.compile(rf"(?<![^.!?\n])([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
     # Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
-    STALL_RE = re.compile(rf",?\s*{STALL},?(?:\s+(?=[.!?,;:](?:\s|$)))?")
+    STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
 
     @classmethod
     def strip_stalls(cls, text):
@@ -593,8 +594,8 @@ class Engine:
             lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
             text,
         )
-        out = cls.STALL_RE.sub("", out)
-        out = re.sub(r"[^\S\n]{2,}", " ", out).strip()  # blank lines between paragraphs stay
+        out = re.sub(r"[^\S\n]{2,}", " ", cls.STALL_RE.sub("", out))  # blank lines stay
+        out = re.sub(r"[^\S\n]+\n", "\n", out).strip()  # no space left before a line break
         return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
     QUESTION_WORDS = frozenset(
@@ -755,8 +756,10 @@ class Engine:
         def said(text):
             return words(cls.DROPPED_RE.sub(" ", text))
 
-        def negative(ws):
-            return any(w in ("not", "never", "cannot") or w.endswith("n't") for w in ws)
+        def negative(ws, no=True):
+            # A "no" may be a cue instead ("no wait", "Thursday no Friday"), not a negation.
+            nots = ("no", "not", "never", "cannot") if no else ("not", "never", "cannot")
+            return any(w in nots or w.endswith("n't") for w in ws)
 
         raw_words, out_words = words(raw), words(out)
         if not out_words or len(out_words) > 1.6 * len(raw_words) + 3:
@@ -765,18 +768,13 @@ class Engine:
         if not raw_set & out_set:
             return True  # nothing the user said survived (short inputs included)
         allowed = {a.lower() for a in allowed}
-        # Glossary words said must survive unless corrected later ("Slack, no wait, GitHub").
-        if any(
-            w in allowed and w not in out_set and not cls.CORRECTIONS & set(raw_words[i + 1 :])
-            for i, w in enumerate(raw_words)
-        ):
-            return True
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
         # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one").
         cues = [
             k
             for k, w in enumerate(raw_words)
-            if w in cls.CORRECTIONS and not negative(raw_words[k - 1 : k])  # "not actually"
+            # "not actually" is no cue; "no wait" is.
+            if w in cls.CORRECTIONS and not negative(raw_words[k - 1 : k], no=False)
         ]
         corrected = {
             k
@@ -791,8 +789,9 @@ class Engine:
 
         # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more.
         kept = out_set | cls.CORRECTIONS
-        lost = [w for w in set(uncorrected(0, len(raw_words))) if w not in kept]
-        if len(lost) > max(2, 0.3 * len(raw_words)):
+        lost = set(uncorrected(0, len(raw_words))) - kept
+        # Glossary words said must survive unless corrected ("Slack, no wait, GitHub").
+        if len(lost) > max(2, 0.3 * len(raw_words)) or lost & allowed:
             return True
         new = [w for w in out_words if w not in raw_set]
         # A glossary word may replace a lost (misheard) word; an echoed list replaces none.
@@ -807,10 +806,14 @@ class Engine:
             # A false start's "not" is said again right beside it ("I don't, I don't know").
             again = set(raw_words[max(0, i1 - len(cut)) : i1] + raw_words[i2 : i2 + len(cut)])
             dropped = [w for w in cut if w not in again]
-            if len(gone) > 3 or (negative(dropped) and not negative(out_words[j1:j2])):
+            # Its "no" negates ("no tests") unless the cut took words back ("Thursday no Friday").
+            if len(gone) > 3 or (
+                negative(dropped, no=corrected.isdisjoint(range(i1, i2)))
+                and not negative(out_words[j1:j2])
+            ):
                 return True  # a dropped sentence or "not" the user never took back
             if negative(out_words[j1:j2]) and not negative(raw_words[i1:i2]):
-                return True  # a "not" the user never said
+                return True  # a "not" or "no" the user never said
             # Unsaid words first, last, or as a sentence of their own are a reply: "Sure. Thanks."
             alone = n in (0, len(edits) - 1) or all(re.search(r"[.!?]", gaps[j]) for j in (j1, j2))
             if tag in ("insert", "replace") and not said(" ".join(raw_words[i1:i2])) and alone:
