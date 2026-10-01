@@ -499,23 +499,26 @@ class Engine:
             return re.sub(r"[^\w']", "", word.replace("’", "'")).strip("'").lower()
 
         end = core((open_text.split() or [""])[-1])
-        # Re-add the word only where the cleanup cut it ("to the" -> "to."), not respelled ("vs.").
-        if end == core(last) or len(raw_words) < 2 or end != core(raw_words[-2]):
+        cores = [core(w) for w in raw_words]
+        # Re-add the words the cleanup cut ("go to the" -> "go."), not a respelled one ("vs.").
+        cut = next((n for n in range(1, 4) if n < len(cores) and cores[-n - 1] == end), 0)
+        if end == cores[-1] or not cut:
             return open_text
+        before, last = raw_words[-cut - 1], " ".join(raw_words[-cut:])
         # Opening a new sentence ("Thanks. But", '"Yes." And'), it leaves the one before finished.
-        if re.search(r"[.!?][\"”’')\]]*$", raw_words[-2]):
+        if re.search(r"[.!?][\"”’')\]]*$", before):
             return f"{text} {last}".strip()
         # A lone ’ or ' may be a possessive ("dogs’"): it closes only a quote opened before it.
         opened = r"‘|(?<!\w)'\w"
         # It goes inside the cleanup's closing quotes, unless said after them: '"yes", and'.
-        said_after = re.search(r"[\"”)\]]\W*$", raw_words[-2]) or (
-            re.search(opened, raw) and re.search(r"['’]\W*$", raw_words[-2])
+        said_after = re.search(r"[\"”)\]]\W*$", before) or (
+            re.search(opened, raw) and re.search(r"['’]\W*$", before)
         )
         closing = "\"”)]’'" if re.search(opened, open_text) else '"”)]'
         body = open_text if said_after else open_text.rstrip(closing)
         close = open_text[len(body) :]
         # After the comma said before it: "John, and".
-        mark = raw_words[-2][-1]
+        mark = before[-1]
         if mark in ",;:" and not body.endswith((",", ";", ":")):
             body += mark
         return f"{body} {last}{close}".strip()
@@ -819,6 +822,12 @@ class Engine:
             # "not actually" is no cue; "no wait" is.
             if w in cls.CORRECTIONS and not negative(raw_words[k - 1 : k], no=False)
         ]
+        # A cue is set off by a mark ("no, make it Friday"); a negating "no" is not ("no tests").
+        paused = {
+            k
+            for k, m in enumerate(re.finditer(word, raw))
+            if re.match(r"[,.;:!?…—]", raw[m.end() :])
+        }
         corrected = {
             k
             for tag, i1, i2, _, _ in edits
@@ -853,10 +862,14 @@ class Engine:
             # A false start's "not" is said again right beside it ("I don't, I don't know").
             again = set(raw_words[max(0, i1 - len(cut)) : i1] + raw_words[i2 : i2 + len(cut)])
             dropped = [w for w in cut if w not in again]
-            # Its "no" negates ("no tests") unless the cut took words back ("Thursday no Friday").
+            # Its "no" negates ("no tests", "no way") unless the cut took words back and is replaced
+            # ("five no six" -> "6"), ends on its cues ("Thursday no"), or pauses ("no, make it").
+            last = max((c for c in cues if i1 <= c < i2), default=i2)
+            taken = not corrected.isdisjoint(range(i1, i2)) and (
+                j2 > j1 or last in paused or all(w in kept for w in uncorrected(last + 1, i2))
+            )
             if len(gone) > 3 or (
-                negative(dropped, no=corrected.isdisjoint(range(i1, i2)))
-                and not negative(out_words[j1:j2])
+                negative(dropped, no=not taken) and not negative(out_words[j1:j2])
             ):
                 return True  # a dropped sentence or "not" the user never took back
             if negative(out_words[j1:j2]) and not negative(raw_words[i1:i2]):
