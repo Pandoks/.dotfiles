@@ -7,7 +7,7 @@ vocabulary fixes names and jargon, and the result is inserted into the focused
 field (or copied to the clipboard, per `insert` in config.lua).
 
 Everything is self-contained in this directory; `~/.hammerspoon/init.lua` loads
-it with `require("dictation")`.
+it with `require("dictation")` only on Apple Silicon with macOS 14+ (MLX).
 
 ## What runs where
 

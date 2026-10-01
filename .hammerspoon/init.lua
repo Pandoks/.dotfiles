@@ -7,8 +7,13 @@ local install = spoon.SpoonInstall
 -- Generates hs.* type annotations for lua_ls when they are missing or stale.
 install:andUse("EmmyLua")
 
--- Local, free, Raycast-style dictation (self-contained in ./dictation).
-require("dictation")
+-- Local, free, Raycast-style dictation (./dictation); MLX needs Apple Silicon and macOS 14+.
+if
+  (hs.processInfo.arch == "arm64" or hs.processInfo.isRosetta)
+  and hs.host.operatingSystemVersion()["major"] >= 14
+then
+  require("dictation")
+end
 
 require("yabai")
 require("applications")
