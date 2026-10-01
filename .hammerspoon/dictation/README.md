@@ -248,3 +248,12 @@ It builds a Lua runner against Hammerspoon's LuaSkin and checks, in a temporary
 folder with Hammerspoon's real `hs.fs`, that `history.lua` names takes as
 `prune` expects and deletes only the oldest transcripts past the cap, never the
 newest or any other file. Run it after editing `history.lua`.
+
+```sh
+sh ~/.hammerspoon/tests/insert_test.sh
+```
+
+It loads `init.lua` with stub Hammerspoon APIs and a fake text field and pins
+the spaces added around inserted text (words, quotes, openers, U+00A0, emoji,
+selections), the ⌘V paste when a field ignores the write, and the error when
+focus moves. Run it after editing how `init.lua` inserts text.

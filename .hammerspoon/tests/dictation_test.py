@@ -234,7 +234,10 @@ check(
     "end punctuation overrides the cleanup",
     [
         (("I want to go to the", "I want to go to the."), "I want to go to the"),
+        (("Can you send me the", "Can you send me the?"), "Can you send me the"),
+        (("I want to go to the", "I want to go to the!"), "I want to go to the"),
         (("I want to go to the", "I want to go to."), "I want to go to the"),
+        (("You're coming?", "You're coming."), "You're coming?"),
         (("What time is it", "What time is it."), "What time is it?"),
         (("Should we pick A", "Should we pick A."), "Should we pick A?"),
         (("Thanks. But", "Thanks."), "Thanks. But"),
