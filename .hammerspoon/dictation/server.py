@@ -851,7 +851,8 @@ class Engine:
         + ["open/close", "true/false", "left/right", "add/remove", "allow/deny", "show/hide"]
         + ["lock/unlock", "increase/decrease", "first/last", "min/max", "up/down"]
         + ["all/some", "every/some", "each/some", "always/sometimes", "everyone/someone"]
-        + ["everything/something", "everybody/somebody"]
+        + ["everything/something", "everybody/somebody", "include/exclude", "accept/reject"]
+        + ["import/export", "connect/disconnect", "install/uninstall"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
@@ -1071,7 +1072,11 @@ class Engine:
 
         # Number words checked above may go as digits: "one hundred and five" -> "105".
         numeric = {k for k, w in enumerate(raw_words) if cls.numbers(w)}
-        numeric |= {k for k, w in enumerate(raw_words) if w == "and" and {k - 1, k + 1} <= numeric}
+        numeric |= {  # "two hundred and five", "one point five"
+            k
+            for k, w in enumerate(raw_words)
+            if w in ("and", "point") and {k - 1, k + 1} <= numeric
+        }
 
         def uncorrected(i1, i2):
             gone = corrected | fillers | numeric

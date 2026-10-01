@@ -242,7 +242,9 @@ local function insertText(text)
       end
       return code > 0x7F
     end
-    if not starts(before) and not (quotes[before] and starts(prior)) then
+    -- A selected part of a dotted name stays joined: "foo.[local].bar", "github.[com]".
+    local dotted = last ~= "" and before == "." and wordy(prior)
+    if not starts(before) and not (quotes[before] and starts(prior)) and not dotted then
       text = " " .. text
     end
     local opens = quotes[after] and starts(last ~= "" and last or before) and wordy(beyond)
