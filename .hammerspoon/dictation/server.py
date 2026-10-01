@@ -802,14 +802,17 @@ class Engine:
         subject = after in cls.SUBJECTS or named
         if words[0] in ("have", "had"):
             # "Have the tests passed" asks; "Have a good day" and "Had a great time" don't.
+            # After the subject: "oven" in "Have the oven ready" is no participle.
+            start = 2 if named else 3
             done = any(
                 re.fullmatch(r"\w+(?:ed|en)|\w*[ao]ught", w) or w in cls.PARTICIPLES
-                for w in words[2:6]
+                for w in words[start:6]
             )
             # "Had he arrived" asks; "Have it ready" orders.
             pronouns = ("i", "you", "we", "they") + ("he", "she", "it") * (words[0] == "had")
             return after in pronouns or (
-                (after in cls.DETERMINERS or named) and done  # "Have John arrived"
+                (after in cls.DETERMINERS or named or cls.numbers(after))
+                and done  # "Have John arrived"
             )
         return words[0] in cls.AUXILIARIES and subject
 
@@ -839,7 +842,7 @@ class Engine:
         ["not", "never", "cannot", "nothing", "nobody", "none", "nowhere", "neither", "without"]
         + ["hardly", "barely", "scarcely", "rarely", "seldom", "approximately", "roughly"]
         + ["nearly", "almost", "about", "around", "exactly", "least", "most", "more", "less"]
-        + ["fewer", "over", "under", "above", "below", "greater"]
+        + ["fewer", "over", "under", "above", "below", "greater", "only", "up"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")

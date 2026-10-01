@@ -87,9 +87,11 @@ function spectrum:analyze(pcm)
   end
   local rms = math.sqrt(energy / size) + 1e-9
   local level = math.max(0, math.min(1, (20 * math.log(rms, 10) + 50) / 40))
-  -- Room noise sets the floor, so silence reads flat and only sound above it moves the bars.
+  -- Room noise sets the floor, so silence reads flat and only sound above it moves the bars. It
+  -- starts at most at a room's level (~-38 dBFS): a take may open on speech, after a Bluetooth
+  -- mic's digital silence.
   if energy > 0 then
-    self.floor = self.floor and math.min(level, self.floor + 0.002) or level
+    self.floor = math.min(level, self.floor and self.floor + 0.002 or 0.3)
   end
   -- Full at ~11 dB over the room.
   local gain = math.max(0, math.min(1, (level - (self.floor or level) - 0.08) / 0.2))

@@ -103,8 +103,9 @@ local function paste(text)
   if not hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = text, [transient] = "" }) then
     error("could not write clipboard", 0)
   end
-  hs.eventtap.keyStroke({ "cmd" }, "v", 0)
+  -- Before ⌘V: any later write, the app's own included, cancels the restore.
   local count = hs.pasteboard.changeCount()
+  hs.eventtap.keyStroke({ "cmd" }, "v", 0)
   -- Held so GC cannot stop it.
   dictation.restore = hs.timer.doAfter(0.25, function()
     dictation.restore = nil
@@ -245,7 +246,8 @@ local function insertText(text)
       text = " " .. text
     end
     local opens = quotes[after] and starts(last ~= "" and last or before) and wordy(beyond)
-    if wordy(after) or openers[after] or opens then
+    -- A "/" after is a path going on ("/usr/share/bin"), not an opener.
+    if wordy(after) or (openers[after] and after ~= "/") or opens then
       text = text .. " "
     end
   end

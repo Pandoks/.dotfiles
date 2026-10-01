@@ -1,5 +1,7 @@
 local root = assert(arg[1], "pass the dictation directory")
 local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
+-- Every clipboard write counts, as NSPasteboard's changeCount does; `pasteWrites` makes ⌘V write.
+local changes, pasteWrites = 0, false
 local toggle, handlers, done, escape, focus, copied, saved, refused
 local config = {
   insert = "direct",
@@ -124,11 +126,11 @@ local env = setmetatable({
         return { {} }
       end,
       writeAllData = function(data)
-        clipboard = data
+        clipboard, changes = data, changes + 1
         return true
       end,
       changeCount = function()
-        return 1
+        return changes
       end,
       setContents = function(text)
         copied = text
@@ -138,6 +140,7 @@ local env = setmetatable({
     eventtap = {
       keyStroke = function(mods, key)
         strokes[#strokes + 1] = mods[1] .. "+" .. key
+        changes = changes + (pasteWrites and 1 or 0)
       end,
     },
   },
@@ -225,6 +228,7 @@ test("spacing joins the text to its neighbors", function()
     { "", "", "日本", "hello", "hello " },
     { "", "", "—then", "hello", "hello" }, -- a dash is a mark, not a word
     { "", "", "？", "hello", "hello" }, -- fullwidth punctuation
+    { "/usr/", "local", "/bin", "share", "share" }, -- a path segment
     { "", "", "”", "hello", "hello" },
   }) do
     local before, selected, after, text, want = table.unpack(case)
@@ -373,6 +377,14 @@ test("a take cancelled while transcribing is saved, not inserted", function()
   escape()
   handlers.onFinal({ id = serial, text = "Keep this." })
   assert(saved[1] == "Keep this." and element.written == nil and #alerts == 0)
+end)
+
+test("an app that writes the clipboard while pasting keeps its write", function()
+  clipboard, pasteWrites = { ["public.utf8-plain-text"] = "mine" }, true
+  dictate(field("Hello", "", "", true), "there.")
+  pasteWrites = false
+  timers[#timers]()
+  assert(clipboard["public.utf8-plain-text"] == " there.", "restored over the app's write")
 end)
 
 test("an empty clipboard is empty again after a paste", function()
