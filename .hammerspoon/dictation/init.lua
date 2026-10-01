@@ -144,16 +144,19 @@ local function insertText(text)
   if element ~= target then
     error("focus moved while transcribing", 0)
   end
+  -- Text roles only: Chromium also takes (and drops) text writes on sliders, buttons, toolbars.
+  local role = read(element, "AXRole")
+  if role ~= "AXTextField" and role ~= "AXTextArea" and role ~= "AXComboBox" then
+    return false
+  end
   local writable, failure = element:isAttributeSettable("AXSelectedText")
-  -- Unsupported (e.g. a pop-up button's title value) just means not a text field.
   if failure and failure ~= "Attribute is not supported by target" then
     error(failure, 0)
   elseif not writable then
     -- Terminals and Messages take no writes: paste. Read-only views look alike; ⌘V fails silently.
-    local role = read(element, "AXRole")
-    return (role == "AXTextField" or role == "AXTextArea") and paste(text)
+    return paste(text)
   end
-  -- Only a text field has a string value.
+  -- Nothing to space against or compare without a string value.
   local value = read(element, "AXValue")
   if type(value) ~= "string" then
     return false

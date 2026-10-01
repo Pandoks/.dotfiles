@@ -1,6 +1,15 @@
 local root = assert(arg[1], "pass the dictation directory")
 local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
-local toggle, handlers, done, focus
+local toggle, handlers, done, focus, copied
+local config = {
+  insert = "direct",
+  trigger = "hotkey",
+  hotkey = { mods = { "alt" }, key = "space" },
+  cleanup = { enabled = false },
+  minDuration = 0,
+  minLevel = 0,
+  history = {},
+}
 
 local function test(name, callback)
   local ok, failure = pcall(callback)
@@ -25,15 +34,7 @@ assert(loadfile(
   setmetatable({
     require = function(name)
       return ({
-        ["dictation.config"] = {
-          insert = "direct",
-          trigger = "hotkey",
-          hotkey = { mods = { "alt" }, key = "space" },
-          cleanup = { enabled = false },
-          minDuration = 0,
-          minLevel = 0,
-          history = {},
-        },
+        ["dictation.config"] = config,
         ["dictation.engine"] = {
           new = function(_, callbacks)
             handlers = callbacks
@@ -110,6 +111,10 @@ assert(loadfile(
         changeCount = function()
           return 1
         end,
+        setContents = function(text)
+          copied = text
+          return true
+        end,
       },
       eventtap = {
         keyStroke = function(mods, key)
@@ -130,14 +135,14 @@ local function units(text)
 end
 
 -- A text field around a selection; `deaf` accepts writes but keeps its value (Chromium, Electron).
-local function field(before, selected, after, deaf)
+local function field(before, selected, after, deaf, role)
   local element = {}
   function element:attributeValue(name)
     return ({
       AXValue = before .. selected .. after,
       AXSelectedTextRange = { location = units(before), length = units(selected) },
       AXSelectedText = selected,
-      AXRole = "AXTextArea",
+      AXRole = role or "AXTextArea",
     })[name]
   end
   function element:isAttributeSettable()
@@ -205,6 +210,24 @@ test("focus moved while transcribing writes nothing and says so", function()
   local element = field("Hello", "", "")
   dictate(element, "there.", field("Other", "", ""))
   assert(element.written == nil and alerts[1] == "Dictation: focus moved while transcribing")
+end)
+
+test("a slider is not a text field: auto copies, direct says so", function()
+  -- Chromium sliders take the write and drop it, like their fields do.
+  local slider = field("", "", "1 minute of 3", true, "AXSlider")
+  config.insert, copied = "auto", nil
+  dictate(slider, "Note to self.")
+  config.insert = "direct"
+  assert(slider.written == nil and #strokes == 0, "wrote into the slider")
+  assert(copied == "Note to self." and alerts[1] == "Dictation copied to clipboard", "no copy")
+  dictate(slider, "Note to self.")
+  assert(slider.written == nil and alerts[1] == "Dictation: no text field is focused")
+end)
+
+test("a combo box (search, autocomplete) is a text field", function()
+  local search = field("", "", "", false, "AXComboBox")
+  dictate(search, "tacos")
+  assert(search.written == "tacos" and #alerts == 0)
 end)
 
 print(passed .. " insert tests passed")
