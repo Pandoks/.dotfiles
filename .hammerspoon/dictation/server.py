@@ -932,8 +932,11 @@ class Engine:
             found.append(({sign + v + unit for v in values}, parts))
             sign, unit, fresh = "", "", True
 
-        # Not digits inside a name ("SHA256", "IPv6", "v2"); a range's ("10-15") count.
-        for token in re.findall(r"(?<![\w+-])[-+]?\d+|(?<![a-z])\d+|[a-z]+|[%°$€£]", text) + [""]:
+        # Not digits in a name ("SHA256", "IPv6", "2FA", "4bit"); a range's ("10-15") count, and
+        # "15th", "3pm", "1990s".
+        end = r"(?=(?:st|nd|rd|th|s|am|pm)?\b)"
+        number = rf"(?<![\w+-])[-+]?\d+{end}|(?<![a-z])\d+{end}"
+        for token in re.findall(rf"{number}|[a-z]+|[%°$€£]", text) + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
                 continue  # "negative about fifteen", "two hundred and five"
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))

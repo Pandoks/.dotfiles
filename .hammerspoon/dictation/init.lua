@@ -247,14 +247,15 @@ local function insertText(text)
       end
       return code > 0x7F
     end
-    -- A part of a dotted name stays joined: "foo.[local].bar", "github.[com]", "foo.|bar".
-    local dotted = before == "." and wordy(prior) and (last ~= "" or wordy(after))
-    if not starts(before) and not (quotes[before] and starts(prior)) and not dotted then
+    -- A part of a dotted name or path stays joined: "foo.[local].bar", "foo.|bar", "/usr/|bin".
+    local joined = (before == "." and wordy(prior) or before == "/")
+      and (last ~= "" or wordy(after))
+    if not starts(before) and not (quotes[before] and starts(prior)) and not joined then
       text = " " .. text
     end
     local opens = quotes[after] and starts(last ~= "" and last or before) and wordy(beyond)
     -- A "/" after is a path going on ("/usr/share/bin"), not an opener.
-    if (wordy(after) or (openers[after] and after ~= "/") or opens) and not dotted then
+    if (wordy(after) or (openers[after] and after ~= "/") or opens) and not joined then
       text = text .. " "
     end
   end
