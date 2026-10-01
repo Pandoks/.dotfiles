@@ -492,7 +492,7 @@ class Engine:
         if not raw_words or not self.dangles(raw_words) or raw.rstrip().endswith(("?", "!")):
             return text  # "What if?" and "Oh my!" are complete
         last, text = raw_words[-1], text.rstrip()
-        # The end mark goes, closing quotes stay: 'He said, "I want the."' -> '"I want the"'.
+        # The end mark goes, closing quotes stay: '"I want the."' -> '"I want the"'.
         open_text = re.sub(r"\s*[.!?…—]+([\"”’)\]]*)$", r"\1", text)
 
         def core(word):
