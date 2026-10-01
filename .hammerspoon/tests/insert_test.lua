@@ -195,11 +195,13 @@ test("spacing joins the text to its neighbors", function()
     { "~/", "", "", "notes", "notes" },
     { "end", "", ".", "word", " word" },
     { 'He said "', "", '"', "hi", "hi" }, -- opening straight quote
+    { 'She said "I want ', "", '" and left.', "it", "it" }, -- a closing quote after a space
     { "He said '", "", "'", "hi", "hi" },
     { '("', "", "", "hi", "hi" }, -- a quote opening after an opener
     { 'He said "hi"', "", "", "and left.", " and left." }, -- closing straight quote
     { "", "", '"quoted"', "Say", "Say " },
     { "", "Sam", "'s car", "John", "John" }, -- an apostrophe inside a word
+    { "Ask ", "Sam", "'s mom.", "John", "John" }, -- a selected name before 's mid-sentence
     { "Sam", "", "'s", "uel", " uel" },
     { "a ", "foo ", "'quoted'", "bar", "bar " },
     { "run `", "", "`", "ls", "ls" }, -- an inline code span

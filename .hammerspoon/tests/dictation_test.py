@@ -248,6 +248,7 @@ check(
         ("Will do", "Will do"),
         ("Can confirm", "Can confirm"),
         ("Did GitHub go down", "Did GitHub go down?"),
+        ("Did John call", "Did John call?"),
         ("Can you send it,", "Can you send it?"),
         ("How's it going", "How's it going?"),
         ("Is it ready", "Is it ready?"),
@@ -409,6 +410,7 @@ check(
             ),
             ("Okay, meet Friday, actually make that Monday.", "Meet Monday."),
             ("Okay, so, meet Friday, scratch that, Monday.", "Meet Monday."),
+            ("Okay, so, meet Friday, no wait, Monday.", "Meet Monday."),
         ]
     ],
     lambda pair: dictate(*pair),
