@@ -145,7 +145,8 @@ check(
 symbols = server.Engine(
     dict(
         engine.config,
-        vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve", "Node.js", "O'Reilly"],
+        vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve", "Node.js", "O'Reilly"]
+        + ["Shell"],
     )
 )
 check(
@@ -154,7 +155,7 @@ check(
         ("Install node.js now.", "Install Node.js now."),
         ("Use YT-DLP to grab it.", "Use yt-dlp to grab it."),
         ("Read o'reilly's book.", "Read O'Reilly's book."),
-        ("Don't stop, it's fine.", "Don't stop, it's fine."),
+        ("She'll be fine.", "She'll be fine."),
         ("I got a C on the net.", "I got a C on the net."),
         ("Run ytdlp now.", "Run yt-dlp now."),
         ("Jose is here.", "José is here."),

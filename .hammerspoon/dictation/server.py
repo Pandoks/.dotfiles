@@ -406,11 +406,16 @@ class Engine:
 
         # Exact match, else a similar 4+ letter non-word not containing the vocabulary word.
         def match(core, floor):
-            core = core.lower()
-            key = re.sub(r"[.'’-]", "", core)
+            core = core.lower().replace("’", "'")
+            key = re.sub(r"[.'-]", "", core)
+            if (
+                key != core
+            ):  # punctuated: only the same spelling ("node.js"), not "she'll" -> "Shell"
+                word = glossary.get(key)
+                return word if word and word.lower().replace("’", "'") == core else None
             if key in glossary:
                 return glossary[key]
-            if key != core or len(core) < 4 or real(core):  # punctuated ("node.js"): exact only
+            if len(core) < 4 or real(core):
                 return None
             scores = [
                 (difflib.SequenceMatcher(None, core, key).ratio(), word)
