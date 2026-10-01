@@ -581,8 +581,7 @@ class Engine:
 
     # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
     STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m)(?![\w/@-]|\.\w)"
-    # Opening a sentence it goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
-    # A line start counts, and neither regex takes a line break ("Hi Anna,\n\nUm, I wanted").
+    # A sentence or line opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
     LEAD_STALL_RE = re.compile(rf"(?<![^.!?\n])([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
     # Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
     STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
@@ -756,10 +755,10 @@ class Engine:
         def said(text):
             return words(cls.DROPPED_RE.sub(" ", text))
 
-        def negative(ws, no=True):
+        def negative(tokens, no=True):
             # A "no" may be a cue instead ("no wait", "Thursday no Friday"), not a negation.
             nots = ("no", "not", "never", "cannot") if no else ("not", "never", "cannot")
-            return any(w in nots or w.endswith("n't") for w in ws)
+            return any(w in nots or w.endswith("n't") for w in tokens)
 
         raw_words, out_words = words(raw), words(out)
         if not out_words or len(out_words) > 1.6 * len(raw_words) + 3:
