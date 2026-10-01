@@ -502,17 +502,20 @@ class Engine:
         # Re-add the word only where the cleanup cut it ("to the" -> "to."), not respelled ("vs.").
         if end == core(last) or len(raw_words) < 2 or end != core(raw_words[-2]):
             return open_text
-        mark = raw_words[-2][-1]
-        # Opening a new sentence ("Thanks. But"), it leaves the one before finished.
-        if mark in ".!?":
+        # Opening a new sentence ("Thanks. But", '"Yes." And'), it leaves the one before finished.
+        if re.search(r"[.!?][\"”’')\]]*$", raw_words[-2]):
             return f"{text} {last}".strip()
+        # A lone ’ or ' may be a possessive ("dogs’"): it closes only a quote opened before it.
+        opened = r"‘|(?<!\w)'\w"
         # It goes inside the cleanup's closing quotes, unless said after them: '"yes", and'.
-        said_after = re.search(r"[\"”)\]]\W*$", raw_words[-2])
-        # A lone ’ or ' may be a possessive ("dogs’"): it closes only a quote the text opened.
-        closing = "\"”)]’'" if re.search(r"‘|(?<!\w)'\w", open_text) else '"”)]'
+        said_after = re.search(r"[\"”)\]]\W*$", raw_words[-2]) or (
+            re.search(opened, raw) and re.search(r"['’]\W*$", raw_words[-2])
+        )
+        closing = "\"”)]’'" if re.search(opened, open_text) else '"”)]'
         body = open_text if said_after else open_text.rstrip(closing)
         close = open_text[len(body) :]
         # After the comma said before it: "John, and".
+        mark = raw_words[-2][-1]
         if mark in ",;:" and not body.endswith((",", ";", ":")):
             body += mark
         return f"{body} {last}{close}".strip()
@@ -755,9 +758,9 @@ class Engine:
     def ensure_question(cls, raw, text, names):
         """End a question-shaped dictation with '?' in place of its end mark, inside quotes too."""
         text = text.strip()
-        if not text or not cls.is_question(raw, names) or re.search(r"\?[\"”’')\]]*$", text):
-            return text
-        open_text = re.sub(r"\s*[.!,;:]+([\"”’')\]]*)$", r"\1", text)
+        if not text or not cls.is_question(raw, names) or re.search(r"\?!*[\"”’')\]]*$", text):
+            return text  # "?!" asks too
+        open_text = re.sub(r"\s*[.!?,;:]+([\"”’')\]]*)$", r"\1", text)
         # Its last sentence must still ask: not "Can you check this? I think it's broken."
         asks = raw.strip().endswith("?") or cls.is_question(open_text, names)
         return open_text + "?" if asks else text

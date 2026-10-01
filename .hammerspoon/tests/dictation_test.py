@@ -283,6 +283,8 @@ check(
         (("I want to go to the", "I want to go to the,"), "I want to go to the,"),
         (("When I get home", "When I get home."), "When I get home."),
         (("What a great idea", "What a great idea!"), "What a great idea!"),
+        (("Can you believe it?", "Can you believe it?!"), "Can you believe it?!"),
+        (("Is it ready?", "Is it ready?."), "Is it ready?"),
         (("Do it now", "Do it now."), "Do it now."),
         (("Don't anyone move", "Don't anyone move."), "Don't anyone move."),
         (("I want to go to the", "I want to go to the…"), "I want to go to the"),
@@ -298,6 +300,7 @@ check(
         (("The plan is simple: the", "The plan is simple."), "The plan is simple: the"),
         (("He said I want the", 'He said, "I want."'), 'He said, "I want the"'),
         (('He said "yes", and', 'He said "yes."'), 'He said "yes", and'),
+        (('He said "yes." And', 'He said "yes."'), 'He said "yes." And'),
         # The cleanup's capitals and curly marks: "API" matches "api", "it’s" matches "it's".
         (("Check the api and", "Check the API."), "Check the API and"),
         (("I think it's the", "I think it’s."), "I think it’s the"),
@@ -312,6 +315,10 @@ check(
         (("Did he say yes", "Did he say 'yes?'"), "Did he say 'yes?'"),
         (("Did he say yes", "Did he say 'yes.'"), "Did he say 'yes'?"),
         (("It's for the dogs and", "It's for the dogs'."), "It's for the dogs' and"),
+        (("He said 'yes', and", "He said 'yes'."), "He said 'yes', and"),
+        (("He said ‘yes’, and", "He said ‘yes.’"), "He said ‘yes’, and"),
+        (("He said 'yes.' And", "He said 'yes.'"), "He said 'yes.' And"),
+        (("In the '90s, the kids' and", "In the '90s, the kids'."), "In the '90s, the kids' and"),
         (
             ("He asked me. Are you coming", "He asked me. 'Are you coming.'"),
             "He asked me. 'Are you coming'?",
