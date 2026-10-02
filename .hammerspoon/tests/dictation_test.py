@@ -262,6 +262,8 @@ check(
         ("Nineteen ninety nine was a great year.", "1999 was a great year."),
         ("Raise the limit to two thousand.", "Raise the limit to 2,000."),
         ("No one, two people came.", "No one, 2 people came."),
+        ("At one point five people left.", "At one point five people left."),
+        ("The server returned a five-oh-three.", "The server returned a 503."),
         ("Count one, two.", "Count 1, 2."),
         ("Do it in this order: one, two, three.", "Do it in this order: 1, 2, 3."),
         ("The steps one, two, and three are done.", "The steps 1, 2, and 3 are done."),
@@ -299,12 +301,13 @@ for size in (2, 3, 4):
 print("PASS no number run raises")
 # The guard reads number words as write_numbers writes them: a cleanup that writes the same digits
 # passes ("four oh four" -> "404", "one point oh five" -> "1.05", "two point one thousand").
-words = ["one", "two", "eight", "oh", "point", "twenty", "hundred", "thousand"]
+words = ["one", "two", "eight", "oh", "point", "twenty", "hundred", "thousand", "million"]
 for size in (1, 2, 3, 4):
     for run in itertools.product(words, repeat=size):
-        said = "Use " + " ".join(run) + " now."
-        written = server.Engine.write_numbers(said)
-        assert not server.Engine.looks_rewritten(said, written, []), f"{said!r} -> {written!r}"
+        for joint in (" ", ". ", ", ") if 1 < size < 4 else (" ",):  # across a sentence or list
+            said = "Use " + run[0] + joint + " ".join(run[1:]) + " now."
+            written = server.Engine.write_numbers(said)
+            assert not server.Engine.looks_rewritten(said, written, []), f"{said!r} -> {written!r}"
 print("PASS the guard accepts the digits write_numbers writes")
 check(
     "a cleaned take gets its numbers as digits",
@@ -512,6 +515,9 @@ check(
             ("Dial two oh two point oh five oh.", "Dial 202.050."),
             ("Um, open ports eight oh eight oh and nine oh.", "Open ports 8080 and 9 oh."),
             ("Call me at five, five five five.", "Call me at 5, five five five."),
+            ("So, you know, the server returned a five-oh-three.", "So the server returned a 503."),
+            ("We need, you know, two million users.", "We need 2 million users."),
+            ("The budget is one point five million dollars.", "The budget is $1.5 million."),
             ("Email alice at example dot com.", "Email alice@example.com."),
             ("Me and him went.", "He and I went."),
             ("Use half the dose.", "Use ½ the dose."),

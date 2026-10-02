@@ -41,12 +41,22 @@ recorder.ffmpeg = ffmpeg
 
 -- Per-user 0700 temp dir, not the shared /tmp.
 local temporary = hs.fs.temporaryDirectory()
--- Reload and quit remove their takes; anything left here is from a crash.
-for entry in hs.fs.dir(temporary) do
-  local extension = entry:match("^dictation%-[%x%-]+%.(%a+)$")
-  if extension == "wav" or extension == "pcm" then
-    os.remove(temporary .. entry)
+
+-- Recordings a crash left behind (reload and quit see to their own): each wav with audio in it.
+-- Their raw PCM copies and empty wavs are deleted.
+---@return string[]
+function recorder.leftovers()
+  local found = {}
+  for entry in hs.fs.dir(temporary) do
+    local extension = entry:match("^dictation%-[%x%-]+%.(%a+)$")
+    local path = temporary .. entry
+    if extension == "wav" and (hs.fs.attributes(path, "size") or 0) > 44 then -- past its header
+      found[#found + 1] = path
+    elseif extension == "wav" or extension == "pcm" then
+      os.remove(path)
+    end
   end
+  return found
 end
 
 ---@param bands integer equalizer bands

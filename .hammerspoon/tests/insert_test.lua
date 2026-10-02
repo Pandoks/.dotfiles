@@ -13,7 +13,7 @@ local config = {
   cleanup = { enabled = false },
   minDuration = 0,
   minLevel = 0,
-  history = { directory = "~/Library/Caches/dictation" },
+  history = { directory = "~/Library/Application Support/dictation" },
 }
 
 local function test(name, callback)
@@ -76,6 +76,9 @@ local env = setmetatable({
           done = callback
         end,
         cleanup = function() end,
+        leftovers = function()
+          return { "crashed.wav" } -- a take a crash left behind
+        end,
       },
     })[name]
   end,
@@ -214,6 +217,12 @@ local function dictate(element, text, moved)
   focus = moved or element
   handlers.onFinal({ id = serial, text = text })
 end
+
+-- First: init.lua kept the crash's leftovers as it loaded.
+test("a recording a crash left is kept and announced at load", function()
+  assert(kept[1] == "crashed.wav" and #kept == 1, tostring(kept[1]))
+  assert(alerts[1] and alerts[1]:find("1 recording left by a crash kept in", 1, true), alerts[1])
+end)
 
 test("spacing joins the text to its neighbors", function()
   for _, case in ipairs({
@@ -579,6 +588,7 @@ test("a result neither saved nor delivered keeps its recording; one delivered do
   dictate(element, "Delivered.")
   assert(element.written == "Delivered." and #kept == 1, "kept a delivered take's recording")
   dictate(field("", "", "", false, "AXTextArea", true), "Pasted.") -- ⌘V, which nothing confirms
+  timers[#timers]() -- its clipboard restore
   saveFails = nil
   assert(strokes[1] == "cmd+v" and #kept == 2, "lost a pasted take's recording")
 end)
@@ -598,7 +608,7 @@ end)
 test(
   "a reload restores the clipboard and keeps the take transcribing, not cancelled ones",
   function()
-    clipboard = { ["public.utf8-plain-text"] = "mine" }
+    clipboard = { ["public.utf8-plain-text"] = "theirs" }
     dictate(field("Hello", "", "", true), "there.")
     kept = {}
     toggle()
@@ -610,7 +620,7 @@ test(
     done("take.wav", 1, 1) -- sent, no result yet
     local wav = ("take%d.wav"):format(starts)
     env.hs.shutdownCallback()
-    assert(clipboard["public.utf8-plain-text"] == "mine", "did not restore the clipboard")
+    assert(clipboard["public.utf8-plain-text"] == "theirs", "did not restore the clipboard")
     assert(kept[1] == wav and #kept == 1, "kept " .. tostring(kept[1]) .. ", " .. #kept)
   end
 )

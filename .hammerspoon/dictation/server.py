@@ -10,6 +10,7 @@ stdout: {"event": "ready"}                          once models are loaded
 
 import argparse
 import collections
+import decimal
 import difflib
 import functools
 import itertools
@@ -878,6 +879,7 @@ class Engine:
         text = re.sub(r"\bnoon\b", "12 pm", re.sub(r"\bmidnight\b", "12 am", text))
         text = re.sub(r"([-+])([$€£])(?=\d)", r"\2\1", text)  # "-$15" is "$-15"
         found, chunks, sign, unit, fresh = [], [], "", "", False
+        scalable = False  # digits just said, which a scale word multiplies: "1.5 million"
 
         def said(values, parts=1):  # signed, and with a unit said before it ("$15")
             nonlocal sign, unit, fresh
@@ -911,6 +913,11 @@ class Engine:
         zeros = cls.zeros(text)  # "four oh four"
         tokens = ["zero" if span in zeros else t for t, span in zip(tokens, spans, strict=True)]
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
+
+        def decimal():  # its digits follow the point: "one point two five" is 1.25
+            runs = [str(total + part) for total, part, _ in chunks]
+            said({point + "".join(runs) if runs else point[:-1]})
+
         for token in tokens + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
                 continue  # "negative about fifteen", "two hundred and five"
@@ -925,10 +932,15 @@ class Engine:
                 continue
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
             value = cls.NUMBERS.get(token, ordinal)
+            if value is not None and value >= 1000 and scalable:  # "$1.5 million" is $1,500,000
+                forms, parts = found[-1]
+                found[-1], scalable = ({cls.scaled(f, value) for f in forms}, parts), False
+                continue
+            scalable = False
             if value is None:
                 runs = [str(total + part) for total, part, _ in chunks]
-                if point:  # its digits follow the point: "one point two five" is 1.25
-                    said({point + "".join(runs) if runs else point[:-1]})
+                if point:
+                    decimal()
                 elif chunks:
                     # A run reads as its chunks joined too: "nineteen ninety nine" is 1999.
                     said(
@@ -938,6 +950,7 @@ class Engine:
                 point, chunks = "", []
                 if token[:1] == "#" or re.fullmatch(r"[-+]?\d+(?:\.\d+)*", token):  # "1.2.3" too
                     said({token})
+                    scalable = re.fullmatch(r"[-+]?\d+(?:\.\d+)?", token) is not None
                 elif token in cls.MULTIPLES:
                     said({"#" + cls.MULTIPLES[token]})  # a value of its own, counting nothing
                 elif fresh and (token in cls.MEASURES or re.fullmatch(cls.UNIT, token)):
@@ -960,11 +973,16 @@ class Engine:
                     sign, unit, fresh = signs.get(token, ""), "", False
                 continue
             if point and value >= 100:  # "one point five thousand" is 1.5 thousand, as written
-                runs = [str(total + part) for total, part, _ in chunks]
-                said({point + "".join(runs) if runs else point[:-1]})
+                decimal()
                 point, chunks = "", []
             cls.add_word(chunks, value)
         return found
+
+    @staticmethod
+    def scaled(form, value):
+        """A number form `value` times over, its unit kept: "1.5$" a million times is "1500000$"."""
+        m = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)(.*)", form)
+        return f"{(decimal.Decimal(m[1]) * value).normalize():f}{m[2]}" if m else form
 
     @classmethod
     def zeros(cls, text):
@@ -1058,9 +1076,9 @@ class Engine:
         rf"{ALONE[0]}(?:a\s+(?=(?:{_SCALE})\b))?(?:{_COUNT})"
         rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+and(?=\s+(?:{_COUNT})\b)"
         # "four oh four", "five oh oh"
-        rf"|(?P<zero>(?:\s+oh)+)(?=\s+(?:{_COUNT})\b)|(?:\s+oh){{2,}}\b"
-        rf"|\s+point(?:\s+oh)*(?:(?=\s+(?:{_COUNT})\b)|(?<=oh)\b))*"  # "one point oh five"
-        rf"(?(zero)(?:\s+oh\b)?)"  # a last digit once one was read: "eight oh eight oh"
+        rf"|(?P<zero>(?:[\s-]+oh)+)(?=[\s-]+(?:{_COUNT})\b)|(?:[\s-]+oh){{2,}}\b"  # "five-oh-three"
+        rf"|\s+point(?:[\s-]+oh)*(?:(?=\s+(?:{_COUNT})\b)|(?<=oh)\b))*"  # "one point oh five"
+        rf"(?(zero)(?:[\s-]+oh\b)?)"  # a last digit once one was read: "eight oh eight oh"
         rf"(?:(?:\s+and)?(?:\s+|-)(?:{_ENDS}))?"
         rf"\b(?![/@+#=\\]|\.\w)",
         re.IGNORECASE,
@@ -1196,12 +1214,15 @@ class Engine:
                 re.fullmatch(r"\w{2,}[^s']s", after[0]) and after[0] not in cls.SINGULAR_S
             )
             bare = words[0] in scales and not (article and (len(words) > 1 or plural))
+            # "At one point five people left" is a time, not 1.5 people.
+            if before == "at" and words[:2] == ["one", "point"] and (plural or after[0] == "of"):
+                return group
             if (words == ["one"] and not ranged) or bare:
                 return group
             counts = [w for w in words if w in cls.COUNTS]  # not "point" or "oh"
             if (
-                "-" in group and "point" not in words and len(cls.values(counts)) > 1
-            ):  # "fifty-fifty"
+                "-" in group and not {"point", "oh"} & set(words) and len(cls.values(counts)) > 1
+            ):  # "fifty-fifty", not "five-oh-three"
                 return group
             # Followed by what it counts: a unit, a measure, or a plural ("2,019 users").
             measured = after[0] in cls.COUNTED | cls.PLURALS | cls.MEASURES.keys() - {"am", "pm"}
@@ -1350,7 +1371,9 @@ class Engine:
         # or taken back ("15, no, 50"), never replaced, dropped, or invented. Each said one needs
         # its own written one ("15 files into 15 folders"); a run may be several ("3:30").
         # In order too: "width fifteen, height twenty" is not "width 20, height 15".
-        written = [w for w, _ in cls.numbers(out)]
+        # Each side as write_numbers writes it, so both read alike: "twenty. Five" stays 20 and 5,
+        # "two million" is "2 million" either way.
+        written = [w for w, _ in cls.numbers(cls.write_numbers(out))]
         # With the rest of its written word: "256" in "SHA-256, no wait" takes back "SHA-256".
         pieces = list(re.finditer(r"\S+", raw))
         back_words = {
@@ -1361,7 +1384,7 @@ class Engine:
         }
         taken = [n for n, _ in cls.numbers(" ".join(back_words[s] for s in sorted(back_words)))]
         at = 0
-        for n, parts in cls.numbers(raw):
+        for n, parts in cls.numbers(cls.write_numbers(raw)):
             k = next((k for k in range(at, len(written)) if written[k] & n), None)
             back = next((t for t in taken if t & n), None)
             if k is None and back is not None:

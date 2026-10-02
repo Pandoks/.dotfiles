@@ -333,14 +333,13 @@ local function insertText(text)
 end
 
 -- Move a take's recording into history when nothing it said was saved: it is the only copy.
--- One that cannot move stays where it is, until a reload clears it (recorder.lua).
+-- One that cannot move stays where it is, and the next load tries again (recorder.leftovers).
 ---@param capture DictationRecording
 ---@return boolean kept
 local function keep(capture)
   local problem = history.keep(capture.wav, config.history)
   if problem then
-    local left = hs.fs.attributes(capture.wav, "mode") and "; reloading Hammerspoon deletes it"
-    fail("Dictation: " .. problem .. (left or ""))
+    fail("Dictation: " .. problem)
     return false
   end
   recorder.cleanup(capture)
@@ -581,6 +580,26 @@ engine, engineError = Engine.new(config, {
 })
 if not engine then
   fail("Dictation: " .. tostring(engineError))
+end
+
+-- Recordings a crash left are the only copies of what was said: kept in history, and announced.
+local recovered = 0
+for _, wav in ipairs(recorder.leftovers()) do
+  local problem = history.keep(wav, config.history)
+  if problem then
+    fail("Dictation: " .. problem)
+  else
+    recovered = recovered + 1
+  end
+end
+if recovered > 0 then
+  fail(
+    ("Dictation: %d recording%s left by a crash kept in %s"):format(
+      recovered,
+      recovered > 1 and "s" or "",
+      config.history.directory
+    )
+  )
 end
 
 if config.trigger == "hotkey" then

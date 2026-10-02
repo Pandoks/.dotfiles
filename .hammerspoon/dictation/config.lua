@@ -35,7 +35,7 @@
 ---@field vocabulary? string[] Extra glossary words merged into the global `vocabulary` for this app.
 
 ---@class DictationHistoryConfig
----@field directory string Every result is saved here as <timestamp>.txt ("~" = home), before it is inserted.
+---@field directory string Every result is saved here as <timestamp>.txt ("~" = home), before it is inserted; a recording that could not be transcribed is kept here as <timestamp>.wav.
 ---@field maxMegabytes number Size cap for the saved transcripts in MB of disk space (as `du` reports it); the oldest are deleted once it is exceeded. Other files in the directory are never counted or deleted.
 
 ---@class DictationHotkeyConfig
@@ -143,7 +143,8 @@ local config = {
   },
 
   -- 10 MB is ~2,500 takes (a 4 KB block each); Caches survives reboots, unlike $TMPDIR.
-  history = { directory = "~/Library/Caches/dictation", maxMegabytes = 10 },
+  -- Application Support, not Caches: macOS may purge caches, and this is the copy that survives.
+  history = { directory = "~/Library/Application Support/dictation", maxMegabytes = 10 },
 
   insert = "auto",
   includeSelection = false,

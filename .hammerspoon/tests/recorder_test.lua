@@ -65,4 +65,21 @@ test("the capture shell writes recordings owner-only", function()
   assert(fs.attributes(file, "permissions") == "rw-------", tostring(fs.attributes(file, "mode")))
 end)
 
+test("a crash's recordings with audio are found; their PCM and empty ones are deleted", function()
+  local function write(name, bytes)
+    local file = assert(io.open(scratch .. "/" .. name, "w"))
+    file:write(("\0"):rep(bytes))
+    file:close()
+  end
+  write("dictation-0a1b-2c3d.wav", 4096)
+  write("dictation-0a1b-2c3d.pcm", 4096)
+  write("dictation-4e5f-6a7b.wav", 44) -- a header and no audio
+  write("notes.wav", 4096)
+  local found = recorder.leftovers()
+  assert(#found == 1 and found[1] == scratch .. "/dictation-0a1b-2c3d.wav", tostring(found[1]))
+  assert(not fs.attributes(scratch .. "/dictation-0a1b-2c3d.pcm"), "kept its PCM")
+  assert(not fs.attributes(scratch .. "/dictation-4e5f-6a7b.wav"), "kept an empty one")
+  assert(fs.attributes(scratch .. "/notes.wav"), "deleted a file not its own")
+end)
+
 print(passed .. " recorder tests passed")
