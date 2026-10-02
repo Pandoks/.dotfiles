@@ -18,12 +18,14 @@ local recorder = {}
 local rate = 16000
 local size = 1024
 
--- First ffmpeg on mise (its shims, wherever MISE_DATA_DIR puts them), Homebrew, or PATH; the
--- backend also needs it on its PATH.
+-- First ffmpeg on mise (the one its shim runs, wherever MISE_DATA_DIR puts it), Homebrew, or
+-- PATH; the backend also needs it on its PATH. The shim is resolved once here: run on every take,
+-- it would add ~15 ms before the mic opens.
 local mise = os.getenv("MISE_DATA_DIR") or os.getenv("HOME") .. "/.local/share/mise"
+local binary = hs.fs.pathToAbsolute(mise .. "/shims/ffmpeg") -- the shim links to mise itself
+local which = binary and hs.execute(("cd / && '%s' which ffmpeg"):format(binary)) or ""
 local path = table.concat({
-  mise .. "/shims",
-  mise .. "/installs/ffmpeg/latest/.mise-bins",
+  which:match("^(/.*)/ffmpeg%s*$") or mise .. "/installs/ffmpeg/latest/.mise-bins",
   "/opt/homebrew/bin",
   "/usr/local/bin",
   os.getenv("PATH"),

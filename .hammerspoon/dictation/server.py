@@ -714,7 +714,9 @@ class Engine:
         + ["that"]
         + ["and", "or", "to", "into", "onto", "toward", "towards", "from"]
     )
-    # Prefixes that make one word the other's opposite: "unsafe", "deactivate", "decrypt".
+    # Prefixes that make one word the other's opposite: "unsafe", "deactivate", "decrypt". A bare
+    # "de" only on a verb ending that takes it, not on misheard words ("ploy" -> "deploy").
+    DE_VERB = re.compile(r".*(?:ate|ize|ise|ify|ect|ess|ister|ose|ruct)")
     PREFIXES = tuple(
         [("", p) for p in ("un", "in", "im", "il", "ir", "non", "dis", "mis", "de", "anti")]
         + [("en", "de"), ("in", "de"), ("in", "ex"), ("in", "out"), ("en", "dis")]
@@ -876,8 +878,11 @@ class Engine:
         # A name mixing letters and digits is a value of its own, not a number: "HTTP/2" is not
         # "HTTP/3" or "2" ("C++20", "SHA3-256", "2FA"). "15th", "3pm", "1990s", "3-year-old" count.
         ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm|-.+)"
-        tokens = []
+        tokens, breaks, previous = [], set(), ""  # breaks: tokens punctuation comes before
         for w in text.split():
+            if tokens and re.search(r"[.,!?;:…—]\W*$", previous):
+                breaks.add(len(tokens))
+            previous = w
             core = w.strip("\"'“‘([.,!?;:)]”’")
             if (
                 re.search(r"[^\W\d_]", core)  # letters of any script
@@ -889,14 +894,8 @@ class Engine:
                 tokens.append("#" + re.sub(r"(?<=.)(?<!\de)-", "", core))  # "-1e-3" keeps its sign
             else:
                 tokens += re.findall(rf"{number}|[a-zμ]+|[%°$€£½¼¾⅓⅔⅛]", w)
-        # Spoken zeros inside a number: "four oh four", "five oh oh", "one point oh five".
-        for i in range(len(tokens)):
-            if tokens[i] != "oh" or tokens[i - 1 : i] == ["oh"]:
-                continue
-            j = next((j for j in range(i, len(tokens)) if tokens[j] != "oh"), len(tokens))
-            before, after = tokens[i - 1] if i else "", tokens[j] if j < len(tokens) else ""
-            if before == "point" or (before in cls.NUMBERS and (after in cls.NUMBERS or j - i > 1)):
-                tokens[i:j] = ["zero"] * (j - i)
+        for k in cls.zeros(tokens, breaks):  # "four oh four"
+            tokens[k] = "zero"
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in tokens + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
@@ -946,6 +945,32 @@ class Engine:
             cls.add_word(chunks, value)
         return found
 
+    @classmethod
+    def zeros(cls, words, breaks=()):
+        """Where an "oh" is a zero digit, as write_numbers reads one: "four oh four", "five oh oh",
+        "eight oh eight oh", "one point oh five"; not "eight oh no" or "four. Oh, four" (`breaks`
+        are the words punctuation comes before)."""
+        found, read, k = set(), False, 0  # read: a zero read already in this number
+        while k < len(words):
+            j = k
+            while j < len(words) and words[j] == "oh" and (j == k or j not in breaks):
+                j += 1
+            if j == k:
+                read = read and words[k] in cls.NUMBERS and k not in breaks
+                k += 1
+                continue
+            joined = k and k not in breaks
+            before = words[k - 1] if joined else ""
+            after = words[j] if j < len(words) and j not in breaks else ""
+            pointed = before == "point" and k > 1 and words[k - 2] in cls.NUMBERS
+            read = pointed or (
+                before in cls.NUMBERS and (after in cls.NUMBERS or j - k > 1 or read)
+            )
+            if read:
+                found.update(range(k, j))
+            k = j
+        return found
+
     @staticmethod
     def add_word(chunks, value):
         """Add a number word to chunks of [total, part under the scale, last word]. Scales and
@@ -990,6 +1015,11 @@ class Engine:
         ["people", "children", "men", "women", "feet", "teeth", "mice", "geese", "sheep", "fish"]
         + ["deer", "data", "series", "species", "police", "cattle"]
     )
+    # Words in "s" that are no plural: "at three thirty this afternoon".
+    SINGULAR_S = frozenset(
+        ["this", "thus", "plus", "minus", "always", "perhaps", "sometimes", "besides", "towards"]
+        + ["afterwards", "whereas", "does", "goes", "says", "ours", "yours", "theirs", "hers"]
+    )
     COUNTED = frozenset(
         ["dollar", "dollars", "cent", "cents", "percent", "minute", "minutes", "hour", "hours"]
         + ["second", "seconds", "day", "days", "week", "weeks", "month", "months", "year", "years"]
@@ -1001,8 +1031,10 @@ class Engine:
     NUMBER_RUN = re.compile(
         rf"{ALONE[0]}(?:a\s+(?=(?:{_SCALE})\b))?(?:{_COUNT})"
         rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+and(?=\s+(?:{_COUNT})\b)"
-        rf"|(?:\s+oh)+(?=\s+(?:{_COUNT})\b)|(?:\s+oh){{2,}}\b"  # "four oh four", "five oh oh"
+        # "four oh four", "five oh oh"
+        rf"|(?P<zero>(?:\s+oh)+)(?=\s+(?:{_COUNT})\b)|(?:\s+oh){{2,}}\b"
         rf"|\s+point(?:\s+oh)*(?:(?=\s+(?:{_COUNT})\b)|(?<=oh)\b))*"  # "one point oh five"
+        rf"(?(zero)(?:\s+oh\b)?)"  # a last digit once one was read: "eight oh eight oh"
         rf"(?:(?:\s+and)?(?:\s+|-)(?:{'|'.join([*ORDINAL_ENDS, *DECADES])}))?\b(?![/@+#=\\]|\.\w)",
         re.IGNORECASE,
     )
@@ -1054,7 +1086,7 @@ class Engine:
                 if len(values) == 2 and values[0] <= 12 and 10 <= values[1] < 60:
                     # "at three thirty" -> "at 3:30"; "it's three thirty" and a count ("at one
                     # twenty people") stay.
-                    return f"{values[0]}:{values[1]:02d}" if timed and not counted else None
+                    return f"{values[0]}:{values[1]:02d}" if timed else None
                 # "nineteen ninety nine" -> "1999", "one eighty two" -> "182"; not "twenty four
                 # seven", "two three four", "fifty fifty", or two counts ("thirteen twenty dollar
                 # bills").
@@ -1067,7 +1099,7 @@ class Engine:
                 # "100 million", like Parakeet's "2.5 million"; not "one billion two hundred million"
                 return f"{digits(words[:-1], timed, counted) if words[:-1] else 1} {words[-1]}"
             # A year said "two thousand nineteen" takes no comma; a count does ("2,019 users").
-            year = words[:2] == ["two", "thousand"] and values[0] < 2100 and not counted
+            year = words[:2] == ["two", "thousand"] and 2000 < values[0] < 2100 and not counted
             return f"{values[0]:,}" if set(words) & set(scales) and not year else str(values[0])
 
         def convert(start, end):
@@ -1082,7 +1114,7 @@ class Engine:
             if group[0].isupper() and (not opens or titled):
                 return group
             before = (re.findall(r"[\w']+", text[:start].lower()) or [""])[-1]
-            after = re.findall(r"[\w']+|[^\w\s]", text[end:].lower())[:2] + ["", ""]
+            after = re.findall(r"[\w']+|[^\w\s]", text[end:].lower())[:3] + ["", "", ""]
             # An ordinal or decade end goes with its number ("one hundred and twenty first" ->
             # "121st", "nineteen eighties" -> "1980s"); otherwise the whole run stays.
             *rest, last = re.split(r"([\s-]+)", group)  # words and the separators between
@@ -1110,12 +1142,15 @@ class Engine:
             # "one" alone is a pronoun or idiom ("one of them", "no one") unless it counts with
             # another number ("one or two", "between 1 and ten").
             joins = ("or", "to", "and", "through")
+            listed = after[1] in cls.COUNTS or after[1][:1].isdigit()
             ranged = (before in joins and re.search(r"\d\s+\w+\s*$", text[:start])) or (
-                after[0] in (*joins, ",") and (after[1] in cls.COUNTS or after[1][:1].isdigit())
-            )  # "one or two", "one, two, three"
+                listed and (after[0] in joins or after[0] == "," and after[2] in (",", *joins))
+            )  # "one or two", "one, two, three"; not "no one, two people"
             # A scale needs its number: "a hundred" before a plural ("a hundred users", "a
             # million people"), not "a billion dollar company", never Parakeet's "2.5 million".
-            plural = re.fullmatch(r"\w+[^s]s", after[0]) or after[0] in cls.PLURALS
+            plural = after[0] in cls.PLURALS or (
+                re.fullmatch(r"\w{2,}[^s']s", after[0]) and after[0] not in cls.SINGULAR_S
+            )
             bare = words[0] in scales and not (article and (len(words) > 1 or plural))
             if (words == ["one"] and not ranged) or bare:
                 return group
@@ -1124,9 +1159,15 @@ class Engine:
                 "-" in group and "point" not in words and len(cls.values(counts)) > 1
             ):  # "fifty-fifty"
                 return group
-            timed = before in ("at", "by", "until", "till") or after[0] in ("am", "pm", "a", "p")
             # Followed by what it counts: a unit, a measure, or a plural ("2,019 users").
-            counted = after[0] in cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"} or bool(plural)
+            measured = after[0] in cls.COUNTED | cls.PLURALS | cls.MEASURES.keys() - {"am", "pm"}
+            counted = measured or bool(plural)
+            # A time, "at" one or "a.m.", unless it counts ("at one twenty people"); a verb after it
+            # is no count ("at three thirty starts"), nor "a" an "a.m." ("four oh four a lot").
+            meridiem = after[0] in ("am", "pm") or (
+                after[0] in ("a", "p") and after[1] in ("m", ".")
+            )
+            timed = (before in ("at", "by", "until", "till") or meridiem) and not measured
             written = digits(words, timed, counted)
             return group if written is None else written
 
@@ -1347,21 +1388,17 @@ class Engine:
             for k, w in enumerate(raw_words)
             if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
         }
-        while True:  # and the words joining them: "two hundred and five", "one point oh five"
-            joins = {
-                k
-                for k, w in enumerate(raw_words)
-                if k not in numeric
-                and (
-                    (w in ("and", "point", "oh") and {k - 1, k + 1} <= numeric)
-                    or (w == "oh" and raw_words[k - 1 : k] == ["point"] and k - 2 in numeric)
-                    # "five oh oh"
-                    or (w == "oh" and k - 1 in numeric and "oh" in raw_words[k - 1 : k + 2 : 2])
-                )
-            }
-            if not joins:
-                break
-            numeric |= joins
+        breaks = {  # words punctuation comes before
+            k
+            for k in range(1, len(spans))
+            if re.search(r"[.,!?;:…—]", raw[spans[k - 1].end() : spans[k].start()])
+        }
+        numeric |= cls.zeros(raw_words, breaks)  # "four oh four", "one point oh five"
+        numeric |= {  # "two hundred and five", "one point five"
+            k
+            for k, w in enumerate(raw_words)
+            if w in ("and", "point") and {k - 1, k + 1} <= numeric
+        }
 
         def uncorrected(i1, i2):
             gone = corrected | fillers | numeric
@@ -1421,6 +1458,7 @@ class Engine:
                     and y.startswith(q)
                     and len(x) - len(p) > 2
                     and x[len(p) :] == y[len(q) :]
+                    and (p or q != "de" or cls.DE_VERB.fullmatch(x))
                     for p, q in cls.PREFIXES
                 ):
                     return False

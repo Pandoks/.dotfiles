@@ -121,10 +121,14 @@ function history.prune(settings)
     -- Only takes save() marked: the folder may hold the user's own files, whatever their names.
     -- Regular files only: a link (dangling or to a take) is never read or counted.
     local attributes = hs.fs.symlinkAttributes(path) or {}
-    if attributes.mode == "file" and hs.fs.xattr.get(path, MARK) then
-      local size = (attributes.blocks or 0) * 512
-      files[#files + 1] = { name = entry, size = size, created = attributes.creation or 0 }
-      total = total + size
+    if attributes.mode == "file" then
+      -- hs.fs.xattr raises on a file it cannot read, which save() never wrote.
+      local ok, marked = pcall(hs.fs.xattr.get, path, MARK)
+      if ok and marked then
+        local size = (attributes.blocks or 0) * 512
+        files[#files + 1] = { name = entry, size = size, created = attributes.creation or 0 }
+        total = total + size
+      end
     end
   end
   -- By creation: names repeat an hour when daylight saving ends.

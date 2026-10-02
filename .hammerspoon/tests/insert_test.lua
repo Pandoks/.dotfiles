@@ -4,6 +4,7 @@ local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
 local changes, pasteWrites, starts, clearFails = 0, false, 0, false
 local toggle, handlers, done, escape, focus, copied, saved, refused
 local pruned, kept, down = 0, {}, false
+local sent, front, saveFails -- the last request, the frontmost app, history.save's failure
 local trusted = true -- Accessibility granted
 local config = {
   insert = "direct",
@@ -42,7 +43,8 @@ local env = setmetatable({
           return {
             ready = true,
             stop = function() end,
-            transcribe = function()
+            transcribe = function(_, request)
+              sent = request
               if down then
                 return nil, "backend is not ready"
               end
@@ -56,6 +58,7 @@ local env = setmetatable({
       ["dictation.history"] = {
         save = function(text)
           saved[#saved + 1] = text
+          return saveFails
         end,
         prune = function()
           pruned = pruned + 1
@@ -115,7 +118,16 @@ local env = setmetatable({
     accessibilityState = function()
       return trusted
     end,
-    application = { frontmostApplication = function() end },
+    application = {
+      frontmostApplication = function()
+        return front
+      end,
+    },
+    osascript = {
+      applescript = function()
+        return false, nil, { NSAppleScriptErrorMessage = "not authorized" }
+      end,
+    },
     axuielement = {
       systemWideElement = function()
         return {
@@ -513,8 +525,49 @@ test("a take the backend dies under is kept once stopped", function()
   handlers.onError("backend exited (code 9)") -- while the wav is finalizing
   done("take.wav", 1, 1)
   down = false
-  assert(kept[1] == "take.wav" and #kept == 1, tostring(kept[1]))
+  assert(kept[1] == ("take%d.wav"):format(starts) and #kept == 1, tostring(kept[1]))
   assert(alerts[2] and alerts[2]:find("recording is kept in", 1, true), tostring(alerts[2]))
+end)
+
+test("a URL that cannot be read still sends the selection, and both are reported", function()
+  config.includeSelection, config.cleanup = true, { enabled = true }
+  front = {
+    bundleID = function()
+      return "com.google.Chrome"
+    end,
+    focusedWindow = function() end,
+  }
+  alerts, focus = {}, field("", "picked", "")
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  config.includeSelection, config.cleanup, front = nil, { enabled = false }, nil
+  handlers.onFinal({ id = serial, text = "" })
+  assert(sent.selected == "picked", "dropped the selection")
+  assert(alerts[1] and alerts[1]:find("could not read the URL", 1, true), tostring(alerts[1]))
+end)
+
+test("a take whose speech recognition fails keeps its recording", function()
+  alerts, focus, kept = {}, field("", "", ""), {}
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  local wav = ("take%d.wav"):format(starts)
+  handlers.onError("expected 16000 Hz mono", serial)
+  assert(kept[1] == wav and #kept == 1, tostring(kept[1]))
+  assert(alerts[1] and alerts[1]:find("recording is kept in", 1, true), tostring(alerts[1]))
+end)
+
+test("a cancelled take whose transcript cannot be saved says so and keeps its recording", function()
+  alerts, focus, kept, saveFails = {}, field("", "", ""), {}, "could not write the take"
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  escape()
+  handlers.onError("cleanup failed", serial, "Keep what I said.")
+  saveFails = nil
+  assert(alerts[1] == "Dictation: could not write the take", tostring(alerts[1]))
+  assert(#kept == 1, "lost the recording")
 end)
 
 -- Last: it tears everything down.

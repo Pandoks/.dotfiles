@@ -189,6 +189,18 @@ test("prune lists the folder only while it may be over the cap", function()
   expect(settings.directory, { list(settings.directory)[1] })
 end)
 
+test("prune skips a file it cannot read", function()
+  local settings = { directory = scratch .. "/unreadable", maxMegabytes = 0 }
+  clock = 1790000000
+  assert(history.save("take", settings) == nil)
+  local mine = settings.directory .. "/mine.txt"
+  assert(io.open(mine, "w")):close()
+  assert(os.execute(("chmod 000 %q"):format(mine)))
+  local ok, failure = pcall(history.prune, settings)
+  os.execute(("chmod 600 %q"):format(mine))
+  assert(ok and failure == nil, tostring(failure))
+end)
+
 test("prune skips a link, even one going nowhere", function()
   local settings = { directory = scratch .. "/dangling", maxMegabytes = 0 }
   clock = 1790000000

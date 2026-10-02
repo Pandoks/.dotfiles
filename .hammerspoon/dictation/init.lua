@@ -54,8 +54,8 @@ end
 -- asked-for context could not be read: the take goes on without it rather than be lost.
 ---@return DictationTranscribeRequest, string?
 local function gatherContext()
-  ---@type DictationTranscribeRequest
-  local context = { wav = "" } -- the caller sets wav
+  ---@type DictationTranscribeRequest, string[]
+  local context, problems = { wav = "" }, {} -- the caller sets wav
   local app = hs.application.frontmostApplication()
   if not app then
     return context
@@ -77,7 +77,7 @@ local function gatherContext()
     local ok, url, descriptor = hs.osascript.applescript(script)
     if not ok then
       local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage
-      return context, "could not read the URL: " .. tostring(message)
+      problems[#problems + 1] = "could not read the URL: " .. tostring(message)
     elseif type(url) == "string" and #url > 0 then
       context.url = clip(url)
     end
@@ -91,12 +91,12 @@ local function gatherContext()
     end
     -- Unsupported just means the focus is not a text field.
     if problem and problem ~= "Attribute is not supported by target" then
-      return context, "could not read the selection: " .. problem
+      problems[#problems + 1] = "could not read the selection: " .. problem
     elseif type(selection) == "string" and #selection > 0 then
       context.selected = clip(selection)
     end
   end
-  return context
+  return context, #problems > 0 and table.concat(problems, "; ") or nil
 end
 
 -- The app's own ⌘V; macOS never signals when the clipboard was read, hence the delay.
@@ -330,6 +330,20 @@ local function insertText(text)
   return paste(text)
 end
 
+-- Move a take's recording into history when nothing it said was saved: it is the only copy.
+-- One that cannot move stays where it is, until a reload clears it (recorder.lua).
+---@param capture DictationRecording
+---@return boolean kept
+local function keep(capture)
+  local problem = history.keep(capture.wav, config.history)
+  if problem then
+    fail("Dictation: " .. problem .. "; reloading Hammerspoon deletes it")
+    return false
+  end
+  recorder.cleanup(capture)
+  return true
+end
+
 -- Deliver the result and return to idle.
 ---@param text string?
 local function finish(text)
@@ -452,12 +466,9 @@ local function toggle()
       local id, message = backend:transcribe(request)
       if not id then
         -- The backend died during the take: its recording is the only copy, so keep it.
-        local problem = history.keep(wav, config.history)
-        if problem then
-          recording = nil -- left where it is, so not cleaned up
-        end
-        local kept = problem or ("the recording is kept in " .. config.history.directory)
-        fail(("Dictation: %s; %s"):format(message, kept))
+        recording = nil -- kept, or left where it is: not for finish() to clean up
+        local kept = keep(capture) and "; the recording is kept in " .. config.history.directory
+        fail("Dictation: " .. tostring(message) .. (kept or ""))
         finish(nil)
         return
       end
@@ -499,13 +510,14 @@ engine, engineError = Engine.new(config, {
     end
   end,
   onError = function(message, id, heard)
-    -- A take that failed after transcription is still saved: nothing said is lost.
+    -- Nothing said is lost: what was heard is saved, and failing that the recording is kept.
+    local saved = false
     if heard and #heard > 0 then
       local problem = history.save(heard, config.history)
       if problem then
-        message = message .. "; " .. problem
+        fail("Dictation: " .. problem) -- even for a cancelled take, as onFinal does
       else
-        message = message .. " (what was heard is in history)"
+        saved, message = true, message .. " (what was heard is in history)"
         -- As after a result, or takes that keep failing would grow the folder past its cap.
         problem = history.prune(config.history)
         if problem then
@@ -514,8 +526,13 @@ engine, engineError = Engine.new(config, {
       end
     end
     if id then
-      recorder.cleanup(requests[id])
+      local capture = requests[id]
       requests[id] = nil
+      if saved then
+        recorder.cleanup(capture)
+      elseif capture and keep(capture) then
+        message = message .. "; the recording is kept in " .. config.history.directory
+      end
       if inflight ~= id then
         return
       end
@@ -524,13 +541,7 @@ engine, engineError = Engine.new(config, {
       local kept = 0
       for key, capture in pairs(requests) do
         requests[key] = nil
-        local problem = history.keep(capture.wav, config.history)
-        if problem then
-          fail("Dictation: " .. problem) -- left where it is, so not cleaned up
-        else
-          kept = kept + 1
-          recorder.cleanup(capture)
-        end
+        kept = kept + (keep(capture) and 1 or 0)
       end
       if kept > 0 then
         message = ("%s; %d recording%s kept in %s"):format(
