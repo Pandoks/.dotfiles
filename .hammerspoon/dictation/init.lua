@@ -256,9 +256,10 @@ local function insertText(text)
     -- "user+[tag]@example.com", "/usr/|bin", and before one: "/usr|/bin", "foo|.bar", "user|@host".
     local joiners = { ["."] = true, ["-"] = true, ["_"] = true, ["@"] = true, ["+"] = true }
     joiners["="] = true -- "KEY=[old]", "--flag=|value"
-    local joined = (joiners[before] and wordy(prior) or before == "/")
+    local slash = { ["/"] = true, ["\\"] = true } -- "C:\[old]\file" too
+    local joined = (joiners[before] and wordy(prior) or slash[before])
         and (last ~= "" or wordy(after))
-      or wordy(before) and (after == "/" or joiners[after] and wordy(beyond))
+      or wordy(before) and (slash[after] or joiners[after] and wordy(beyond))
     -- Chinese, Japanese, Thai, and the like put no space between words: "你好|世界" + "漂亮".
     local unspaced = {
       { 0x0E00, 0x0EFF }, -- Thai, Lao

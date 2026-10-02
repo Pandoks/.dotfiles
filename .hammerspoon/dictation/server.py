@@ -331,7 +331,7 @@ CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
 # --- pipeline -----------------------------------------------------------------
 # A word is matched alone, never in a path, domain, address, flag, or assignment: not in
 # "~/ghosty", "ghosty+tag@x.com", "C:\\ghosty", "--ghosty", or "KEY=ghosty".
-ALONE = (r"(?<![\w./~@+#=\\:-])", r"(?![\w/@+#=\\-]|\.\w)")
+ALONE = (r"(?<![\w./~@+#=\\:-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 
 
 class Engine:
@@ -701,7 +701,7 @@ class Engine:
     EVERYDAY = frozenset(
         ["on", "up", "down", "left", "right", "first", "last", "over", "under", "above", "below"]
         + ["least", "most", "more", "less", "greater", "fewer", "all", "every", "each", "some"]
-        + ["everyone", "everybody", "someone", "somebody", "everything", "something"]
+        + ["everyone", "everybody", "someone", "somebody", "everything", "something", "that"]
     )
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
     REFERENTS = ("this|these/that|those", "here/there")
@@ -1041,7 +1041,7 @@ class Engine:
             for m in re.finditer(r"\S+", text):
                 t = re.sub(r"^[\"'“‘(\[{]+|[\"'”’)\]}.,!?;:]+$", "", m.group())
                 if re.search(r"[^\W\d_]", t) and re.search(
-                    r"[@/\\#+~=_]|^--?[^\W\d_]|[^\W_]\.[^\W_]", t
+                    r"[@/\\#+~=_]|^--?[^\W\d_]|[^\W_][.:][^\W_]", t
                 ):
                     yield m, t
 
@@ -1117,24 +1117,38 @@ class Engine:
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
 
-        # So does each person said, in some form: not "He" -> "They" or "to him" -> "" ("Me and
-        # him" -> "He and I" is fine).
-        def persons(tokens):  # "I'm" is "i"
-            return {cls.PERSONS[w] for w in (t.split("'")[0] for t in tokens) if w in cls.PERSONS}
+        # So does each person said, as often, in some form: not "He" -> "They", "to him" -> "", or
+        # "He sent him" -> "He sent" ("Me and him" -> "He and I" is fine). A false start said again
+        # right beside its cut counts once ("I think, I think we").
+        def again(i1, i2):
+            n = len(uncorrected(i1, i2))
+            return set(raw_words[max(0, i1 - n) : i1] + raw_words[i2 : i2 + n])
 
-        if persons(spoken) - persons(out_words):
+        restarted = {
+            k
+            for tag, i1, i2, _, _ in edits
+            if tag != "equal"
+            for k in range(i1, i2)
+            if raw_words[k] in again(i1, i2)
+        }
+
+        def persons(tokens):  # "I'm" is "i"
+            return collections.Counter(
+                cls.PERSONS[w] for w in (t.split("'")[0] for t in tokens) if w in cls.PERSONS
+            )
+
+        heard = [w for k, w in enumerate(raw_words) if k not in corrected | fillers | restarted]
+        if persons(heard) - persons(out_words):
             return True
 
-        # An opposite said survives on its side: "Turn logging off" is not "Turn logging". Not
-        # everyday ones ("all right", "right?", "first of all", "on Monday"), only swapped above.
+        # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
+        # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
+        # deploy". Not everyday ones ("all right", "right?", "on Monday", "that"), only kept from
+        # swapping below.
         def sides(tokens):
-            return {
-                cls.SIDES[w]
-                for w in tokens
-                if isinstance(cls.SIDES.get(w, ("",))[0], int) and w not in cls.EVERYDAY
-            }
+            return {cls.SIDES[w] for w in tokens if w in cls.SIDES and w not in cls.EVERYDAY}
 
-        if sides(spoken) - sides(out_words):
+        if sides(spoken) != sides(out_words):
             return True
         # A name survives unless taken back or fixed by the glossary: "Send it to Alice" is not
         # "Send it to Bob", nor "Meet on Monday" "Meet on Friday".
@@ -1147,8 +1161,7 @@ class Engine:
             cut = uncorrected(i1, i2)
             gone = [w for w in cut if w not in kept]
             # A false start's "not" is said again right beside it ("I don't, I don't know").
-            again = set(raw_words[max(0, i1 - len(cut)) : i1] + raw_words[i2 : i2 + len(cut)])
-            dropped = [w for w in cut if w not in again]
+            dropped = [w for w in cut if w not in again(i1, i2)]
             # Its "no" negates ("no tests", "no way") unless the cut took words back and is replaced
             # ("five no six" -> "6"), ends on its cues ("Thursday no"), or pauses ("no, make it").
             last = max((c for c in cues if i1 <= c < i2), default=i2)
