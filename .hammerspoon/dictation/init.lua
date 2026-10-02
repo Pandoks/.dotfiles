@@ -159,6 +159,112 @@ local function settable(element, name)
   return writable
 end
 
+-- The text spaced against its neighbors in `value` around `range` (a selection or the cursor).
+---@param text string
+---@param value string
+---@param range table?
+local function spaced(text, value, range)
+  if type(range) ~= "table" or not range.location then
+    return text
+  end
+  -- Two characters on each side of the selection and its last one (AX ranges count UTF-16 units).
+  local prior, before, last, after, beyond, units = "", "", "", "", "", 0
+  for _, codepoint in utf8.codes(value) do
+    -- Browsers store a typed trailing space in a contenteditable as U+00A0.
+    local char = codepoint == 0xA0 and " " or utf8.char(codepoint)
+    if units >= range.location + (range.length or 0) then
+      if after ~= "" then
+        beyond = char
+        break
+      end
+      after = char
+    elseif units < range.location then
+      prior, before = before, char
+    else
+      last = char
+    end
+    units = units + (codepoint > 0xFFFF and 2 or 1)
+  end
+  -- Delimiters that open a run: no space is added between them and the text.
+  local openers = {
+    ["("] = true,
+    ["["] = true,
+    ["{"] = true,
+    ["“"] = true,
+    ["‘"] = true,
+    ["<"] = true,
+    ["/"] = true,
+  }
+  -- A straight quote or backtick opens after the start, a space, or an opener, and before a word.
+  local quotes = { ['"'] = true, ["'"] = true, ["`"] = true }
+  local function starts(char)
+    return char == "" or char:match("^%s$") or openers[char]
+  end
+  -- A letter or digit in any script ("é", "日"); punctuation blocks and Latin-1 marks are not.
+  local marks = {
+    { 0x80, 0xBF },
+    { 0x2000, 0x206F },
+    { 0x3000, 0x303F },
+    -- Fullwidth punctuation: "！", "？", "：", "［", "｛", "｡".
+    { 0xFF01, 0xFF0F },
+    { 0xFF1A, 0xFF20 },
+    { 0xFF3B, 0xFF40 },
+    { 0xFF5B, 0xFF65 },
+  }
+  local function within(char, blocks)
+    local code = char ~= "" and utf8.codepoint(char) or 0
+    for _, block in ipairs(blocks) do
+      if code >= block[1] and code <= block[2] then
+        return true
+      end
+    end
+    return false
+  end
+  local function wordy(char)
+    return char:match("^%w$") ~= nil or (#char > 1 and not within(char, marks))
+  end
+  -- A part of a name, address, or path stays joined: "foo.[local].bar", "foo-|bar", "foo_[bar]",
+  -- "user+[tag]@example.com", "/usr/|bin", and before one: "/usr|/bin", "foo|.bar", "user|@host".
+  local joiners = { ["."] = true, ["-"] = true, ["_"] = true, ["@"] = true, ["+"] = true }
+  joiners["="] = true -- "KEY=[old]", "--flag=|value"
+  joiners[":"] = true -- "image:[latest]"; "Note:|" alone still gets its space
+  local slash = { ["/"] = true, ["\\"] = true } -- "C:\[old]\file" too
+  local joined = (joiners[before] and wordy(prior) or slash[before])
+      and (last ~= "" or wordy(after))
+    or wordy(before) and (slash[after] or joiners[after] and wordy(beyond))
+  -- Chinese, Japanese, Thai, and the like put no space between words: "你好|世界" + "漂亮".
+  local unspaced = {
+    { 0x0E00, 0x0EFF }, -- Thai, Lao
+    { 0x1000, 0x109F }, -- Myanmar
+    { 0x1780, 0x17FF }, -- Khmer
+    { 0x2E80, 0x2FDF }, -- CJK radicals
+    { 0x3000, 0x31FF }, -- CJK punctuation, kana, Bopomofo
+    { 0x3400, 0x9FFF }, -- CJK ideographs
+    { 0xF900, 0xFAFF },
+    { 0xFF00, 0xFFEF }, -- fullwidth and halfwidth forms
+    { 0x20000, 0x3FFFF },
+  }
+  local first, final = utf8.char(utf8.codepoint(text, 1)), text:sub(utf8.offset(text, -1))
+  if
+    not starts(before)
+    and not (quotes[before] and starts(prior))
+    and not joined
+    and not (within(before, unspaced) and within(first, unspaced))
+  then
+    text = " " .. text
+  end
+  local opens = quotes[after] and starts(last ~= "" and last or before) and wordy(beyond)
+  -- A "/" after is a path going on ("/usr/share/bin"), not an opener.
+  if
+    (wordy(after) or (openers[after] and after ~= "/") or opens)
+    and not joined
+    and not (within(final, unspaced) and within(after, unspaced))
+  then
+    text = text .. " "
+  end
+  return text
+end
+
 -- Insert into the field focused at stop; false when there is none. Raises on failure.
 ---@param text string
 local function insertText(text)
@@ -176,9 +282,16 @@ local function insertText(text)
     error("focus moved while transcribing", 0)
   end
   local role = read(element, "AXRole")
+  -- A field that takes no write still shows its text and cursor, if any, to space against; one
+  -- that hides them (a terminal) gets the text as dictated.
+  local function shown()
+    local value, range =
+      element:attributeValue("AXValue"), element:attributeValue("AXSelectedTextRange")
+    return type(value) == "string" and spaced(text, value, range) or text
+  end
   -- Mail's compose body is an editable page: its value is settable, its selection is not.
   if role == "AXWebArea" and settable(element, "AXValue") then
-    return paste(text)
+    return paste(shown())
   end
   -- Text roles only: Chromium also takes (and drops) text writes on sliders, buttons, toolbars.
   if role ~= "AXTextField" and role ~= "AXTextArea" and role ~= "AXComboBox" then
@@ -186,112 +299,15 @@ local function insertText(text)
   end
   if not settable(element, "AXSelectedText") then
     -- Terminals and Messages take no writes: paste. Read-only views look alike; ⌘V fails silently.
-    return paste(text)
+    return paste(shown())
   end
   -- Nothing to space against or compare without a string value.
   local value = read(element, "AXValue")
   if type(value) ~= "string" then
     return false
   end
-  local range = read(element, "AXSelectedTextRange")
   local selected = read(element, "AXSelectedText")
-  if type(range) == "table" and range.location then
-    -- Two characters on each side of the selection and its last one (AX ranges count UTF-16 units).
-    local prior, before, last, after, beyond, units = "", "", "", "", "", 0
-    for _, codepoint in utf8.codes(value) do
-      -- Browsers store a typed trailing space in a contenteditable as U+00A0.
-      local char = codepoint == 0xA0 and " " or utf8.char(codepoint)
-      if units >= range.location + (range.length or 0) then
-        if after ~= "" then
-          beyond = char
-          break
-        end
-        after = char
-      elseif units < range.location then
-        prior, before = before, char
-      else
-        last = char
-      end
-      units = units + (codepoint > 0xFFFF and 2 or 1)
-    end
-    -- Delimiters that open a run: no space is added between them and the text.
-    local openers = {
-      ["("] = true,
-      ["["] = true,
-      ["{"] = true,
-      ["“"] = true,
-      ["‘"] = true,
-      ["<"] = true,
-      ["/"] = true,
-    }
-    -- A straight quote or backtick opens after the start, a space, or an opener, and before a word.
-    local quotes = { ['"'] = true, ["'"] = true, ["`"] = true }
-    local function starts(char)
-      return char == "" or char:match("^%s$") or openers[char]
-    end
-    -- A letter or digit in any script ("é", "日"); punctuation blocks and Latin-1 marks are not.
-    local marks = {
-      { 0x80, 0xBF },
-      { 0x2000, 0x206F },
-      { 0x3000, 0x303F },
-      -- Fullwidth punctuation: "！", "？", "：", "［", "｛", "｡".
-      { 0xFF01, 0xFF0F },
-      { 0xFF1A, 0xFF20 },
-      { 0xFF3B, 0xFF40 },
-      { 0xFF5B, 0xFF65 },
-    }
-    local function within(char, blocks)
-      local code = char ~= "" and utf8.codepoint(char) or 0
-      for _, block in ipairs(blocks) do
-        if code >= block[1] and code <= block[2] then
-          return true
-        end
-      end
-      return false
-    end
-    local function wordy(char)
-      return char:match("^%w$") ~= nil or (#char > 1 and not within(char, marks))
-    end
-    -- A part of a name, address, or path stays joined: "foo.[local].bar", "foo-|bar", "foo_[bar]",
-    -- "user+[tag]@example.com", "/usr/|bin", and before one: "/usr|/bin", "foo|.bar", "user|@host".
-    local joiners = { ["."] = true, ["-"] = true, ["_"] = true, ["@"] = true, ["+"] = true }
-    joiners["="] = true -- "KEY=[old]", "--flag=|value"
-    joiners[":"] = true -- "image:[latest]"; "Note:|" alone still gets its space
-    local slash = { ["/"] = true, ["\\"] = true } -- "C:\[old]\file" too
-    local joined = (joiners[before] and wordy(prior) or slash[before])
-        and (last ~= "" or wordy(after))
-      or wordy(before) and (slash[after] or joiners[after] and wordy(beyond))
-    -- Chinese, Japanese, Thai, and the like put no space between words: "你好|世界" + "漂亮".
-    local unspaced = {
-      { 0x0E00, 0x0EFF }, -- Thai, Lao
-      { 0x1000, 0x109F }, -- Myanmar
-      { 0x1780, 0x17FF }, -- Khmer
-      { 0x2E80, 0x2FDF }, -- CJK radicals
-      { 0x3000, 0x31FF }, -- CJK punctuation, kana, Bopomofo
-      { 0x3400, 0x9FFF }, -- CJK ideographs
-      { 0xF900, 0xFAFF },
-      { 0xFF00, 0xFFEF }, -- fullwidth and halfwidth forms
-      { 0x20000, 0x3FFFF },
-    }
-    local first, final = utf8.char(utf8.codepoint(text, 1)), text:sub(utf8.offset(text, -1))
-    if
-      not starts(before)
-      and not (quotes[before] and starts(prior))
-      and not joined
-      and not (within(before, unspaced) and within(first, unspaced))
-    then
-      text = " " .. text
-    end
-    local opens = quotes[after] and starts(last ~= "" and last or before) and wordy(beyond)
-    -- A "/" after is a path going on ("/usr/share/bin"), not an opener.
-    if
-      (wordy(after) or (openers[after] and after ~= "/") or opens)
-      and not joined
-      and not (within(final, unspaced) and within(after, unspaced))
-    then
-      text = text .. " "
-    end
-  end
+  text = spaced(text, value, read(element, "AXSelectedTextRange"))
   -- Chromium/Electron accept the write and ignore it; trust it only if the value changed.
   local result, reason = element:setAttributeValue("AXSelectedText", text)
   if not result then

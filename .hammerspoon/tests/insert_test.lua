@@ -374,6 +374,19 @@ test("an accessibility error is reported, not pasted over", function()
   assert(alerts[1] == message, tostring(alerts[1]))
 end)
 
+test("a field that takes no write is pasted spaced against its text", function()
+  -- Messages (no settable selection) and Mail's compose body (an editable page).
+  for _, element in ipairs({
+    field("Hello.", "", "", false, nil, true),
+    field("Hello.", "", "", false, "AXWebArea"),
+  }) do
+    clipboard, strokes = {}, {}
+    dictate(element, "How are you?")
+    local pasted = clipboard["public.utf8-plain-text"]
+    assert(strokes[1] == "cmd+v" and pasted == " How are you?", tostring(pasted))
+  end
+end)
+
 test("a field without a settable selection attribute is pasted with ⌘V", function()
   local element = unsettable("Attribute is not supported by target")
   dictate(element, "ls")
