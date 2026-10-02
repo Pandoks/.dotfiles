@@ -1790,19 +1790,22 @@ class Engine:
         ):
             return True
 
-        # Questions stay questions: each sentence said with a "?" lands, word for word, in one
-        # written with a "?" ("Is it ready?" is not "It's ready.", nor "Hey Alice? Is it done?"
-        # "Hey Alice? It's done."), though questions may merge ("...the file? And the logs?" ->
-        # "...the file and the logs?"). Not one cut whole, nor one taken back and finished as a
-        # statement ("Is it ready, no wait, ship it?" -> "Ship it.").
+        # Questions stay questions: each sentence said with a "?" has words written in one with a
+        # "?" ("Hey Alice? Is it done?" is not "Hey Alice? It's done."), though questions may merge
+        # ("...the file? And the logs?" -> "...the file and the logs?") and a run-on may split.
+        # One opened by an auxiliary keeps it there: "Is it ready? Can I merge?" is not "It's
+        # ready, can I merge?". Not one cut whole, nor one taken back and finished as a statement
+        # ("Is it ready, no wait, ship it?" -> "Ship it.").
         def sentences(text, spans):  # each word's sentence: (its first word, whether it asks)
             out, first = [], 0
             for k, s in enumerate(spans):
                 tail = (
                     text[s.end() : spans[k + 1].start()] if k + 1 < len(spans) else text[s.end() :]
                 )
-                # It ends at a mark and a space ("3 p.m." and "config.lua" end none), or the text.
-                if re.search(r"[.!?][\"”’')\]]*\s", tail) or k + 1 == len(spans):
+                # It ends at a mark and a space, past abbreviations ("3 p.m.", "config.lua",
+                # "Dr. Smith", "etc." end none), or at the end of the text.
+                short = re.search(r"\b(?:[ap]\.m|etc|dr|mr|mrs|ms|vs|e\.g|i\.e)$", text[: s.end()])
+                if (re.search(r"[.!?][\"”’')\]]*\s", tail) and not short) or k + 1 == len(spans):
                     out += [(first, "?" in tail)] * (k + 1 - first)
                     first = k + 1
             return out
@@ -1817,22 +1820,32 @@ class Engine:
         for k, (begin, asked) in enumerate(said_in):
             if not asked or k + 1 < len(said_in) and said_in[k + 1][0] == begin:
                 continue  # not a question, or not its last word
-            sentence = [j for j in range(begin, k + 1) if raw_words[j] not in cls.MARKERS]
-            start = next((j for j in sentence if j not in fillers), None)
+            sentence = range(begin, k + 1)
+            start = next(
+                (j for j in sentence if j not in fillers and raw_words[j] not in cls.MARKERS), None
+            )
             alive = next(
                 (
                     j
                     for j in sentence
-                    if j not in corrected | fillers and raw_words[j] not in cls.CORRECTIONS
+                    if j not in corrected | fillers
+                    and raw_words[j] not in cls.MARKERS | cls.CORRECTIONS
                 ),
                 None,
             )
-            retracted = start in corrected and (
-                alive is None or plain(raw_words[alive]) not in cls.AUXILIARIES | cls.ASKING
-            )
+            opener = plain(raw_words[alive]) if alive is not None else ""
+            retracted = start in corrected and opener not in cls.AUXILIARIES | cls.ASKING
             placed = [landed[j] for j in sentence if j in landed]
-            if placed and not retracted and not asks[max(placed)]:
-                return True
+            if not placed or retracted:
+                continue
+            if not any(asks[j] for j in placed):
+                return True  # made a statement
+            if (
+                opener in cls.AUXILIARIES
+                and alive in landed
+                and plain(out_words[landed[alive]]) != opener
+            ):
+                return True  # its auxiliary moved behind the subject: "It's ready"
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
