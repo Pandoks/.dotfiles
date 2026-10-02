@@ -102,20 +102,28 @@ end
 -- The app's own ⌘V; macOS never signals when the clipboard was read, hence the delay.
 ---@param text string
 local function paste(text)
-  local previous = hs.pasteboard.readAllData() or {} -- nil when the clipboard is empty
+  -- A restore still waiting means the clipboard holds the last dictation (unless written since):
+  -- this paste puts back what that one would have, the user's clipboard.
+  local pending = dictation.restore
+  local held = pending and hs.pasteboard.changeCount() == pending.count
+  local previous = held and pending.previous or hs.pasteboard.readAllData() or {} -- nil: empty
   -- One entry per item, each its own list of types: the item count, not the type count.
-  local items = #hs.pasteboard.allContentTypes()
+  local items = held and pending.items or #hs.pasteboard.allContentTypes()
   -- Transient (nspasteboard.org): clipboard managers record neither this nor the restore.
   local transient = "org.nspasteboard.TransientType"
   if not hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = text, [transient] = "" }) then
     error("could not write clipboard", 0)
+  end
+  if pending then
+    pending.timer:stop()
   end
   -- Before ⌘V: any later write, the app's own included, cancels the restore.
   local count = hs.pasteboard.changeCount()
   hs.eventtap.keyStroke({ "cmd" }, "v", 0)
   -- Held so GC cannot stop it.
   -- Long enough for a busy app (Slack, VS Code) to read it; any later write cancels it anyway.
-  dictation.restore = hs.timer.doAfter(1, function()
+  dictation.restore = { count = count, previous = previous, items = items }
+  dictation.restore.timer = hs.timer.doAfter(1, function()
     dictation.restore = nil
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
     if hs.pasteboard.changeCount() ~= count then
@@ -488,7 +496,16 @@ engine, engineError = Engine.new(config, {
     -- A take that failed after transcription is still saved: nothing said is lost.
     if heard and #heard > 0 then
       local problem = history.save(heard, config.history)
-      message = message .. (problem and "; " .. problem or " (what was heard is in history)")
+      if problem then
+        message = message .. "; " .. problem
+      else
+        message = message .. " (what was heard is in history)"
+        -- As after a result, or takes that keep failing would grow the folder past its cap.
+        problem = history.prune(config.history)
+        if problem then
+          fail("Dictation: " .. problem)
+        end
+      end
     end
     if id then
       recorder.cleanup(requests[id])
@@ -497,9 +514,25 @@ engine, engineError = Engine.new(config, {
         return
       end
     else
+      -- The backend died: what it had not transcribed survives only as recordings, so keep them.
+      local kept = 0
       for key, capture in pairs(requests) do
-        recorder.cleanup(capture)
         requests[key] = nil
+        local problem = history.keep(capture.wav, config.history)
+        if problem then
+          fail("Dictation: " .. problem) -- left where it is, so not cleaned up
+        else
+          kept = kept + 1
+          recorder.cleanup(capture)
+        end
+      end
+      if kept > 0 then
+        message = ("%s; %d recording%s kept in %s"):format(
+          message,
+          kept,
+          kept > 1 and "s" or "",
+          config.history.directory
+        )
       end
     end
     fail("Dictation backend: " .. message)
@@ -592,7 +625,7 @@ local previousShutdown = hs.shutdownCallback
 hs.shutdownCallback = function()
   -- A pending clipboard restore runs now: a reload must not leave the dictation on it.
   if dictation.restore then
-    dictation.restore:fire()
+    dictation.restore.timer:fire()
   end
   finish(nil)
   if engine then

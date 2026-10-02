@@ -163,6 +163,19 @@ test("save leaves no empty take when it cannot open it", function()
   expect(settings.directory, {})
 end)
 
+test("keep moves a recording in, where prune never deletes it", function()
+  local settings = { directory = scratch .. "/kept", maxMegabytes = 0 }
+  clock = 1790000000
+  local recording = scratch .. "/take.wav"
+  local file = assert(io.open(recording, "w"))
+  file:write("RIFF")
+  file:close()
+  assert(history.keep(recording, settings) == nil and not fs.attributes(recording))
+  assert(history.save("take", settings) == nil and history.prune(settings) == nil)
+  local stamp = date("%Y-%m-%d_%H-%M-%S", clock)
+  expect(settings.directory, { stamp .. ".wav", stamp .. ".txt" })
+end)
+
 test("prune lists the folder only while it may be over the cap", function()
   local settings = { directory = scratch .. "/counted", maxMegabytes = 10 }
   clock = 1790000000

@@ -18,18 +18,18 @@ local function folder(settings)
   )
 end
 
--- Save `text` as <timestamp>.txt.
----@param text string
+-- A free <timestamp>.<extension> path in the history folder, which is created owner-only.
 ---@param settings DictationHistoryConfig
----@return string? failure
-function history.save(text, settings)
+---@param extension string
+---@return string? path, string? failure
+local function slot(settings, extension)
   local directory = folder(settings)
   -- Owner-only: transcripts may hold anything said.
   if
     not hs.fs.attributes(directory, "mode")
     and not os.execute("umask 077 && mkdir -p " .. quote(directory))
   then
-    return "could not create " .. directory
+    return nil, "could not create " .. directory
   end
   -- Anyone else who could write the folder could swap a take for a symlink while it is written.
   local owner = hs.fs.attributes(directory) or {}
@@ -39,17 +39,28 @@ function history.save(text, settings)
     or mode:find("^....w")
     or mode:find("^.......w")
   then
-    return directory .. " must be yours and writable only by you"
+    return nil, directory .. " must be yours and writable only by you"
   end
 
   -- Timestamped names sort oldest first; a second take in the same second gets a suffix.
   local stamp = tostring(os.date("%Y-%m-%d_%H-%M-%S"))
-  local name, count = stamp .. ".txt", 1
+  local name, count = ("%s.%s"):format(stamp, extension), 1
   while hs.fs.attributes(directory .. "/" .. name, "mode") do
     count = count + 1
-    name = ("%s_%d.txt"):format(stamp, count)
+    name = ("%s_%d.%s"):format(stamp, count, extension)
   end
-  local path = directory .. "/" .. name
+  return directory .. "/" .. name
+end
+
+-- Save `text` as <timestamp>.txt.
+---@param text string
+---@param settings DictationHistoryConfig
+---@return string? failure
+function history.save(text, settings)
+  local path, failure = slot(settings, "txt")
+  if not path then
+    return failure
+  end
   -- Created owner-only first, and set -C never through a file or symlink planted at the name;
   -- the text stays out of the command line, which other users can see.
   if not os.execute("umask 077 && set -C && : > " .. quote(path)) then
@@ -73,8 +84,25 @@ function history.save(text, settings)
     os.remove(path)
     return "could not write " .. path .. ": " .. tostring(problem or reason)
   end
+  local directory = folder(settings)
   if totals[directory] then
     totals[directory] = totals[directory] + (hs.fs.attributes(path, "blocks") or 0) * 512
+  end
+end
+
+-- Move a recording in as <timestamp>.wav. Unmarked, so never counted or pruned: audio would push
+-- out the transcripts under the cap, and this is the only copy until the user deletes it.
+---@param file string
+---@param settings DictationHistoryConfig
+---@return string? failure
+function history.keep(file, settings)
+  local path, failure = slot(settings, "wav")
+  if not path then
+    return failure
+  end
+  local moved, message = os.rename(file, path)
+  if not moved then
+    return "could not move " .. file .. " to " .. path .. ": " .. tostring(message)
   end
 end
 

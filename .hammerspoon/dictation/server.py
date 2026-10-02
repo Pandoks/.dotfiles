@@ -670,7 +670,7 @@ class Engine:
         + ["except", "unless", "excluding"]  # "Delete all files except logs"
     )
     # Scope, frequency, and obligation a cleanup must not drop or add: "Delete all files" is not
-    # "Delete files". Not "will" or "would", which contract ("I'll").
+    # "Delete files". "will" and "would" contract ("I'll"), so they are checked by meaning below.
     SCOPE = frozenset(
         ["all", "every", "each", "any", "both", "some", "always", "sometimes", "often", "usually"]
         + ["must", "should", "may", "might", "can", "could", "shall", "maybe", "probably", "if"]
@@ -702,7 +702,7 @@ class Engine:
             "above/below",
             "more|greater/less|fewer",
             "and/or",
-            "to/from",
+            "to|into|onto|toward/from",  # "towards" is an inflection
         ]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
@@ -712,7 +712,7 @@ class Engine:
         ["on", "up", "down", "left", "right", "first", "last", "over", "under", "above", "below"]
         + ["least", "most", "more", "less", "greater", "fewer", "all", "every", "each", "some"]
         + ["that"]
-        + ["and", "or", "to", "from"]
+        + ["and", "or", "to", "into", "onto", "toward", "towards", "from"]
     )
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
     REFERENTS = ("this|these/that|those", "here/there")
@@ -985,7 +985,8 @@ class Engine:
     _SCALE = "hundred|thousand|million|billion"
     NUMBER_RUN = re.compile(
         rf"{ALONE[0]}(?:a\s+(?=(?:{_SCALE})\b))?(?:{_COUNT})"
-        rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+(?:and|point|oh)(?=\s+(?:{_COUNT})\b))*"
+        rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+(?:and|oh)(?=\s+(?:{_COUNT})\b)"
+        rf"|\s+point(?:\s+oh)*(?:(?=\s+(?:{_COUNT})\b)|(?<=oh)\b))*"  # "one point oh five"
         rf"(?:(?:\s+and)?(?:\s+|-)(?:{'|'.join([*ORDINAL_ENDS, *DECADES])}))?\b(?![/@+#=\\]|\.\w)",
         re.IGNORECASE,
     )
@@ -1008,14 +1009,20 @@ class Engine:
         def digits(words, timed, counted):  # None leaves the words
             if "point" in words:  # "2.5 million", "1.2.3"; digits after a point read as written
                 big = words[-1] if words[-1] in scales[2:] else ""
-                parts = re.split(r"\bpoint\b", " ".join(words[: len(words) - bool(big)]))
-                if not all(part.split() for part in parts):  # "one point million": no digits
+                head, *tails = (
+                    part.split()
+                    for part in re.split(r"\bpoint\b", " ".join(words[: len(words) - bool(big)]))
+                )
+                if not (head and all(tails)):  # "one point million": no digits
                     return None
-                values = [cls.values(part.split()) for part in parts]
-                if len(values[0]) > 1:
+                values = cls.values(head) if "oh" not in head else [digits(head, False, counted)]
+                if len(values) > 1 or values[0] is None:
                     return None
-                frac = ["".join(map(str, v)) for v in values[1:]]  # "twenty five", "two five": 25
-                return ".".join([str(values[0][0]), *frac]) + (f" {big}" if big else "")
+                frac = [  # "twenty five", "two five": 25; "oh five": 05
+                    "".join(map(str, cls.values(["zero" if w == "oh" else w for w in tail])))
+                    for tail in tails
+                ]
+                return ".".join([str(values[0]), *frac]) + (f" {big}" if big else "")
             if "oh" in words:  # digits read one by one: "four oh four" -> "404", "at twelve oh one"
                 pieces = " ".join(words).split(" oh ")
                 if not all(pieces) or "oh" in " ".join(pieces).split():
@@ -1512,6 +1519,19 @@ class Engine:
         ):
             return True
 
+        def tenses(w):  # what "will", "would", or a contraction says: "I'd" is "would" or "had"
+            if w in ("will", "won't") or w.endswith("'ll"):
+                return {"will"}
+            if w in ("would", "wouldn't"):
+                return {"would"}
+            if w in ("had", "hadn't"):
+                return {"had"}
+            return {"would", "had"} if w.endswith("'d") else set()
+
+        def unmeant(words, other):  # a "will" or "would" in words that other does not say
+            meant = set().union(*map(tenses, other))
+            return any(tenses(w) - {"had"} and not tenses(w) & meant for w in words)
+
         gaps = re.split(word, out)  # gaps[j] precedes out_words[j]
         for n, (tag, i1, i2, j1, j2) in enumerate(edits):
             cut = uncorrected(i1, i2)
@@ -1533,6 +1553,8 @@ class Engine:
             written = set(out_words[j1:j2])
             if ((set(dropped) - written) | (written - set(raw_words[i1:i2]))) & cls.SCOPE:
                 return True  # "all", "always", or "must" dropped or added
+            if unmeant(dropped, written) or unmeant(written, raw_words[i1:i2]):
+                return True  # "I will delete" -> "I delete", not "I'll delete"
             said, wrote = set(raw_words[i1:i2]), set(out_words[j1:j2])
 
             # A when-preposition is not swapped for another: "by Friday" is not "on Friday".

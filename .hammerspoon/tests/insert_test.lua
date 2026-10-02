@@ -3,6 +3,7 @@ local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
 -- Every clipboard write counts, as NSPasteboard's changeCount does; `pasteWrites` makes ⌘V write.
 local changes, pasteWrites, starts, clearFails = 0, false, 0, false
 local toggle, handlers, done, escape, focus, copied, saved, refused
+local pruned, kept = 0, {}
 local trusted = true -- Accessibility granted
 local config = {
   insert = "direct",
@@ -53,12 +54,17 @@ local env = setmetatable({
         save = function(text)
           saved[#saved + 1] = text
         end,
-        prune = function() end,
+        prune = function()
+          pruned = pruned + 1
+        end,
+        keep = function(wav)
+          kept[#kept + 1] = wav
+        end,
       },
       ["dictation.recorder"] = {
         start = function()
           starts = starts + 1
-          return {}
+          return { wav = ("take%d.wav"):format(starts) }
         end,
         stop = function(_, callback)
           done = callback
@@ -434,12 +440,13 @@ end)
 
 test("a take that fails after transcription keeps what was heard", function()
   local element = field("", "", "")
-  alerts, strokes, focus, saved = {}, {}, element, {}
+  alerts, strokes, focus, saved, pruned = {}, {}, element, {}, 0
   toggle()
   toggle()
   done("take.wav", 1, 1)
   handlers.onError("KeyError: 'point'", serial, "Keep what I said.")
   assert(saved[1] == "Keep what I said." and element.written == nil, tostring(saved[1]))
+  assert(pruned == 1, "saved past the size cap")
   assert(alerts[1] and alerts[1]:find("in history", 1, true), tostring(alerts[1]))
 end)
 
@@ -475,6 +482,25 @@ test("a clipboard that cannot be emptied again is reported", function()
   timers[#timers]()
   clearFails = false
   assert(alerts[#alerts] == "Dictation: could not clear the clipboard", tostring(alerts[#alerts]))
+end)
+
+test("a second paste before the restore restores the clipboard from before the first", function()
+  clipboard = { ["public.utf8-plain-text"] = "mine" }
+  dictate(field("Hello", "", "", true), "there.")
+  dictate(field("Hello", "", "", true), "again.")
+  timers[#timers]()
+  assert(clipboard["public.utf8-plain-text"] == "mine", "restored the first dictation")
+end)
+
+test("a backend that dies keeps the recordings it had not transcribed", function()
+  alerts, focus, kept = {}, field("", "", ""), {}
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  local wav = ("take%d.wav"):format(starts)
+  handlers.onError("backend exited (code 9)")
+  assert(kept[1] == wav and #kept == 1, tostring(kept[1]))
+  assert(alerts[1] and alerts[1]:find("1 recording kept in", 1, true), tostring(alerts[1]))
 end)
 
 -- Last: it tears everything down.
