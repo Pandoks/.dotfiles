@@ -77,6 +77,15 @@ def whole_words(tokens):
     )
 
 
+def word_list():
+    """The system word list, lowercased, and the names in it it never writes lowercase."""
+    lines = Path("/usr/share/dict/words").read_text().splitlines()
+    lowercase = {w for w in lines if not w[:1].isupper()}
+    return frozenset(w.lower() for w in lines), frozenset(
+        w.lower() for w in lines if w[:1].isupper() and w.lower() not in lowercase
+    )
+
+
 def boosted_greedy(
     model, features, lengths=None, last_token=None, hidden_state=None, *, config, prefixes, bonus
 ):
@@ -381,7 +390,8 @@ class Engine:
         return text
 
     # Real words are never fuzzy-matched ("recast"); load() adds the tokenizer's ("tacos").
-    words = frozenset(Path("/usr/share/dict/words").read_text().lower().splitlines())
+    # Names it knows only capitalized ("Alice", "Monday"; not "Bob" or "May") are PROPER.
+    words, PROPER = word_list()
 
     def apply_vocabulary(self, text, request):
         """Rewrite misheard plain words to the closest vocabulary word, keeping marks and spaces."""
@@ -649,6 +659,12 @@ class Engine:
         + ["nearly", "almost", "about", "around", "exactly", "least", "most", "more", "less"]
         + ["fewer", "over", "under", "above", "below", "greater", "only", "up"]
     )
+    # Scope, frequency, and obligation a cleanup must not drop or add: "Delete all files" is not
+    # "Delete files". Not "will" or "would", which contract ("I'll").
+    SCOPE = frozenset(
+        ["all", "every", "each", "any", "both", "some", "always", "sometimes", "often", "usually"]
+        + ["must", "should", "may", "might", "can", "could", "shall"]
+    )
     # Opposites a cleanup must not swap, alternatives per side: "Turn logging off" is not "on".
     OPPOSITES = (
         ["on/off", "enable/disable", "before/after", "start/stop", "open/close", "true/false"]
@@ -673,6 +689,11 @@ class Engine:
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
     # side).
+    # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
+    REFERENTS = [
+        "i|me|my|mine|myself/you|your|yours|yourself",
+        "we|us|our|ours/they|them|their|theirs",
+    ] + ["he|him|his|himself/she|her|hers|herself", "this|these/that|those", "here/there"]
     SIDES = types.MappingProxyType(
         {
             form: (n, side)
@@ -681,6 +702,12 @@ class Engine:
             for w in words.split("|")
             for form in (w, w + "s", w + "es", w + "d", w + "ed", w + "ing", w[:-1] + "ing")
             + (w + w[-1] + "ed", w + w[-1] + "ing", w[:-1] + "ies", w[:-1] + "ied")
+        }
+        | {
+            w: (pair, side)
+            for pair in REFERENTS
+            for side, words in enumerate(pair.split("/"))
+            for w in words.split("|")
         }
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
@@ -764,7 +791,7 @@ class Engine:
             ):
                 # Only a hyphen is optional, not an exponent's: "SHA-256" is "SHA256", but "TLS1.3"
                 # is not "TLS13", nor "1e-3" "1e3".
-                tokens.append("#" + re.sub(r"(?<!\de)-", "", core))
+                tokens.append("#" + re.sub(r"(?<=.)(?<!\de)-", "", core))  # "-1e-3" keeps its sign
             else:
                 tokens += re.findall(rf"{number}|[a-zμ]+|[%°$€£]", w)
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
@@ -831,13 +858,18 @@ class Engine:
 
         # Words in any script keep inner apostrophes, curly ones too ("don’t"), not a quote's.
         word = r"[^\W_]+(?:'[^\W_]+)*"
-        # Names: capitalized words past a sentence's start, but not "I" ("I'm") or "OK".
+        # Names: capitalized words past a sentence's start, and at one a word list's name or one
+        # capitalized within ("Alice", "GitHub"); not "I" ("I'm") or "OK".
         cased = raw.replace("’", "'")
         names = {
             m.group().lower()
             for m in re.finditer(word, cased)
             if m.group()[0].isupper()
-            and not re.search(r"(?:^|[.!?…:][\"”')\]]*\s)[\s\"“'(\[]*$", cased[: m.start()])
+            and (
+                not re.search(r"(?:^|[.!?…:][\"”')\]]*\s)[\s\"“'(\[]*$", cased[: m.start()])
+                or m.group().lower() in cls.PROPER
+                or re.search(r".[A-Z]", m.group())
+            )
             and not re.fullmatch(r"i(?:'.*)?", m.group().lower())
             and m.group().lower() not in cls.MARKERS
         }
@@ -953,6 +985,22 @@ class Engine:
         if at < len(written):
             return True  # a number never said
 
+        # A written name keeps its marks unless taken back: "alice@example.com" is not
+        # "bob@example.com", nor "--force" "--delete", "/usr/local" "/usr/share", or "C++" "C#".
+        def marked(text):
+            for m in re.finditer(r"\S+", text):
+                t = re.sub(r"^[\"'“‘(\[{]+|[\"'”’)\]}.,!?;:]+$", "", m.group())
+                if re.search(r"[^\W\d_]", t) and re.search(
+                    r"[@/\\#+~=_]|^--?[^\W\d_]|[^\W_]\.[^\W_]", t
+                ):
+                    yield m, t
+
+        kept_marks = {t for _, t in marked(out)}
+        for m, t in marked(raw):
+            taken_back = any(m.start() <= spans[k].start() < m.end() for k in corrected)
+            if t not in kept_marks and not taken_back:
+                return True
+
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
         # ("#2fa") counts nothing.
         numeric = {
@@ -1030,6 +1078,9 @@ class Engine:
                 return True  # a dropped sentence or "not" the user never took back
             if negative(out_words[j1:j2]) and not negative(raw_words[i1:i2]):
                 return True  # a "not" or "no" the user never said
+            written = set(out_words[j1:j2])
+            if ((set(dropped) - written) | (written - set(raw_words[i1:i2]))) & cls.SCOPE:
+                return True  # "all", "always", or "must" dropped or added
             said, wrote = set(raw_words[i1:i2]), set(out_words[j1:j2])
             swapped = {cls.SIDES[w] for w in said - wrote if w in cls.SIDES}
             if any(
