@@ -848,6 +848,9 @@ class Engine:
             if token == "point" and chunks and not point:  # "one point five" is 1.5
                 point, chunks = "".join(str(total + part) for total, part, _ in chunks) + ".", []
                 continue
+            if token == "dozen" and chunks:  # "two dozen" is 24, not "2 12"
+                chunks[-1][1], chunks[-1][2] = (chunks[-1][1] or 1) * 12, 12
+                continue
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
             value = cls.NUMBERS.get(token, ordinal)
             if value is None:
@@ -915,25 +918,29 @@ class Engine:
 
         # Words in any script keep inner apostrophes, curly ones too ("don’t"), not a quote's.
         word = r"[^\W_]+(?:'[^\W_]+)*"
+
         # Names: capitalized words past a sentence's start, and at one a word list's name or one
         # capitalized within ("Alice", "GitHub"); not "I" ("I'm") or "OK".
-        cased = raw.replace("’", "'")
-        names = {
-            m.group().lower()
-            for m in re.finditer(word, cased)
-            if m.group()[0].isupper()
-            and (
-                not re.search(r"(?:^|[.!?…:][\"”')\]]*\s)[\s\"“'(\[]*$", cased[: m.start()])
-                or m.group().lower() in cls.PROPER
-                or re.search(r".[A-Z]", m.group())
+        def names_in(text):
+            cased = text.replace("’", "'")
+            return collections.Counter(
+                m.group().lower()
+                for m in re.finditer(word, cased)
+                if m.group()[0].isupper()
+                and (
+                    not re.search(r"(?:^|[.!?…:][\"”')\]]*\s)[\s\"“'(\[]*$", cased[: m.start()])
+                    or m.group().lower() in cls.PROPER
+                    or re.search(r".[A-Z]", m.group())
+                )
+                and not re.fullmatch(r"i(?:'.*)?", m.group().lower())
+                and m.group().lower() not in cls.MARKERS
+                and not (  # currency after a number: "fifteen US dollars"
+                    re.match(r"us\s+dollars?\b", cased[m.start() :], re.IGNORECASE)
+                    and cls.numbers(" ".join(re.findall(word, cased[: m.start()])[-1:]))
+                )
             )
-            and not re.fullmatch(r"i(?:'.*)?", m.group().lower())
-            and m.group().lower() not in cls.MARKERS
-            and not (  # currency after a number: "fifteen US dollars"
-                re.match(r"us\s+dollars?\b", cased[m.start() :], re.IGNORECASE)
-                and cls.numbers(" ".join(re.findall(word, cased[: m.start()])[-1:]))
-            )
-        }
+
+        names, written_names = set(names_in(raw)), names_in(out)
         # Its unit is checked as a word: "16GB" is not "16MB".
         raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
 
@@ -1167,7 +1174,11 @@ class Engine:
                 and cls.numbers(" ".join(raw_words[k - 1 : k]))
             )
         ]
-        if persons(heard) - persons(out_words):
+        # Nor one added: "Send the report" is not "Send her the report" ("Thank you" names nobody).
+        written = [
+            w for k, w in enumerate(out_words) if out_words[k - 1 : k] != ["thank"] or w != "you"
+        ]
+        if persons(heard) != persons(written):
             return True
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
@@ -1197,6 +1208,17 @@ class Engine:
             else:
                 gone += 1
         if gone > fixes:
+            return True
+        # Nor is one invented: "Send the report" is not "Send Alice the report", unless the glossary
+        # names it. A name with digits ("SHA256") is checked as a number.
+        said = collections.Counter(bare(raw_words))
+        listed = {w for run in glossary for w in run}  # possessives bare: "Ghostty's" is "ghostty"
+        if any(
+            n > said[w] and w not in listed and not re.search(r"\d", w)
+            for w, n in collections.Counter(
+                re.sub(r"'s$", "", w) for w in written_names.elements()
+            ).items()
+        ):
             return True
 
         gaps = re.split(word, out)  # gaps[j] precedes out_words[j]
