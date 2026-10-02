@@ -1805,8 +1805,8 @@ class Engine:
                 # It ends at a mark and a space, past abbreviations ("3 p.m.", "config.lua",
                 # "Dr. Smith", "etc." end none), or at the end of the text.
                 short = (
-                    re.match(r"\.\s", tail)
-                    and re.search(  # its own "." then a space
+                    re.match(r"\.[\"”’')\]]*\s", tail)
+                    and re.search(  # its own "." then a space, past a closing quote
                         r"\b(?:[ap]\.m|etc|dr|mr|mrs|ms|vs|e\.g|i\.e)$",
                         text[max(0, s.end() - 4) : s.end()],
                     )
@@ -1842,8 +1842,10 @@ class Engine:
             opener = plain(raw_words[alive]) if alive is not None else ""
             retracted = start in corrected and opener not in cls.AUXILIARIES | cls.ASKING
             placed = [landed[j] for j in sentence if j in landed]
-            if not placed or retracted or alive is None:
-                continue  # cut whole, taken back, or only a marker ("Okay? So the plan is...")
+            # Only a marker ("Okay? So the plan is...") asks nothing; "No?" and "Sorry?" do.
+            marker = all(raw_words[j] in cls.MARKERS or j in fillers for j in sentence)
+            if not placed or retracted or marker:
+                continue  # cut whole, taken back, or only a marker
             if not any(asks[j] for j in placed):
                 return True  # made a statement
             written_aux = plain(out_words[landed[alive]]) if alive in landed else opener

@@ -826,6 +826,8 @@ check(
             ("Is it ready? Can I merge?", "It's ready, can I merge."),
             ("Is it at 3 p.m.? I'll be there.", "It's at 3 p.m. I'll be there."),
             ("Is it under 50ms? It was 80ms yesterday.", "It's under 50ms. It was 80ms yesterday."),
+            ("Did it work? No? Then roll it back.", "Did it work? No. Then roll it back."),
+            ('Is it "3 p.m." or "4 p.m."?', 'It\'s "3 p.m." or "4 p.m."'),
             ("Are you around? Can we talk about it?", "You're around, can we talk about it?"),
             ("Is the service running?", "The service was running."),
             ("We need two—three servers.", "We need 23 servers."),
