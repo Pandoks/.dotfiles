@@ -51,7 +51,7 @@ local function prompted()
 end
 
 -- Frontmost app; when prompted(), window title, browser URL, and (opt-in) selection. Also why
--- asked-for context could not be read: the take goes on without it rather than be lost.
+-- asked-for context could not be read, which stops the take.
 ---@return DictationTranscribeRequest, string?
 local function gatherContext()
   ---@type DictationTranscribeRequest, string[]
@@ -367,26 +367,17 @@ local function finish(text)
   local delivered = false
   if text and #text > 0 then
     local mode = config.insert
-    local inserted
-    if mode ~= "clipboard" then
-      local ok, result = pcall(insertText, text)
-      inserted = ok and result
-      delivered = inserted == true
-      if mode == "direct" and not inserted then
-        fail("Dictation: " .. (ok and "no text field is focused" or tostring(result)))
-      elseif not ok then
-        print("Dictation: " .. tostring(result))
-      end
-    end
-    -- "clipboard" always copies; "auto" copies when nothing could be inserted. That copy is the
-    -- configured delivery, announced, and kept (not transient) so it can be pasted by hand;
-    -- "direct" fails instead.
-    if mode == "clipboard" or (mode == "auto" and not inserted) then
+    if mode == "clipboard" then
+      -- Kept (not transient) so it can be pasted by hand.
       delivered = hs.pasteboard.setContents(text)
       if not delivered then
         fail("Dictation: could not write clipboard")
-      elseif mode == "auto" then
-        hs.alert.show("Dictation copied to clipboard", 1.5)
+      end
+    else
+      local ok, result = pcall(insertText, text)
+      delivered = ok and result == true
+      if not (ok and result) then
+        fail("Dictation: " .. (ok and "no text field is focused" or tostring(result)))
       end
     end
   end
@@ -464,7 +455,7 @@ local function toggle()
     state = "thinking"
     local capture = assert(recording)
     local backend, pill = assert(engine), assert(overlay)
-    local context ---@type DictationTranscribeRequest? read at stop, below
+    local context, unread ---@type DictationTranscribeRequest?, string? read at stop, below
     recorder.stop(capture, function(wav, peak, duration)
       -- A too-short take is an accidental tap; a quiet one is a mic problem worth showing.
       if duration < config.minDuration then
@@ -478,6 +469,14 @@ local function toggle()
         fail(
           ("Dictation: no speech from %s (peak %.2f < %.2f)"):format(name, peak, config.minLevel)
         )
+        finish(nil)
+        return
+      end
+      if unread then
+        -- No take without the context asked for; its recording is kept.
+        recording = nil -- kept, or left where it is: not for finish() to clean up
+        local kept = keep(capture) and "; the recording is kept in " .. config.history.directory
+        fail("Dictation: " .. unread .. (kept or ""))
         finish(nil)
         return
       end
@@ -498,11 +497,7 @@ local function toggle()
     -- After SIGINT so a slow app cannot extend the take; the text goes here only if it keeps focus.
     target, targetError = focused()
     -- The app at stop, not whichever is in front once the wav is final.
-    local problem
-    context, problem = gatherContext()
-    if problem then
-      fail("Dictation: " .. problem .. "; transcribing without it")
-    end
+    context, unread = gatherContext()
   end
 end
 

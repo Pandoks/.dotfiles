@@ -11,8 +11,7 @@
 ---| "modifierTap" # tap a modifier by itself, like Raycast (see `modifierTap`)
 
 ---@alias DictationInsertMode
----| "auto"      # insert like "direct"; if there is no focused field, focus moved, or insertion fails, copy the text to the clipboard instead (with a brief alert)
----| "direct"    # insert via accessibility into the field focused when dictation stopped, clipboard untouched. Fields that ignore accessibility writes (Electron/Chromium apps) or take none (terminals, Messages, Mail's compose body) get the app's own Paste instead: text goes on the clipboard, ⌘V, previous clipboard restored 1 s later (its first item only; an alert says when there were more, e.g. several copied files). Firefox and other Gecko browsers apply accessibility writes asynchronously, so their web page fields would get the text twice: they are not supported. A focused read-only text view (log pane, read-only editor, readonly web field) looks like a terminal to accessibility, so it gets the ⌘V too, which does nothing and is not reported ("auto" copies nothing either): the text is then only in `history`. Failure, including focus having moved, is reported, nothing is copied.
+---| "direct"    # insert via accessibility into the field focused when dictation stopped, clipboard untouched. Fields that ignore accessibility writes (Electron/Chromium apps) or take none (terminals, Messages, Mail's compose body) get the app's own Paste instead: text goes on the clipboard, ⌘V, previous clipboard restored 1 s later (its first item only; an alert says when there were more, e.g. several copied files). Firefox and other Gecko browsers apply accessibility writes asynchronously, so their web page fields would get the text twice: they are not supported. A focused read-only text view (log pane, read-only editor, readonly web field) looks like a terminal to accessibility, so it gets the ⌘V too, which does nothing and is not reported: the text is then only in `history`. Failure, including focus having moved, is reported, nothing is copied.
 ---| "clipboard" # only copy the text to the clipboard; nothing is inserted
 
 ---@class DictationSttConfig
@@ -145,7 +144,7 @@ local config = {
   -- 10 MB is ~2,500 takes (a 4 KB block each); Application Support, as macOS may purge Caches.
   history = { directory = "~/Library/Application Support/dictation", maxMegabytes = 10 },
 
-  insert = "auto",
+  insert = "direct",
   includeSelection = false,
 
   minLevel = 0.25,

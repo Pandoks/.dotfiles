@@ -614,8 +614,10 @@ class Engine:
         out = self.cleaner.complete(messages, raw)
         if not out.strip():
             return ""  # no coherent speech, as the prompt asks; what was heard goes to history
-        # Guard: an answer, paraphrase, or rewrite falls back to the raw transcript.
-        return raw if self.looks_rewritten(raw, out, self.glossary(request)) else out
+        # Guard: an answer, paraphrase, or rewrite fails the take (what was heard goes to history).
+        if self.looks_rewritten(raw, out, self.glossary(request)):
+            raise RuntimeError("the cleanup rewrote what was said, so nothing was typed")
+        return out
 
     # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
     STALL_WORD = r"[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+"

@@ -311,17 +311,13 @@ test("focus moved while transcribing writes nothing and says so", function()
   assert(element.written == nil and alerts[1] == "Dictation: focus moved while transcribing")
 end)
 
-test("a slider is not a text field: auto copies, direct says so", function()
+test("a slider is not a text field: it says so and copies nothing", function()
   -- Chromium sliders take the write and drop it, like their fields do.
   local slider = field("", "", "1 minute of 3", true, "AXSlider")
-  config.insert = "auto"
   dictate(slider, "Note to self.")
-  config.insert = "direct"
   assert(slider.written == nil and #strokes == 0, "wrote into the slider")
-  assert(copied == "Note to self." and alerts[1] == "Dictation copied to clipboard", "no copy")
-  dictate(slider, "Note to self.")
-  assert(slider.written == nil and alerts[1] == "Dictation: no text field is focused")
-  assert(copied == nil, "direct mode copied")
+  assert(alerts[1] == "Dictation: no text field is focused", tostring(alerts[1]))
+  assert(copied == nil, "copied it")
 end)
 
 test("clipboard mode copies and inserts nothing", function()
@@ -379,13 +375,11 @@ test("Mail's compose body (an editable page) is pasted into with ⌘V", function
   assert(clipboard["public.utf8-plain-text"] == "mine", "did not restore the clipboard")
 end)
 
-test("a plain web page is not a text field: auto copies", function()
+test("a plain web page is not a text field: it says so and copies nothing", function()
   local web = page(false)
-  config.insert = "auto"
   dictate(web, "Note to self.")
-  config.insert = "direct"
   assert(web.written == nil and #strokes == 0, "pasted into a plain page")
-  assert(copied == "Note to self." and alerts[1] == "Dictation copied to clipboard", "no copy")
+  assert(alerts[1] == "Dictation: no text field is focused" and copied == nil, tostring(alerts[1]))
 end)
 
 -- A field whose isAttributeSettable fails with hs.axuielement's `problem` message.
@@ -549,7 +543,7 @@ test("a take the backend dies under is kept once stopped", function()
   assert(alerts[2] and alerts[2]:find("recording is kept in", 1, true), tostring(alerts[2]))
 end)
 
-test("a URL that cannot be read still sends the selection, and both are reported", function()
+test("context that cannot be read stops the take, its recording kept", function()
   config.includeSelection, config.cleanup = true, { enabled = true }
   front = {
     bundleID = function()
@@ -557,14 +551,15 @@ test("a URL that cannot be read still sends the selection, and both are reported
     end,
     focusedWindow = function() end,
   }
-  alerts, focus = {}, field("", "picked", "")
+  alerts, focus, kept, sent = {}, field("", "picked", ""), {}, nil
   toggle()
   toggle()
   done("take.wav", 1, 1)
   config.includeSelection, config.cleanup, front = nil, { enabled = false }, nil
-  handlers.onFinal({ id = serial, text = "" })
-  assert(sent.selected == "picked", "dropped the selection")
+  assert(sent == nil, "transcribed without the context")
+  assert(#kept == 1, "lost the recording")
   assert(alerts[1] and alerts[1]:find("could not read the URL", 1, true), tostring(alerts[1]))
+  assert(alerts[1]:find("recording is kept in", 1, true), alerts[1])
 end)
 
 test("a take whose speech recognition fails keeps its recording", function()

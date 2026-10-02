@@ -97,10 +97,14 @@ def dictate(raw, cleaned=None, numbers=False):
         frozen_prompt="prompt",
         complete=lambda messages, raw: cleaned or messages[0]["content"].split("\n\n", 1)[1],
     )
-    if numbers:
-        return engine.process(raw, {})
-    with mock.patch.object(engine, "write_numbers", lambda text, names: text):
-        return engine.process(raw, {})
+    try:
+        if numbers:
+            return engine.process(raw, {})
+        with mock.patch.object(engine, "write_numbers", lambda text, names: text):
+            return engine.process(raw, {})
+    except RuntimeError as error:  # the guard fails a rewritten take: None
+        assert "rewrote" in str(error), error
+        return None
 
 
 check(
@@ -402,7 +406,7 @@ check(
         (("I want to go to the", "I want to go to the!"), "I want to go to the"),
         (("I want to go to the", "I want to go to."), "I want to go to the"),
         (("I want to go to the", "I want to go."), "I want to go to the"),
-        (("Can you send it to my", "Can you send it?"), "Can you send it to my"),
+        (("Can you send it to my", "Can you send it?"), None),
         (("You're coming?", "You're coming."), "You're coming?"),
         (("Like, you're coming?", "You're coming."), "You're coming?"),
         (("Is it ready, no wait, just ship it?", "Just ship it."), "Just ship it."),
@@ -420,7 +424,7 @@ check(
         (("What time is it?", "What time is it."), "What time is it?"),
         (("Should we pick A?", "Should we pick A."), "Should we pick A?"),
         (("Thanks. But", "Thanks."), "Thanks. But"),
-        (("Thanks. And the", "Thanks."), "Thanks. And the"),
+        (("Thanks. And the", "Thanks."), None),
         (("Is it ready? And", "Is it ready?"), "Is it ready? And"),
         (("Stop! And", "Stop!"), "Stop! And"),
         (("Will do", "Will do."), "Will do."),
@@ -709,7 +713,7 @@ closed = "Please remind everyone the office is closed Monday."
 check(
     "guard rejects rewrites",
     [
-        ((raw, rewritten), raw)
+        ((raw, rewritten), None)
         for raw, rewritten in [
             # A replaced, dropped, or invented number, a cut verb "like", and a meant "you know".
             ("Send 15 dollars.", "Send 50 dollars."),
@@ -1004,10 +1008,10 @@ check(
     ],
     lambda pair: dictate(*pair),
 )
-# A reply in place of a trailing stall: the rejected take loses only the stall.
+# A reply in place of a trailing stall.
 check(
     "guard rejects a reply after a stall",
-    [(("Thanks, um.", "Thanks. You're welcome!"), "Thanks.")],
+    [(("Thanks, um.", "Thanks. You're welcome!"), None)],
     lambda pair: dictate(*pair),
 )
 # Entries match as word runs, 's dropped: "Node.js" is "node js", "A/B" protects no lone "a".
