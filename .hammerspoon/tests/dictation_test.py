@@ -297,6 +297,15 @@ for size in (2, 3, 4):
     for run in itertools.product(words, repeat=size):
         server.Engine.write_numbers(" ".join(run) + ".")
 print("PASS no number run raises")
+# The guard reads number words as write_numbers writes them: a cleanup that writes the same digits
+# passes ("four oh four" -> "404", "one point oh five" -> "1.05", "two point one thousand").
+words = ["one", "two", "eight", "oh", "point", "twenty", "hundred", "thousand"]
+for size in (1, 2, 3, 4):
+    for run in itertools.product(words, repeat=size):
+        said = "Use " + " ".join(run) + " now."
+        written = server.Engine.write_numbers(said)
+        assert not server.Engine.looks_rewritten(said, written, []), f"{said!r} -> {written!r}"
+print("PASS the guard accepts the digits write_numbers writes")
 check(
     "a cleaned take gets its numbers as digits",
     [(("Um, send three copies.", None), "Send 3 copies.")],
@@ -501,6 +510,8 @@ check(
             ("It's a the tailed plan.", "It's a detailed plan."),
             ("The rate is one point oh five oh.", "The rate is 1.05 oh."),
             ("Dial two oh two point oh five oh.", "Dial 202.050."),
+            ("Um, open ports eight oh eight oh and nine oh.", "Open ports 8080 and 9 oh."),
+            ("Call me at five, five five five.", "Call me at 5, five five five."),
             ("Email alice at example dot com.", "Email alice@example.com."),
             ("Me and him went.", "He and I went."),
             ("Use half the dose.", "Use ½ the dose."),
@@ -707,6 +718,7 @@ check(
             ("Encrypt the backup.", "Decrypt the backup."),
             ("Activate the license.", "Deactivate the license."),
             ("The license was activated.", "The license was deactivated."),
+            ("Keep the selected items.", "Keep the deselected items."),
             ("Commission the cluster.", "Decommission the cluster."),
             ("Delete the backups by Friday.", "Delete the backups Friday."),
             ("Users have to authenticate.", "Users authenticate."),

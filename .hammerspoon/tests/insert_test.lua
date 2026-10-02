@@ -577,18 +577,10 @@ test("a result neither saved nor delivered keeps its recording; one delivered do
   assert(alerts[1] == "Dictation: could not write the take", tostring(alerts[1]))
   local element = field("", "", "")
   dictate(element, "Delivered.")
-  saveFails = nil
   assert(element.written == "Delivered." and #kept == 1, "kept a delivered take's recording")
-end)
-
-test("a reload keeps the take still transcribing", function()
-  kept, focus = {}, field("", "", "")
-  toggle()
-  toggle()
-  done("take.wav", 1, 1) -- sent, no result yet
-  local wav = ("take%d.wav"):format(starts)
-  env.hs.shutdownCallback()
-  assert(kept[1] == wav and #kept == 1, "lost the take: " .. tostring(kept[1]))
+  dictate(field("", "", "", false, "AXTextArea", true), "Pasted.") -- ⌘V, which nothing confirms
+  saveFails = nil
+  assert(strokes[1] == "cmd+v" and #kept == 2, "lost a pasted take's recording")
 end)
 
 test("a cancelled take that fails says where its recording went", function()
@@ -604,7 +596,7 @@ end)
 
 -- Last: it tears everything down.
 test(
-  "a reload restores the clipboard and keeps the take still finalizing, not cancelled ones",
+  "a reload restores the clipboard and keeps the take transcribing, not cancelled ones",
   function()
     clipboard = { ["public.utf8-plain-text"] = "mine" }
     dictate(field("Hello", "", "", true), "there.")
@@ -614,7 +606,8 @@ test(
     done("take.wav", 1, 1)
     escape() -- cancelled while transcribing
     toggle()
-    toggle() -- stopped, its wav still finalizing
+    toggle()
+    done("take.wav", 1, 1) -- sent, no result yet
     local wav = ("take%d.wav"):format(starts)
     env.hs.shutdownCallback()
     assert(clipboard["public.utf8-plain-text"] == "mine", "did not restore the clipboard")

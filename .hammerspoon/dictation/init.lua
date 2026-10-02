@@ -143,7 +143,7 @@ local function paste(text)
       fail(("Dictation: restored only the first of %d clipboard items"):format(items))
     end
   end)
-  return true
+  return "pasted" -- sent, unconfirmed: a read-only view takes ⌘V silently
 end
 
 -- An attribute of the focused field; nil when unsupported. Raises on accessibility errors.
@@ -276,8 +276,10 @@ local function spaced(text, value, range)
   return text
 end
 
--- Insert into the field focused at stop; false when there is none. Raises on failure.
+-- Insert into the field focused at stop: true once written, "pasted" when sent with ⌘V, false
+-- when there is no field. Raises on failure.
 ---@param text string
+---@return boolean|"pasted"
 local function insertText(text)
   if targetError then
     error("could not read the focused field at stop: " .. targetError, 0)
@@ -347,7 +349,7 @@ end
 
 -- Deliver the result and return to idle.
 ---@param text string?
----@return boolean delivered inserted or copied
+---@return boolean delivered written or copied, so not a ⌘V nothing confirms
 local function finish(text)
   inflight = nil
   local delivered = false
@@ -665,15 +667,13 @@ hs.shutdownCallback = function()
   if dictation.restore then
     dictation.restore.timer:fire()
   end
-  -- The take stopped, finalizing or transcribing, keeps its recording: nothing said is lost to a
-  -- reload (a rename does not stop ffmpeg finishing the file). Cancelled ones go.
-  if state == "thinking" then
-    local capture = recording or requests[inflight]
-    recording = nil
-    if inflight then
-      requests[inflight] = nil
-    end
-    if capture and keep(capture) then
+  -- The take still transcribing keeps its recording: nothing said is lost to a reload. Cancelled
+  -- ones go, as does one stopped but not yet sent: ffmpeg is still finishing its wav (a few ms),
+  -- and the reload's signal would cut that short.
+  local capture = inflight and requests[inflight]
+  if capture then
+    requests[inflight] = nil
+    if keep(capture) then
       print("Dictation: the take still transcribing is kept in " .. config.history.directory)
     end
   end

@@ -908,14 +908,17 @@ class Engine:
                 for t in re.finditer(rf"{number}|[a-zμ]+|[%°$€£½¼¾⅓⅔⅛]", w):
                     tokens.append(t.group())
                     spans.append((m.start() + t.start(), m.start() + t.end()))
-        for k in cls.zeros(tokens, cls.breaks(text, spans)):  # "four oh four"
-            tokens[k] = "zero"
+        zeros = cls.zeros(text)  # "four oh four"
+        tokens = ["zero" if span in zeros else t for t, span in zip(tokens, spans, strict=True)]
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in tokens + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
                 continue  # "negative about fifteen", "two hundred and five"
-            if token == "point" and chunks and not point:  # "one point five" is 1.5
-                point, chunks = "".join(str(total + part) for total, part, _ in chunks) + ".", []
+            if (
+                token == "point" and chunks
+            ):  # "one point five" is 1.5, "one point one point two" 1.1.2
+                point += "".join(str(total + part) for total, part, _ in chunks) + "."
+                chunks = []
                 continue
             if token == "dozen" and chunks:  # "two dozen" is 24, not "2 12"
                 chunks[-1][1], chunks[-1][2] = (chunks[-1][1] or 1) * 12, 12
@@ -956,54 +959,34 @@ class Engine:
                     signs = {"minus": "-", "negative": "-", "positive": "+", "plus": "+"}
                     sign, unit, fresh = signs.get(token, ""), "", False
                 continue
+            if point and value >= 100:  # "one point five thousand" is 1.5 thousand, as written
+                runs = [str(total + part) for total, part, _ in chunks]
+                said({point + "".join(runs) if runs else point[:-1]})
+                point, chunks = "", []
             cls.add_word(chunks, value)
         return found
 
-    @staticmethod
-    def breaks(text, spans):
-        """Which words punctuation comes before, given each word's (start, end) in `text`."""
-        return {
-            k
-            for k in range(1, len(spans))
-            if re.search(r"[.,!?;:…—]", text[spans[k - 1][1] : spans[k][0]])
-        }
-
     @classmethod
-    def zeros(cls, words, breaks=()):
-        """Where an "oh" is a zero digit, as write_numbers reads one: "four oh four", "five oh oh",
-        "eight oh eight oh", "one point oh five"; not "eight oh no" or "four. Oh, four" (`breaks`
-        are the words punctuation comes before)."""
-        found, read, k = set(), False, 0  # read: a zero read before a number word in this one
-        while k < len(words):
-            j = k
-            while j < len(words) and words[j] == "oh" and (j == k or j not in breaks):
-                j += 1
-            if j == k:  # NUMBER_RUN's (?P<zero>) holds through "point" and "and" too
-                joins = words[k] in cls.NUMBERS or words[k] in ("point", "and")
-                read = read and joins and k not in breaks
-                k += 1
-                continue
-            joined = k and k not in breaks
-            before = words[k - 1] if joined else ""
-            after = words[j] if j < len(words) and j not in breaks else ""
-            pointed = before == "point" and k > 1 and words[k - 2] in cls.NUMBERS
-            inside = before in cls.NUMBERS and after in cls.NUMBERS  # NUMBER_RUN's (?P<zero>)
-            if pointed or inside or (before in cls.NUMBERS and (j - k > 1 or read)):
-                found.update(range(k, j))
-                read = read or inside
-            else:
-                read = False
-            k = j
-        return found
+    def zeros(cls, text):
+        """Where each "oh" write_numbers reads as a zero digit is in `text`, as (start, end): the
+        ones inside a NUMBER_RUN match ("four oh four", "one point oh five", "eight oh eight oh"),
+        not "eight oh no"."""
+        return {
+            (m.start() + o.start(), m.start() + o.end())
+            for m in cls.NUMBER_RUN.finditer(text)
+            for o in re.finditer(r"\boh\b", m.group(), re.IGNORECASE)
+        }
 
     @staticmethod
     def add_word(chunks, value):
         """Add a number word to chunks of [total, part under the scale, last word]. Scales and
         words after one join a chunk, as do ones after tens ("ninety nine"); anything else starts
-        one ("nineteen | ninety nine")."""
+        one ("nineteen | ninety nine"), as does a zero, always read as a digit ("twenty oh one")."""
         last = chunks[-1][2] if chunks else 0
-        if not chunks or not (
-            value >= 100 or last >= 100 or (last in range(20, 100, 10) and value < 10)
+        if (
+            not chunks
+            or value == 0
+            or not (value >= 100 or last >= 100 or (last in range(20, 100, 10) and value < 10))
         ):
             chunks.append([0, 0, 0])
         chunk = chunks[-1]
@@ -1070,6 +1053,7 @@ class Engine:
     )
     _COUNT = "|".join(sorted(COUNTS, key=len, reverse=True))
     _SCALE = "hundred|thousand|million|billion"
+    _ENDS = "|".join(sorted([*ORDINAL_ENDS, *DECADES], key=len, reverse=True))
     NUMBER_RUN = re.compile(
         rf"{ALONE[0]}(?:a\s+(?=(?:{_SCALE})\b))?(?:{_COUNT})"
         rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+and(?=\s+(?:{_COUNT})\b)"
@@ -1077,7 +1061,7 @@ class Engine:
         rf"|(?P<zero>(?:\s+oh)+)(?=\s+(?:{_COUNT})\b)|(?:\s+oh){{2,}}\b"
         rf"|\s+point(?:\s+oh)*(?:(?=\s+(?:{_COUNT})\b)|(?<=oh)\b))*"  # "one point oh five"
         rf"(?(zero)(?:\s+oh\b)?)"  # a last digit once one was read: "eight oh eight oh"
-        rf"(?:(?:\s+and)?(?:\s+|-)(?:{'|'.join(sorted([*ORDINAL_ENDS, *DECADES], key=len)[::-1])}))?"
+        rf"(?:(?:\s+and)?(?:\s+|-)(?:{_ENDS}))?"
         rf"\b(?![/@+#=\\]|\.\w)",
         re.IGNORECASE,
     )
@@ -1389,15 +1373,17 @@ class Engine:
             # "three thirty" -> "3:30", not "330 330" or "3 3".
             # The whole run when it's written whole ("three thirty" kept as words), else its first
             # piece.
+            # In a fixed order, never a set's: the same take always gets the same verdict.
             shared = written[k] & n
-            whole = max(n, key=len)
-            joined, at = whole if whole in shared else min(shared, key=len), k + 1
+            whole = max(n, key=lambda f: (len(f), f))
+            joined = whole if whole in shared else min(shared, key=lambda f: (len(f), f))
+            at = k + 1
             while parts > 1 and at < len(written):
                 more = [f for f in written[at] if joined + f in n]
                 if not more:
                     break
-                joined, at = joined + more[0], at + 1
-            if parts > 1 and joined != max(n, key=len):
+                joined, at = joined + max(more, key=lambda f: (len(f), f)), at + 1
+            if parts > 1 and joined != whole:
                 return True  # part of it dropped: "three thirty" -> "3"
         if at < len(written):
             return True  # a number never said
@@ -1451,8 +1437,8 @@ class Engine:
             for k, w in enumerate(raw_words)
             if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
         }
-        # "four oh four", "one point oh five"
-        numeric |= cls.zeros(raw_words, cls.breaks(raw, [s.span() for s in spans]))
+        zeros = cls.zeros(raw)  # "four oh four", "one point oh five"
+        numeric |= {k for k, s in enumerate(spans) if s.span() in zeros}
         numeric |= {  # "two hundred and five", "one point five"
             k
             for k, w in enumerate(raw_words)
@@ -1504,6 +1490,10 @@ class Engine:
         # words come and go. Not "Delete logs and backups" -> "Delete logs", nor "Grant user
         # access" -> "Grant admin access".
         bigrams = set(itertools.pairwise(raw_words))
+        said_words, wrote_words = collections.Counter(raw_words), collections.Counter(out_words)
+
+        def merged(split, base):  # "the tailed" written as one word: that "the" went with it
+            return (split, base) in bigrams and said_words[split] > wrote_words[split]
 
         def alike(a, b):  # one in the other, close in spelling, or an abbreviation ("vs")
             def shortens(x, y):
@@ -1521,7 +1511,7 @@ class Engine:
                     and len(x) - len(p) > 2
                     and x[len(p) :] == y[len(q) :]
                     and (p or q != "de" or cls.DE_VERB.fullmatch(x))
-                    and not (not p and (cls.SPLITS.get(q, q), x) in bigrams)
+                    and (p or not merged(cls.SPLITS.get(q, q), x))
                     for p, q in cls.PREFIXES
                 ):
                     return False

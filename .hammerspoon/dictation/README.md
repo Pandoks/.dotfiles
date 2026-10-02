@@ -56,5 +56,5 @@ From the dotfiles checkout (the tests are not deployed to `~/.hammerspoon`):
 
 ```sh
 .hammerspoon/dictation/.venv/bin/python .hammerspoon/tests/dictation_test.py  # server.py
-sh .hammerspoon/tests/dictation_test.sh  # init.lua's insertion and history.lua
+sh .hammerspoon/tests/dictation_test.sh  # init.lua, history.lua, engine.lua, recorder.lua
 ```

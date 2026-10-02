@@ -10,6 +10,6 @@ clang -Wall -Wextra -Werror \
   -I"$frameworks/LuaSkin.framework/Headers" -F"$frameworks" \
   -framework LuaSkin -Wl,-rpath,"$frameworks" \
   "$test_dir/lua_runner.c" -o "$test_build/lua"
-for suite in insert history engine; do
+for suite in insert history engine recorder; do
   "$test_build/lua" "$test_dir/${suite}_test.lua" "$test_dir/../dictation" "$frameworks" "$test_build"
 done
