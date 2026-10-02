@@ -255,6 +255,7 @@ check(
         ("Room one oh one point five.", "Room 101.5."),
         ("Call at eight oh oh tomorrow.", "Call at 8:00 tomorrow."),
         ("The server returned five oh oh.", "The server returned 500."),
+        ("Productivity is at 3.30 tasks per hour.", "Productivity is at 3.30 tasks per hour."),
         ("Use port eight oh eight oh.", "Use port 8080."),
         ("Dial two oh two point oh five oh.", "Dial 202.050."),
         ("The site throws four oh four a lot.", "The site throws 404 a lot."),
@@ -534,6 +535,13 @@ check(
             ("Do you, did you push it?", "Did you push it?"),
             ("Is the, uh, are the tests passing?", "Are the tests passing?"),
             ("We were, we are shipping Friday.", "We are shipping Friday."),
+            ("Set it to negative fifteen.", "Set it to -15."),
+            (
+                "Should we move the standup to ten? Actually, should we cancel it?",
+                "Should we cancel it?",
+            ),
+            ("It only take a minute.", "It only takes a minute."),
+            ("We can't, we can ship it Friday.", "We can ship it Friday."),
             ("The build's been failing.", "The build has been failing."),
             ("Uh, the API return an error.", "The API returns an error."),
             ("Email alice at example dot com.", "Email alice@example.com."),
@@ -631,6 +639,15 @@ standup = (
     "has prepared the demo yet."
 )
 pricing = "Marketing wants a short video explaining the pricing changes."
+# An empty cleanup (no coherent speech, as the prompt asks) types nothing, and the result carries
+# what was heard so Hammerspoon keeps it.
+engine.speech = SimpleNamespace(transcribe=lambda wav, hint: "Mmm wha blah")
+engine.cleaner = SimpleNamespace(frozen_prompt="prompt", complete=lambda messages, raw: "")
+with tempfile.NamedTemporaryFile(suffix=".wav") as take, mock.patch.object(server, "emit") as sent:
+    engine.handle({"cmd": "transcribe", "id": 7, "wav": take.name})
+event = sent.call_args[0][0]
+assert event["text"] == "" and event["heard"] == "Mmm wha blah", event
+print("PASS an empty cleanup types nothing and keeps what was heard")
 # A stall between two counts does not join them; between a number's parts it does.
 check(
     "guard reads a number across a stall only when it goes on",
@@ -772,6 +789,12 @@ check(
             ("Is it ready, no wait, is it deployed?", "It's deployed."),
             ("Would you like coffee?", "You'd like coffee."),
             ("I can, I can't come tomorrow.", "I can come tomorrow."),
+            ("This is useful.", "This is useless."),
+            ("Alice has the key.", "Alice is the key."),
+            ("You are coming? Then call me.", "You are coming. Then call me."),
+            ("The test is positive.", "The test is negative."),
+            ("Delete bakcup and restore datbase.", "Delete database and restore backup."),
+            ("Is it at 3 p.m.?", "It's at 3 p.m."),
             ("Is the service running?", "The service was running."),
             ("We need two—three servers.", "We need 23 servers."),
             ("Delete the backup.", "Delete the backups."),

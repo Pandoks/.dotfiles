@@ -509,8 +509,10 @@ end
 -- Each reply owns its recording; cancelled replies cannot finish a later take.
 engine, engineError = Engine.new(config, {
   onFinal = function(result)
-    -- Saved before anything else, even for a cancelled take, so no result is lost.
-    local problem = #result.text > 0 and history.save(result.text, config.history)
+    -- Saved before anything else, even for a cancelled take, so no result is lost; with nothing to
+    -- type (the cleanup heard no coherent speech), what the speech model heard.
+    local kept = #result.text > 0 and result.text or result.heard
+    local problem = kept ~= nil and #kept > 0 and history.save(kept, config.history)
     local capture = requests[result.id]
     requests[result.id] = nil
     if problem then
@@ -520,7 +522,8 @@ engine, engineError = Engine.new(config, {
     local delivered = false
     if inflight == result.id then
       if result.text == "" then
-        fail("Dictation: no speech recognized")
+        local saved = result.heard and problem == nil and " (what was heard is in history)" or ""
+        fail("Dictation: no speech recognized" .. saved)
       end
       delivered = finish(result.text)
     end

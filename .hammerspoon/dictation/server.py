@@ -610,6 +610,8 @@ class Engine:
                 {"role": "user", "content": user},
             ]
         out = self.cleaner.complete(messages, raw)
+        if not out.strip():
+            return ""  # no coherent speech, as the prompt asks; what was heard goes to history
         # Guard: an answer, paraphrase, or rewrite falls back to the raw transcript.
         return raw if self.looks_rewritten(raw, out, self.glossary(request)) else out
 
@@ -711,6 +713,7 @@ class Engine:
             "more|greater/less|fewer",
             "and/or",
             "to|into|onto|toward/from",  # "towards" is an inflection
+            "positive/negative",  # as a label; signing a number ("negative fifteen") it is a sign
         ]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
@@ -730,6 +733,8 @@ class Engine:
     )
     # How a prefix sounds said on its own: "detailed" heard as "the tailed".
     SPLITS = types.MappingProxyType({"de": "the", "dis": "this", "mis": "miss", "non": "none"})
+    # Suffixes that make one word the other's opposite: "useful" is not "useless".
+    SUFFIXES = (("ful", "less"),)
     PREFIXES = tuple(
         [("", p) for p in ("un", "in", "im", "il", "ir", "non", "dis", "mis", "de", "anti")]
         + [("en", "de"), ("in", "de"), ("in", "ex"), ("in", "out"), ("en", "dis")]
@@ -806,10 +811,13 @@ class Engine:
         }
         | {"~": frozenset(["tilde"]), ":": frozenset(["colon"])}
     )
-    # Auxiliaries by tense: "is running" is not "was running".
+    # Auxiliaries by verb and tense: "is running" is not "was running", "has the key" not "is the
+    # key".
     TENSE = types.MappingProxyType(
-        dict.fromkeys(["is", "are", "am", "do", "does", "has", "have"], "present")
-        | dict.fromkeys(["was", "were", "did", "had"], "past")
+        dict.fromkeys(["is", "are", "am"], "be")
+        | dict.fromkeys(["was", "were"], "was")
+        | dict.fromkeys(["has", "have"], "have")
+        | {"had": "had", "do": "do", "does": "do", "did": "did"}
     )
     # Words that open a yes/no question: "Is it ready?", "Can you send it?"
     AUXILIARIES = TENSE.keys() | {"can", "could", "will", "would", "should", "shall", "may"}
@@ -1287,7 +1295,11 @@ class Engine:
 
         def clock(m):  # not a price, rate, or size: "at 3.30 dollars", "at 4.15 GB"
             follower = m[4].strip().lower()
-            if follower in measured or re.fullmatch(cls.UNIT, follower):
+            counts = follower in cls.PLURALS or (  # "at 3.30 tasks per hour"
+                re.fullmatch(r"\w{2,}[^s']s", follower)
+                and follower not in cls.SINGULAR_S | cls.TIME_VERBS
+            )
+            if follower in measured or re.fullmatch(cls.UNIT, follower) or counts:
                 return m[0]
             return f"{m[1]} {m[2]}:{m[3]}{m[4]}"
 
@@ -1583,6 +1595,12 @@ class Engine:
                 y in (x + "s", x + "es", x[:-1] + "ies") for x, y in ((a, b), (b, a))
             ):
                 return False
+            if any(
+                x.endswith(p) and y.endswith(q) and x[: -len(p)] == y[: -len(q)] and len(x) > 5
+                for x, y in ((a, b), (b, a))
+                for p, q in cls.SUFFIXES
+            ):
+                return False
             close = difflib.SequenceMatcher(None, a, b).ratio() >= 0.6
             return a in b or b in a or close or bool(shortens(a, b) or shortens(b, a))
 
@@ -1600,7 +1618,9 @@ class Engine:
             plain(w)
             for words in (raw_words, out_words)
             for k, a in enumerate(words)
-            if a in cls.DETERMINERS or (a.endswith("'s") and a[:-2] not in cls.PERSONS)
+            # Not "only", "which", "what": "It only take a minute" may become "takes".
+            if a in cls.DETERMINERS - {"only", "which", "what", "same"}
+            or (a.endswith("'s") and a[:-2] not in cls.PERSONS)
             for w in phrase(words, k)
         }
 
@@ -1614,10 +1634,24 @@ class Engine:
         }
         gone_words = {plain(w) for w in bare(lost)} - loose
         added = {plain(w) for w in bare(set(out_words) - raw_set - counted)} - loose
-        unpaired = {w for w in gone_words if not any(alike(w, a) for a in added)}
-        if len(unpaired) > fixes or any(
-            not any(alike(a, w) for w in gone_words) for a in added - named
-        ):
+        # Each in its own place: "Delete bakcup and restore datbase" is not "Delete database and
+        # restore backup".
+        places = [
+            ({plain(w) for w in bare(raw_words[i1:i2])}, {plain(w) for w in bare(out_words[j1:j2])})
+            for tag, i1, i2, j1, j2 in edits
+            if tag != "equal"
+        ]
+
+        def fixed(w, said):  # paired with a word written where it was said (or the reverse)
+            return any(
+                alike(w, other) if said else alike(other, w)
+                for heard_here, written_here in places
+                if w in (heard_here if said else written_here)
+                for other in (written_here & added if said else heard_here & gone_words)
+            )
+
+        unpaired = {w for w in gone_words if not fixed(w, True)}
+        if len(unpaired) > fixes or any(not fixed(a, False) for a in added - named):
             return True
 
         # So does each person said, as often, in some form: not "He" -> "They", "to him" -> "", or
@@ -1646,12 +1680,13 @@ class Engine:
                 after = expand(raw_words[i2 : i2 + m])
                 if expand(raw_words[max(0, i1 - m) : i1]) == cut or after == cut:
                     return True
-                # Said again with another tense, the repeat kept: "Do you, did you push it?". Not
-                # one auxiliary for another ("did have" -> "have").
+                # Said again with another tense or negation, the repeat kept: "Do you, did you push
+                # it?", "I can, I can't come". Not one auxiliary for another ("did have" -> "have").
+                first, then = [w for w in cut if w != "not"], [w for w in after if w != "not"]
                 if (
-                    len(after) == len(cut)
-                    and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(cut, after))
-                    and any(a == b and a not in cls.TENSE for a, b in zip(cut, after))
+                    len(then) == len(first)
+                    and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(first, then))
+                    and any(a == b and a not in cls.TENSE for a, b in zip(first, then))
                 ):
                     return True
             return False
@@ -1716,45 +1751,67 @@ class Engine:
         if obliged(heard) != obliged(out_words):
             return True
 
-        # As many present and past auxiliaries, contractions read through, wherever they moved:
-        # "is running" is not "was running", "Don't delete" not "Didn't delete", "Is it up?" not
-        # "It was up."
+        # As many of each auxiliary by verb and tense, contractions read through, wherever they
+        # moved: "is running" is not "was running", "Don't delete" not "Didn't delete", "has the
+        # key" not "is the key". "'s" may be "is" or "has" (or a possessive), "'d" "had" or "would".
         def tensed(tokens):
             counts = collections.Counter()
             for w in tokens:
-                aux = plain(w)
-                if re.search(r"'(?:re|m|ve|s)$", w):
-                    aux = "is"  # "they're", "I'm", "I've", "it's", "the build's" (or a possessive)
-                if aux in cls.TENSE:
+                ending = w.rpartition("'")[2] if "'" in w else ""
+                aux = {"re": "are", "m": "am", "ve": "have"}.get(ending, plain(w))
+                if ending in ("s", "d"):
+                    counts["'" + ending] += 1
+                elif aux in cls.TENSE:
                     counts[cls.TENSE[aux]] += 1
-                counts["'d"] += w.endswith("'d")  # "had" or "would"
             return counts
 
         said_tense, wrote_tense = tensed(heard), tensed(out_words)
-        if said_tense["present"] != wrote_tense["present"] or not (
-            wrote_tense["past"] <= said_tense["past"] + said_tense["'d"]
-            and said_tense["past"] <= wrote_tense["past"] + wrote_tense["'d"]
+
+        def fits(kinds, wild):  # each kind as often, a contraction standing in for one of them
+            a, b = said_tense, wrote_tense
+            return sum(a[k] for k in kinds) + a[wild] == sum(b[k] for k in kinds) + b[wild] and all(
+                a[k] <= b[k] + b[wild] and b[k] <= a[k] + a[wild] for k in kinds
+            )
+
+        if (
+            any(said_tense[k] != wrote_tense[k] for k in ("was", "do", "did"))
+            or not fits(("be", "have"), "'s")
+            or not (  # "I had sent it" -> "I'd sent it"; "'d" may be "would" too
+                wrote_tense["had"] <= said_tense["had"] + said_tense["'d"]
+                and said_tense["had"] <= wrote_tense["had"] + wrote_tense["'d"]
+            )
         ):
-            return True  # a "'d" may be the "had": "I had sent it" -> "I'd sent it"
+            return True
 
         # Questions stay questions: each asked (opened by an auxiliary or question word past any
         # filler, and not taken back) still ends in "?". "Is it ready?" is not "It's ready.", nor
         # "Is it ready? Ship it." "It's ready. Ship it."; "Is it ready, no wait, ship it?" may be
         # "Ship it."
         asked, first = 0, 0
+        skipped = corrected | fillers | restarted
         for k, s in enumerate(spans):
             tail = raw[s.end() : spans[k + 1].start()] if k + 1 < len(spans) else raw[s.end() :]
-            if re.search(r"[.!?]", tail):  # a sentence ends at word k
+            # A sentence ends at word k ("3 p.m." and "config.lua" end none).
+            if re.search(r"[.!?][\"”’')\]]*(?:\s|$)", tail):
+                sentence = [j for j in range(first, k + 1) if raw_words[j] not in cls.MARKERS]
+                start = next((j for j in sentence if j not in fillers), None)
                 opener = next(
                     (
-                        raw_words[j]
-                        for j in range(first, k + 1)
-                        if j not in corrected | fillers
-                        and raw_words[j] not in cls.MARKERS | cls.CORRECTIONS  # "no wait, is it"
+                        j
+                        for j in sentence
+                        if j not in skipped and raw_words[j] not in cls.CORRECTIONS
                     ),
-                    "",
+                    None,
                 )
-                asked += "?" in tail and plain(opener) in cls.AUXILIARIES | cls.ASKING
+                # Asked as said ("You're coming?"), or asked again past a correction ("Is it ready,
+                # no wait, is it deployed?"), not taken back ("..., no wait, ship it?").
+                asked += (
+                    "?" in tail
+                    and opener is not None
+                    and (
+                        opener == start or plain(raw_words[opener]) in cls.AUXILIARIES | cls.ASKING
+                    )
+                )
                 first = k + 1
         if asked > cls.ensure_question(raw, out).count("?"):
             return True
@@ -1765,7 +1822,15 @@ class Engine:
         # swapping below.
         def sides(tokens):  # counted: "logging off and tracing off" keeps both
             return collections.Counter(
-                cls.SIDES[w] for w in tokens if w in cls.SIDES and w not in cls.EVERYDAY
+                cls.SIDES[w]
+                for k, w in enumerate(tokens)
+                if w in cls.SIDES
+                and w not in cls.EVERYDAY
+                and not (  # "negative fifteen" is -15
+                    w in ("positive", "negative")
+                    and tokens[k + 1 : k + 2]
+                    and (tokens[k + 1] in cls.NUMBERS or tokens[k + 1][:1].isdigit())
+                )
             )
 
         if sides(heard) != sides(out_words):
@@ -1885,6 +1950,8 @@ class Engine:
             return self.write_numbers(raw, names)  # cleanup off: the speech model's text
         # Stalls first: the vocabulary restores a spelling their removal capitalized ("yabai").
         text = self.strip_stalls(self.cleanup(raw, request).strip())
+        if not text:
+            return ""
         text = self.apply_vocabulary(self.apply_dictionary(text), request)
         # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
         said = self.strip_stalls(raw)
@@ -1899,7 +1966,10 @@ class Engine:
                 return
             self.heard = None
             text = self.process(wav, request)
-            emit({"event": "final", "id": request.get("id"), "text": text})
+            event = {"event": "final", "id": request.get("id"), "text": text}
+            if not text and self.heard and re.search(r"[^\W_]", self.heard):
+                event["heard"] = self.heard  # nothing to type, but something was heard: kept
+            emit(event)
         else:
             emit({"event": "error", "id": request.get("id"), "msg": f"unknown cmd: {command}"})
 

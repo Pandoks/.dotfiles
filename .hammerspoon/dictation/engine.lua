@@ -17,7 +17,7 @@ local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 
 ---@param config DictationConfig
 ---@param handlers {
----  onFinal: fun(result: { id: integer, text: string }),
+---  onFinal: fun(result: { id: integer, text: string, heard?: string }),
 ---  onError: fun(message: string, id?: integer, heard?: string),
 ---}
 function engine.new(config, handlers)

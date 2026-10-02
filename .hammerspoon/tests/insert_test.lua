@@ -474,6 +474,17 @@ test("a take that fails after transcription keeps what was heard", function()
   assert(alerts[1] and alerts[1]:find("in history", 1, true), tostring(alerts[1]))
 end)
 
+test("a take with nothing to type keeps what was heard", function()
+  local element = field("", "", "")
+  alerts, focus, saved = {}, element, {}
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  handlers.onFinal({ id = serial, text = "", heard = "mumbled words" })
+  assert(saved[1] == "mumbled words" and element.written == nil, tostring(saved[1]))
+  assert(alerts[1] and alerts[1]:find("in history", 1, true), tostring(alerts[1]))
+end)
+
 test("a take cancelled while transcribing is saved, not inserted", function()
   local element = field("", "", "")
   alerts, strokes, focus, saved = {}, {}, element, {}
