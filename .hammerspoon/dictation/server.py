@@ -9,6 +9,7 @@ stdout: {"event": "ready"}                          once models are loaded
 """
 
 import argparse
+import collections
 import difflib
 import functools
 import json
@@ -696,6 +697,12 @@ class Engine:
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
     # side).
+    # Opposites in everyday phrases a cleanup may drop: "all right", "right?", "and so on".
+    EVERYDAY = frozenset(
+        ["on", "up", "down", "left", "right", "first", "last", "over", "under", "above", "below"]
+        + ["least", "most", "more", "less", "greater", "fewer", "all", "every", "each", "some"]
+        + ["everyone", "everybody", "someone", "somebody", "everything", "something"]
+    )
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
     REFERENTS = ("this|these/that|those", "here/there")
     # People a cleanup must keep, by person: "He approved it" is not "They approved it", and
@@ -770,6 +777,7 @@ class Engine:
     # Exact quantities that are not numbers: "half" is not "double", "once" not "twice".
     MULTIPLES = types.MappingProxyType(
         {"half": "½", "quarter": "¼", "once": "×1", "twice": "×2", "double": "×2"}
+        | {"½": "½", "¼": "¼", "¾": "¾", "⅓": "⅓", "⅔": "⅔", "⅛": "⅛"}
         | {"thrice": "×3", "triple": "×3"}
     )
     # Words between a sign or unit and its number: "negative about fifteen", "15 US dollars".
@@ -832,7 +840,7 @@ class Engine:
                 # is not "TLS13", nor "1e-3" "1e3".
                 tokens.append("#" + re.sub(r"(?<=.)(?<!\de)-", "", core))  # "-1e-3" keeps its sign
             else:
-                tokens += re.findall(rf"{number}|[a-zμ]+|[%°$€£]", w)
+                tokens += re.findall(rf"{number}|[a-zμ]+|[%°$€£½¼¾⅓⅔⅛]", w)
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in tokens + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
@@ -1038,16 +1046,20 @@ class Engine:
                     yield m, t
 
         said_marks = {t for _, t in marked(raw)}
-        kept_marks = {t for _, t in marked(out)}
-        for m, t in marked(raw):
-            taken_back = any(m.start() <= spans[k].start() < m.end() for k in corrected)
-            if t not in kept_marks and not taken_back:
-                return True
+        kept_marks = collections.Counter(t for _, t in marked(out))
+        # Each one counts: not "alice@example.com and alice@example.com" -> one.
+        owed = collections.Counter(
+            t
+            for m, t in marked(raw)
+            if not any(m.start() <= spans[k].start() < m.end() for k in corrected)
+        )
+        if owed - kept_marks:
+            return True
         # A new one is only one said aloud, marks too: "alice at example dot com" may become
         # "alice@example.com", but "Email Alice" not, nor "use force" "--force".
         spoken = set(raw_words) | {w for run in glossary for w in run}
         entries = {a.lower().replace("’", "'") for a in allowed}  # "Node.js" as listed
-        for t in kept_marks - said_marks - entries:
+        for t in set(kept_marks) - said_marks - entries:
             marks = {cls.MARK_WORDS[c] for c in t if c in cls.MARK_WORDS}
             if not set(words(t)) <= spoken or any(not names & spoken for names in marks):
                 return True
@@ -1111,6 +1123,18 @@ class Engine:
             return {cls.PERSONS[w] for w in (t.split("'")[0] for t in tokens) if w in cls.PERSONS}
 
         if persons(spoken) - persons(out_words):
+            return True
+
+        # An opposite said survives on its side: "Turn logging off" is not "Turn logging". Not
+        # everyday ones ("all right", "right?", "first of all", "on Monday"), only swapped above.
+        def sides(tokens):
+            return {
+                cls.SIDES[w]
+                for w in tokens
+                if isinstance(cls.SIDES.get(w, ("",))[0], int) and w not in cls.EVERYDAY
+            }
+
+        if sides(spoken) - sides(out_words):
             return True
         # A name survives unless taken back or fixed by the glossary: "Send it to Alice" is not
         # "Send it to Bob", nor "Meet on Monday" "Meet on Friday".
