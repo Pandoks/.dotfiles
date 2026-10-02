@@ -1345,8 +1345,8 @@ class Engine:
             return a in b or b in a or close or bool(shortens(a, b) or shortens(b, a))
 
         def plain(w):  # "don't" is "do", "I'll" is "i", "won't" is "will"
-            w = {"won't": "will", "can't": "can", "shan't": "shall"}.get(w, w)
-            return re.sub(r"n't$|'(?:ll|m|re|ve|d|s)$", "", w)
+            irregular = {"won't": "will", "can't": "can", "shan't": "shall"}
+            return irregular.get(w) or re.sub(r"n't$|'(?:ll|m|re|ve|d|s)$", "", w)
 
         # Small words, filler, and words the number, unit, and mark checks already cover.
         loose = cls.FUNCTION | cls.MARKERS | cls.DISPOSABLE | cls.QUALIFIERS | cls.MEASURES.keys()
