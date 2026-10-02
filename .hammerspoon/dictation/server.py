@@ -922,6 +922,7 @@ class Engine:
             )
             and not re.fullmatch(r"i(?:'.*)?", m.group().lower())
             and m.group().lower() not in cls.MARKERS
+            and not re.match(r"us\s+dollars?\b", cased[m.start() :], re.IGNORECASE)  # currency
         }
         # Its unit is checked as a word: "16GB" is not "16MB".
         raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
@@ -1059,9 +1060,12 @@ class Engine:
         # "alice@example.com", but "Email Alice" not, nor "use force" "--force".
         spoken = set(raw_words) | {w for run in glossary for w in run}
         entries = {a.lower().replace("’", "'") for a in allowed}  # "Node.js" as listed
+        said_count = collections.Counter(raw_words)
         for t in set(kept_marks) - said_marks - entries:
-            marks = {cls.MARK_WORDS[c] for c in t if c in cls.MARK_WORDS}
-            if not set(words(t)) <= spoken or any(not names & spoken for names in marks):
+            # Each mark said as often as written: one "slash" is not "foo/bar/baz".
+            marks = collections.Counter(c for c in t if c in cls.MARK_WORDS)
+            short = any(sum(said_count[w] for w in cls.MARK_WORDS[c]) < n for c, n in marks.items())
+            if not set(words(t)) <= spoken or short:
                 return True
 
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
@@ -1137,7 +1141,14 @@ class Engine:
                 cls.PERSONS[w] for w in (t.split("'")[0] for t in tokens) if w in cls.PERSONS
             )
 
-        heard = [w for k, w in enumerate(raw_words) if k not in corrected | fillers | restarted]
+        heard = [
+            w
+            for k, w in enumerate(raw_words)
+            if k not in corrected | fillers | restarted
+            and not (
+                w == "us" and raw_words[k + 1 : k + 2] in (["dollar"], ["dollars"])
+            )  # "US dollars"
+        ]
         if persons(heard) - persons(out_words):
             return True
 
@@ -1145,10 +1156,12 @@ class Engine:
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
         # deploy". Not everyday ones ("all right", "right?", "on Monday", "that"), only kept from
         # swapping below.
-        def sides(tokens):
-            return {cls.SIDES[w] for w in tokens if w in cls.SIDES and w not in cls.EVERYDAY}
+        def sides(tokens):  # counted: "logging off and tracing off" keeps both
+            return collections.Counter(
+                cls.SIDES[w] for w in tokens if w in cls.SIDES and w not in cls.EVERYDAY
+            )
 
-        if sides(spoken) != sides(out_words):
+        if sides(heard) != sides(out_words):
             return True
         # A name survives unless taken back or fixed by the glossary: "Send it to Alice" is not
         # "Send it to Bob", nor "Meet on Monday" "Meet on Friday".
