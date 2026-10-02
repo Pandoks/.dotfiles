@@ -180,6 +180,13 @@ test("keep moves a recording in, where prune never deletes it", function()
   assert(mode == "rw-------", "the recording is " .. tostring(mode))
 end)
 
+test("keep reports a recording that is gone, leaving nothing", function()
+  local settings = { directory = scratch .. "/gone", maxMegabytes = 10 }
+  local failure = history.keep(scratch .. "/missing.wav", settings)
+  assert(failure and failure:find("is gone", 1, true), tostring(failure))
+  expect(settings.directory, {})
+end)
+
 test("prune lists the folder only while it may be over the cap", function()
   local settings = { directory = scratch .. "/counted", maxMegabytes = 10 }
   clock = 1790000000

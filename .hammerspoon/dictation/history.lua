@@ -100,7 +100,10 @@ function history.keep(file, settings)
   if not path then
     return failure
   end
-  -- ffmpeg wrote it 0644, private only inside the temporary folder; the history folder may not be.
+  if not hs.fs.attributes(file, "mode") then
+    return "the recording " .. file .. " is gone"
+  end
+  -- Owner-only whoever wrote it: the history folder may be readable by others.
   if not os.execute("chmod 600 " .. quote(file)) then
     return "could not make " .. file .. " owner-only"
   end

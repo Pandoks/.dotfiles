@@ -489,22 +489,18 @@ class Engine:
     CONTINUATION = frozenset(
         ["the", "a", "an", "my", "your", "our", "their", "its", "every"]
         + ["and", "but", "or", "nor", "because", "although", "whereas", "whether", "unless", "if"]
-        + ["than", "via", "versus", "per", "to", "with", "of", "from", "into", "onto", "toward"]
-        + ["towards", "for", "between", "among", "without"]  # "Send it to"
+        + ["than", "via", "versus", "per"]
     )
-    # Words a complete sentence ends "to" after: "I'd love to", "You don't have to".
-    ELLIPTICAL = frozenset(
-        ["want", "wants", "wanted", "like", "likes", "liked", "love", "loves", "loved", "need"]
-        + ["needs", "needed", "have", "has", "had", "going", "got", "ought", "used", "try"]
-        + ["tried", "plan", "hope", "mean", "meant", "supposed", "able", "glad", "happy"]
-    )
+    # Prepositions that leave an object pronoun's sentence open ("Send it to", "Open it with");
+    # elsewhere a sentence may end on one ("what you come up with", "I'd love to").
+    DIRECTED = frozenset(["to", "with", "into", "onto", "from", "toward", "towards", "for"])
 
     @classmethod
     def dangles(cls, words):
         """Ends on a continuation word; an all-caps one after others is a name ("plan A")."""
         last = words[-1]
-        if last.lower() == "to" and len(words) > 1 and words[-2].lower() in cls.ELLIPTICAL:
-            return False
+        if last.lower() in cls.DIRECTED and len(words) > 1:
+            return words[-2].lower() in ("it", "this", "that", "them", "these", "those")
         return last.lower() in cls.CONTINUATION and not (len(words) > 1 and last.isupper())
 
     def end_policy(self, raw, text):
@@ -725,7 +721,10 @@ class Engine:
     )
     # Prefixes that make one word the other's opposite: "unsafe", "deactivate", "decrypt". A bare
     # "de" only on a verb ending that takes it, not on misheard words ("ploy" -> "deploy").
-    DE_VERB = re.compile(r".*(?:ate|ize|ise|ify|ect|ess|ister|ose|ruct)")
+    DE_VERB = re.compile(  # any inflection: "activated", "serializing", "deselects"
+        r".*(?:at|iz|is|os|il|pl|od|u)(?:e|es|ed|ing)|.*if(?:y|ies|ied|ying)"
+        r"|.*(?:ect|ess|ister|ruct|ion|und|ist|ost)(?:s|es|ed|ing)?"
+    )
     PREFIXES = tuple(
         [("", p) for p in ("un", "in", "im", "il", "ir", "non", "dis", "mis", "de", "anti")]
         + [("en", "de"), ("in", "de"), ("in", "ex"), ("in", "out"), ("en", "dis")]
@@ -889,11 +888,9 @@ class Engine:
         # A name mixing letters and digits is a value of its own, not a number: "HTTP/2" is not
         # "HTTP/3" or "2" ("C++20", "SHA3-256", "2FA"). "15th", "3pm", "1990s", "3-year-old" count.
         ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm|-.+)"
-        tokens, breaks, previous = [], set(), ""  # breaks: tokens punctuation comes before
-        for w in text.split():
-            if tokens and re.search(r"[.,!?;:…—]\W*$", previous):
-                breaks.add(len(tokens))
-            previous = w
+        tokens, spans = [], []
+        for m in re.finditer(r"\S+", text):
+            w = m.group()
             core = w.strip("\"'“‘([.,!?;:)]”’")
             if (
                 re.search(r"[^\W\d_]", core)  # letters of any script
@@ -903,9 +900,12 @@ class Engine:
                 # Only a hyphen is optional, not an exponent's: "SHA-256" is "SHA256", but "TLS1.3"
                 # is not "TLS13", nor "1e-3" "1e3".
                 tokens.append("#" + re.sub(r"(?<=.)(?<!\de)-", "", core))  # "-1e-3" keeps its sign
+                spans.append(m.span())
             else:
-                tokens += re.findall(rf"{number}|[a-zμ]+|[%°$€£½¼¾⅓⅔⅛]", w)
-        for k in cls.zeros(tokens, breaks):  # "four oh four"
+                for t in re.finditer(rf"{number}|[a-zμ]+|[%°$€£½¼¾⅓⅔⅛]", w):
+                    tokens.append(t.group())
+                    spans.append((m.start() + t.start(), m.start() + t.end()))
+        for k in cls.zeros(tokens, cls.breaks(text, spans)):  # "four oh four"
             tokens[k] = "zero"
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in tokens + [""]:
@@ -956,12 +956,21 @@ class Engine:
             cls.add_word(chunks, value)
         return found
 
+    @staticmethod
+    def breaks(text, spans):
+        """Which words punctuation comes before, given each word's (start, end) in `text`."""
+        return {
+            k
+            for k in range(1, len(spans))
+            if re.search(r"[.,!?;:…—]", text[spans[k - 1][1] : spans[k][0]])
+        }
+
     @classmethod
     def zeros(cls, words, breaks=()):
         """Where an "oh" is a zero digit, as write_numbers reads one: "four oh four", "five oh oh",
         "eight oh eight oh", "one point oh five"; not "eight oh no" or "four. Oh, four" (`breaks`
         are the words punctuation comes before)."""
-        found, read, k = set(), False, 0  # read: a zero read already in this number
+        found, read, k = set(), False, 0  # read: a zero read before a number word in this one
         while k < len(words):
             j = k
             while j < len(words) and words[j] == "oh" and (j == k or j not in breaks):
@@ -974,11 +983,12 @@ class Engine:
             before = words[k - 1] if joined else ""
             after = words[j] if j < len(words) and j not in breaks else ""
             pointed = before == "point" and k > 1 and words[k - 2] in cls.NUMBERS
-            read = pointed or (
-                before in cls.NUMBERS and (after in cls.NUMBERS or j - k > 1 or read)
-            )
-            if read:
+            inside = before in cls.NUMBERS and after in cls.NUMBERS  # NUMBER_RUN's (?P<zero>)
+            if pointed or inside or (before in cls.NUMBERS and (j - k > 1 or read)):
                 found.update(range(k, j))
+                read = read or inside
+            else:
+                read = False
             k = j
         return found
 
@@ -1040,8 +1050,11 @@ class Engine:
     SINGULAR_S = frozenset(
         ["this", "thus", "plus", "minus", "always", "perhaps", "sometimes", "besides", "towards"]
         + ["afterwards", "whereas", "does", "goes", "says", "ours", "yours", "theirs", "hers"]
-        # Verbs a time or year often has after it: "at three thirty starts".
-        + ["starts", "ends", "begins", "works", "sounds", "suits", "opens", "closes", "finishes"]
+    )
+    # Verbs a time or year often has after it, which count nothing ("at three thirty starts"),
+    # though they are plurals after a scale ("a million hits").
+    TIME_VERBS = frozenset(
+        ["starts", "ends", "begins", "works", "sounds", "suits", "opens", "closes", "finishes"]
         + ["happens", "comes", "means", "makes", "gets", "runs", "leaves", "arrives", "kicks"]
         + ["wraps", "marks", "sees", "brings", "lands", "hits"]
     )
@@ -1083,12 +1096,10 @@ class Engine:
         def digits(words, timed, counted, yearly=False):  # None leaves the words
             if "point" in words:  # "2.5 million", "1.2.3"; digits after a point read as written
                 # Its scale stays a word, like Parakeet's "2.5 million": "1.5 thousand".
-                scaled = len(words)
-                while words[scaled - 1] in scales:
-                    scaled -= 1
-                big = " ".join(words[scaled:])
+                big = words[-1] if words[-1] in scales[1:] else ""
                 head, *tails = (
-                    part.split() for part in re.split(r"\bpoint\b", " ".join(words[:scaled]))
+                    part.split()
+                    for part in re.split(r"\bpoint\b", " ".join(words[: len(words) - bool(big)]))
                 )
                 if not (head and all(tails)) or set(scales) & {w for t in tails for w in t}:
                     return None  # "one point million", "one point two hundred thousand"
@@ -1148,7 +1159,7 @@ class Engine:
             titled = re.search(r"[\s-][A-Z]", group) or (follower[:1].isupper() and follower != "I")
             if group[0].isupper() and (not opens or titled):
                 return group
-            prior, before = ([""] * 2 + re.findall(r"[\w']+", text[:start].lower()))[-2:]
+            before = (re.findall(r"[\w']+", text[:start].lower()) or [""])[-1]
             after = re.findall(r"[\w']+|[^\w\s]", text[end:].lower())[:3] + ["", "", ""]
             # An ordinal or decade end goes with its number ("one hundred and twenty first" ->
             # "121st", "nineteen eighties" -> "1980s"); otherwise the whole run stays.
@@ -1181,8 +1192,13 @@ class Engine:
             # another number ("one or two", "between 1 and ten").
             joins = ("or", "to", "and", "through")
             listed = after[1] in cls.COUNTS or after[1][:1].isdigit()
-            # After a determiner it is a pronoun: "no one, two people", "the blue one, two of them".
-            pronoun = {before, prior} & cls.DETERMINERS
+            # After a determiner it is a pronoun: "no one, two people", "the blue one, two of
+            # them", not "The steps one, two, and three" or "in this order: one, two".
+            clause = re.findall(r"[\w']+", re.split(r"[.,!?;:—…]", text[:start].lower())[-1])
+            pronoun = clause[-1:] and clause[-1] in cls.DETERMINERS
+            pronoun = pronoun or (
+                clause[-2:-1] and clause[-2] in cls.DETERMINERS and after[2] not in (",", *joins)
+            )
             ranged = (before in joins and re.search(r"\d\s+\w+\s*$", text[:start])) or (
                 listed and (after[0] in joins or after[0] == "," and not pronoun)
             )  # "one or two", "one, two"
@@ -1201,16 +1217,22 @@ class Engine:
                 return group
             # Followed by what it counts: a unit, a measure, or a plural ("2,019 users").
             measured = after[0] in cls.COUNTED | cls.PLURALS | cls.MEASURES.keys() - {"am", "pm"}
-            counted = measured or bool(plural)
+            counted = measured or bool(plural and after[0] not in cls.TIME_VERBS)
             # A time, "at" one or "a.m.", unless it counts ("at one twenty students"); "a" is no
             # "a.m." ("four oh four a lot").
             meridiem = after[0] in ("am", "pm") or (
                 after[0] in ("a", "p") and after[1] in ("m", ".")
             )
             timed = (before in ("at", "by", "until", "till") or meridiem) and not counted
-            yearly = before in ("in", "since", "until", "till") or re.search(
-                r"\byears?\b[^.!?]*$", text[:start], re.IGNORECASE
-            )
+            yearly = before in (
+                "in",
+                "since",
+                "until",
+                "till",
+                "before",
+                "after",
+                "during",
+            ) or re.search(r"\byears?\b[^.!?]*$", text[:start], re.IGNORECASE)
             written = digits(words, timed, counted, bool(yearly))
             return group if written is None else written
 
@@ -1431,12 +1453,8 @@ class Engine:
             for k, w in enumerate(raw_words)
             if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
         }
-        breaks = {  # words punctuation comes before
-            k
-            for k in range(1, len(spans))
-            if re.search(r"[.,!?;:…—]", raw[spans[k - 1].end() : spans[k].start()])
-        }
-        numeric |= cls.zeros(raw_words, breaks)  # "four oh four", "one point oh five"
+        # "four oh four", "one point oh five"
+        numeric |= cls.zeros(raw_words, cls.breaks(raw, [s.span() for s in spans]))
         numeric |= {  # "two hundred and five", "one point five"
             k
             for k, w in enumerate(raw_words)

@@ -52,6 +52,10 @@ end
 ---@param bands integer equalizer bands
 ---@param onError fun(message: string)
 function recorder.start(bands, onError)
+  -- Resolved at load: a mise upgrade can remove it.
+  if not (ffmpeg and hs.fs.attributes(ffmpeg, "mode")) then
+    return nil, ffmpeg .. " is gone; reload Hammerspoon to find ffmpeg again"
+  end
   local base = temporary .. "dictation-" .. hs.host.uuid()
   local wav, pcm = base .. ".wav", base .. ".pcm"
   -- High-pass only: denoise and silence trimming erase quiet speakers.
@@ -67,7 +71,9 @@ function recorder.start(bands, onError)
     onError(message)
   end
   -- sh execs ffmpeg in its place; its child SIGINTs ffmpeg when stdin closes (Hammerspoon exited).
-  local watchdog = 'exec 3<&0; (read _ <&3; kill -INT $$) >/dev/null 2>&1 & exec "$0" "$@" 3<&-'
+  -- The recordings are owner-only from the start.
+  local watchdog =
+    'umask 077; exec 3<&0; (read _ <&3; kill -INT $$) >/dev/null 2>&1 & exec "$0" "$@" 3<&-'
   local task = hs.task.new("/bin/sh", function(code, _, errors)
     recording.task = nil -- frees the task, which holds these callbacks
     failure(errors or "")

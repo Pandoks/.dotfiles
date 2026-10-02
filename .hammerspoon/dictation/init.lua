@@ -491,12 +491,18 @@ engine, engineError = Engine.new(config, {
   onFinal = function(result)
     -- Saved before anything else, even for a cancelled take, so no result is lost.
     local problem = #result.text > 0 and history.save(result.text, config.history)
-    if problem then
-      -- Reported, but the text is still delivered: stopping here would lose the only copy.
-      fail("Dictation: " .. problem)
-    end
-    recorder.cleanup(requests[result.id])
+    local capture = requests[result.id]
     requests[result.id] = nil
+    if problem then
+      -- Reported, but the text is still delivered: stopping here would lose the only copy. The
+      -- recording is kept too, in case it is not (focus moved, or the take was cancelled).
+      fail("Dictation: " .. problem)
+      if capture and keep(capture) then
+        fail("Dictation: the recording is kept in " .. config.history.directory)
+      end
+    else
+      recorder.cleanup(capture)
+    end
     if inflight == result.id then
       if result.text == "" then
         fail("Dictation: no speech recognized")
@@ -532,6 +538,9 @@ engine, engineError = Engine.new(config, {
         recorder.cleanup(capture)
       elseif capture and keep(capture) then
         message = message .. "; the recording is kept in " .. config.history.directory
+        if inflight ~= id then
+          fail("Dictation backend: " .. message) -- cancelled, but told where its audio went
+        end
       end
       if inflight ~= id then
         return
@@ -651,9 +660,12 @@ hs.shutdownCallback = function()
   if engine then
     engine:stop()
   end
+  -- Takes still transcribing keep their recordings: nothing said is lost to a reload.
   for id, capture in pairs(requests) do
-    recorder.cleanup(capture)
     requests[id] = nil
+    if keep(capture) then
+      print("Dictation: a take still transcribing is kept in " .. config.history.directory)
+    end
   end
   if overlay then
     overlay:delete()
