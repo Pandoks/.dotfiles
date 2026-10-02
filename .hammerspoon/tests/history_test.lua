@@ -4,12 +4,18 @@ local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_l
 local xattr =
   assert(package.loadlib(frameworks .. "/hs/libfsxattr.dylib", "luaopen_hs_libfsxattr"))()
 local date, execute, clock, passed, commands = os.date, os.execute, 0, 0, {}
+local opening = io.open -- what save() opens files with; a test swaps in a failing one
 -- save() stamps takes in its own format, at a clock the tests set; its shell commands are kept.
 local history = assert(loadfile(
   root .. "/history.lua",
   "t",
   setmetatable({
     hs = { fs = setmetatable({ xattr = xattr }, { __index = fs }) },
+    io = setmetatable({
+      open = function(...)
+        return opening(...)
+      end,
+    }, { __index = io }),
     os = setmetatable({
       date = function(format, time)
         return date(format, time or clock)
@@ -134,6 +140,17 @@ test("save refuses a folder other users can write", function()
   assert(os.execute(("chmod 777 %q"):format(settings.directory)))
   local failure = history.save("secret", settings)
   assert(failure and failure:find("writable only by you", 1, true), tostring(failure))
+  expect(settings.directory, {})
+end)
+
+test("save leaves no empty take when it cannot open it", function()
+  local settings = { directory = scratch .. "/unopened", maxMegabytes = 10 }
+  opening = function()
+    return nil, "Too many open files"
+  end
+  local failure = history.save("secret", settings)
+  opening = io.open
+  assert(failure and failure:find("could not write", 1, true), tostring(failure))
   expect(settings.directory, {})
 end)
 

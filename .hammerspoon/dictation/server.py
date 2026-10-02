@@ -823,14 +823,24 @@ class Engine:
         """True if `out` is not a light edit of `raw`; `allowed` words may replace misheard ones."""
 
         # A unit keeps its case: "16GB" (bytes) is not "16Gb" (bits), though it may be "16 GB".
+        # In order: not "16GB then 8Gb" -> "16Gb then 8GB".
         pattern = rf"\d\s?({cls.UNIT})(?!\w)"
-        units = [sorted(re.findall(pattern, t, re.IGNORECASE)) for t in (raw, out)]
-        folded = [sorted(u.lower() for u in found) for found in units]
-        if units[0] != units[1] and folded[0] == folded[1]:
+        units = [re.findall(pattern, t, re.IGNORECASE) for t in (raw, out)]
+        if units[0] != units[1] and [u.lower() for u in units[0]] == [u.lower() for u in units[1]]:
             return True
 
         # Words in any script keep inner apostrophes, curly ones too ("don’t"), not a quote's.
         word = r"[^\W_]+(?:'[^\W_]+)*"
+        # Names: capitalized words past a sentence's start, but not "I" ("I'm") or "OK".
+        cased = raw.replace("’", "'")
+        names = {
+            m.group().lower()
+            for m in re.finditer(word, cased)
+            if m.group()[0].isupper()
+            and not re.search(r"(?:^|[.!?…:][\"”')\]]*\s)[\s\"“'(\[]*$", cased[: m.start()])
+            and not re.fullmatch(r"i(?:'.*)?", m.group().lower())
+            and m.group().lower() not in cls.MARKERS
+        }
         # Its unit is checked as a word: "16GB" is not "16MB".
         raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
 
@@ -995,6 +1005,11 @@ class Engine:
         fixes = min(len(lost), sum(w in named for w in bare(new)))
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
+        # A name survives unless taken back or fixed by the glossary: "Send it to Alice" is not
+        # "Send it to Bob", nor "Meet on Monday" "Meet on Friday".
+        gone = {n for n in lost & names if not any(w.startswith(n) for w in out_words)}  # "SHA256"
+        if len(gone) > fixes:
+            return True
 
         gaps = re.split(word, out)  # gaps[j] precedes out_words[j]
         for n, (tag, i1, i2, j1, j2) in enumerate(edits):

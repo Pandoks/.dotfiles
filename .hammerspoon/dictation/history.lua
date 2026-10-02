@@ -59,6 +59,7 @@ function history.save(text, settings)
   end
   local file, message = io.open(path, "w")
   if not file then
+    os.remove(path)
     return "could not write " .. path .. ": " .. tostring(message)
   end
   -- Writes are buffered: a full disk surfaces only at close.
