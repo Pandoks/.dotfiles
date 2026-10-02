@@ -503,6 +503,7 @@ check(
             ("Set timeout to 50 before retrying.", "Set timeout to 50μs before retrying."),
             ("Allocate 16GB.", "Allocate 16Gb."),
             ("Transfer at 16GB then 8Gb.", "Transfer at 16Gb then 8GB."),
+            ("Allocate sixteen GB.", "Allocate 16 Gb."),
             ("Send it to Alice.", "Send it to Bob."),
             ("Alice sent it.", "Bob sent it."),
             ("PostgreSQL is down.", "MySQL is down."),
@@ -690,6 +691,7 @@ check(
         ("Привет", "Привет"),
         ("Привееет", "Привееет"),
         ("It cost 1000 dollars...", "It cost 1000 dollars..."),
+        ("Use <div> here.", "Use <div> here."),
     ],
     lambda text: parakeet.transcribe(text, []),
 )

@@ -207,8 +207,10 @@ class ParakeetSpeech(Speech):
             )
         # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
         text = self.model.transcribe(wav, chunk_duration=120).text
-        # Parakeet sometimes emits a special piece (<unk>) or symbol run ("ΨΨΨ") on short takes.
-        text = re.sub(r"(?<!\S)([^\x00-\x7F])\1{2,}(?!\S)", "", re.sub(r"<[^<>]+>", "", text))
+        # Parakeet sometimes emits a special piece (<unk>, v3's <|en|>) or symbol run ("ΨΨΨ") on
+        # short takes; its vocabularies have no other "<" or ">".
+        text = re.sub(r"<(?:unk|pad|\|[^<>|]*\|)>", "", text)
+        text = re.sub(r"(?<!\S)([^\x00-\x7F])\1{2,}(?!\S)", "", text)
         return re.sub(r"\s{2,}", " ", text).strip()
 
 
@@ -851,7 +853,8 @@ class Engine:
 
         # A unit keeps its case: "16GB" (bytes) is not "16Gb" (bits), though it may be "16 GB".
         # In order: not "16GB then 8Gb" -> "16Gb then 8GB".
-        pattern = rf"\d\s?({cls.UNIT})(?!\w)"
+        spelled = "|".join(sorted(cls.NUMBERS, key=len, reverse=True))  # "sixteen GB" too
+        pattern = rf"(?:\d|\b(?:{spelled}))\s?({cls.UNIT})(?!\w)"
         units = [re.findall(pattern, t, re.IGNORECASE) for t in (raw, out)]
         if units[0] != units[1] and [u.lower() for u in units[0]] == [u.lower() for u in units[1]]:
             return True
