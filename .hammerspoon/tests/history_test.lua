@@ -5,6 +5,7 @@ local xattr =
   assert(package.loadlib(frameworks .. "/hs/libfsxattr.dylib", "luaopen_hs_libfsxattr"))()
 local date, execute, clock, passed, commands = os.date, os.execute, 0, 0, {}
 local opening = io.open -- what save() opens files with; a test swaps in a failing one
+local popening = io.popen -- what keep() runs mv with; likewise
 local listings = 0 -- folders prune() listed
 -- save() stamps takes in its own format, at a clock the tests set; its shell commands are kept.
 local history = assert(loadfile(
@@ -23,6 +24,9 @@ local history = assert(loadfile(
     io = setmetatable({
       open = function(...)
         return opening(...)
+      end,
+      popen = function(...)
+        return popening(...)
       end,
     }, { __index = io }),
     os = setmetatable({
@@ -188,6 +192,18 @@ test("keep reports why a recording could not move, and leaves it", function()
   local failure = history.keep(recording, settings)
   os.execute(("chmod 755 %q"):format(locked))
   assert(failure and failure:find("Permission denied", 1, true), tostring(failure))
+  assert(fs.attributes(recording), "lost the recording")
+end)
+
+test("keep reports a move it cannot start, not raises", function()
+  local recording = scratch .. "/unstarted.wav"
+  assert(io.open(recording, "w")):close()
+  popening = function()
+    return nil, "Too many open files"
+  end
+  local ok, failure = pcall(history.keep, recording, { directory = scratch .. "/unstarted" })
+  popening = io.popen
+  assert(ok and failure and failure:find("Too many open files", 1, true), tostring(failure))
   assert(fs.attributes(recording), "lost the recording")
 end)
 
