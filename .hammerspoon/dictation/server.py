@@ -702,7 +702,7 @@ class Engine:
     EVERYDAY = frozenset(
         ["on", "up", "down", "left", "right", "first", "last", "over", "under", "above", "below"]
         + ["least", "most", "more", "less", "greater", "fewer", "all", "every", "each", "some"]
-        + ["everyone", "everybody", "someone", "somebody", "everything", "something", "that"]
+        + ["that"]
         + ["and", "or"]
     )
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
@@ -778,6 +778,11 @@ class Engine:
     )
     # Question words a cleanup keeps as said: "Where should we deploy" is not "Should we deploy".
     ASKING = frozenset(["who", "whom", "whose", "what", "which", "when", "where", "why", "how"])
+    # And when: "Deploy tomorrow" is not "Deploy" or "Deploy today", nor "next Monday" "Monday".
+    TIMING = frozenset(
+        ["today", "tomorrow", "yesterday", "tonight", "now", "later", "soon", "earlier", "next"]
+        + ["previous", "ago"]
+    )
     # Small words a cleanup may add ("to the store", "going to"); others must stand in for a word
     # lost: "Grant access" is not "Grant admin access".
     FUNCTION = frozenset(
@@ -785,7 +790,7 @@ class Engine:
         + ["into", "than", "then", "so", "and", "or", "but", "if", "is", "are", "was", "were", "be"]
         + ["been", "being", "am", "do", "does", "did", "have", "has", "had", "will", "would", "can"]
         + ["could", "should", "going", "got", "get", "it", "its", "this", "that", "there", "here"]
-        + ["not", "just", "also", "too", "let", "let's", "i", "me", "my", "we", "us", "our", "you"]
+        + ["not", "let", "let's", "i", "me", "my", "we", "us", "our", "you"]
         + ["your", "he", "him", "his", "she", "her", "they", "them", "their", "thank", "thanks"]
     )
     # Shell marks a cleanup may write only when said: "echo home" is not "echo $HOME".
@@ -996,8 +1001,9 @@ class Engine:
             values = cls.values(words)
             if len(values) > 1:  # read in pieces: a year, code, or time
                 if len(values) == 2 and values[0] <= 12 and 10 <= values[1] < 60:
-                    # "at three thirty" -> "at 3:30"; "it's three thirty" stays.
-                    return f"{values[0]}:{values[1]:02d}" if timed else None
+                    # "at three thirty" -> "at 3:30"; "it's three thirty" and a count ("at one
+                    # twenty people") stay.
+                    return f"{values[0]}:{values[1]:02d}" if timed and not counted else None
                 # "nineteen ninety nine" -> "1999", "one eighty two" -> "182"; not "twenty four
                 # seven", "two three four", or two counts ("thirteen twenty dollar bills").
                 return None if min(values[1:]) < 10 or counted else "".join(map(str, values))
@@ -1009,9 +1015,12 @@ class Engine:
             group = text[start:end]
             if any(a < end and start < b for a, b in kept):
                 return group
-            # A capitalized number past a sentence's start is a title's: "Ocean's Eleven".
+            # A capitalized number past a sentence's start is a title's ("Ocean's Eleven"), as is
+            # one at a start with more capitals in or after it ("Twenty One Pilots", "Seven Samurai").
             opens = re.search(r"(?:^|[.!?…:][\"”’')\]]*\s)[\s\"“‘(\[]*$", text[:start])
-            if group[0].isupper() and not opens:
+            follower = (re.findall(r"[\w']+", text[end:]) or [""])[0]
+            titled = re.search(r"[\s-][A-Z]", group) or (follower[:1].isupper() and follower != "I")
+            if group[0].isupper() and (not opens or titled):
                 return group
             before = (re.findall(r"[\w']+", text[:start].lower()) or [""])[-1]
             after = re.findall(r"[\w']+|[^\w\s]", text[end:].lower())[:2] + ["", ""]
@@ -1054,7 +1063,8 @@ class Engine:
             if "-" in group and len(cls.values(words)) > 1:  # "fifty-fifty"
                 return group
             timed = before in ("at", "by", "until", "till") or after[0] in ("am", "pm", "a", "p")
-            written = digits(words, timed, after[0] in cls.COUNTED | cls.MEASURES.keys())
+            counted = after[0] in cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"}
+            written = digits(words, timed, counted)
             return group if written is None else written
 
         text = cls.NUMBER_RUN.sub(lambda m: convert(*m.span()), text)
@@ -1352,6 +1362,10 @@ class Engine:
             w for w in out_words if w in cls.ASKING
         ):
             return True  # "Where should we deploy" -> "Should we deploy"
+        if collections.Counter(w for w in heard if w in cls.TIMING) != collections.Counter(
+            w for w in out_words if w in cls.TIMING
+        ):
+            return True  # "Deploy tomorrow" -> "Deploy today"
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
