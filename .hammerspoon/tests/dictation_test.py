@@ -6,6 +6,7 @@ once, when they are not cached yet.
 """
 
 import functools
+import itertools
 import os
 import sys
 import tempfile
@@ -140,6 +141,7 @@ check(
             "Open C:\\ghosty\\x now.",
             "Set KEY=ghosty now.",
             "Pull ghosty:latest now.",
+            "Echo ${ghosty} now.",
             "Ping me at me@ghosty.",
             "Edit ~/.hammerspoon/init.lua now.",
             "cd ~/.hammerspoon",
@@ -223,6 +225,12 @@ check(
         ("Meet at three thirty.", "Meet at 3:30."),
         ("Let's meet at 3.30.", "Let's meet at 3:30."),
         ("The call is at 4.45 pm.", "The call is at 4:45 pm."),
+        ("Version one point two point three.", "Version 1.2.3."),
+        ("Set it to zero point twenty five.", "Set it to 0.25."),
+        ("This is the one hundred and twenty first time.", "This is the 121st time."),
+        ("Music from the nineteen eighties.", "Music from the 1980s."),
+        ("A million people came.", "1 million people came."),
+        ("The call is three thirty pm.", "The call is 3:30 pm."),
         # One alone, idioms, and readings that are not one number stay words.
         ("One of the ideas was a trinket.", "One of the ideas was a trinket."),
         ("No one came to the meeting.", "No one came to the meeting."),
@@ -235,6 +243,9 @@ check(
         ("Hundreds of users.", "Hundreds of users."),
         ("Multiply that by 1.05.", "Multiply that by 1.05."),
         ("It's priced at 2.50 each.", "It's priced at 2.50 each."),
+        ("Around three fifty people came.", "Around three fifty people came."),
+        ("I have thirteen twenty dollar bills.", "I have thirteen twenty dollar bills."),
+        ("I watched Ocean's Eleven.", "I watched Ocean's Eleven."),
         # Names keep theirs: a path, a dotted name, a glossary entry.
         ("Edit ~/two/three.txt now.", "Edit ~/two/three.txt now."),
         ("Use Three.js for it.", "Use Three.js for it."),
@@ -242,6 +253,12 @@ check(
     ],
     lambda text: server.Engine.write_numbers(text, ["Fifty Shades"]),
 )
+# No run of number words, joins, and endings raises: a take always comes back.
+words = ["one", "twenty", "hundred", "and", "point", "first", "eighties", "a", "thirty", "pm"]
+for size in (2, 3, 4):
+    for run in itertools.product(words, repeat=size):
+        server.Engine.write_numbers(" ".join(run) + ".")
+print("PASS no number run raises")
 check(
     "a cleaned take gets its numbers as digits",
     [(("Um, send three copies.", None), "Send 3 copies.")],
@@ -435,6 +452,7 @@ check(
             ("Use half the dose.", "Use ½ the dose."),
             ("I think that we should ship.", "I think we should ship."),
             ("It costs fifteen US dollars.", "It costs $15."),
+            ("Open the fire wall settings.", "Open the firewall settings."),
             ("Meet at three thirty pm.", "Meet at 3:30 PM."),
             ("Meet at three thirty pm.", "Meet at 3:30pm."),
             ("Turn on 2FA for my account please.", "Turn on 2FA for my account."),
@@ -612,6 +630,14 @@ check(
             ("Send the report.", "Send her the report."),
             ("Send the report.", "Send Alice the report."),
             ("Use one dozen eggs.", "Use 112 eggs."),
+            ("Send it now.", "Send now."),
+            ("Make it bold.", "Bold."),
+            ("Where should we deploy?", "Should we deploy?"),
+            ("Delete all files except logs.", "Delete all files."),
+            ("Grant access.", "Grant admin access."),
+            ("Deploy staging or production.", "Deploy staging and production."),
+            ("Run echo home.", "Run echo $HOME."),
+            ("Run echo hello grep hello.", "Run echo hello | grep hello."),
             ("Set opacity to .5.", "Set opacity to .8."),
             ("Set it to −15.", "Set it to 15."),
             ("Use 1e-3.", "Use 1e3."),

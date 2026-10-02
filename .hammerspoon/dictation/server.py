@@ -330,8 +330,8 @@ CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
 
 # --- pipeline -----------------------------------------------------------------
 # A word is matched alone, never in a path, domain, address, flag, or assignment: not in
-# "~/ghosty", "ghosty+tag@x.com", "C:\\ghosty", "--ghosty", or "KEY=ghosty".
-ALONE = (r"(?<![\w./~@+#=\\:-])", r"(?![\w/@+#=\\-]|[.:]\S)")
+# "~/ghosty", "ghosty+tag@x.com", "C:\\ghosty", "--ghosty", "KEY=ghosty", or "${ghosty}".
+ALONE = (r"(?<![\w./~@+#=\\:${-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 
 
 class Engine:
@@ -666,6 +666,7 @@ class Engine:
         + ["hardly", "barely", "scarcely", "rarely", "seldom", "approximately", "roughly"]
         + ["nearly", "almost", "about", "around", "exactly", "least", "most", "more", "less"]
         + ["fewer", "over", "under", "above", "below", "greater", "only", "up"]
+        + ["except", "unless", "excluding"]  # "Delete all files except logs"
     )
     # Scope, frequency, and obligation a cleanup must not drop or add: "Delete all files" is not
     # "Delete files". Not "will" or "would", which contract ("I'll").
@@ -693,7 +694,7 @@ class Engine:
         ]
         + ["everyone|everybody/someone|somebody", "everything/something", "include/exclude"]
         + ["accept/reject", "import/export", "connect/disconnect", "install/uninstall"]
-        + ["least/most", "over/under", "above/below", "more|greater/less|fewer"]
+        + ["least/most", "over/under", "above/below", "more|greater/less|fewer", "and/or"]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
     # side).
@@ -702,6 +703,7 @@ class Engine:
         ["on", "up", "down", "left", "right", "first", "last", "over", "under", "above", "below"]
         + ["least", "most", "more", "less", "greater", "fewer", "all", "every", "each", "some"]
         + ["everyone", "everybody", "someone", "somebody", "everything", "something", "that"]
+        + ["and", "or"]
     )
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
     REFERENTS = ("this|these/that|those", "here/there")
@@ -713,7 +715,7 @@ class Engine:
             for n, forms in enumerate(
                 ["i|me|my|mine|myself", "you|your|yours|yourself|yourselves"]
                 + ["he|him|his|himself", "she|her|hers|herself", "we|us|our|ours|ourselves"]
-                + ["they|them|their|theirs|themselves"]
+                + ["they|them|their|theirs|themselves", "it|its|itself"]
             )
             for w in forms.split("|")
         }
@@ -736,7 +738,7 @@ class Engine:
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(
-        r"\b(?:um+|uh+|erm?|hm+|like|you know|i meant?|(?:make|scratch) that)\b"
+        r"\b(?:um+|uh+|erm?|hm+|like|you know|i meant?|make it|(?:make|scratch) that)\b"
     )
     # Discourse markers a filler "you know" or "I mean" follows: "so you know we should".
     MARKERS = frozenset(["so", "and", "but", "well", "yeah", "okay", "ok", "oh", "um", "uh"])
@@ -773,6 +775,24 @@ class Engine:
             "=": frozenset(["equals", "equal"]),
         }
         | {"~": frozenset(["tilde"]), ":": frozenset(["colon"])}
+    )
+    # Question words a cleanup keeps as said: "Where should we deploy" is not "Should we deploy".
+    ASKING = frozenset(["who", "whom", "whose", "what", "which", "when", "where", "why", "how"])
+    # Small words a cleanup may add ("to the store", "going to"); others must stand in for a word
+    # lost: "Grant access" is not "Grant admin access".
+    FUNCTION = frozenset(
+        ["the", "a", "an", "to", "of", "in", "on", "at", "for", "with", "from", "by", "about", "as"]
+        + ["into", "than", "then", "so", "and", "or", "but", "if", "is", "are", "was", "were", "be"]
+        + ["been", "being", "am", "do", "does", "did", "have", "has", "had", "will", "would", "can"]
+        + ["could", "should", "going", "got", "get", "it", "its", "this", "that", "there", "here"]
+        + ["not", "just", "also", "too", "let", "let's", "i", "me", "my", "we", "us", "our", "you"]
+        + ["your", "he", "him", "his", "she", "her", "they", "them", "their", "thank", "thanks"]
+    )
+    # Shell marks a cleanup may write only when said: "echo home" is not "echo $HOME".
+    SHELL = types.MappingProxyType(
+        {"$": (r"\$(?=[a-z_{(])", frozenset(["dollar"])), "|": (r"\|", frozenset(["pipe", "bar"]))}
+        | {"&": ("&", frozenset(["and", "ampersand"])), "`": ("`", frozenset(["backtick"]))}
+        | {">": (">", frozenset(["greater", "redirect"])), "<": ("<", frozenset(["less"]))}
     )
     # Exact quantities that are not numbers: "half" is not "double", "once" not "twice".
     MULTIPLES = types.MappingProxyType(
@@ -925,66 +945,95 @@ class Engine:
         | {"seventh": 7, "eighth": 8, "ninth": 9}
     )
 
+    # Decades a century leads ("nineteen eighties"), plurals that end in no "s" ("a hundred
+    # people"), and words a count counts ("thirteen twenty dollar bills" is two counts).
+    DECADES = types.MappingProxyType(
+        {w[:-1] + "ies": 20 + 10 * n for n, w in enumerate(TENS)} | {"hundreds": 0}
+    )
+    PLURALS = frozenset(
+        ["people", "children", "men", "women", "feet", "teeth", "mice", "geese", "sheep", "fish"]
+        + ["deer", "data", "series", "species", "police", "cattle"]
+    )
+    COUNTED = frozenset(
+        ["dollar", "dollars", "cent", "cents", "percent", "minute", "minutes", "hour", "hours"]
+        + ["second", "seconds", "day", "days", "week", "weeks", "month", "months", "year", "years"]
+        + ["page", "pages", "mile", "miles", "times", "people", "pound", "pounds", "degree"]
+        + ["degrees"]
+    )
+    _COUNT = "|".join(sorted(COUNTS, key=len, reverse=True))
+    _SCALE = "hundred|thousand|million|billion"
+    NUMBER_RUN = re.compile(
+        rf"{ALONE[0]}(?:a\s+(?=(?:{_SCALE})\b))?(?:{_COUNT})"
+        rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+(?:and|point)(?=\s+(?:{_COUNT})\b))*"
+        rf"(?:(?:\s+|-)(?:{'|'.join([*ORDINAL_ENDS, *DECADES])}))?\b(?![/@+#=\\]|\.\w)",
+        re.IGNORECASE,
+    )
+
     @classmethod
     def write_numbers(cls, text, names=()):
         """Number words a speech model left, as digits with commas and decimal points: "three
         things" -> "3 things", "one thousand two hundred forty" -> "1,240", "a hundred million"
-        -> "100 million", "two point five" -> "2.5", "twenty twenty six" -> "2026", "at 3.30" ->
-        "at 3:30". "one" alone stays a word ("one of them", "no one"), as do glossary names."""
-        word = "|".join(sorted(cls.COUNTS, key=len, reverse=True))
+        -> "100 million", "zero point two five" -> "0.25", "twenty twenty six" -> "2026", "at
+        3.30" -> "at 3:30". "one" alone stays a word ("one of them", "no one"), as do idioms,
+        titles ("Ocean's Eleven"), and glossary names."""
         scales = ("hundred", "thousand", "million", "billion")
-        run = re.compile(
-            rf"{ALONE[0]}(?:a\s+(?=(?:{'|'.join(scales)})\b))?(?:{word})"
-            rf"(?:(?:\s+|-)(?:{word})\b|\s+(?:and|point)(?=\s+(?:{word})\b))*"
-            rf"(?:(?:\s+|-)(?:{'|'.join(cls.ORDINAL_ENDS)}))?\b(?![/@+#=\\]|\.\w)",
-            re.IGNORECASE,
-        )
         kept = [  # glossary names with number words: "Three.js", "Fifty Shades"
             found.span()
             for name in names
-            if re.search(rf"\b(?:{word})\b", name, re.IGNORECASE)
+            if re.search(rf"\b(?:{cls._COUNT})\b", name, re.IGNORECASE)
             for found in re.finditer(rf"{ALONE[0]}{re.escape(name)}{ALONE[1]}", text, re.IGNORECASE)
         ]
 
-        def digits(words, before):  # None leaves the words
-            if "point" in words:  # "two point five million" -> "2.5 million"
-                k = words.index("point")
+        def digits(words, timed, counted):  # None leaves the words
+            if "point" in words:  # "2.5 million", "1.2.3"; digits after a point read as written
                 big = words[-1] if words[-1] in scales[2:] else ""
-                whole = str(sum(cls.values(words[:k])))
-                frac = "".join(str(cls.NUMBERS[w]) for w in words[k + 1 : len(words) - bool(big)])
-                return f"{whole}.{frac}" + (f" {big}" if big else "")
+                parts = " ".join(words[: len(words) - bool(big)]).split(" point ")
+                values = [cls.values(part.split()) for part in parts]
+                if len(values[0]) > 1:
+                    return None
+                frac = ["".join(map(str, v)) for v in values[1:]]  # "twenty five", "two five": 25
+                return ".".join([str(values[0][0]), *frac]) + (f" {big}" if big else "")
             values = cls.values(words)
             if len(values) > 1:  # read in pieces: a year, code, or time
                 if len(values) == 2 and values[0] <= 12 and 10 <= values[1] < 60:
                     # "at three thirty" -> "at 3:30"; "it's three thirty" stays.
-                    timed = before in ("at", "by", "until", "till", "around")
                     return f"{values[0]}:{values[1]:02d}" if timed else None
-                # "nineteen ninety nine" -> "1999", not "twenty four seven" or "two three four".
-                return None if min(values[1:]) < 10 else "".join(map(str, values))
+                # "nineteen ninety nine" -> "1999", "one eighty two" -> "182"; not "twenty four
+                # seven", "two three four", or two counts ("thirteen twenty dollar bills").
+                return None if min(values[1:]) < 10 or counted else "".join(map(str, values))
             if words[-1] in scales[2:]:  # "100 million", like Parakeet's "2.5 million"
-                return f"{digits(words[:-1], before) if words[:-1] else 1} {words[-1]}"
+                return f"{digits(words[:-1], timed, counted) if words[:-1] else 1} {words[-1]}"
             return f"{values[0]:,}" if set(words) & set(scales) else str(values[0])
 
         def convert(start, end):
             group = text[start:end]
             if any(a < end and start < b for a, b in kept):
                 return group
+            # A capitalized number past a sentence's start is a title's: "Ocean's Eleven".
+            opens = re.search(r"(?:^|[.!?…:][\"”’')\]]*\s)[\s\"“‘(\[]*$", text[:start])
+            if group[0].isupper() and not opens:
+                return group
             before = (re.findall(r"[\w']+", text[:start].lower()) or [""])[-1]
             after = re.findall(r"[\w']+|[^\w\s]", text[end:].lower())[:2] + ["", ""]
-            # An ordinal end belongs to a ten ("twenty first" -> "21st"); otherwise it stays.
+            # An ordinal or decade end goes with its number ("one hundred and twenty first" ->
+            # "121st", "nineteen eighties" -> "1980s"); otherwise the whole run stays.
             *rest, last = re.split(r"([\s-]+)", group)  # words and the separators between
-            head, sep = "".join(rest[:-1]), "".join(rest[-1:])
-            if last.lower() in cls.ORDINAL_ENDS:
-                values = cls.values(re.split(r"[\s-]+", head.lower()))
-                if len(values) == 1 and values[0] in range(20, 100, 10):
-                    n = values[0] + cls.ORDINAL_ENDS[last.lower()]
-                    return f"{n}{({1: 'st', 2: 'nd', 3: 'rd'}).get(n % 10, 'th')}"
-                return convert(start, start + len(head)) + sep + last
+            end_word = last.lower()
+            if end_word in cls.ORDINAL_ENDS or end_word in cls.DECADES:
+                head = [
+                    w for w in re.split(r"[\s-]+", "".join(rest[:-1]).lower()) if w in cls.COUNTS
+                ]
+                values = cls.values(head) if head else []
+                if end_word in cls.DECADES:  # a century, then its decade
+                    ok = len(values) == 1 and 10 <= values[0] <= 99
+                    return f"{values[0]}{cls.DECADES[end_word]:02d}s" if ok else group
+                if len(values) == 1 and head[-1] in cls.TENS + scales:
+                    n = values[0] + cls.ORDINAL_ENDS[end_word]
+                    return f"{n}{({1: 'st', 2: 'nd', 3: 'rd'}).get(n % 10 if n % 100 not in (11, 12, 13) else 0, 'th')}"
+                return group
             # "and" joins a scale's parts ("seven hundred and fifty"), or two numbers ("1 and 2").
             for found in re.finditer(r"\s+and\s+", group):
-                if not re.search(
-                    rf"(?:{'|'.join(scales)})$", group[: found.start()], re.IGNORECASE
-                ):
+                if not re.search(rf"(?:{cls._SCALE})$", group[: found.start()], re.IGNORECASE):
                     split = start + found.start()
                     return convert(start, split) + found.group() + convert(start + found.end(), end)
             words = [w for w in re.split(r"[\s-]+", group.lower()) if w != "and"]
@@ -996,20 +1045,21 @@ class Engine:
             ranged = (before in joins and re.search(r"\d\s+\w+\s*$", text[:start])) or (
                 after[0] in joins and (after[1] in cls.COUNTS or after[1][:1].isdigit())
             )
-            # A scale needs its number: "a hundred" before a plural ("a hundred users"), not "a
-            # billion dollar company", and never the speech model's own "2.5 million".
-            plural = re.fullmatch(r"\w+[^s]s", after[0])
+            # A scale needs its number: "a hundred" before a plural ("a hundred users", "a
+            # million people"), not "a billion dollar company", never Parakeet's "2.5 million".
+            plural = re.fullmatch(r"\w+[^s]s", after[0]) or after[0] in cls.PLURALS
             bare = words[0] in scales and not (article and (len(words) > 1 or plural))
             if (words == ["one"] and not ranged) or bare:
                 return group
             if "-" in group and len(cls.values(words)) > 1:  # "fifty-fifty"
                 return group
-            written = digits(words, before)
+            timed = before in ("at", "by", "until", "till") or after[0] in ("am", "pm", "a", "p")
+            written = digits(words, timed, after[0] in cls.COUNTED | cls.MEASURES.keys())
             return group if written is None else written
 
-        text = run.sub(lambda m: convert(*m.span()), text)
+        text = cls.NUMBER_RUN.sub(lambda m: convert(*m.span()), text)
         # The speech model writes a time "3.30": "at 3:30", not "by 1.05" or "at 2.50 each".
-        times = r"\b(at|until|till|around) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)"
+        times = r"\b(at|until|till) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)"
         text = re.sub(times, r"\1 \2:\3", text)
         return re.sub(r"\b(1[0-2]|[1-9])\.([0-5]\d)(?=\s?[ap]\.?m\b)", r"\1:\2", text)
 
@@ -1075,7 +1125,8 @@ class Engine:
             liked = m.group() == "like" and not (led or before[0] in cls.FILLER_LEADS)
             # Set off by a mark or after a discourse marker it is filler or a cue (", I mean Jane",
             # "so you know we"); "I mean it" and "You know the answer" are meant.
-            running = m.group() in ("you know", "i mean", "i meant") and not (
+            # "make it" is a cue only set off too: "no, make it Friday", not "Make it bold".
+            running = m.group() in ("you know", "i mean", "i meant", "make it") and not (
                 re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
                 or re.search(r"[,;:…—]\s*$", raw[: m.start()])
                 or (before and before[0] in cls.MARKERS)
@@ -1199,6 +1250,10 @@ class Engine:
             )
         if any(sum(said_count[w] for w in cls.MARK_WORDS[c]) < n for c, n in marks.items()):
             return True
+        for pattern, spoken_as in cls.SHELL.values():  # "hello grep" is not "hello | grep"
+            extra = len(re.findall(pattern, out)) - len(re.findall(pattern, raw))
+            if extra > 0 and sum(said_count[w] for w in spoken_as) < extra:
+                return True
 
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
         # ("#2fa") counts nothing.
@@ -1252,20 +1307,24 @@ class Engine:
         fixes = min(len(lost), sum(w in named for w in bare(new)))
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
+        if len([w for w in bare(new) if w not in cls.FUNCTION | named]) > len(lost):
+            return True  # a word added, not standing in for one lost: "Grant admin access"
 
         # So does each person said, as often, in some form: not "He" -> "They", "to him" -> "", or
         # "He sent him" -> "He sent" ("Me and him" -> "He and I" is fine). A false start said again
         # right beside its cut counts once ("I think, I think we").
-        def again(i1, i2):
+        def again(i1, i2):  # by stem: "It is not, it's not" says "it" again
             n = len(uncorrected(i1, i2))
-            return set(raw_words[max(0, i1 - n) : i1] + raw_words[i2 : i2 + n])
+            return {
+                w.split("'")[0] for w in raw_words[max(0, i1 - n) : i1] + raw_words[i2 : i2 + n]
+            }
 
         restarted = {
             k
             for tag, i1, i2, _, _ in edits
             if tag != "equal"
             for k in range(i1, i2)
-            if raw_words[k] in again(i1, i2)
+            if raw_words[k].split("'")[0] in again(i1, i2)
         }
 
         def persons(tokens):  # "I'm" is "i"
@@ -1289,6 +1348,10 @@ class Engine:
         ]
         if persons(heard) != persons(written):
             return True
+        if collections.Counter(w for w in heard if w in cls.ASKING) != collections.Counter(
+            w for w in out_words if w in cls.ASKING
+        ):
+            return True  # "Where should we deploy" -> "Should we deploy"
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
@@ -1335,7 +1398,7 @@ class Engine:
             cut = uncorrected(i1, i2)
             gone = [w for w in cut if w not in kept]
             # A false start's "not" is said again right beside it ("I don't, I don't know").
-            dropped = [w for w in cut if w not in again(i1, i2)]
+            dropped = [w for w in cut if w.split("'")[0] not in again(i1, i2)]
             # Its "no" negates ("no tests", "no way") unless the cut took words back and is replaced
             # ("five no six" -> "6"), ends on its cues ("Thursday no"), or pauses ("no, make it").
             last = max((c for c in cues if i1 <= c < i2), default=i2)
