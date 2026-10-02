@@ -710,7 +710,6 @@ class Engine:
             "more|greater/less|fewer",
             "and/or",
             "to|into|onto|toward/from",  # "towards" is an inflection
-            "is|are|am|do|does|has|have/was|were|did|had",  # "is running" is not "was running"
         ]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
@@ -721,7 +720,6 @@ class Engine:
         + ["least", "most", "more", "less", "greater", "fewer", "all", "every", "each", "some"]
         + ["that"]
         + ["and", "or", "to", "into", "onto", "toward", "towards", "from"]
-        + ["is", "are", "am", "do", "does", "has", "have", "was", "were", "did", "had"]
     )
     # Prefixes that make one word the other's opposite: "unsafe", "deactivate", "decrypt". A bare
     # "de" only on a verb ending that takes it, not on misheard words ("ploy" -> "deploy").
@@ -806,6 +804,11 @@ class Engine:
             "=": frozenset(["equals", "equal"]),
         }
         | {"~": frozenset(["tilde"]), ":": frozenset(["colon"])}
+    )
+    # Auxiliaries by tense: "is running" is not "was running".
+    TENSE = types.MappingProxyType(
+        dict.fromkeys(["is", "are", "am", "do", "does", "has", "have"], "present")
+        | dict.fromkeys(["was", "were", "did", "had"], "past")
     )
     # Verbs that oblige before "to": "have to", "need to", "got to".
     OBLIGING = frozenset(["have", "has", "had", "need", "needs", "needed", "ought", "got"])
@@ -914,24 +917,29 @@ class Engine:
                     spans.append((m.start() + t.start(), m.start() + t.end()))
         zeros = cls.zeros(text)  # "four oh four"
         tokens = ["zero" if span in zeros else t for t, span in zip(tokens, spans, strict=True)]
-        # A sentence's end or a list's comma ends a number ("twenty. Five", "one, two"); a comma
-        # around a stall does not ("two hundred, um, fifty").
+        # A sentence's end, a dash, or a list's comma ends a number ("twenty. Five", "one, two"); a
+        # comma around a stall only if the number would not go on ("two hundred, um, fifty" does,
+        # "five, uh, six" does not).
+        stalls = [re.fullmatch(r"um+|uh+|erm?|hm+", t) is not None for t in tokens]
         gaps = [""] + [text[a[1] : b[0]] for a, b in itertools.pairwise(spans)]
-        ends = {
-            k
-            for k, gap in enumerate(gaps)
-            if re.search(r"[.!?;]", gap)
-            or ("," in gap and not {tokens[k - 1], tokens[k]} & {"um", "uh"})
-        }
+        ends, soft = set(), set()
+        for k, gap in enumerate(gaps):
+            if re.search(r"[.!?;—–…]", gap) or ("," in gap and not (stalls[k - 1] or stalls[k])):
+                ends.add(k)
+            elif "," in gap:
+                soft.add(k)
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
+        loose = False  # past a comma around a stall
+
+        def pieces():  # each chunk's value as written
+            return [str(total + part) for total, part, *_ in chunks]
 
         def fraction():  # the decimal said so far; its digits follow the point: "1.25"
-            runs = [str(total + part) for total, part, *_ in chunks]
-            return point + "".join(runs) if runs else point[:-1]
+            return point + "".join(pieces()) if chunks else point[:-1]
 
         def flush():  # the number said so far, if any
             nonlocal point, chunks
-            runs = [str(total + part) for total, part, *_ in chunks]
+            runs = pieces()
             if point:
                 said({fraction()})
             elif chunks:  # a run reads as its chunks joined too: "nineteen ninety nine" is 1999
@@ -944,12 +952,18 @@ class Engine:
             if k in ends:
                 flush()
                 scalable = False
-            if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
-                continue  # "negative about fifteen", "two hundred and five"
+            loose = loose or k in soft
+            stalled = k < len(stalls) and stalls[k]
+            if (
+                stalled
+                or token in cls.QUALIFIERS
+                or (token == "and" and chunks and chunks[-1][2] >= 100)
+            ):
+                continue  # "negative about fifteen", "two hundred and five", "umm"
             if (
                 token == "point" and chunks
             ):  # "one point five" is 1.5, "one point one point two" 1.1.2
-                point += "".join(str(total + part) for total, part, *_ in chunks) + "."
+                point += "".join(pieces()) + "."
                 chunks = []
                 continue
             if token == "dozen" and chunks:  # "two dozen" is 24, not "2 12"
@@ -995,6 +1009,9 @@ class Engine:
                     signs = {"minus": "-", "negative": "-", "positive": "+", "plus": "+"}
                     sign, unit, fresh = signs.get(token, ""), "", False
                 continue
+            if loose and chunks and not cls.joins(chunks, value):
+                flush()
+            loose = False
             cls.add_word(chunks, value)
         return found
 
@@ -1016,17 +1033,22 @@ class Engine:
         }
 
     @staticmethod
-    def add_word(chunks, value):
+    def joins(chunks, value):
+        """Whether a number word goes on the last chunk ("two hundred | fifty") or starts one."""
+        last = chunks[-1][2] if chunks else 0
+        return (
+            bool(chunks)
+            and value != 0
+            and (value >= 100 or last >= 100 or (last in range(20, 100, 10) and value < 10))
+        )
+
+    @classmethod
+    def add_word(cls, chunks, value):
         """Add a number word to chunks of [total, part under the scale, last word, last scale].
         Scales and words after one join a chunk, as do ones after tens ("ninety nine"); anything
         else starts one ("nineteen | ninety nine"), as does a zero, always read as a digit
         ("twenty oh one")."""
-        last = chunks[-1][2] if chunks else 0
-        if (
-            not chunks
-            or value == 0
-            or not (value >= 100 or last >= 100 or (last in range(20, 100, 10) and value < 10))
-        ):
+        if not cls.joins(chunks, value):
             chunks.append([0, 0, 0, 0])
         chunk = chunks[-1]
         if value == 100:
@@ -1556,8 +1578,11 @@ class Engine:
                     for p, q in cls.PREFIXES
                 ):
                     return False
-            # Nor one made plural or singular: "Delete the backup" is not "Delete the backups".
-            if any(y in (x + "s", x + "es", x[:-1] + "ies") for x, y in ((a, b), (b, a))):
+            # Nor a determined noun made plural or singular: "Delete the backup" is not "Delete
+            # the backups" (a verb agreeing is fine: "it look" -> "it looks").
+            if {a, b} & determined and any(
+                y in (x + "s", x + "es", x[:-1] + "ies") for x, y in ((a, b), (b, a))
+            ):
                 return False
             close = difflib.SequenceMatcher(None, a, b).ratio() >= 0.6
             return a in b or b in a or close or bool(shortens(a, b) or shortens(b, a))
@@ -1565,6 +1590,10 @@ class Engine:
         def plain(w):  # "don't" is "do", "I'll" is "i", "won't" is "will"
             irregular = {"won't": "will", "can't": "can", "shan't": "shall"}
             return irregular.get(w) or re.sub(r"n't$|'(?:ll|m|re|ve|d|s)$", "", w)
+
+        determined = {  # words a determiner leads: "the backup"
+            plain(w) for a, w in [*bigrams, *itertools.pairwise(out_words)] if a in cls.DETERMINERS
+        }
 
         # Small words, filler, and words the number, unit, and mark checks already cover.
         loose = cls.FUNCTION | cls.MARKERS | cls.DISPOSABLE | cls.QUALIFIERS | cls.MEASURES.keys()
@@ -1585,18 +1614,28 @@ class Engine:
         # So does each person said, as often, in some form: not "He" -> "They", "to him" -> "", or
         # "He sent him" -> "He sent" ("Me and him" -> "He and I" is fine). A false start said again
         # right beside its cut counts once ("I think, I think we").
-        def again(i1, i2):  # by stem: "It is not, it's not" says "it" again
-            n = len(uncorrected(i1, i2))
-            return {
-                w.split("'")[0] for w in raw_words[max(0, i1 - n) : i1] + raw_words[i2 : i2 + n]
+        def says(w):  # a word and what it contracts: "it's" says "it" and "is", "don't" "not"
+            ending = w.rpartition("'")[2] if "'" in w else ""
+            short = {
+                "s": "is has",
+                "re": "are",
+                "m": "am",
+                "ve": "have",
+                "d": "had would",
+                "t": "not",
             }
+            return {w.split("'")[0], plain(w), *short.get(ending, "").split()}
+
+        def again(i1, i2):  # by what it says: "It is not, it's not" says "it", "is", "not" again
+            n = len(uncorrected(i1, i2))
+            return set().union(*map(says, raw_words[max(0, i1 - n) : i1] + raw_words[i2 : i2 + n]))
 
         restarted = {
             k
             for tag, i1, i2, _, _ in edits
             if tag != "equal"
             for k in range(i1, i2)
-            if raw_words[k].split("'")[0] in again(i1, i2)
+            if says(raw_words[k]) & again(i1, i2)
         }
 
         def persons(tokens):  # "I'm" is "i"
@@ -1652,6 +1691,28 @@ class Engine:
 
         if obliged(heard) != obliged(out_words):
             return True
+
+        # As many present and past auxiliaries, contractions read through, wherever they moved:
+        # "is running" is not "was running", "Don't delete" not "Didn't delete", "Is it up?" not
+        # "It was up."
+        def tensed(tokens):
+            pronouns = ("it", "he", "she", "that", "there", "what", "who", "here", "where", "how")
+            counts = collections.Counter()
+            for w in tokens:
+                aux = plain(w)
+                if re.search(r"'(?:re|m|ve)$", w) or (w.endswith("'s") and aux in pronouns):
+                    aux = "is"  # "they're", "I'm", "I've", "it's" ("it has" too)
+                if aux in cls.TENSE:
+                    counts[cls.TENSE[aux]] += 1
+                counts["'d"] += w.endswith("'d")  # "had" or "would"
+            return counts
+
+        said_tense, wrote_tense = tensed(heard), tensed(out_words)
+        if said_tense["present"] != wrote_tense["present"] or not (
+            wrote_tense["past"] <= said_tense["past"] + said_tense["'d"]
+            and said_tense["past"] <= wrote_tense["past"] + wrote_tense["'d"]
+        ):
+            return True  # a "'d" may be the "had": "I had sent it" -> "I'd sent it"
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
@@ -1711,7 +1772,7 @@ class Engine:
             cut = uncorrected(i1, i2)
             gone = [w for w in cut if w not in kept]
             # A false start's "not" is said again right beside it ("I don't, I don't know").
-            dropped = [w for w in cut if w.split("'")[0] not in again(i1, i2)]
+            dropped = [w for w in cut if not says(w) & again(i1, i2)]
             # Its "no" negates ("no tests", "no way") unless the cut took words back and is replaced
             # ("five no six" -> "6"), ends on its cues ("Thursday no"), or pauses ("no, make it").
             last = max((c for c in cues if i1 <= c < i2), default=i2)

@@ -33,9 +33,6 @@ local history = assert(loadfile(
         commands[#commands + 1] = command
         return execute(command)
       end,
-      rename = function() -- as across volumes: a recording is kept all the same
-        return nil, "Cross-device link"
-      end,
     }, { __index = os }),
   }, { __index = _G })
 ))()
@@ -179,6 +176,19 @@ test("keep moves a recording in, where prune never deletes it", function()
   assert(history.save("take", settings) == nil and history.prune(settings) == nil)
   local stamp = date("%Y-%m-%d_%H-%M-%S", clock)
   expect(settings.directory, { "2026-01-02_03-04-05.wav", stamp .. ".txt" })
+end)
+
+test("keep reports why a recording could not move, and leaves it", function()
+  local settings = { directory = scratch .. "/unmoved", maxMegabytes = 10 }
+  local locked = scratch .. "/locked"
+  assert(fs.mkdir(locked))
+  local recording = locked .. "/take.wav"
+  assert(io.open(recording, "w")):close()
+  assert(os.execute(("chmod 555 %q"):format(locked))) -- mv cannot unlink it from here
+  local failure = history.keep(recording, settings)
+  os.execute(("chmod 755 %q"):format(locked))
+  assert(failure and failure:find("Permission denied", 1, true), tostring(failure))
+  assert(fs.attributes(recording), "lost the recording")
 end)
 
 test("keep reports a recording that is gone, leaving nothing", function()

@@ -528,6 +528,9 @@ check(
             ),
             ("Uh, revenue is at one point two billion dollars.", "Revenue is at $1.2 billion."),
             ("Uh, let's meet at seven fifteen.", "Let's meet at seven-fifteen."),
+            ("The fix costs two hundred, umm, fifty dollars.", "The fix costs $250."),
+            ("Uh, it look good to me.", "It looks good to me."),
+            ("Um, the server die last night.", "The server died last night."),
             ("Email alice at example dot com.", "Email alice@example.com."),
             ("Me and him went.", "He and I went."),
             ("Use half the dose.", "Use ½ the dose."),
@@ -623,6 +626,15 @@ standup = (
     "has prepared the demo yet."
 )
 pricing = "Marketing wants a short video explaining the pricing changes."
+# A stall between two counts does not join them; between a number's parts it does.
+check(
+    "guard reads a number across a stall only when it goes on",
+    [
+        (("Um, I need five, uh, six servers.", "I need 56 servers."), True),
+        (("The fix costs two hundred, um, fifty dollars.", "The fix costs $250."), False),
+    ],
+    lambda pair: server.Engine.looks_rewritten(*pair, []),
+)
 closed = "Please remind everyone the office is closed Monday."
 check(
     "guard rejects rewrites",
@@ -737,6 +749,9 @@ check(
             ("Keep the selected items.", "Keep the deselected items."),
             ("The service is running.", "The service was running."),
             ("Do not delete backups.", "Did not delete backups."),
+            ("Don't delete the backups.", "Didn't delete the backups."),
+            ("Is the service running?", "The service was running."),
+            ("We need two—three servers.", "We need 23 servers."),
             ("Delete the backup.", "Delete the backups."),
             ("Commission the cluster.", "Decommission the cluster."),
             ("Delete the backups by Friday.", "Delete the backups Friday."),

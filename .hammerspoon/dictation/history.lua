@@ -106,8 +106,10 @@ function history.keep(file, settings)
     return failure
   end
   -- mv, which copies across volumes where a rename cannot; owner-only already (umask 077).
-  if not os.execute("mv " .. quote(file) .. " " .. quote(path)) then
-    return "could not move " .. file .. " to " .. path
+  local mv = assert(io.popen("mv " .. quote(file) .. " " .. quote(path) .. " 2>&1"))
+  local output = mv:read("a")
+  if not mv:close() then
+    return "could not move " .. file .. " to " .. path .. ": " .. output:gsub("%s+$", "")
   end
 end
 
