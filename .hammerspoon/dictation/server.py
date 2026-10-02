@@ -782,7 +782,7 @@ class Engine:
     # And when: "Deploy tomorrow" is not "Deploy" or "Deploy today", nor "next Monday" "Monday".
     TIMING = frozenset(
         ["today", "tomorrow", "yesterday", "tonight", "now", "later", "soon", "earlier", "next"]
-        + ["previous", "ago"]
+        + ["previous", "ago", "until", "till", "since"]  # "Do not deploy until Friday"
     )
     # Small words a cleanup may add ("to the store", "going to"); others must stand in for a word
     # lost: "Grant access" is not "Grant admin access".
@@ -793,6 +793,11 @@ class Engine:
         + ["could", "should", "going", "got", "get", "it", "its", "this", "that", "there", "here"]
         + ["not", "let", "let's", "i", "me", "my", "we", "us", "our", "you"]
         + ["your", "he", "him", "his", "she", "her", "they", "them", "their", "thank", "thanks"]
+    )
+    # Words with no meaning of their own a cleanup may drop: "basically", "really".
+    DISPOSABLE = frozenset(
+        ["basically", "literally", "actually", "really", "very", "totally", "honestly", "kinda"]
+        + ["sorta", "kind", "sort", "anyway", "anyways", "definitely", "seriously"]
     )
     # Shell marks a cleanup may write only when said: "echo home" is not "echo $HOME".
     SHELL = types.MappingProxyType(
@@ -994,7 +999,9 @@ class Engine:
         def digits(words, timed, counted):  # None leaves the words
             if "point" in words:  # "2.5 million", "1.2.3"; digits after a point read as written
                 big = words[-1] if words[-1] in scales[2:] else ""
-                parts = " ".join(words[: len(words) - bool(big)]).split(" point ")
+                parts = re.split(r"\bpoint\b", " ".join(words[: len(words) - bool(big)]))
+                if not all(part.split() for part in parts):  # "one point million": no digits
+                    return None
                 values = [cls.values(part.split()) for part in parts]
                 if len(values[0]) > 1:
                     return None
@@ -1323,8 +1330,39 @@ class Engine:
         fixes = min(len(lost), sum(w in named for w in bare(new)))
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
-        if len([w for w in bare(new) if w not in cls.FUNCTION | named]) > len(lost):
-            return True  # a word added, not standing in for one lost: "Grant admin access"
+
+        # Content words lost and added pair off as misheard ones fixed, each like the other
+        # ("fire wall" -> "firewall"); a glossary entry may stand in for others. Filler and small
+        # words come and go. Not "Delete logs and backups" -> "Delete logs", nor "Grant user
+        # access" -> "Grant admin access".
+        def alike(a, b):  # one in the other, close in spelling, or an abbreviation ("vs")
+            def shortens(x, y):
+                return (
+                    len(x) <= 4 and x[0] == y[0] and re.fullmatch(".*".join(map(re.escape, x)), y)
+                )
+
+            close = difflib.SequenceMatcher(None, a, b).ratio() >= 0.6
+            return a in b or b in a or close or bool(shortens(a, b) or shortens(b, a))
+
+        def plain(w):  # "don't" is "do", "I'll" is "i", "won't" is "will"
+            w = {"won't": "will", "can't": "can", "shan't": "shall"}.get(w, w)
+            return re.sub(r"n't$|'(?:ll|m|re|ve|d|s)$", "", w)
+
+        # Small words, filler, and words the number, unit, and mark checks already cover.
+        loose = cls.FUNCTION | cls.MARKERS | cls.DISPOSABLE | cls.QUALIFIERS | cls.MEASURES.keys()
+        loose |= cls.MULTIPLES.keys() | {"minus", "negative", "positive", "plus", "point", "please"}
+        loose |= {w for names in cls.MARK_WORDS.values() for w in names}
+        loose |= {w for _, names in cls.SHELL.values() for w in names}
+        counted = {  # numbers are checked as numbers; names with digits ("SHA256") pair too
+            w for w in out_words if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
+        }
+        gone_words = {plain(w) for w in bare(lost)} - loose
+        added = {plain(w) for w in bare(set(out_words) - raw_set - counted)} - loose
+        unpaired = {w for w in gone_words if not any(alike(w, a) for a in added)}
+        if len(unpaired) > fixes or any(
+            not any(alike(a, w) for w in gone_words) for a in added - named
+        ):
+            return True
 
         # So does each person said, as often, in some form: not "He" -> "They", "to him" -> "", or
         # "He sent him" -> "He sent" ("Me and him" -> "He and I" is fine). A false start said again

@@ -259,6 +259,7 @@ check(
 )
 # No run of number words, joins, and endings raises: a take always comes back.
 words = ["one", "twenty", "hundred", "and", "point", "first", "eighties", "a", "thirty", "pm"]
+words += ["million"]
 for size in (2, 3, 4):
     for run in itertools.product(words, repeat=size):
         server.Engine.write_numbers(" ".join(run) + ".")
@@ -649,6 +650,9 @@ check(
             ("Someone called.", "Called."),
             ("Run echo hello echo goodbye.", "Run echo hello; echo goodbye."),
             ("Maybe delete the files.", "Delete the files."),
+            ("Grant user access.", "Grant admin access."),
+            ("Do not deploy until Friday.", "Do not deploy Friday."),
+            ("Delete logs and backups.", "Delete logs."),
             ("Set opacity to .5.", "Set opacity to .8."),
             ("Set it to −15.", "Set it to 15."),
             ("Use 1e-3.", "Use 1e3."),
