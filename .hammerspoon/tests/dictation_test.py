@@ -7,7 +7,9 @@ once, when they are not cached yet.
 
 import functools
 import itertools
+import json
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -664,6 +666,33 @@ with tempfile.NamedTemporaryFile(suffix=".wav") as take, mock.patch.object(serve
 event = sent.call_args[0][0]
 assert event["text"] == "" and event["heard"] == "Mmm wha blah", event
 print("PASS an empty cleanup types nothing and keeps what was heard")
+# Only protocol lines reach stdout: a library that prints, on load or during a take, goes to stderr.
+chatter = """
+import sys, server
+class Chatty:
+    def __init__(self, config):
+        print("[WARNING] Generating with a model that requires 9000 MB")
+    def load(self):
+        print("loading...")
+    def handle(self, request):
+        print("[WARNING] again")
+        server.emit({"event": "final", "id": request["id"], "text": "ok"})
+server.Engine = Chatty
+sys.argv = ["server.py", "--config", "{}"]
+sys.exit(server.main())
+"""
+run = subprocess.run(
+    [sys.executable, "-c", chatter],
+    input='{"cmd": "transcribe", "id": 1}\n',
+    capture_output=True,
+    text=True,
+    cwd=Path(server.__file__).parent,
+    timeout=120,
+    check=False,
+)
+events = [json.loads(line)["event"] for line in run.stdout.splitlines()]
+assert events == ["ready", "final"] and "[WARNING] again" in run.stderr, (run.stdout, run.stderr)
+print("PASS a library that prints cannot corrupt the protocol")
 # A stall between two counts does not join them; between a number's parts it does.
 check(
     "guard reads a number across a stall only when it goes on",

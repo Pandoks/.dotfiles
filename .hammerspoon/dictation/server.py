@@ -24,10 +24,12 @@ import unicodedata
 import wave
 from pathlib import Path
 
+protocol = sys.stdout  # main() gives it a copy of stdout of its own
+
 
 def emit(event):
-    sys.stdout.write(json.dumps(event) + "\n")
-    sys.stdout.flush()
+    protocol.write(json.dumps(event) + "\n")
+    protocol.flush()
 
 
 def log(message):
@@ -2033,6 +2035,12 @@ class Engine:
 
 
 def main():
+    global protocol
+    # The protocol keeps stdout to itself: a library that prints (mlx-lm's memory warning, native
+    # code included) goes to stderr, which Hammerspoon logs, never into the JSON lines.
+    protocol = os.fdopen(os.dup(1), "w", buffering=1)
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     args = parser.parse_args()
