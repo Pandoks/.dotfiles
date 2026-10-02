@@ -83,4 +83,39 @@ test("a crash's recordings with audio are found; their PCM and empty ones are de
   assert(fs.attributes(scratch .. "/notes.wav"), "deleted a file not its own")
 end)
 
+test("ffmpeg is resolved by mise itself, not by running a shim that is no link", function()
+  local ran = {}
+  local loaded = assert(loadfile(
+    root .. "/recorder.lua",
+    "t",
+    setmetatable({
+      require = function()
+        return { new = function() end }
+      end,
+      hs = {
+        fs = setmetatable({
+          pathToAbsolute = function(path)
+            return path -- a file shim, not a link to mise
+          end,
+          attributes = function(path, ...)
+            local found = path == "/opt/homebrew/bin/mise" or path:find("^/opt/mise/")
+            return found and "file" or fs.attributes(path, ...)
+          end,
+          temporaryDirectory = function()
+            return scratch .. "/"
+          end,
+        }, { __index = fs }),
+        execute = function(command)
+          ran[#ran + 1] = command
+          return "/opt/mise/installs/ffmpeg/9.0/bin/ffmpeg\n"
+        end,
+        host = {},
+        task = {},
+      },
+    }, { __index = _G })
+  ))()
+  assert(ran[1] and ran[1]:find("'/opt/homebrew/bin/mise' which ffmpeg", 1, true), tostring(ran[1]))
+  assert(loaded.ffmpeg == "/opt/mise/installs/ffmpeg/9.0/bin/ffmpeg", tostring(loaded.ffmpeg))
+end)
+
 print(passed .. " recorder tests passed")

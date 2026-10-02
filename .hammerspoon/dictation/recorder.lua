@@ -21,8 +21,19 @@ local size = 1024
 -- First ffmpeg on mise (the one its shim runs, wherever MISE_DATA_DIR puts it), Homebrew, or
 -- PATH; the backend also needs it on its PATH. The shim is resolved once here: run on every take,
 -- it would add ~15 ms before the mic opens.
-local mise = os.getenv("MISE_DATA_DIR") or os.getenv("HOME") .. "/.local/share/mise"
-local binary = hs.fs.pathToAbsolute(mise .. "/shims/ffmpeg") -- the shim links to mise itself
+local home = os.getenv("HOME") --[[@as string]]
+local mise = os.getenv("MISE_DATA_DIR") or home .. "/.local/share/mise"
+-- mise itself, not its shim: a shim runs ffmpeg, which would take "which" as its own argument. A
+-- symlinked shim leads to mise; otherwise it is where its installers put it.
+local shim = hs.fs.pathToAbsolute(mise .. "/shims/ffmpeg")
+local binary = shim and shim:match("/mise$") and shim
+for _, candidate in ipairs({
+  "/opt/homebrew/bin/mise",
+  home .. "/.local/bin/mise",
+  "/usr/local/bin/mise",
+}) do
+  binary = binary or (hs.fs.attributes(candidate, "mode") == "file" and candidate) or nil
+end
 local which = binary and hs.execute(("cd / && '%s' which ffmpeg"):format(binary)) or ""
 local path = table.concat({
   which:match("^(/.*)/ffmpeg%s*$") or mise .. "/installs/ffmpeg/latest/.mise-bins",
