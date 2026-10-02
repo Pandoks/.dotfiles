@@ -247,6 +247,8 @@ test("spacing joins the text to its neighbors", function()
     { "user+", "tag", "@example.com", "new", "new" },
     { "KEY=", "old", "", "new", "new" }, -- an assignment's value
     { "C:\\", "old", "\\file", "new", "new" }, -- a Windows path's part
+    { "image:", "latest", "", "stable", "stable" }, -- an image tag
+    { "Note:", "", "", "hi", " hi" },
   }) do
     local before, selected, after, text, want = table.unpack(case)
     local element = field(before, selected, after)

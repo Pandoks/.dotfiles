@@ -868,13 +868,20 @@ class Engine:
                 elif fresh and (token in cls.MEASURES or re.fullmatch(cls.UNIT, token)):
                     # After it: "15%", "fifteen dollars", "20 ms" (not "20")
                     measure = cls.MEASURES.get(token, token)
-                    found[-1] = ({n + measure for n in found[-1][0]}, found[-1][1])
+                    forms, parts = found[-1]
+                    # A run keeps its bare pieces, measured only whole: "three thirty pm" may be
+                    # "3:30 pm" ("3", "30pm"), never "3:30".
+                    found[-1] = (
+                        {n + measure for n in forms} | (forms if parts > 1 else set()),
+                        parts,
+                    )
                     fresh = False
                 elif token in ("$", "€", "£"):  # before it: "$15"
                     unit, fresh = cls.MEASURES[token], False
                 else:
-                    # A sign word signs the number said next: "negative fifteen" is -15.
-                    signs = {"minus": "-", "negative": "-", "positive": "+"}
+                    # A sign word signs the number said next: "negative fifteen" is -15, "plus
+                    # fifteen" +15.
+                    signs = {"minus": "-", "negative": "-", "positive": "+", "plus": "+"}
                     sign, unit, fresh = signs.get(token, ""), "", False
                 continue
             # Scales and words after one join a chunk, as do ones after tens ("ninety nine");
@@ -1181,9 +1188,14 @@ class Engine:
         said_names = collections.Counter(
             w for k, w in enumerate(raw_words) if w in names and k not in corrected | restarted
         )
-        gone = sum(
-            max(0, n - sum(o.startswith(w) for o in out_words)) for w, n in said_names.items()
-        )
+        # One output word stands for one name, longest names first: "JavaScript" is not "Java" too.
+        left, gone = collections.Counter(out_words), 0
+        for w in sorted(said_names.elements(), key=len, reverse=True):
+            match = w if left[w] else next((o for o in left if left[o] and o.startswith(w)), None)
+            if match:
+                left[match] -= 1
+            else:
+                gone += 1
         if gone > fixes:
             return True
 

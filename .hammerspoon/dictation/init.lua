@@ -256,6 +256,7 @@ local function insertText(text)
     -- "user+[tag]@example.com", "/usr/|bin", and before one: "/usr|/bin", "foo|.bar", "user|@host".
     local joiners = { ["."] = true, ["-"] = true, ["_"] = true, ["@"] = true, ["+"] = true }
     joiners["="] = true -- "KEY=[old]", "--flag=|value"
+    joiners[":"] = true -- "image:[latest]"; "Note:|" alone still gets its space
     local slash = { ["/"] = true, ["\\"] = true } -- "C:\[old]\file" too
     local joined = (joiners[before] and wordy(prior) or slash[before])
         and (last ~= "" or wordy(after))
