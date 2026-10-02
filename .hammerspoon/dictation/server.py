@@ -672,7 +672,8 @@ class Engine:
     # "Delete files". Not "will" or "would", which contract ("I'll").
     SCOPE = frozenset(
         ["all", "every", "each", "any", "both", "some", "always", "sometimes", "often", "usually"]
-        + ["must", "should", "may", "might", "can", "could", "shall"]
+        + ["must", "should", "may", "might", "can", "could", "shall", "maybe", "probably"]
+        + ["perhaps", "possibly"]
     )
     # Opposites a cleanup must not swap, alternatives per side: "Turn logging off" is not "on".
     OPPOSITES = (
@@ -798,6 +799,7 @@ class Engine:
         {"$": (r"\$(?=[a-z_{(])", frozenset(["dollar"])), "|": (r"\|", frozenset(["pipe", "bar"]))}
         | {"&": ("&", frozenset(["and", "ampersand"])), "`": ("`", frozenset(["backtick"]))}
         | {">": (">", frozenset(["greater", "redirect"])), "<": ("<", frozenset(["less"]))}
+        | {";": (";", frozenset(["semicolon"]))}  # "echo hello; echo goodbye"
     )
     # Exact quantities that are not numbers: "half" is not "double", "once" not "twice".
     MULTIPLES = types.MappingProxyType(
@@ -1212,7 +1214,11 @@ class Engine:
                 return True  # dropped, moved, or after one never said
             # A run said as several goes on in the next written numbers while they spell it:
             # "three thirty" -> "3:30", not "330 330" or "3 3".
-            joined, at = min(written[k] & n, key=len), k + 1
+            # The whole run when it's written whole ("three thirty" kept as words), else its first
+            # piece.
+            shared = written[k] & n
+            whole = max(n, key=len)
+            joined, at = whole if whole in shared else min(shared, key=len), k + 1
             while parts > 1 and at < len(written):
                 more = [f for f in written[at] if joined + f in n]
                 if not more:

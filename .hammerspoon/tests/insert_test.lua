@@ -248,6 +248,7 @@ test("spacing joins the text to its neighbors", function()
     { "KEY=", "old", "", "new", "new" }, -- an assignment's value
     { "C:\\", "old", "\\file", "new", "new" }, -- a Windows path's part
     { "image:", "latest", "", "stable", "stable" }, -- an image tag
+    { "fo", "ob", "ar", "baz", "baz" }, -- part of a word
     { "Note:", "", "", "hi", " hi" },
   }) do
     local before, selected, after, text, want = table.unpack(case)

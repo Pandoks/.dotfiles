@@ -232,6 +232,8 @@ local function spaced(text, value, range)
   local joined = (joiners[before] and wordy(prior) or slash[before])
       and (last ~= "" or wordy(after))
     or wordy(before) and (slash[after] or joiners[after] and wordy(beyond))
+    -- Part of a word replaced: "fo[ob]ar" + "baz" is "fobazar" (not beside an emoji).
+    or (before .. last .. after):match("^%w%w%w$") ~= nil
   -- Chinese, Japanese, Thai, and the like put no space between words: "你好|世界" + "漂亮".
   local unspaced = {
     { 0x0E00, 0x0EFF }, -- Thai, Lao
