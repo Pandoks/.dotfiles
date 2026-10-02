@@ -285,11 +285,11 @@ local function insertText(text)
   end
   local role = read(element, "AXRole")
   -- A field that takes no write still shows its text and cursor, if any, to space against; one
-  -- that hides them (a terminal) gets the text as dictated.
+  -- that hides them (a terminal) gets the text as dictated. A failed read stops delivery.
   local function shown()
-    local value, range =
-      element:attributeValue("AXValue"), element:attributeValue("AXSelectedTextRange")
-    return type(value) == "string" and spaced(text, value, range) or text
+    local value = read(element, "AXValue")
+    return type(value) == "string" and spaced(text, value, read(element, "AXSelectedTextRange"))
+      or text
   end
   -- Mail's compose body is an editable page: its value is settable, its selection is not.
   if role == "AXWebArea" and settable(element, "AXValue") then

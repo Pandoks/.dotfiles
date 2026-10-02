@@ -673,7 +673,7 @@ class Engine:
     SCOPE = frozenset(
         ["all", "every", "each", "any", "both", "some", "always", "sometimes", "often", "usually"]
         + ["must", "should", "may", "might", "can", "could", "shall", "maybe", "probably", "if"]
-        + ["perhaps", "possibly"]
+        + ["perhaps", "possibly", "definitely"]
     )
     # Opposites a cleanup must not swap, alternatives per side: "Turn logging off" is not "on".
     OPPOSITES = (
@@ -786,6 +786,7 @@ class Engine:
     )
     # Question words a cleanup keeps as said: "Where should we deploy" is not "Should we deploy".
     ASKING = frozenset(["who", "whom", "whose", "what", "which", "when", "where", "why", "how"])
+    WHEN_PREPOSITIONS = frozenset(["by", "on", "at", "before", "after", "until", "till", "since"])
     # And when: "Deploy tomorrow" is not "Deploy" or "Deploy today", nor "next Monday" "Monday".
     TIMING = frozenset(
         ["today", "tomorrow", "yesterday", "tonight", "now", "later", "soon", "earlier", "next"]
@@ -804,7 +805,7 @@ class Engine:
     # Words with no meaning of their own a cleanup may drop: "basically", "really".
     DISPOSABLE = frozenset(
         ["basically", "literally", "actually", "really", "very", "totally", "honestly", "kinda"]
-        + ["sorta", "kind", "sort", "anyway", "anyways", "definitely", "seriously"]
+        + ["sorta", "kind", "sort", "anyway", "anyways", "seriously"]
     )
     # Shell marks a cleanup may write only when said: "echo home" is not "echo $HOME".
     SHELL = types.MappingProxyType(
@@ -1023,7 +1024,8 @@ class Engine:
                 # "nineteen ninety nine" -> "1999", "one eighty two" -> "182"; not "twenty four
                 # seven", "two three four", or two counts ("thirteen twenty dollar bills").
                 return None if min(values[1:]) < 10 or counted else "".join(map(str, values))
-            if words[-1] in scales[2:]:  # "100 million", like Parakeet's "2.5 million"
+            if words[-1] in scales[2:] and not set(words[:-1]) & set(scales[2:]):
+                # "100 million", like Parakeet's "2.5 million"; not "one billion two hundred million"
                 return f"{digits(words[:-1], timed, counted) if words[:-1] else 1} {words[-1]}"
             return f"{values[0]:,}" if set(words) & set(scales) else str(values[0])
 
@@ -1085,8 +1087,16 @@ class Engine:
 
         text = cls.NUMBER_RUN.sub(lambda m: convert(*m.span()), text)
         # The speech model writes a time "3.30": "at 3:30", not "by 1.05" or "at 2.50 each".
-        times = r"\b(at|until|till) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)"
-        text = re.sub(times, r"\1 \2:\3", text)
+        times = r"\b(at|until|till) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)(\s*[\w']*)"
+        measured = cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"}
+
+        def clock(m):  # not a price, rate, or size: "at 3.30 dollars", "at 4.15 GB"
+            follower = m[4].strip().lower()
+            if follower in measured or re.fullmatch(cls.UNIT, follower):
+                return m[0]
+            return f"{m[1]} {m[2]}:{m[3]}{m[4]}"
+
+        text = re.sub(times, clock, text)
         return re.sub(r"\b(1[0-2]|[1-9])\.([0-5]\d)(?=\s?[ap]\.?m\b)", r"\1:\2", text)
 
     @classmethod
@@ -1348,6 +1358,13 @@ class Engine:
                     len(x) <= 4 and x[0] == y[0] and re.fullmatch(".*".join(map(re.escape, x)), y)
                 )
 
+            # "safe" -> "unsafe", "valid" -> "invalid" turn it around, however alike they look.
+            for x, y in ((a, b), (b, a)):
+                if any(
+                    y == prefix + x
+                    for prefix in ("un", "in", "im", "il", "ir", "non", "dis", "mis")
+                ):
+                    return False
             close = difflib.SequenceMatcher(None, a, b).ratio() >= 0.6
             return a in b or b in a or close or bool(shortens(a, b) or shortens(b, a))
 
@@ -1407,7 +1424,22 @@ class Engine:
         written = [
             w for k, w in enumerate(out_words) if out_words[k - 1 : k] != ["thank"] or w != "you"
         ]
-        if persons(heard) != persons(written):
+
+        # In order too: "He sent her" is not "She sent him"; people joined by "and" or "or" may
+        # trade places ("me and him" -> "he and I").
+        def roles(tokens):
+            out, joined = [], False
+            for t in tokens:
+                person = cls.PERSONS.get(t.split("'")[0])
+                if person is not None:
+                    if joined and out:
+                        out[-1] = out[-1] | {person}
+                    else:
+                        out.append(frozenset([person]))
+                joined = t in ("and", "or") and person is None and bool(out)
+            return out
+
+        if persons(heard) != persons(written) or roles(heard) != roles(written):
             return True
         if collections.Counter(w for w in heard if w in cls.ASKING) != collections.Counter(
             w for w in out_words if w in cls.ASKING
@@ -1481,6 +1513,9 @@ class Engine:
                 return True  # "all", "always", or "must" dropped or added
             said, wrote = set(raw_words[i1:i2]), set(out_words[j1:j2])
 
+            # A when-preposition is not swapped for another: "by Friday" is not "on Friday".
+            if said & cls.WHEN_PREPOSITIONS and wrote & cls.WHEN_PREPOSITIONS - said:
+                return True
             swapped = {cls.SIDES[w] for w in said - wrote if w in cls.SIDES}
             if any(
                 (cls.SIDES[w][0], 1 - cls.SIDES[w][1]) in swapped

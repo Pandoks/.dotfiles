@@ -388,6 +388,23 @@ test("a field that takes no write is pasted spaced against its text", function()
   end
 end)
 
+test("a paste path's failed read is reported, not pasted unspaced", function()
+  local element = field("Hello.", "", "", false, nil, true)
+  function element:attributeValue(name)
+    if name == "AXValue" then
+      return nil, "Messaging failed"
+    end
+    return name == "AXRole" and "AXTextArea" or nil
+  end
+  alerts, strokes = {}, {}
+  dictate(element, "How are you?")
+  assert(#strokes == 0, "pasted")
+  assert(
+    alerts[1] == "Dictation: could not read the focused field's AXValue: Messaging failed",
+    tostring(alerts[1])
+  )
+end)
+
 test("a field without a settable selection attribute is pasted with ⌘V", function()
   local element = unsettable("Attribute is not supported by target")
   dictate(element, "ls")
