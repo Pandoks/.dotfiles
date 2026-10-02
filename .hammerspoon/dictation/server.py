@@ -1827,12 +1827,9 @@ class Engine:
             if not asked or k + 1 < len(said_in) and said_in[k + 1][0] == begin:
                 continue  # not a question, or not its last word
             sentence = range(begin, k + 1)
-            # Its start, with or without a leading cue: "No wait, Tuesday?" and "Actually, is it
-            # ready? No wait, ..." are both taken back.
-            starts = [
-                next((j for j in sentence if j not in fillers and raw_words[j] not in skip), None)
-                for skip in (cls.MARKERS, cls.MARKERS | cls.CORRECTIONS)
-            ]
+            start = next(
+                (j for j in sentence if j not in fillers and raw_words[j] not in cls.MARKERS), None
+            )
             alive = next(
                 (
                     j
@@ -1843,7 +1840,7 @@ class Engine:
                 None,
             )
             opener = plain(raw_words[alive]) if alive is not None else ""
-            retracted = bool(set(starts) & corrected) and opener not in cls.AUXILIARIES | cls.ASKING
+            retracted = start in corrected and opener not in cls.AUXILIARIES | cls.ASKING
             placed = [landed[j] for j in sentence if j in landed]
             # Only a marker ("Okay? So the plan is...") asks nothing; "No?" and "Sorry?" do.
             marker = all(raw_words[j] in cls.MARKERS or j in fillers for j in sentence)
@@ -1976,11 +1973,7 @@ class Engine:
             # A whole sentence dropped, not only a stall or "Okay.": "Open settings. Delete files."
             # Or replaced by unrelated words: "Delete files." -> "Upload logs.", not "Thanks." ->
             # "Thank you." or "Hammer spoon." -> "Hammerspoon.".
-            # Whole past a kept lead: "Actually, did it work? No? Then..." -> "Actually, then...".
-            lead = i1
-            while lead and raw_words[lead - 1] in cls.MARKERS | cls.CORRECTIONS:
-                lead -= 1
-            whole = (lead == 0 or lead - 1 in ends) and (i2 == len(raw_words) or i2 - 1 in ends)
+            whole = (i1 == 0 or i1 - 1 in ends) and (i2 == len(raw_words) or i2 - 1 in ends)
             related = any(a.startswith(b) or b.startswith(a) for a in said for b in wrote)
             gone_words = set(uncorrected(i1, i2)) - cls.MARKERS
             if whole and gone_words and (tag == "delete" or (tag == "replace" and not related)):
