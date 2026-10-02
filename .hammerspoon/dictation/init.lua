@@ -50,9 +50,9 @@ local function prompted()
   return config.cleanup.enabled and not config.cleanup.adapter
 end
 
--- Frontmost app; when prompted(), window title, browser URL, and (opt-in) selection.
--- nil and why when asked-for context cannot be read: the take stops rather than go without it.
----@return DictationTranscribeRequest?, string?
+-- Frontmost app; when prompted(), window title, browser URL, and (opt-in) selection. Also why
+-- asked-for context could not be read: the take goes on without it rather than be lost.
+---@return DictationTranscribeRequest, string?
 local function gatherContext()
   ---@type DictationTranscribeRequest
   local context = { wav = "" } -- the caller sets wav
@@ -77,7 +77,7 @@ local function gatherContext()
     local ok, url, descriptor = hs.osascript.applescript(script)
     if not ok then
       local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage
-      return nil, "could not read the URL: " .. tostring(message)
+      return context, "could not read the URL: " .. tostring(message)
     elseif type(url) == "string" and #url > 0 then
       context.url = clip(url)
     end
@@ -91,7 +91,7 @@ local function gatherContext()
     end
     -- Unsupported just means the focus is not a text field.
     if problem and problem ~= "Attribute is not supported by target" then
-      return nil, "could not read the selection: " .. problem
+      return context, "could not read the selection: " .. problem
     elseif type(selection) == "string" and #selection > 0 then
       context.selected = clip(selection)
     end
@@ -114,7 +114,8 @@ local function paste(text)
   local count = hs.pasteboard.changeCount()
   hs.eventtap.keyStroke({ "cmd" }, "v", 0)
   -- Held so GC cannot stop it.
-  dictation.restore = hs.timer.doAfter(0.25, function()
+  -- Long enough for a busy app (Slack, VS Code) to read it; any later write cancels it anyway.
+  dictation.restore = hs.timer.doAfter(1, function()
     dictation.restore = nil
     -- Restore only if the clipboard still holds the dictation (nothing else wrote to it).
     if hs.pasteboard.changeCount() ~= count then
@@ -438,11 +439,9 @@ local function toggle()
         finish(nil)
         return
       end
-      if not context then
-        return -- the take ended at stop: its context could not be read
-      end
-      context.wav = wav
-      local id, message = backend:transcribe(context)
+      local request = assert(context, "the context is read at stop, before the wav is final")
+      request.wav = wav
+      local id, message = backend:transcribe(request)
       if not id then
         fail("Dictation: " .. tostring(message))
         finish(nil)
@@ -456,9 +455,8 @@ local function toggle()
     -- The app at stop, not whichever is in front once the wav is final.
     local problem
     context, problem = gatherContext()
-    if not context then
-      fail("Dictation: " .. tostring(problem))
-      finish(nil)
+    if problem then
+      fail("Dictation: " .. problem .. "; transcribing without it")
     end
   end
 end
@@ -486,7 +484,12 @@ engine, engineError = Engine.new(config, {
       fail("Dictation: " .. problem)
     end
   end,
-  onError = function(message, id)
+  onError = function(message, id, heard)
+    -- A take that failed after transcription is still saved: nothing said is lost.
+    if heard and #heard > 0 then
+      local problem = history.save(heard, config.history)
+      message = message .. (problem and "; " .. problem or " (what was heard is in history)")
+    end
     if id then
       recorder.cleanup(requests[id])
       requests[id] = nil
@@ -555,7 +558,9 @@ else
           lastTapAt = now
           if tapCount >= modifier.taps then
             tapCount = 0
-            toggle()
+            -- After the tap returns: stopping reads Accessibility (and AppleScript), and a slow app
+            -- must not hold every key and click while the tap waits on it.
+            dictation.deferred = hs.timer.doAfter(0, toggle)
           end
         else
           tapCount = 0

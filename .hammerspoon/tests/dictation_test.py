@@ -245,6 +245,13 @@ check(
         ("Multiply that by 1.05.", "Multiply that by 1.05."),
         ("The price is at 3.30 dollars.", "The price is at 3.30 dollars."),
         ("One billion two hundred million people.", "1,200,000,000 people."),
+        ("It grew twenty-five point five percent.", "It grew 25.5 percent."),
+        ("We started in two thousand nineteen.", "We started in 2019."),
+        ("We have two thousand nineteen users.", "We have 2,019 users."),
+        ("It's a fifty fifty chance.", "It's a fifty fifty chance."),
+        ("The page returned four oh four.", "The page returned 404."),
+        ("Meet at twelve oh one.", "Meet at 12:01."),
+        ("Count one, two, three.", "Count 1, 2, 3."),
         ("It's priced at 2.50 each.", "It's priced at 2.50 each."),
         ("Around three fifty people came.", "Around three fifty people came."),
         ("I have thirteen twenty dollar bills.", "I have thirteen twenty dollar bills."),
@@ -261,7 +268,7 @@ check(
 )
 # No run of number words, joins, and endings raises: a take always comes back.
 words = ["one", "twenty", "hundred", "and", "point", "first", "eighties", "a", "thirty", "pm"]
-words += ["million"]
+words += ["million", "oh", "twenty-five", ","]
 for size in (2, 3, 4):
     for run in itertools.product(words, repeat=size):
         server.Engine.write_numbers(" ".join(run) + ".")

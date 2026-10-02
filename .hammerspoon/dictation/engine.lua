@@ -18,7 +18,7 @@ local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 ---@param config DictationConfig
 ---@param handlers {
 ---  onFinal: fun(result: { id: integer, text: string }),
----  onError: fun(message: string, id?: integer),
+---  onError: fun(message: string, id?: integer, heard?: string),
 ---}
 function engine.new(config, handlers)
   local python = directory .. ".venv/bin/python"
@@ -36,6 +36,15 @@ function engine.new(config, handlers)
     end
     self:stop()
     handlers.onError(message)
+  end
+  -- A handler's error is reported, never raised: an error here would stop hs.task reading the
+  -- backend's output, leaving every later take waiting.
+  local function call(handler, ...)
+    local ok, problem = pcall(handler, ...)
+    if not ok then
+      print("Dictation: " .. tostring(problem))
+      hs.alert.show("Dictation: " .. tostring(problem):match("^[^\n]*"), 5)
+    end
   end
   local function output(_, stdout, stderr)
     if self.stopped then
@@ -63,10 +72,11 @@ function engine.new(config, handlers)
             failure("invalid transcription response")
             return true
           end
-          handlers.onFinal(event)
+          call(handlers.onFinal, event)
         elseif event.event == "error" then
           if event.id then
-            handlers.onError(event.msg or "unknown error", event.id)
+            local heard = type(event.heard) == "string" and event.heard or nil
+            call(handlers.onError, event.msg or "unknown error", event.id, heard)
           else
             failure(event.msg or "unknown error")
           end

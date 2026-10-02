@@ -5,12 +5,21 @@ local xattr =
   assert(package.loadlib(frameworks .. "/hs/libfsxattr.dylib", "luaopen_hs_libfsxattr"))()
 local date, execute, clock, passed, commands = os.date, os.execute, 0, 0, {}
 local opening = io.open -- what save() opens files with; a test swaps in a failing one
+local listings = 0 -- folders prune() listed
 -- save() stamps takes in its own format, at a clock the tests set; its shell commands are kept.
 local history = assert(loadfile(
   root .. "/history.lua",
   "t",
   setmetatable({
-    hs = { fs = setmetatable({ xattr = xattr }, { __index = fs }) },
+    hs = {
+      fs = setmetatable({
+        xattr = xattr,
+        dir = function(...)
+          listings = listings + 1
+          return fs.dir(...)
+        end,
+      }, { __index = fs }),
+    },
     io = setmetatable({
       open = function(...)
         return opening(...)
@@ -151,6 +160,39 @@ test("save leaves no empty take when it cannot open it", function()
   local failure = history.save("secret", settings)
   opening = io.open
   assert(failure and failure:find("could not write", 1, true), tostring(failure))
+  expect(settings.directory, {})
+end)
+
+test("prune lists the folder only while it may be over the cap", function()
+  local settings = { directory = scratch .. "/counted", maxMegabytes = 10 }
+  clock = 1790000000
+  assert(history.save("take", settings) == nil and history.prune(settings) == nil)
+  listings = 0
+  clock = 1790000001
+  assert(history.save("take", settings) == nil and history.prune(settings) == nil)
+  assert(listings == 0, "listed a folder under its cap")
+  settings.maxMegabytes = 0
+  assert(history.prune(settings) == nil and listings == 1, "did not prune past the cap")
+  expect(settings.directory, { list(settings.directory)[1] })
+end)
+
+test("prune skips a link, even one going nowhere", function()
+  local settings = { directory = scratch .. "/dangling", maxMegabytes = 0 }
+  clock = 1790000000
+  assert(history.save("take", settings) == nil)
+  assert(fs.link("/nonexistent/take.txt", settings.directory .. "/gone.txt", true))
+  assert(history.prune(settings) == nil)
+end)
+
+test("save reports a folder that takes no extended attributes, leaving nothing", function()
+  local settings = { directory = scratch .. "/unmarked", maxMegabytes = 10 }
+  local set = xattr.set
+  xattr.set = function()
+    error("Operation not supported")
+  end
+  local ok, failure = pcall(history.save, "secret", settings)
+  xattr.set = set
+  assert(ok and failure and failure:find("could not mark", 1, true), tostring(failure))
   expect(settings.directory, {})
 end)
 

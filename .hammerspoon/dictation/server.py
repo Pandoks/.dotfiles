@@ -337,6 +337,7 @@ ALONE = (r"(?<![\w./~@+#=\\:${-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 class Engine:
     def __init__(self, config):
         self.config = config
+        self.heard = None  # the take being processed, as heard
         # (word, pattern): whole words, never inside a name (ALONE) or "it's".
         self.dictionary = []
         for word, variants in (config.get("dictionary") or {}).items():
@@ -984,7 +985,7 @@ class Engine:
     _SCALE = "hundred|thousand|million|billion"
     NUMBER_RUN = re.compile(
         rf"{ALONE[0]}(?:a\s+(?=(?:{_SCALE})\b))?(?:{_COUNT})"
-        rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+(?:and|point)(?=\s+(?:{_COUNT})\b))*"
+        rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+(?:and|point|oh)(?=\s+(?:{_COUNT})\b))*"
         rf"(?:(?:\s+and)?(?:\s+|-)(?:{'|'.join([*ORDINAL_ENDS, *DECADES])}))?\b(?![/@+#=\\]|\.\w)",
         re.IGNORECASE,
     )
@@ -1015,6 +1016,16 @@ class Engine:
                     return None
                 frac = ["".join(map(str, v)) for v in values[1:]]  # "twenty five", "two five": 25
                 return ".".join([str(values[0][0]), *frac]) + (f" {big}" if big else "")
+            if "oh" in words:  # digits read one by one: "four oh four" -> "404", "at twelve oh one"
+                pieces = " ".join(words).split(" oh ")
+                if not all(pieces) or "oh" in " ".join(pieces).split():
+                    return None
+                first, *rest = (cls.values(piece.split()) for piece in pieces)
+                if len(first) > 1 or any(len(v) > 1 or v[0] > 9 for v in rest):
+                    return None
+                if timed and len(rest) == 1 and first[0] <= 12:
+                    return f"{first[0]}:0{rest[0][0]}"
+                return str(first[0]) + "".join(f"0{v[0]}" for v in rest)
             values = cls.values(words)
             if len(values) > 1:  # read in pieces: a year, code, or time
                 if len(values) == 2 and values[0] <= 12 and 10 <= values[1] < 60:
@@ -1022,12 +1033,19 @@ class Engine:
                     # twenty people") stay.
                     return f"{values[0]}:{values[1]:02d}" if timed and not counted else None
                 # "nineteen ninety nine" -> "1999", "one eighty two" -> "182"; not "twenty four
-                # seven", "two three four", or two counts ("thirteen twenty dollar bills").
-                return None if min(values[1:]) < 10 or counted else "".join(map(str, values))
+                # seven", "two three four", "fifty fifty", or two counts ("thirteen twenty dollar
+                # bills").
+                year = len(values) == 2 and 10 <= values[0] <= 29
+                hundreds = values[0] < 10
+                if min(values[1:]) < 10 or counted or not (year or hundreds):
+                    return None
+                return "".join(map(str, values))
             if words[-1] in scales[2:] and not set(words[:-1]) & set(scales[2:]):
                 # "100 million", like Parakeet's "2.5 million"; not "one billion two hundred million"
                 return f"{digits(words[:-1], timed, counted) if words[:-1] else 1} {words[-1]}"
-            return f"{values[0]:,}" if set(words) & set(scales) else str(values[0])
+            # A year said "two thousand nineteen" takes no comma; a count does ("2,019 users").
+            year = words[:2] == ["two", "thousand"] and values[0] < 2100 and not counted
+            return f"{values[0]:,}" if set(words) & set(scales) and not year else str(values[0])
 
         def convert(start, end):
             group = text[start:end]
@@ -1070,18 +1088,22 @@ class Engine:
             # another number ("one or two", "between 1 and ten").
             joins = ("or", "to", "and", "through")
             ranged = (before in joins and re.search(r"\d\s+\w+\s*$", text[:start])) or (
-                after[0] in joins and (after[1] in cls.COUNTS or after[1][:1].isdigit())
-            )
+                after[0] in (*joins, ",") and (after[1] in cls.COUNTS or after[1][:1].isdigit())
+            )  # "one or two", "one, two, three"
             # A scale needs its number: "a hundred" before a plural ("a hundred users", "a
             # million people"), not "a billion dollar company", never Parakeet's "2.5 million".
             plural = re.fullmatch(r"\w+[^s]s", after[0]) or after[0] in cls.PLURALS
             bare = words[0] in scales and not (article and (len(words) > 1 or plural))
             if (words == ["one"] and not ranged) or bare:
                 return group
-            if "-" in group and len(cls.values(words)) > 1:  # "fifty-fifty"
+            counts = [w for w in words if w in cls.COUNTS]  # not "point" or "oh"
+            if (
+                "-" in group and "point" not in words and len(cls.values(counts)) > 1
+            ):  # "fifty-fifty"
                 return group
             timed = before in ("at", "by", "until", "till") or after[0] in ("am", "pm", "a", "p")
-            counted = after[0] in cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"}
+            # Followed by what it counts: a unit, a measure, or a plural ("2,019 users").
+            counted = after[0] in cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"} or bool(plural)
             written = digits(words, timed, counted)
             return group if written is None else written
 
@@ -1551,6 +1573,7 @@ class Engine:
         """One take: speech, spellings, guarded cleanup, stalls, spellings, '?', end policy,
         numbers as digits."""
         heard = self.speech.transcribe(wav, self.glossary(request))
+        self.heard = heard  # what was said, kept if a later step fails
         # No letters or digits in any script: nothing was said, and the cleaner would invent text.
         if not re.search(r"[^\W_]", heard):
             return ""
@@ -1572,6 +1595,7 @@ class Engine:
             if not wav or not os.path.exists(wav):
                 emit({"event": "error", "id": request.get("id"), "msg": f"missing wav: {wav}"})
                 return
+            self.heard = None
             text = self.process(wav, request)
             emit({"event": "final", "id": request.get("id"), "text": text})
         else:
@@ -1621,7 +1645,9 @@ def main():
         try:
             engine.handle(request)
         except Exception as error:  # noqa: BLE001 - Every request gets a terminal response.
-            emit({"event": "error", "id": request.get("id"), "msg": str(error)})
+            # What was heard rides along: the take is saved even when a later step fails.
+            heard = getattr(engine, "heard", None)
+            emit({"event": "error", "id": request.get("id"), "msg": str(error), "heard": heard})
             log(traceback.format_exc())
         mx.clear_cache()
     return 0

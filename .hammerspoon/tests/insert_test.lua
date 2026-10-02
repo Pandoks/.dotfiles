@@ -432,6 +432,17 @@ test("a selection sent as context needs Accessibility first, in clipboard mode t
   assert(alerts[1] == message, tostring(alerts[1]))
 end)
 
+test("a take that fails after transcription keeps what was heard", function()
+  local element = field("", "", "")
+  alerts, strokes, focus, saved = {}, {}, element, {}
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  handlers.onError("KeyError: 'point'", serial, "Keep what I said.")
+  assert(saved[1] == "Keep what I said." and element.written == nil, tostring(saved[1]))
+  assert(alerts[1] and alerts[1]:find("in history", 1, true), tostring(alerts[1]))
+end)
+
 test("a take cancelled while transcribing is saved, not inserted", function()
   local element = field("", "", "")
   alerts, strokes, focus, saved = {}, {}, element, {}

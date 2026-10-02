@@ -18,9 +18,12 @@ local recorder = {}
 local rate = 16000
 local size = 1024
 
--- First ffmpeg on mise, Homebrew, or PATH; the backend also needs it on its PATH.
+-- First ffmpeg on mise (its shims, wherever MISE_DATA_DIR puts them), Homebrew, or PATH; the
+-- backend also needs it on its PATH.
+local mise = os.getenv("MISE_DATA_DIR") or os.getenv("HOME") .. "/.local/share/mise"
 local path = table.concat({
-  os.getenv("HOME") .. "/.local/share/mise/installs/ffmpeg/latest/.mise-bins",
+  mise .. "/shims",
+  mise .. "/installs/ffmpeg/latest/.mise-bins",
   "/opt/homebrew/bin",
   "/usr/local/bin",
   os.getenv("PATH"),

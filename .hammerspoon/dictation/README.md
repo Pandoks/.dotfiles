@@ -39,7 +39,7 @@ mlx-lm runs Python a model repo names in its config.
 ## Limitations
 
 - Electron/Chromium fields, terminals, Messages, and Mail get the text by ⌘V; the clipboard
-  is restored 0.25 s later (first item only, with an alert).
+  is restored 1 s later (first item only, with an alert).
 - Firefox and other Gecko browsers are not supported (text would be inserted twice).
 - A read-only text view looks like a terminal, so the ⌘V silently does nothing; every take
   is still saved to `history.directory`.

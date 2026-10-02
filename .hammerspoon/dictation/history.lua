@@ -2,6 +2,8 @@ local history = {}
 
 -- The extended attribute that marks a file as a take save() wrote.
 local MARK = "org.hammerspoon.dictation"
+-- Bytes of takes per folder, once prune() has counted them: it rescans only past the cap.
+local totals = {}
 
 -- Quoted for the shell.
 ---@param text string
@@ -53,9 +55,11 @@ function history.save(text, settings)
   if not os.execute("umask 077 && set -C && : > " .. quote(path)) then
     return "could not create " .. path
   end
-  if not hs.fs.xattr.set(path, MARK, "take") then
+  -- hs.fs.xattr raises on failure (a volume without extended attributes).
+  local ok, marked = pcall(hs.fs.xattr.set, path, MARK, "take")
+  if not ok or not marked then
     os.remove(path)
-    return "could not mark " .. path .. " as a take"
+    return "could not mark " .. path .. " as a take: " .. tostring(marked)
   end
   local file, message = io.open(path, "w")
   if not file then
@@ -69,6 +73,9 @@ function history.save(text, settings)
     os.remove(path)
     return "could not write " .. path .. ": " .. tostring(problem or reason)
   end
+  if totals[directory] then
+    totals[directory] = totals[directory] + (hs.fs.attributes(path, "blocks") or 0) * 512
+  end
 end
 
 -- Delete the oldest transcripts over the cap, never the newest; sizes are du-style blocks.
@@ -77,12 +84,16 @@ end
 function history.prune(settings)
   local directory = folder(settings)
   local limit = settings.maxMegabytes * 1024 * 1024
+  if totals[directory] and totals[directory] <= limit then
+    return -- under the cap: no need to list the folder after every take
+  end
   local files, total = {}, 0
   for entry in hs.fs.dir(directory) do
     local path = directory .. "/" .. entry
     -- Only takes save() marked: the folder may hold the user's own files, whatever their names.
-    local attributes = hs.fs.xattr.get(path, MARK) and hs.fs.symlinkAttributes(path) or {}
-    if attributes.mode == "file" then -- not a link to a take
+    -- Regular files only: a link (dangling or to a take) is never read or counted.
+    local attributes = hs.fs.symlinkAttributes(path) or {}
+    if attributes.mode == "file" and hs.fs.xattr.get(path, MARK) then
       local size = (attributes.blocks or 0) * 512
       files[#files + 1] = { name = entry, size = size, created = attributes.creation or 0 }
       total = total + size
@@ -102,6 +113,7 @@ function history.prune(settings)
     end
     total = total - files[i].size
   end
+  totals[directory] = total
 end
 
 return history
