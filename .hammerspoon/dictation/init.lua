@@ -337,7 +337,9 @@ local function finish(text)
         print("Dictation: " .. tostring(result))
       end
     end
-    -- "clipboard" always copies; "auto" copies when nothing could be inserted.
+    -- "clipboard" always copies; "auto" copies when nothing could be inserted. That copy is the
+    -- configured delivery, announced, and kept (not transient) so it can be pasted by hand;
+    -- "direct" fails instead.
     if mode == "clipboard" or (mode == "auto" and not inserted) then
       if not hs.pasteboard.setContents(text) then
         fail("Dictation: could not write clipboard")
@@ -405,6 +407,8 @@ local function toggle()
     -- One 30 fps tick: the ripple intro, the equalizer once the mic opens, then the shimmer.
     animation = hs.timer.doEvery(1 / 30, function()
       if state == "recording" then
+        -- Reads the PCM ffmpeg writes to a file: hs.task drops non-UTF-8 output, so its stream
+        -- callback can't carry audio. One read per animation frame (~0.15 ms), no timer of its own.
         local bands = recorder.poll(capture)
         if bands then
           pill:setBars(bands)
@@ -465,6 +469,7 @@ engine, engineError = Engine.new(config, {
     -- Saved before anything else, even for a cancelled take, so no result is lost.
     local problem = #result.text > 0 and history.save(result.text, config.history)
     if problem then
+      -- Reported, but the text is still delivered: stopping here would lose the only copy.
       fail("Dictation: " .. problem)
     end
     recorder.cleanup(requests[result.id])
