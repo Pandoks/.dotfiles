@@ -384,6 +384,7 @@ check(
             ("I think that we should ship.", "I think we should ship."),
             ("It costs fifteen US dollars.", "It costs $15."),
             ("Meet at three thirty pm.", "Meet at 3:30 PM."),
+            ("Meet at three thirty pm.", "Meet at 3:30pm."),
             ("Turn on 2FA for my account please.", "Turn on 2FA for my account."),
             ("Use SHA-256 for it.", "Use SHA256 for it."),
             ("My three-year-old is here.", "My 3-year-old is here."),

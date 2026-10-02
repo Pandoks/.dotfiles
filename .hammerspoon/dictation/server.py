@@ -1052,7 +1052,7 @@ class Engine:
             for m in re.finditer(r"\S+", text):
                 t = re.sub(r"^[\"'“‘(\[{]+|[\"'”’)\]}.,!?;:]+$", "", m.group())
                 if re.search(r"[^\W\d_]", t) and re.search(
-                    r"[@/\\#+~=_]|^--?[^\W\d_]|[^\W_][.:][^\W_]", t
+                    r"[@/\\#+~=_]|^--?[^\W\d_]|[^\W_]\.[^\W_]|[^\W\d_]:[^\W\d_]", t
                 ):
                     yield m, t
 
