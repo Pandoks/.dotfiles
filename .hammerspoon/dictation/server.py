@@ -733,7 +733,10 @@ class Engine:
     def numbers(cls, text):
         """Each number in `text`: the forms it may be written in and how many numbers it may be
         written as ("three thirty": 3, 30, or 330, as 2)."""
-        text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", cls.spaced(text.lower()))  # "1,240", "10:00"
+        # "−15" (U+2212) is -15, "µs" is "μs", and ".5" is 0.5.
+        text = text.lower().replace("−", "-").replace("µ", "μ")
+        text = re.sub(r"(?<![\w.])\.(?=\d)", "0.", text)
+        text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", cls.spaced(text))  # "1,240", "10:00"
         text = re.sub(r"\b([ap])\.m\.", r"\1m", text)  # "p.m." is "pm"
         text = re.sub(r"\bnoon\b", "12 pm", re.sub(r"\bmidnight\b", "12 am", text))
         text = re.sub(r"([-+])([$€£])(?=\d)", r"\2\1", text)  # "-$15" is "$-15"
@@ -759,10 +762,11 @@ class Engine:
                 and re.search(r"\d", core)
                 and not re.fullmatch(ending, core)
             ):
-                # Only a hyphen is optional: "SHA-256" is "SHA256", but "TLS1.3" is not "TLS13".
-                tokens.append("#" + core.replace("-", ""))
+                # Only a hyphen is optional, not an exponent's: "SHA-256" is "SHA256", but "TLS1.3"
+                # is not "TLS13", nor "1e-3" "1e3".
+                tokens.append("#" + re.sub(r"(?<!\de)-", "", core))
             else:
-                tokens += re.findall(rf"{number}|[a-z]+|[%°$€£]", w)
+                tokens += re.findall(rf"{number}|[a-zμ]+|[%°$€£]", w)
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in tokens + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
@@ -818,10 +822,17 @@ class Engine:
     def looks_rewritten(cls, raw, out, allowed):
         """True if `out` is not a light edit of `raw`; `allowed` words may replace misheard ones."""
 
+        # A unit keeps its case: "16GB" (bytes) is not "16Gb" (bits), though it may be "16 GB".
+        pattern = rf"\d\s?({cls.UNIT})(?!\w)"
+        units = [sorted(re.findall(pattern, t, re.IGNORECASE)) for t in (raw, out)]
+        folded = [sorted(u.lower() for u in found) for found in units]
+        if units[0] != units[1] and folded[0] == folded[1]:
+            return True
+
         # Words in any script keep inner apostrophes, curly ones too ("don’t"), not a quote's.
         word = r"[^\W_]+(?:'[^\W_]+)*"
         # Its unit is checked as a word: "16GB" is not "16MB".
-        raw, out = (cls.spaced(t.lower().replace("’", "'")) for t in (raw, out))
+        raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
 
         def words(text):
             return re.findall(word, text)
