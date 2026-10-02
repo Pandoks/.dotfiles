@@ -1592,7 +1592,7 @@ class Engine:
 
         def phrase(words, k):  # the noun phrase after words[k], up to a verb that has its own
             for j in range(k + 1, min(k + 4, len(words))):  # object: "the API | return an error"
-                if words[j + 1 : j + 2] and words[j + 1] in cls.DETERMINERS:
+                if j > k + 1 and words[j + 1 : j + 2] and words[j + 1] in cls.DETERMINERS:
                     return
                 yield words[j]
 
@@ -1623,11 +1623,12 @@ class Engine:
         # So does each person said, as often, in some form: not "He" -> "They", "to him" -> "", or
         # "He sent him" -> "He sent" ("Me and him" -> "He and I" is fine). A false start said again
         # right beside its cut counts once ("I think, I think we").
+        def stem(w):  # "it's" is "it", but "can't" stays "can't": its negation is no stem
+            return w if w.endswith("n't") else w.split("'")[0]
+
         def again(i1, i2):  # by stem: "It is not, it's not" says "it" again
             n = len(uncorrected(i1, i2))
-            return {
-                w.split("'")[0] for w in raw_words[max(0, i1 - n) : i1] + raw_words[i2 : i2 + n]
-            }
+            return {stem(w) for w in raw_words[max(0, i1 - n) : i1] + raw_words[i2 : i2 + n]}
 
         def expand(words):  # contractions as the words they stand for: "it's" is "it is"
             short = {"s": "is", "re": "are", "m": "am", "ve": "have", "ll": "will", "t": "not"}
@@ -1637,26 +1638,29 @@ class Engine:
                 out += [plain(w), short[ending]] if ending in short and stem else [w]
             return out
 
-        def repeats(i1, i2):  # a cut said again beside it, word for word (its tense may change)
+        def repeats(i1, i2):  # a false start said again beside it, word for word
             cut = expand(uncorrected(i1, i2))
-            sides = [  # whole words: "can't not" says no "not" twice
-                expand(raw_words[i2 : i2 + m] if after else raw_words[max(0, i1 - m) : i1])
-                for m in range(1, len(cut) + 1)
-                for after in (True, False)
-            ]
-            return bool(cut) and any(
-                len(side) == len(cut)
-                and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(cut, side))
-                for side in sides
-            )
+            if not 0 < len(cut) <= 8:
+                return False
+            for m in range(1, len(cut) + 1):  # whole words: "can't not" says no "not" twice
+                after = expand(raw_words[i2 : i2 + m])
+                if expand(raw_words[max(0, i1 - m) : i1]) == cut or after == cut:
+                    return True
+                # Said again with another tense, the repeat kept: "Do you, did you push it?". Not
+                # one auxiliary for another ("did have" -> "have").
+                if (
+                    len(after) == len(cut)
+                    and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(cut, after))
+                    and any(a == b and a not in cls.TENSE for a, b in zip(cut, after))
+                ):
+                    return True
+            return False
 
-        restarted = {
-            k
-            for tag, i1, i2, _, _ in edits
-            if tag != "equal"
-            for k in range(i1, i2)
-            if raw_words[k].split("'")[0] in again(i1, i2) or repeats(i1, i2)
-        }
+        restarted = set()  # once per edit: the checks look at the whole edit
+        for tag, i1, i2, _, _ in edits:
+            if tag != "equal":
+                beside, repeated = again(i1, i2), repeats(i1, i2)
+                restarted |= {k for k in range(i1, i2) if repeated or stem(raw_words[k]) in beside}
 
         def persons(tokens):  # "I'm" is "i"
             return collections.Counter(
@@ -1733,23 +1737,26 @@ class Engine:
         ):
             return True  # a "'d" may be the "had": "I had sent it" -> "I'd sent it"
 
-        # A yes/no question stays one: "Is it ready?" is not "It's ready." (its opener moved into
-        # a statement), though "Is it ready, no wait, ship it?" may be "Ship it."
-        def closing(text):  # the last sentence's words, contractions spelled out
-            return expand(re.findall(word, re.split(r"[.!?]+\s+", text.strip())[-1]))
-
-        opener = next((w for w in closing(raw) if w not in cls.MARKERS), "")
-        moved = {"is", opener}  # "it's" may be "it has": "Has it shipped?" -> "It's shipped."
-        sentence = re.findall(word, re.split(r"[.!?]+\s+", raw.strip())[-1])
-        start = len(raw_words) - len(sentence)
-        at = next((start + i for i, w in enumerate(sentence) if plain(w) == opener), None)
-        if (
-            opener in cls.AUXILIARIES
-            and at not in corrected  # not a question taken back
-            and re.search(r"\?[\"”’')\]]*$", raw.strip())
-            and "?" not in cls.ensure_question(raw, out)
-            and (moved if opener == "has" else {opener}) & set(closing(out)[1:])
-        ):
+        # Questions stay questions: each asked (opened by an auxiliary or question word past any
+        # filler, and not taken back) still ends in "?". "Is it ready?" is not "It's ready.", nor
+        # "Is it ready? Ship it." "It's ready. Ship it."; "Is it ready, no wait, ship it?" may be
+        # "Ship it."
+        asked, first = 0, 0
+        for k, s in enumerate(spans):
+            tail = raw[s.end() : spans[k + 1].start()] if k + 1 < len(spans) else raw[s.end() :]
+            if re.search(r"[.!?]", tail):  # a sentence ends at word k
+                opener = next(
+                    (
+                        raw_words[j]
+                        for j in range(first, k + 1)
+                        if j not in corrected | fillers
+                        and raw_words[j] not in cls.MARKERS | cls.CORRECTIONS  # "no wait, is it"
+                    ),
+                    "",
+                )
+                asked += "?" in tail and plain(opener) in cls.AUXILIARIES | cls.ASKING
+                first = k + 1
+        if asked > cls.ensure_question(raw, out).count("?"):
             return True
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
@@ -1810,9 +1817,7 @@ class Engine:
             cut = uncorrected(i1, i2)
             gone = [w for w in cut if w not in kept]
             # A false start's "not" is said again right beside it ("I don't, I don't know").
-            dropped = (
-                [] if repeats(i1, i2) else [w for w in cut if w.split("'")[0] not in again(i1, i2)]
-            )
+            dropped = [] if repeats(i1, i2) else [w for w in cut if stem(w) not in again(i1, i2)]
             # Its "no" negates ("no tests", "no way") unless the cut took words back and is replaced
             # ("five no six" -> "6"), ends on its cues ("Thursday no"), or pauses ("no, make it").
             last = max((c for c in cues if i1 <= c < i2), default=i2)
