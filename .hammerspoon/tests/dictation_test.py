@@ -551,6 +551,8 @@ check(
             ("Is the meeting at 10 a.m.? Or 11 a.m.?", "Is the meeting at 10 a.m. or 11 a.m.?"),
             ("Can you review my PR I pushed the fix?", "Can you review my PR? I pushed the fix."),
             ("We're shipping Friday, okay?", "We're shipping Friday. Okay?"),
+            ("Is there any updates on the deploy?", "Are there any updates on the deploy?"),
+            ("Okay? So the plan is to fix the build.", "Okay, so the plan is to fix the build."),
             (
                 "Did anyone update the fire wall? Thanks, I appreciate it a lot.",
                 "Did anyone update the firewall? Thank you, I appreciate it a lot.",
@@ -822,6 +824,8 @@ check(
             ("Can Dr. Smith come? Let me know.", "Can Dr. Smith come. Let me know."),
             ("Is it at three thirty?", "It's at 3:30."),
             ("Is it ready? Can I merge?", "It's ready, can I merge."),
+            ("Is it at 3 p.m.? I'll be there.", "It's at 3 p.m. I'll be there."),
+            ("Is it under 50ms? It was 80ms yesterday.", "It's under 50ms. It was 80ms yesterday."),
             ("Are you around? Can we talk about it?", "You're around, can we talk about it?"),
             ("Is the service running?", "The service was running."),
             ("We need two—three servers.", "We need 23 servers."),

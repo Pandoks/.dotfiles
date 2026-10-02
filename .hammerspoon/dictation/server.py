@@ -1804,7 +1804,13 @@ class Engine:
                 )
                 # It ends at a mark and a space, past abbreviations ("3 p.m.", "config.lua",
                 # "Dr. Smith", "etc." end none), or at the end of the text.
-                short = re.search(r"\b(?:[ap]\.m|etc|dr|mr|mrs|ms|vs|e\.g|i\.e)$", text[: s.end()])
+                short = (
+                    re.match(r"\.\s", tail)
+                    and re.search(  # its own "." then a space
+                        r"\b(?:[ap]\.m|etc|dr|mr|mrs|ms|vs|e\.g|i\.e)$",
+                        text[max(0, s.end() - 4) : s.end()],
+                    )
+                )
                 if (re.search(r"[.!?][\"”’')\]]*\s", tail) and not short) or k + 1 == len(spans):
                     out += [(first, "?" in tail)] * (k + 1 - first)
                     first = k + 1
@@ -1836,16 +1842,19 @@ class Engine:
             opener = plain(raw_words[alive]) if alive is not None else ""
             retracted = start in corrected and opener not in cls.AUXILIARIES | cls.ASKING
             placed = [landed[j] for j in sentence if j in landed]
-            if not placed or retracted:
-                continue
+            if not placed or retracted or alive is None:
+                continue  # cut whole, taken back, or only a marker ("Okay? So the plan is...")
             if not any(asks[j] for j in placed):
                 return True  # made a statement
+            written_aux = plain(out_words[landed[alive]]) if alive in landed else opener
             if (
                 opener in cls.AUXILIARIES
-                and alive in landed
-                and plain(out_words[landed[alive]]) != opener
+                and written_aux != opener
+                and (opener not in cls.TENSE or cls.TENSE.get(written_aux) != cls.TENSE[opener])
             ):
-                return True  # its auxiliary moved behind the subject: "It's ready"
+                return (
+                    True  # its auxiliary moved behind the subject: "It's ready", not "Is" -> "Are"
+                )
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
