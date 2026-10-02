@@ -3,7 +3,7 @@ local passed, serial, alerts, strokes, clipboard, timers = 0, 0, {}, {}, {}, {}
 -- Every clipboard write counts, as NSPasteboard's changeCount does; `pasteWrites` makes ⌘V write.
 local changes, pasteWrites, starts, clearFails = 0, false, 0, false
 local toggle, handlers, done, escape, focus, copied, saved, refused
-local pruned, kept = 0, {}
+local pruned, kept, down = 0, {}, false
 local trusted = true -- Accessibility granted
 local config = {
   insert = "direct",
@@ -12,7 +12,7 @@ local config = {
   cleanup = { enabled = false },
   minDuration = 0,
   minLevel = 0,
-  history = {},
+  history = { directory = "~/Library/Caches/dictation" },
 }
 
 local function test(name, callback)
@@ -43,6 +43,9 @@ local env = setmetatable({
             ready = true,
             stop = function() end,
             transcribe = function()
+              if down then
+                return nil, "backend is not ready"
+              end
               serial = serial + 1
               return serial
             end,
@@ -501,6 +504,17 @@ test("a backend that dies keeps the recordings it had not transcribed", function
   handlers.onError("backend exited (code 9)")
   assert(kept[1] == wav and #kept == 1, tostring(kept[1]))
   assert(alerts[1] and alerts[1]:find("1 recording kept in", 1, true), tostring(alerts[1]))
+end)
+
+test("a take the backend dies under is kept once stopped", function()
+  alerts, focus, kept, down = {}, field("", "", ""), {}, true
+  toggle()
+  toggle()
+  handlers.onError("backend exited (code 9)") -- while the wav is finalizing
+  done("take.wav", 1, 1)
+  down = false
+  assert(kept[1] == "take.wav" and #kept == 1, tostring(kept[1]))
+  assert(alerts[2] and alerts[2]:find("recording is kept in", 1, true), tostring(alerts[2]))
 end)
 
 -- Last: it tears everything down.

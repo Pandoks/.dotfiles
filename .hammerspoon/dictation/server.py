@@ -714,6 +714,12 @@ class Engine:
         + ["that"]
         + ["and", "or", "to", "into", "onto", "toward", "towards", "from"]
     )
+    # Prefixes that make one word the other's opposite: "unsafe", "deactivate", "decrypt".
+    PREFIXES = tuple(
+        [("", p) for p in ("un", "in", "im", "il", "ir", "non", "dis", "mis", "de", "anti")]
+        + [("en", "de"), ("in", "de"), ("in", "ex"), ("in", "out"), ("en", "dis")]
+        + [("up", "down"), ("over", "under"), ("pre", "post"), ("max", "min")]
+    )
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
     REFERENTS = ("this|these/that|those", "here/there")
     # People a cleanup must keep, by person: "He approved it" is not "They approved it", and
@@ -792,6 +798,7 @@ class Engine:
     TIMING = frozenset(
         ["today", "tomorrow", "yesterday", "tonight", "now", "later", "soon", "earlier", "next"]
         + ["previous", "ago", "until", "till", "since"]  # "Do not deploy until Friday"
+        + ["by"]  # "Delete the backups by Friday" is not "Delete the backups Friday"
     )
     # Small words a cleanup may add ("to the store", "going to"); others must stand in for a word
     # lost: "Grant access" is not "Grant admin access".
@@ -882,13 +889,14 @@ class Engine:
                 tokens.append("#" + re.sub(r"(?<=.)(?<!\de)-", "", core))  # "-1e-3" keeps its sign
             else:
                 tokens += re.findall(rf"{number}|[a-zμ]+|[%°$€£½¼¾⅓⅔⅛]", w)
-        # A spoken zero inside a number: "four oh four", "one point oh five", "two point oh".
-        for i, token in enumerate(tokens):
-            before, after = tokens[i - 1] if i else "", tokens[i + 1 : i + 2] or [""]
-            if token == "oh" and (
-                before == "point" or (before in cls.NUMBERS and after[0] in {"oh", *cls.NUMBERS})
-            ):
-                tokens[i] = "zero"
+        # Spoken zeros inside a number: "four oh four", "five oh oh", "one point oh five".
+        for i in range(len(tokens)):
+            if tokens[i] != "oh" or tokens[i - 1 : i] == ["oh"]:
+                continue
+            j = next((j for j in range(i, len(tokens)) if tokens[j] != "oh"), len(tokens))
+            before, after = tokens[i - 1] if i else "", tokens[j] if j < len(tokens) else ""
+            if before == "point" or (before in cls.NUMBERS and (after in cls.NUMBERS or j - i > 1)):
+                tokens[i:j] = ["zero"] * (j - i)
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in tokens + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
@@ -992,7 +1000,8 @@ class Engine:
     _SCALE = "hundred|thousand|million|billion"
     NUMBER_RUN = re.compile(
         rf"{ALONE[0]}(?:a\s+(?=(?:{_SCALE})\b))?(?:{_COUNT})"
-        rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+(?:and|oh)(?=\s+(?:{_COUNT})\b)"
+        rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+and(?=\s+(?:{_COUNT})\b)"
+        rf"|(?:\s+oh)+(?=\s+(?:{_COUNT})\b)|(?:\s+oh){{2,}}\b"  # "four oh four", "five oh oh"
         rf"|\s+point(?:\s+oh)*(?:(?=\s+(?:{_COUNT})\b)|(?<=oh)\b))*"  # "one point oh five"
         rf"(?:(?:\s+and)?(?:\s+|-)(?:{'|'.join([*ORDINAL_ENDS, *DECADES])}))?\b(?![/@+#=\\]|\.\w)",
         re.IGNORECASE,
@@ -1030,16 +1039,16 @@ class Engine:
                     for tail in tails
                 ]
                 return ".".join([str(values[0]), *frac]) + (f" {big}" if big else "")
-            if "oh" in words:  # digits read one by one: "four oh four" -> "404", "at twelve oh one"
-                pieces = " ".join(words).split(" oh ")
-                if not all(pieces) or "oh" in " ".join(pieces).split():
+            if "oh" in words:  # digits read one by one: "four oh four" -> "404", "at eight oh oh"
+                k = words.index("oh")
+                first = cls.values(words[:k])
+                after = [0 if w == "oh" else cls.NUMBERS.get(w, 10) for w in words[k:]]
+                if len(first) > 1 or first[0] > 99 or max(after) > 9:  # not "a hundred oh five"
                     return None
-                first, *rest = (cls.values(piece.split()) for piece in pieces)
-                if len(first) > 1 or any(len(v) > 1 or v[0] > 9 for v in rest):
-                    return None
-                if timed and len(rest) == 1 and first[0] <= 12:
-                    return f"{first[0]}:0{rest[0][0]}"
-                return str(first[0]) + "".join(f"0{v[0]}" for v in rest)
+                tail = "".join(map(str, after))
+                if timed and len(tail) == 2 and first[0] <= 12:
+                    return f"{first[0]}:{tail}"
+                return f"{first[0]}{tail}"
             values = cls.values(words)
             if len(values) > 1:  # read in pieces: a year, code, or time
                 if len(values) == 2 and values[0] <= 12 and 10 <= values[1] < 60:
@@ -1346,6 +1355,8 @@ class Engine:
                 and (
                     (w in ("and", "point", "oh") and {k - 1, k + 1} <= numeric)
                     or (w == "oh" and raw_words[k - 1 : k] == ["point"] and k - 2 in numeric)
+                    # "five oh oh"
+                    or (w == "oh" and k - 1 in numeric and "oh" in raw_words[k - 1 : k + 2 : 2])
                 )
             }
             if not joins:
@@ -1402,11 +1413,15 @@ class Engine:
                     len(x) <= 4 and x[0] == y[0] and re.fullmatch(".*".join(map(re.escape, x)), y)
                 )
 
-            # "safe" -> "unsafe", "valid" -> "invalid" turn it around, however alike they look.
+            # "safe" -> "unsafe", "encrypt" -> "decrypt", "upload" -> "download" turn it around,
+            # however alike they look.
             for x, y in ((a, b), (b, a)):
                 if any(
-                    y == prefix + x
-                    for prefix in ("un", "in", "im", "il", "ir", "non", "dis", "mis")
+                    x.startswith(p)
+                    and y.startswith(q)
+                    and len(x) - len(p) > 2
+                    and x[len(p) :] == y[len(q) :]
+                    for p, q in cls.PREFIXES
                 ):
                     return False
             close = difflib.SequenceMatcher(None, a, b).ratio() >= 0.6

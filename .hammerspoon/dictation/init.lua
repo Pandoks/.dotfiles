@@ -451,7 +451,13 @@ local function toggle()
       request.wav = wav
       local id, message = backend:transcribe(request)
       if not id then
-        fail("Dictation: " .. tostring(message))
+        -- The backend died during the take: its recording is the only copy, so keep it.
+        local problem = history.keep(wav, config.history)
+        if problem then
+          recording = nil -- left where it is, so not cleaned up
+        end
+        local kept = problem or ("the recording is kept in " .. config.history.directory)
+        fail(("Dictation: %s; %s"):format(message, kept))
         finish(nil)
         return
       end
@@ -536,7 +542,10 @@ engine, engineError = Engine.new(config, {
       end
     end
     fail("Dictation backend: " .. message)
-    finish(nil)
+    -- A take still recording or finalizing goes on: stopped, it finds no backend and is kept.
+    if not recording then
+      finish(nil)
+    end
   end,
 })
 if not engine then
