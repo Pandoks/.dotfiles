@@ -553,6 +553,7 @@ check(
             ("We're shipping Friday, okay?", "We're shipping Friday. Okay?"),
             ("Is there any updates on the deploy?", "Are there any updates on the deploy?"),
             ("Okay? So the plan is to fix the build.", "Okay, so the plan is to fix the build."),
+            ("Actually, is it ready? No wait, just ship it.", "Actually, just ship it."),
             (
                 "Did anyone update the fire wall? Thanks, I appreciate it a lot.",
                 "Did anyone update the firewall? Thank you, I appreciate it a lot.",

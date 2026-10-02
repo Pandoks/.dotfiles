@@ -1827,8 +1827,13 @@ class Engine:
             if not asked or k + 1 < len(said_in) and said_in[k + 1][0] == begin:
                 continue  # not a question, or not its last word
             sentence = range(begin, k + 1)
-            start = next(
-                (j for j in sentence if j not in fillers and raw_words[j] not in cls.MARKERS), None
+            start = next(  # past a cue too: "Actually, is it ready? No wait, ..." takes it back
+                (
+                    j
+                    for j in sentence
+                    if j not in fillers and raw_words[j] not in cls.MARKERS | cls.CORRECTIONS
+                ),
+                None,
             )
             alive = next(
                 (
