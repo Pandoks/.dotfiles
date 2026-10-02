@@ -547,6 +547,12 @@ check(
             ("Run deploy.", "Run before deploy."),
             ("Turn logging off and tracing off.", "Turn logging and tracing off."),
             ("Move foo slash bar baz.", "Move foo/bar/baz."),
+            (
+                "Email alice at example dot com and alice example com.",
+                "Email alice@example.com and alice@example.com.",
+            ),
+            ("Alice emailed Alice.", "Alice emailed."),
+            ("They paid us dollars.", "They paid dollars."),
             ("Set opacity to .5.", "Set opacity to .8."),
             ("Set it to −15.", "Set it to 15."),
             ("Use 1e-3.", "Use 1e3."),

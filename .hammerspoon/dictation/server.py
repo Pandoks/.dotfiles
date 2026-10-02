@@ -922,7 +922,10 @@ class Engine:
             )
             and not re.fullmatch(r"i(?:'.*)?", m.group().lower())
             and m.group().lower() not in cls.MARKERS
-            and not re.match(r"us\s+dollars?\b", cased[m.start() :], re.IGNORECASE)  # currency
+            and not (  # currency after a number: "fifteen US dollars"
+                re.match(r"us\s+dollars?\b", cased[m.start() :], re.IGNORECASE)
+                and cls.numbers(" ".join(re.findall(word, cased[: m.start()])[-1:]))
+            )
         }
         # Its unit is checked as a word: "16GB" is not "16MB".
         raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
@@ -1046,7 +1049,7 @@ class Engine:
                 ):
                     yield m, t
 
-        said_marks = {t for _, t in marked(raw)}
+        said_marks = collections.Counter(t for _, t in marked(raw))
         kept_marks = collections.Counter(t for _, t in marked(out))
         # Each one counts: not "alice@example.com and alice@example.com" -> one.
         owed = collections.Counter(
@@ -1060,13 +1063,19 @@ class Engine:
         # "alice@example.com", but "Email Alice" not, nor "use force" "--force".
         spoken = set(raw_words) | {w for run in glossary for w in run}
         entries = {a.lower().replace("’", "'") for a in allowed}  # "Node.js" as listed
-        said_count = collections.Counter(raw_words)
-        for t in set(kept_marks) - said_marks - entries:
-            # Each mark said as often as written: one "slash" is not "foo/bar/baz".
-            marks = collections.Counter(c for c in t if c in cls.MARK_WORDS)
-            short = any(sum(said_count[w] for w in cls.MARK_WORDS[c]) < n for c, n in marks.items())
-            if not set(words(t)) <= spoken or short:
+        # Each mark said as often as written, across every new one: one "slash" is not
+        # "foo/bar/baz", nor one "at" two addresses.
+        said_count, marks = collections.Counter(raw_words), collections.Counter()
+        for t, n in (kept_marks - said_marks).items():
+            if t in entries:
+                continue
+            if not set(words(t)) <= spoken:
                 return True
+            marks.update(
+                {c: k * n for c, k in collections.Counter(t).items() if c in cls.MARK_WORDS}
+            )
+        if any(sum(said_count[w] for w in cls.MARK_WORDS[c]) < n for c, n in marks.items()):
+            return True
 
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
         # ("#2fa") counts nothing.
@@ -1145,9 +1154,11 @@ class Engine:
             w
             for k, w in enumerate(raw_words)
             if k not in corrected | fillers | restarted
-            and not (
-                w == "us" and raw_words[k + 1 : k + 2] in (["dollar"], ["dollars"])
-            )  # "US dollars"
+            and not (  # "fifteen US dollars" is currency; "They paid us dollars" is not
+                w == "us"
+                and raw_words[k + 1 : k + 2] in (["dollar"], ["dollars"])
+                and cls.numbers(" ".join(raw_words[k - 1 : k]))
+            )
         ]
         if persons(heard) - persons(out_words):
             return True
@@ -1165,8 +1176,15 @@ class Engine:
             return True
         # A name survives unless taken back or fixed by the glossary: "Send it to Alice" is not
         # "Send it to Bob", nor "Meet on Monday" "Meet on Friday".
-        gone = {n for n in lost & names if not any(w.startswith(n) for w in out_words)}  # "SHA256"
-        if len(gone) > fixes:
+        # Each occurrence counts ("Alice emailed Alice" is not "Alice emailed"); "SHA" may live on
+        # in "SHA256".
+        said_names = collections.Counter(
+            w for k, w in enumerate(raw_words) if w in names and k not in corrected | restarted
+        )
+        gone = sum(
+            max(0, n - sum(o.startswith(w) for o in out_words)) for w, n in said_names.items()
+        )
+        if gone > fixes:
             return True
 
         gaps = re.split(word, out)  # gaps[j] precedes out_words[j]
