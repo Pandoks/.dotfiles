@@ -653,6 +653,8 @@ check(
             ("Grant user access.", "Grant admin access."),
             ("Do not deploy until Friday.", "Do not deploy Friday."),
             ("Delete logs and backups.", "Delete logs."),
+            ("Send it to Alice.", "Send it from Alice."),
+            ("If tests pass, deploy.", "Tests pass, deploy."),
             ("Set opacity to .5.", "Set opacity to .8."),
             ("Set it to −15.", "Set it to 15."),
             ("Use 1e-3.", "Use 1e3."),

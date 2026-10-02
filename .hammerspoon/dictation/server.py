@@ -672,7 +672,7 @@ class Engine:
     # "Delete files". Not "will" or "would", which contract ("I'll").
     SCOPE = frozenset(
         ["all", "every", "each", "any", "both", "some", "always", "sometimes", "often", "usually"]
-        + ["must", "should", "may", "might", "can", "could", "shall", "maybe", "probably"]
+        + ["must", "should", "may", "might", "can", "could", "shall", "maybe", "probably", "if"]
         + ["perhaps", "possibly"]
     )
     # Opposites a cleanup must not swap, alternatives per side: "Turn logging off" is not "on".
@@ -695,7 +695,14 @@ class Engine:
         ]
         + ["everyone|everybody/someone|somebody", "everything/something", "include/exclude"]
         + ["accept/reject", "import/export", "connect/disconnect", "install/uninstall"]
-        + ["least/most", "over/under", "above/below", "more|greater/less|fewer", "and/or"]
+        + [
+            "least/most",
+            "over/under",
+            "above/below",
+            "more|greater/less|fewer",
+            "and/or",
+            "to/from",
+        ]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
     # side).
@@ -704,7 +711,7 @@ class Engine:
         ["on", "up", "down", "left", "right", "first", "last", "over", "under", "above", "below"]
         + ["least", "most", "more", "less", "greater", "fewer", "all", "every", "each", "some"]
         + ["that"]
-        + ["and", "or"]
+        + ["and", "or", "to", "from"]
     )
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
     REFERENTS = ("this|these/that|those", "here/there")
