@@ -1618,8 +1618,11 @@ class Engine:
             plain(w)
             for words in (raw_words, out_words)
             for k, a in enumerate(words)
-            # Not "only", "which", "what": "It only take a minute" may become "takes".
-            if a in cls.DETERMINERS - {"only", "which", "what", "same"}
+            # Not "only" after a pronoun: "It only take a minute" may become "takes".
+            if (
+                a in cls.DETERMINERS
+                and not (a == "only" and words[k - 1 : k] and words[k - 1] in cls.PERSONS)
+            )
             or (a.endswith("'s") and a[:-2] not in cls.PERSONS)
             for w in phrase(words, k)
         }
@@ -1754,13 +1757,17 @@ class Engine:
         # As many of each auxiliary by verb and tense, contractions read through, wherever they
         # moved: "is running" is not "was running", "Don't delete" not "Didn't delete", "has the
         # key" not "is the key". "'s" may be "is" or "has" (or a possessive), "'d" "had" or "would".
+        # A "'s" or "'d" written as said ("Bob's") stands in for nothing.
+        same = collections.Counter(heard) & collections.Counter(out_words)
+
         def tensed(tokens):
-            counts = collections.Counter()
+            counts, left = collections.Counter(), collections.Counter(tokens) - same
             for w in tokens:
                 ending = w.rpartition("'")[2] if "'" in w else ""
                 aux = {"re": "are", "m": "am", "ve": "have"}.get(ending, plain(w))
                 if ending in ("s", "d"):
-                    counts["'" + ending] += 1
+                    counts["'" + ending] += left[w] > 0
+                    left[w] -= 1
                 elif aux in cls.TENSE:
                     counts[cls.TENSE[aux]] += 1
             return counts
@@ -1788,28 +1795,38 @@ class Engine:
         # "Is it ready? Ship it." "It's ready. Ship it."; "Is it ready, no wait, ship it?" may be
         # "Ship it."
         asked, first = 0, 0
-        skipped = corrected | fillers | restarted
+        small = cls.FUNCTION | cls.AUXILIARIES | cls.MARKERS | cls.ASKING | cls.CORRECTIONS
+        small |= cls.PERSONS.keys()
         for k, s in enumerate(spans):
             tail = raw[s.end() : spans[k + 1].start()] if k + 1 < len(spans) else raw[s.end() :]
             # A sentence ends at word k ("3 p.m." and "config.lua" end none).
-            if re.search(r"[.!?][\"”’')\]]*(?:\s|$)", tail):
+            if re.search(r"[.!?][\"”’')\]]*\s", tail) or (k + 1 == len(spans) and "?" in tail):
                 sentence = [j for j in range(first, k + 1) if raw_words[j] not in cls.MARKERS]
                 start = next((j for j in sentence if j not in fillers), None)
                 opener = next(
                     (
                         j
                         for j in sentence
-                        if j not in skipped and raw_words[j] not in cls.CORRECTIONS
+                        if j not in corrected | fillers and raw_words[j] not in cls.CORRECTIONS
                     ),
                     None,
                 )
-                # Asked as said ("You're coming?"), or asked again past a correction ("Is it ready,
-                # no wait, is it deployed?"), not taken back ("..., no wait, ship it?").
+                # One the cleanup kept: some word of it still written, if it has any to check
+                # ("Should we move it? Actually, should we cancel it?" keeps only the second).
+                content = {plain(raw_words[j]) for j in sentence} - small
+                spoken = {plain(raw_words[j]) for j in sentence if j not in corrected | fillers}
+                survived = not content or bool(spoken & content & set(map(plain, out_words)))
+                # Asked as said, a verb in it ("You're coming?", not "Hey Alice?"), or asked again
+                # past a correction ("Is it ready, no wait, is it deployed?"), not taken back
+                # ("..., no wait, ship it?").
+                verb = any(w in cls.AUXILIARIES for j in sentence for w in expand([raw_words[j]]))
                 asked += (
                     "?" in tail
                     and opener is not None
+                    and survived
                     and (
-                        opener == start or plain(raw_words[opener]) in cls.AUXILIARIES | cls.ASKING
+                        (opener == start and verb)
+                        or plain(raw_words[opener]) in cls.AUXILIARIES | cls.ASKING
                     )
                 )
                 first = k + 1
@@ -1826,10 +1843,12 @@ class Engine:
                 for k, w in enumerate(tokens)
                 if w in cls.SIDES
                 and w not in cls.EVERYDAY
-                and not (  # "negative fifteen" is -15
+                and not (  # "negative fifteen" is -15, as is "negative about fifteen"
                     w in ("positive", "negative")
-                    and tokens[k + 1 : k + 2]
-                    and (tokens[k + 1] in cls.NUMBERS or tokens[k + 1][:1].isdigit())
+                    and (
+                        number := next((t for t in tokens[k + 1 :] if t not in cls.QUALIFIERS), "")
+                    )
+                    and (number in cls.NUMBERS or number[:1].isdigit())
                 )
             )
 
@@ -1883,6 +1902,20 @@ class Engine:
             gone = [w for w in cut if w not in kept]
             # A false start's "not" is said again right beside it ("I don't, I don't know").
             dropped = [] if repeats(i1, i2) else [w for w in cut if stem(w) not in again(i1, i2)]
+            # Nor a correction cut and the words it corrected kept: "I do not, I do want it" is not
+            # "I do not want it", nor "It is, it was working" "It is working".
+            later = [w for w in expand(cut) if w != "not"]
+            for m in range(1, len(cut) + 2 if tag == "delete" and len(cut) <= 8 else 1):
+                earlier = raw_words[max(0, i1 - m) : i1]
+                said_first = [w for w in expand(earlier) if w != "not"]
+                if (
+                    out_words[max(0, j1 - m) : j1] == earlier
+                    and expand(earlier) != expand(cut)
+                    and len(said_first) == len(later) > 0
+                    and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(said_first, later))
+                    and any(a == b and a not in cls.TENSE for a, b in zip(said_first, later))
+                ):
+                    return True
             # Its "no" negates ("no tests", "no way") unless the cut took words back and is replaced
             # ("five no six" -> "6"), ends on its cues ("Thursday no"), or pauses ("no, make it").
             last = max((c for c in cues if i1 <= c < i2), default=i2)
