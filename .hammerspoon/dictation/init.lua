@@ -337,7 +337,8 @@ end
 local function keep(capture)
   local problem = history.keep(capture.wav, config.history)
   if problem then
-    fail("Dictation: " .. problem .. "; reloading Hammerspoon deletes it")
+    local left = hs.fs.attributes(capture.wav, "mode") and "; reloading Hammerspoon deletes it"
+    fail("Dictation: " .. problem .. (left or ""))
     return false
   end
   recorder.cleanup(capture)
@@ -346,14 +347,17 @@ end
 
 -- Deliver the result and return to idle.
 ---@param text string?
+---@return boolean delivered inserted or copied
 local function finish(text)
   inflight = nil
+  local delivered = false
   if text and #text > 0 then
     local mode = config.insert
     local inserted
     if mode ~= "clipboard" then
       local ok, result = pcall(insertText, text)
       inserted = ok and result
+      delivered = inserted == true
       if mode == "direct" and not inserted then
         fail("Dictation: " .. (ok and "no text field is focused" or tostring(result)))
       elseif not ok then
@@ -364,7 +368,8 @@ local function finish(text)
     -- configured delivery, announced, and kept (not transient) so it can be pasted by hand;
     -- "direct" fails instead.
     if mode == "clipboard" or (mode == "auto" and not inserted) then
-      if not hs.pasteboard.setContents(text) then
+      delivered = hs.pasteboard.setContents(text)
+      if not delivered then
         fail("Dictation: could not write clipboard")
       elseif mode == "auto" then
         hs.alert.show("Dictation copied to clipboard", 1.5)
@@ -383,6 +388,7 @@ local function finish(text)
   recorder.cleanup(recording)
   recording = nil
   state = "idle"
+  return delivered
 end
 
 local function toggle()
@@ -494,20 +500,23 @@ engine, engineError = Engine.new(config, {
     local capture = requests[result.id]
     requests[result.id] = nil
     if problem then
-      -- Reported, but the text is still delivered: stopping here would lose the only copy. The
-      -- recording is kept too, in case it is not (focus moved, or the take was cancelled).
+      -- Reported, but the text is still delivered: stopping here would lose the only copy.
       fail("Dictation: " .. problem)
+    end
+    local delivered = false
+    if inflight == result.id then
+      if result.text == "" then
+        fail("Dictation: no speech recognized")
+      end
+      delivered = finish(result.text)
+    end
+    if problem and not delivered then
+      -- Neither saved nor delivered (cancelled, focus moved): the recording is all that is left.
       if capture and keep(capture) then
         fail("Dictation: the recording is kept in " .. config.history.directory)
       end
     else
       recorder.cleanup(capture)
-    end
-    if inflight == result.id then
-      if result.text == "" then
-        fail("Dictation: no speech recognized")
-      end
-      finish(result.text)
     end
     -- nil means saved (false: nothing to save); prune after delivery since it stats every file.
     problem = problem == nil and history.prune(config.history)
@@ -656,16 +665,25 @@ hs.shutdownCallback = function()
   if dictation.restore then
     dictation.restore.timer:fire()
   end
+  -- The take stopped, finalizing or transcribing, keeps its recording: nothing said is lost to a
+  -- reload (a rename does not stop ffmpeg finishing the file). Cancelled ones go.
+  if state == "thinking" then
+    local capture = recording or requests[inflight]
+    recording = nil
+    if inflight then
+      requests[inflight] = nil
+    end
+    if capture and keep(capture) then
+      print("Dictation: the take still transcribing is kept in " .. config.history.directory)
+    end
+  end
   finish(nil)
   if engine then
     engine:stop()
   end
-  -- Takes still transcribing keep their recordings: nothing said is lost to a reload.
   for id, capture in pairs(requests) do
+    recorder.cleanup(capture)
     requests[id] = nil
-    if keep(capture) then
-      print("Dictation: a take still transcribing is kept in " .. config.history.directory)
-    end
   end
   if overlay then
     overlay:delete()

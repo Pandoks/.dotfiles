@@ -96,17 +96,14 @@ end
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.keep(file, settings)
+  if not hs.fs.attributes(file, "mode") then
+    return "the recording " .. file .. " is gone"
+  end
   local path, failure = slot(settings, "wav")
   if not path then
     return failure
   end
-  if not hs.fs.attributes(file, "mode") then
-    return "the recording " .. file .. " is gone"
-  end
-  -- Owner-only whoever wrote it: the history folder may be readable by others.
-  if not os.execute("chmod 600 " .. quote(file)) then
-    return "could not make " .. file .. " owner-only"
-  end
+  -- Owner-only already: the recorder writes it under umask 077.
   local moved, message = os.rename(file, path)
   if not moved then
     return "could not move " .. file .. " to " .. path .. ": " .. tostring(message)

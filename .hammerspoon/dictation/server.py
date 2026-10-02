@@ -12,6 +12,7 @@ import argparse
 import collections
 import difflib
 import functools
+import itertools
 import json
 import os
 import re
@@ -725,6 +726,8 @@ class Engine:
         r".*(?:at|iz|is|os|il|pl|od|u)(?:e|es|ed|ing)|.*if(?:y|ies|ied|ying)"
         r"|.*(?:ect|ess|ister|ruct|ion|und|ist|ost)(?:s|es|ed|ing)?"
     )
+    # How a prefix sounds said on its own: "detailed" heard as "the tailed".
+    SPLITS = types.MappingProxyType({"de": "the", "dis": "this", "mis": "miss", "non": "none"})
     PREFIXES = tuple(
         [("", p) for p in ("un", "in", "im", "il", "ir", "non", "dis", "mis", "de", "anti")]
         + [("en", "de"), ("in", "de"), ("in", "ex"), ("in", "out"), ("en", "dis")]
@@ -975,8 +978,9 @@ class Engine:
             j = k
             while j < len(words) and words[j] == "oh" and (j == k or j not in breaks):
                 j += 1
-            if j == k:
-                read = read and words[k] in cls.NUMBERS and k not in breaks
+            if j == k:  # NUMBER_RUN's (?P<zero>) holds through "point" and "and" too
+                joins = words[k] in cls.NUMBERS or words[k] in ("point", "and")
+                read = read and joins and k not in breaks
                 k += 1
                 continue
             joined = k and k not in breaks
@@ -1224,15 +1228,9 @@ class Engine:
                 after[0] in ("a", "p") and after[1] in ("m", ".")
             )
             timed = (before in ("at", "by", "until", "till") or meridiem) and not counted
-            yearly = before in (
-                "in",
-                "since",
-                "until",
-                "till",
-                "before",
-                "after",
-                "during",
-            ) or re.search(r"\byears?\b[^.!?]*$", text[:start], re.IGNORECASE)
+            yearly = before in ("in", "since", "until", "till", "during") or re.search(
+                r"\byears?\b[^.!?]*$", text[:start], re.IGNORECASE
+            )
             written = digits(words, timed, counted, bool(yearly))
             return group if written is None else written
 
@@ -1505,6 +1503,8 @@ class Engine:
         # ("fire wall" -> "firewall"); a glossary entry may stand in for others. Filler and small
         # words come and go. Not "Delete logs and backups" -> "Delete logs", nor "Grant user
         # access" -> "Grant admin access".
+        bigrams = set(itertools.pairwise(raw_words))
+
         def alike(a, b):  # one in the other, close in spelling, or an abbreviation ("vs")
             def shortens(x, y):
                 return (
@@ -1512,7 +1512,8 @@ class Engine:
                 )
 
             # "safe" -> "unsafe", "encrypt" -> "decrypt", "upload" -> "download" turn it around,
-            # however alike they look.
+            # however alike they look; not a prefix heard as its own word ("the tailed" ->
+            # "detailed", "this connect" -> "disconnect").
             for x, y in ((a, b), (b, a)):
                 if any(
                     x.startswith(p)
@@ -1520,6 +1521,7 @@ class Engine:
                     and len(x) - len(p) > 2
                     and x[len(p) :] == y[len(q) :]
                     and (p or q != "de" or cls.DE_VERB.fullmatch(x))
+                    and not (not p and (cls.SPLITS.get(q, q), x) in bigrams)
                     for p, q in cls.PREFIXES
                 ):
                     return False

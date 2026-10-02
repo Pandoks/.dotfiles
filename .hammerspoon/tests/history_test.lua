@@ -170,21 +170,17 @@ test("keep moves a recording in, where prune never deletes it", function()
   local file = assert(io.open(recording, "w"))
   file:write("RIFF")
   file:close()
-  assert(os.execute(("chmod 644 %q"):format(recording))) -- as ffmpeg leaves it
   assert(history.keep(recording, settings) == nil and not fs.attributes(recording))
   assert(history.save("take", settings) == nil and history.prune(settings) == nil)
   local stamp = date("%Y-%m-%d_%H-%M-%S", clock)
   expect(settings.directory, { stamp .. ".wav", stamp .. ".txt" })
-  -- Owner-only, though ffmpeg wrote it readable by all: the folder may be too.
-  local mode = fs.attributes(settings.directory .. "/" .. stamp .. ".wav", "permissions")
-  assert(mode == "rw-------", "the recording is " .. tostring(mode))
 end)
 
 test("keep reports a recording that is gone, leaving nothing", function()
   local settings = { directory = scratch .. "/gone", maxMegabytes = 10 }
   local failure = history.keep(scratch .. "/missing.wav", settings)
   assert(failure and failure:find("is gone", 1, true), tostring(failure))
-  expect(settings.directory, {})
+  assert(not fs.attributes(settings.directory), "created the folder for nothing")
 end)
 
 test("prune lists the folder only while it may be over the cap", function()

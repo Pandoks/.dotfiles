@@ -54,7 +54,7 @@ end
 function recorder.start(bands, onError)
   -- Resolved at load: a mise upgrade can remove it.
   if not (ffmpeg and hs.fs.attributes(ffmpeg, "mode")) then
-    return nil, ffmpeg .. " is gone; reload Hammerspoon to find ffmpeg again"
+    return nil, tostring(ffmpeg) .. " is gone; reload Hammerspoon to find ffmpeg again"
   end
   local base = temporary .. "dictation-" .. hs.host.uuid()
   local wav, pcm = base .. ".wav", base .. ".pcm"

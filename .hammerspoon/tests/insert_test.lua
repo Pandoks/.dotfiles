@@ -570,13 +570,25 @@ test("a cancelled take whose transcript cannot be saved says so and keeps its re
   assert(#kept == 1, "lost the recording")
 end)
 
-test("a result whose transcript cannot be saved keeps its recording", function()
-  alerts, kept, saveFails = {}, {}, "could not write the take"
-  local element = field("", "", "")
-  dictate(element, "Keep this.", field("", "", "")) -- focus moved: nothing is inserted
-  saveFails = nil
+test("a result neither saved nor delivered keeps its recording; one delivered does not", function()
+  kept, saveFails = {}, "could not write the take"
+  dictate(field("", "", ""), "Keep this.", field("", "", "")) -- focus moved: nothing is inserted
   assert(#kept == 1, "lost the recording")
   assert(alerts[1] == "Dictation: could not write the take", tostring(alerts[1]))
+  local element = field("", "", "")
+  dictate(element, "Delivered.")
+  saveFails = nil
+  assert(element.written == "Delivered." and #kept == 1, "kept a delivered take's recording")
+end)
+
+test("a reload keeps the take still transcribing", function()
+  kept, focus = {}, field("", "", "")
+  toggle()
+  toggle()
+  done("take.wav", 1, 1) -- sent, no result yet
+  local wav = ("take%d.wav"):format(starts)
+  env.hs.shutdownCallback()
+  assert(kept[1] == wav and #kept == 1, "lost the take: " .. tostring(kept[1]))
 end)
 
 test("a cancelled take that fails says where its recording went", function()
@@ -591,17 +603,23 @@ test("a cancelled take that fails says where its recording went", function()
 end)
 
 -- Last: it tears everything down.
-test("a reload restores the clipboard and keeps takes still transcribing", function()
-  clipboard = { ["public.utf8-plain-text"] = "mine" }
-  dictate(field("Hello", "", "", true), "there.")
-  kept = {}
-  toggle()
-  toggle()
-  done("take.wav", 1, 1) -- sent, no result yet
-  local wav = ("take%d.wav"):format(starts)
-  env.hs.shutdownCallback()
-  assert(clipboard["public.utf8-plain-text"] == "mine", "did not restore the clipboard")
-  assert(kept[1] == wav and #kept == 1, "lost the take: " .. tostring(kept[1]))
-end)
+test(
+  "a reload restores the clipboard and keeps the take still finalizing, not cancelled ones",
+  function()
+    clipboard = { ["public.utf8-plain-text"] = "mine" }
+    dictate(field("Hello", "", "", true), "there.")
+    kept = {}
+    toggle()
+    toggle()
+    done("take.wav", 1, 1)
+    escape() -- cancelled while transcribing
+    toggle()
+    toggle() -- stopped, its wav still finalizing
+    local wav = ("take%d.wav"):format(starts)
+    env.hs.shutdownCallback()
+    assert(clipboard["public.utf8-plain-text"] == "mine", "did not restore the clipboard")
+    assert(kept[1] == wav and #kept == 1, "kept " .. tostring(kept[1]) .. ", " .. #kept)
+  end
+)
 
 print(passed .. " insert tests passed")
