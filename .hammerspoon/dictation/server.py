@@ -965,7 +965,7 @@ class Engine:
     NUMBER_RUN = re.compile(
         rf"{ALONE[0]}(?:a\s+(?=(?:{_SCALE})\b))?(?:{_COUNT})"
         rf"(?:(?:\s+|-)(?:{_COUNT})\b|\s+(?:and|point)(?=\s+(?:{_COUNT})\b))*"
-        rf"(?:(?:\s+|-)(?:{'|'.join([*ORDINAL_ENDS, *DECADES])}))?\b(?![/@+#=\\]|\.\w)",
+        rf"(?:(?:\s+and)?(?:\s+|-)(?:{'|'.join([*ORDINAL_ENDS, *DECADES])}))?\b(?![/@+#=\\]|\.\w)",
         re.IGNORECASE,
     )
 

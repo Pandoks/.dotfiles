@@ -228,6 +228,7 @@ check(
         ("Version one point two point three.", "Version 1.2.3."),
         ("Set it to zero point twenty five.", "Set it to 0.25."),
         ("This is the one hundred and twenty first time.", "This is the 121st time."),
+        ("This is the one hundred and first time.", "This is the 101st time."),
         ("Music from the nineteen eighties.", "Music from the 1980s."),
         ("A million people came.", "1 million people came."),
         ("The call is three thirty pm.", "The call is 3:30 pm."),
