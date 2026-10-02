@@ -55,6 +55,10 @@ function engine.new(config, handlers)
       return true
     end
     self.errors = (self.errors .. (stderr or "")):sub(-4000)
+    -- Load chatter (progress bars) stays out of the console; what comes later goes in it.
+    if self.ready and stderr and stderr ~= "" then
+      print("Dictation backend: " .. stderr:gsub("%s+$", ""))
+    end
     local buffer = self.buffer .. (stdout or "")
     self.buffer = buffer:match("[^\n]*$") -- a partial line waits for the next chunk
     for line in buffer:gmatch("(.-)\n") do
@@ -96,10 +100,10 @@ function engine.new(config, handlers)
     function(code, stdout, stderr)
       output(nil, stdout, stderr)
       if not self.stopped then
-        -- The last stderr line (exception or abort reason) goes in the popup.
+        -- The last stderr line goes in the popup: an exception's, or whatever was printed last.
         local reason = self.errors:match("([^\n]*%S)%s*$")
         local exit = "backend exited (code " .. tostring(code) .. ")"
-        failure(reason and exit .. ": " .. reason .. "\n" .. self.errors or exit)
+        failure(reason and exit .. "; last output: " .. reason .. "\n" .. self.errors or exit)
       end
     end,
     output,

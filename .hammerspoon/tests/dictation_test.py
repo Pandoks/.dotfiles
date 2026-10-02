@@ -668,7 +668,7 @@ assert event["text"] == "" and event["heard"] == "Mmm wha blah", event
 print("PASS an empty cleanup types nothing and keeps what was heard")
 # Only protocol lines reach stdout: a library that prints, on load or during a take, goes to stderr.
 chatter = """
-import sys, server
+import os, sys, server
 class Chatty:
     def __init__(self, config):
         print("[WARNING] Generating with a model that requires 9000 MB")
@@ -676,6 +676,7 @@ class Chatty:
         print("loading...")
     def handle(self, request):
         print("[WARNING] again")
+        os.write(1, b"native chatter\\n")  # as native code would, past sys.stdout
         server.emit({"event": "final", "id": request["id"], "text": "ok"})
 server.Engine = Chatty
 sys.argv = ["server.py", "--config", "{}"]
@@ -691,7 +692,7 @@ run = subprocess.run(
     check=False,
 )
 events = [json.loads(line)["event"] for line in run.stdout.splitlines()]
-assert events == ["ready", "final"] and "[WARNING] again" in run.stderr, (run.stdout, run.stderr)
+assert events == ["ready", "final"] and "native chatter" in run.stderr, (run.stdout, run.stderr)
 print("PASS a library that prints cannot corrupt the protocol")
 # A stall between two counts does not join them; between a number's parts it does.
 check(
