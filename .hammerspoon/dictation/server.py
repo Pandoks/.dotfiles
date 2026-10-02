@@ -887,22 +887,131 @@ class Engine:
                     signs = {"minus": "-", "negative": "-", "positive": "+", "plus": "+"}
                     sign, unit, fresh = signs.get(token, ""), "", False
                 continue
-            # Scales and words after one join a chunk, as do ones after tens ("ninety nine");
-            # anything else starts one ("nineteen | ninety nine").
-            last = chunks[-1][2] if chunks else 0
-            if not chunks or not (
-                value >= 100 or last >= 100 or (last in range(20, 100, 10) and value < 10)
-            ):
-                chunks.append([0, 0, 0])  # total, the part under the scale, the last word
-            chunk = chunks[-1]
-            if value == 100:
-                chunk[1] = (chunk[1] or 1) * 100
-            elif value > 100:
-                chunk[0], chunk[1] = chunk[0] + (chunk[1] or 1) * value, 0
-            else:
-                chunk[1] += value
-            chunk[2] = value
+            cls.add_word(chunks, value)
         return found
+
+    @staticmethod
+    def add_word(chunks, value):
+        """Add a number word to chunks of [total, part under the scale, last word]. Scales and
+        words after one join a chunk, as do ones after tens ("ninety nine"); anything else starts
+        one ("nineteen | ninety nine")."""
+        last = chunks[-1][2] if chunks else 0
+        if not chunks or not (
+            value >= 100 or last >= 100 or (last in range(20, 100, 10) and value < 10)
+        ):
+            chunks.append([0, 0, 0])
+        chunk = chunks[-1]
+        if value == 100:
+            chunk[1] = (chunk[1] or 1) * 100
+        elif value > 100:
+            chunk[0], chunk[1] = chunk[0] + (chunk[1] or 1) * value, 0
+        else:
+            chunk[1] += value
+        chunk[2] = value
+
+    @classmethod
+    def values(cls, words):
+        """What number words read as, chunk by chunk: "nineteen ninety nine" is [19, 99], "one
+        thousand two hundred forty" is [1240]."""
+        chunks = []
+        for w in words:
+            cls.add_word(chunks, cls.NUMBERS[w])
+        return [total + part for total, part, _ in chunks]
+
+    # Number words a speech model leaves, and an ordinal one may end in ("twenty first").
+    COUNTS = frozenset(UNITS + list(TENS) + ["hundred", "thousand", "million", "billion"])
+    ORDINAL_ENDS = types.MappingProxyType(
+        {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6}
+        | {"seventh": 7, "eighth": 8, "ninth": 9}
+    )
+
+    @classmethod
+    def write_numbers(cls, text, names=()):
+        """Number words a speech model left, as digits with commas and decimal points: "three
+        things" -> "3 things", "one thousand two hundred forty" -> "1,240", "a hundred million"
+        -> "100 million", "two point five" -> "2.5", "twenty twenty six" -> "2026", "at 3.30" ->
+        "at 3:30". "one" alone stays a word ("one of them", "no one"), as do glossary names."""
+        word = "|".join(sorted(cls.COUNTS, key=len, reverse=True))
+        scales = ("hundred", "thousand", "million", "billion")
+        run = re.compile(
+            rf"{ALONE[0]}(?:a\s+(?=(?:{'|'.join(scales)})\b))?(?:{word})"
+            rf"(?:(?:\s+|-)(?:{word})\b|\s+(?:and|point)(?=\s+(?:{word})\b))*"
+            rf"(?:(?:\s+|-)(?:{'|'.join(cls.ORDINAL_ENDS)}))?\b(?![/@+#=\\]|\.\w)",
+            re.IGNORECASE,
+        )
+        kept = [  # glossary names with number words: "Three.js", "Fifty Shades"
+            found.span()
+            for name in names
+            if re.search(rf"\b(?:{word})\b", name, re.IGNORECASE)
+            for found in re.finditer(rf"{ALONE[0]}{re.escape(name)}{ALONE[1]}", text, re.IGNORECASE)
+        ]
+
+        def digits(words, before):  # None leaves the words
+            if "point" in words:  # "two point five million" -> "2.5 million"
+                k = words.index("point")
+                big = words[-1] if words[-1] in scales[2:] else ""
+                whole = str(sum(cls.values(words[:k])))
+                frac = "".join(str(cls.NUMBERS[w]) for w in words[k + 1 : len(words) - bool(big)])
+                return f"{whole}.{frac}" + (f" {big}" if big else "")
+            values = cls.values(words)
+            if len(values) > 1:  # read in pieces: a year, code, or time
+                if len(values) == 2 and values[0] <= 12 and 10 <= values[1] < 60:
+                    # "at three thirty" -> "at 3:30"; "it's three thirty" stays.
+                    timed = before in ("at", "by", "until", "till", "around")
+                    return f"{values[0]}:{values[1]:02d}" if timed else None
+                # "nineteen ninety nine" -> "1999", not "twenty four seven" or "two three four".
+                return None if min(values[1:]) < 10 else "".join(map(str, values))
+            if words[-1] in scales[2:]:  # "100 million", like Parakeet's "2.5 million"
+                return f"{digits(words[:-1], before) if words[:-1] else 1} {words[-1]}"
+            return f"{values[0]:,}" if set(words) & set(scales) else str(values[0])
+
+        def convert(start, end):
+            group = text[start:end]
+            if any(a < end and start < b for a, b in kept):
+                return group
+            before = (re.findall(r"[\w']+", text[:start].lower()) or [""])[-1]
+            after = re.findall(r"[\w']+|[^\w\s]", text[end:].lower())[:2] + ["", ""]
+            # An ordinal end belongs to a ten ("twenty first" -> "21st"); otherwise it stays.
+            *rest, last = re.split(r"([\s-]+)", group)  # words and the separators between
+            head, sep = "".join(rest[:-1]), "".join(rest[-1:])
+            if last.lower() in cls.ORDINAL_ENDS:
+                values = cls.values(re.split(r"[\s-]+", head.lower()))
+                if len(values) == 1 and values[0] in range(20, 100, 10):
+                    n = values[0] + cls.ORDINAL_ENDS[last.lower()]
+                    return f"{n}{({1: 'st', 2: 'nd', 3: 'rd'}).get(n % 10, 'th')}"
+                return convert(start, start + len(head)) + sep + last
+            # "and" joins a scale's parts ("seven hundred and fifty"), or two numbers ("1 and 2").
+            for found in re.finditer(r"\s+and\s+", group):
+                if not re.search(
+                    rf"(?:{'|'.join(scales)})$", group[: found.start()], re.IGNORECASE
+                ):
+                    split = start + found.start()
+                    return convert(start, split) + found.group() + convert(start + found.end(), end)
+            words = [w for w in re.split(r"[\s-]+", group.lower()) if w != "and"]
+            article = words[0] == "a"
+            words = words[article:]
+            # "one" alone is a pronoun or idiom ("one of them", "no one") unless it counts with
+            # another number ("one or two", "between 1 and ten").
+            joins = ("or", "to", "and", "through")
+            ranged = (before in joins and re.search(r"\d\s+\w+\s*$", text[:start])) or (
+                after[0] in joins and (after[1] in cls.COUNTS or after[1][:1].isdigit())
+            )
+            # A scale needs its number: "a hundred" before a plural ("a hundred users"), not "a
+            # billion dollar company", and never the speech model's own "2.5 million".
+            plural = re.fullmatch(r"\w+[^s]s", after[0])
+            bare = words[0] in scales and not (article and (len(words) > 1 or plural))
+            if (words == ["one"] and not ranged) or bare:
+                return group
+            if "-" in group and len(cls.values(words)) > 1:  # "fifty-fifty"
+                return group
+            written = digits(words, before)
+            return group if written is None else written
+
+        text = run.sub(lambda m: convert(*m.span()), text)
+        # The speech model writes a time "3.30": "at 3:30", not "by 1.05" or "at 2.50 each".
+        times = r"\b(at|until|till|around) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)"
+        text = re.sub(times, r"\1 \2:\3", text)
+        return re.sub(r"\b(1[0-2]|[1-9])\.([0-5]\d)(?=\s?[ap]\.?m\b)", r"\1:\2", text)
 
     @classmethod
     def looks_rewritten(cls, raw, out, allowed):
@@ -1276,20 +1385,22 @@ class Engine:
         return not all(w in rest for w in ordered(out_words) if w in raw_set or w == "#")
 
     def process(self, wav, request):
-        """One take: speech, spellings, guarded cleanup, stalls, spellings, '?', end policy."""
+        """One take: speech, spellings, guarded cleanup, stalls, spellings, '?', end policy,
+        numbers as digits."""
         heard = self.speech.transcribe(wav, self.glossary(request))
         # No letters or digits in any script: nothing was said, and the cleaner would invent text.
         if not re.search(r"[^\W_]", heard):
             return ""
         raw = self.apply_vocabulary(self.apply_dictionary(heard), request)
+        names = self.glossary(request)
         if not self.cleaner:
-            return raw  # cleanup off: the speech model's text, spellings fixed
+            return self.write_numbers(raw, names)  # cleanup off: the speech model's text
         # Stalls first: the vocabulary restores a spelling their removal capitalized ("yabai").
         text = self.strip_stalls(self.cleanup(raw, request).strip())
         text = self.apply_vocabulary(self.apply_dictionary(text), request)
         # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
         said = self.strip_stalls(raw)
-        return self.end_policy(said, self.ensure_question(said, text))
+        return self.write_numbers(self.end_policy(said, self.ensure_question(said, text)), names)
 
     def handle(self, request):
         command = request.get("cmd")

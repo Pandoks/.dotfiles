@@ -86,14 +86,18 @@ def check(name, cases, function):
     print(f"PASS {name}")
 
 
-def dictate(raw, cleaned=None):
-    """Engine.process on `raw` as heard; the cleanup returns `cleaned` (default: its input)."""
+def dictate(raw, cleaned=None, numbers=False):
+    """Engine.process on `raw` as heard; the cleanup returns `cleaned` (default: its input).
+    Number words stay words unless `numbers`: the guard's checks see what was said."""
     engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav)
     engine.cleaner = SimpleNamespace(
         frozen_prompt="prompt",
         complete=lambda messages, raw: cleaned or messages[0]["content"].split("\n\n", 1)[1],
     )
-    return engine.process(raw, {})
+    if numbers:
+        return engine.process(raw, {})
+    with mock.patch.object(engine, "write_numbers", lambda text, names: text):
+        return engine.process(raw, {})
 
 
 check(
@@ -192,8 +196,56 @@ check(
         ("Torrents of rain.", "Torrents of rain."),
         ("Ghost tea is my terminal.", "Ghostty is my terminal."),
         ("Open hammer spon.", "Open Hammerspoon."),
+        ("I want three things.", "I want 3 things."),
     ],
     lambda text: off.process(text, {}),
+)
+check(
+    "number words become digits, with commas and decimal points",
+    [
+        (
+            "I want three things at once with three sub-agents.",
+            "I want 3 things at once with 3 sub-agents.",
+        ),
+        ("It costs one thousand two hundred forty dollars.", "It costs 1,240 dollars."),
+        ("We shipped seven hundred and fifty units.", "We shipped 750 units."),
+        ("We need a hundred million ARR.", "We need 100 million ARR."),
+        ("Two point five million people.", "2.5 million people."),
+        ("The budget is $3.2 million.", "The budget is $3.2 million."),
+        ("Set it to zero point zero five.", "Set it to 0.05."),
+        ("Train it for a hundred thousand steps.", "Train it for 100,000 steps."),
+        ("A million things went wrong.", "1 million things went wrong."),
+        ("Back in twenty twenty six.", "Back in 2026."),
+        ("One eighty two merged.", "182 merged."),
+        ("This is the twenty first time.", "This is the 21st time."),
+        ("It's a three-year-old laptop.", "It's a 3-year-old laptop."),
+        ("Pick one or two options.", "Pick 1 or 2 options."),
+        ("Meet at three thirty.", "Meet at 3:30."),
+        ("Let's meet at 3.30.", "Let's meet at 3:30."),
+        ("The call is at 4.45 pm.", "The call is at 4:45 pm."),
+        # One alone, idioms, and readings that are not one number stay words.
+        ("One of the ideas was a trinket.", "One of the ideas was a trinket."),
+        ("No one came to the meeting.", "No one came to the meeting."),
+        ("It was a one-off.", "It was a one-off."),
+        ("It's a billion dollar company.", "It's a billion dollar company."),
+        ("This is the third time.", "This is the third time."),
+        ("It's three thirty.", "It's three thirty."),
+        ("We're open twenty four seven.", "We're open twenty four seven."),
+        ("Split it fifty-fifty.", "Split it fifty-fifty."),
+        ("Hundreds of users.", "Hundreds of users."),
+        ("Multiply that by 1.05.", "Multiply that by 1.05."),
+        ("It's priced at 2.50 each.", "It's priced at 2.50 each."),
+        # Names keep theirs: a path, a dotted name, a glossary entry.
+        ("Edit ~/two/three.txt now.", "Edit ~/two/three.txt now."),
+        ("Use Three.js for it.", "Use Three.js for it."),
+        ("Read Fifty Shades today.", "Read Fifty Shades today."),
+    ],
+    lambda text: server.Engine.write_numbers(text, ["Fifty Shades"]),
+)
+check(
+    "a cleaned take gets its numbers as digits",
+    [(("Um, send three copies.", None), "Send 3 copies.")],
+    lambda pair: dictate(*pair, numbers=True),
 )
 check(
     "stalls",
