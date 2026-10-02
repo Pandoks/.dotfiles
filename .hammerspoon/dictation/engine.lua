@@ -57,7 +57,7 @@ function engine.new(config, handlers)
     self.errors = (self.errors .. (stderr or "")):sub(-4000)
     -- Load chatter (progress bars) stays out of the console; what comes later goes in it.
     if self.ready and stderr and stderr ~= "" then
-      print("Dictation backend: " .. stderr:gsub("%s+$", ""))
+      print("Dictation backend: " .. (stderr:sub(-1) == "\n" and stderr:sub(1, -2) or stderr))
     end
     local buffer = self.buffer .. (stdout or "")
     self.buffer = buffer:match("[^\n]*$") -- a partial line waits for the next chunk
