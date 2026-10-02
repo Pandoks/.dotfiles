@@ -554,6 +554,7 @@ check(
             ("Is there any updates on the deploy?", "Are there any updates on the deploy?"),
             ("Okay? So the plan is to fix the build.", "Okay, so the plan is to fix the build."),
             ("Actually, is it ready? No wait, just ship it.", "Actually, just ship it."),
+            ("Let's meet Monday. No wait, Tuesday?", "Let's meet Tuesday."),
             (
                 "Did anyone update the fire wall? Thanks, I appreciate it a lot.",
                 "Did anyone update the firewall? Thank you, I appreciate it a lot.",
@@ -828,6 +829,7 @@ check(
             ("Is it at 3 p.m.? I'll be there.", "It's at 3 p.m. I'll be there."),
             ("Is it under 50ms? It was 80ms yesterday.", "It's under 50ms. It was 80ms yesterday."),
             ("Did it work? No? Then roll it back.", "Did it work? No. Then roll it back."),
+            ("Actually, did it work? No? Then roll it back.", "Actually, then roll it back."),
             ('Is it "3 p.m." or "4 p.m."?', 'It\'s "3 p.m." or "4 p.m."'),
             ("Are you around? Can we talk about it?", "You're around, can we talk about it?"),
             ("Is the service running?", "The service was running."),
