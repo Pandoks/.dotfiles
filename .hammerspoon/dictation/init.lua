@@ -255,6 +255,7 @@ local function insertText(text)
     -- A part of a name, address, or path stays joined: "foo.[local].bar", "foo-|bar", "foo_[bar]",
     -- "user+[tag]@example.com", "/usr/|bin", and before one: "/usr|/bin", "foo|.bar", "user|@host".
     local joiners = { ["."] = true, ["-"] = true, ["_"] = true, ["@"] = true, ["+"] = true }
+    joiners["="] = true -- "KEY=[old]", "--flag=|value"
     local joined = (joiners[before] and wordy(prior) or before == "/")
         and (last ~= "" or wordy(after))
       or wordy(before) and (after == "/" or joiners[after] and wordy(beyond))

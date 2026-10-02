@@ -328,17 +328,22 @@ CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
 
 
 # --- pipeline -----------------------------------------------------------------
+# A word is matched alone, never in a path, domain, address, flag, or assignment: not in
+# "~/ghosty", "ghosty+tag@x.com", "C:\\ghosty", "--ghosty", or "KEY=ghosty".
+ALONE = (r"(?<![\w./~@+#=\\:-])", r"(?![\w/@+#=\\-]|\.\w)")
+
+
 class Engine:
     def __init__(self, config):
         self.config = config
-        # (word, pattern): whole words, never in a path, domain, address, flag, or "it's".
+        # (word, pattern): whole words, never inside a name (ALONE) or "it's".
         self.dictionary = []
         for word, variants in (config.get("dictionary") or {}).items():
             forms = [word] + list(variants or [])
             alternatives = "|".join(
                 re.escape(form) for form in sorted(set(forms), key=len, reverse=True)
             )
-            pattern = rf"(?<![\w./~@-])(?<!\w['’])(?:{alternatives})(?![\w/@-]|\.\w)"
+            pattern = rf"{ALONE[0]}(?<!\w['’])(?:{alternatives}){ALONE[1]}"
             self.dictionary.append((word, re.compile(pattern, re.IGNORECASE)))
 
         stt = config["stt"]
@@ -411,7 +416,7 @@ class Engine:
         for w in (w for w in entries if " " in w):
             phrase = r"[^\S\n]+".join(map(re.escape, w.split()))
             text = re.sub(
-                rf"(?<![\w./~@-]){phrase}(?![\w/@-]|\.\w)",
+                rf"{ALONE[0]}{phrase}{ALONE[1]}",
                 lambda _, w=w: w,
                 text,
                 flags=re.IGNORECASE,
@@ -692,10 +697,20 @@ class Engine:
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
     # side).
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
-    REFERENTS = [
-        "i|me|my|mine|myself/you|your|yours|yourself",
-        "we|us|our|ours/they|them|their|theirs",
-    ] + ["he|him|his|himself/she|her|hers|herself", "this|these/that|those", "here/there"]
+    REFERENTS = ("this|these/that|those", "here/there")
+    # People a cleanup must keep, by person: "He approved it" is not "They approved it", and
+    # "Send it to him" not "Send it". Their forms may change ("Me and him" -> "He and I").
+    PERSONS = types.MappingProxyType(
+        {
+            w: n
+            for n, forms in enumerate(
+                ["i|me|my|mine|myself", "you|your|yours|yourself|yourselves"]
+                + ["he|him|his|himself", "she|her|hers|herself", "we|us|our|ours|ourselves"]
+                + ["they|them|their|theirs|themselves"]
+            )
+            for w in forms.split("|")
+        }
+    )
     SIDES = types.MappingProxyType(
         {
             form: (n, side)
@@ -713,7 +728,9 @@ class Engine:
         }
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
-    DROPPED_RE = re.compile(r"\b(?:um+|uh+|erm?|hm+|like|you know|i mean|(?:make|scratch) that)\b")
+    DROPPED_RE = re.compile(
+        r"\b(?:um+|uh+|erm?|hm+|like|you know|i meant?|(?:make|scratch) that)\b"
+    )
     # Discourse markers a filler "you know" or "I mean" follows: "so you know we should".
     MARKERS = frozenset(["so", "and", "but", "well", "yeah", "okay", "ok", "oh", "um", "uh"])
     # Words after which "like" is a filler ("it was like", "so like"); after others it is meant.
@@ -734,6 +751,26 @@ class Engine:
         | {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
         | {"first": 1, "second": 2, "third": 3, "fifth": 5, "eighth": 8, "ninth": 9}
         | {"twelfth": 12, "dozen": 12}
+    )
+    # A mark and the words that say it: "alice at example dot com".
+    MARK_WORDS = types.MappingProxyType(
+        {"@": frozenset(["at"]), ".": frozenset(["dot", "point", "period"])}
+        | {
+            "/": frozenset(["slash"]),
+            "\\": frozenset(["backslash"]),
+            "_": frozenset(["underscore"]),
+        }
+        | {"-": frozenset(["dash", "hyphen", "minus"]), "+": frozenset(["plus"])}
+        | {
+            "#": frozenset(["hash", "pound", "sharp", "hashtag"]),
+            "=": frozenset(["equals", "equal"]),
+        }
+        | {"~": frozenset(["tilde"]), ":": frozenset(["colon"])}
+    )
+    # Exact quantities that are not numbers: "half" is not "double", "once" not "twice".
+    MULTIPLES = types.MappingProxyType(
+        {"half": "½", "quarter": "¼", "once": "×1", "twice": "×2", "double": "×2"}
+        | {"thrice": "×3", "triple": "×3"}
     )
     # Words between a sign or unit and its number: "negative about fifteen", "15 US dollars".
     QUALIFIERS = frozenset(
@@ -818,6 +855,8 @@ class Engine:
                 point, chunks = "", []
                 if token[:1] == "#" or re.fullmatch(r"[-+]?\d+(?:\.\d+)*", token):  # "1.2.3" too
                     said({token})
+                elif token in cls.MULTIPLES:
+                    said({"#" + cls.MULTIPLES[token]})  # a value of its own, counting nothing
                 elif fresh and (token in cls.MEASURES or re.fullmatch(cls.UNIT, token)):
                     # After it: "15%", "fifteen dollars", "20 ms" (not "20")
                     measure = cls.MEASURES.get(token, token)
@@ -901,7 +940,7 @@ class Engine:
             liked = m.group() == "like" and not (led or before[0] in cls.FILLER_LEADS)
             # Set off by a mark or after a discourse marker it is filler or a cue (", I mean Jane",
             # "so you know we"); "I mean it" and "You know the answer" are meant.
-            running = m.group() in ("you know", "i mean") and not (
+            running = m.group() in ("you know", "i mean", "i meant") and not (
                 re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
                 or re.search(r"[,;:…—]\s*$", raw[: m.start()])
                 or (before and before[0] in cls.MARKERS)
@@ -998,10 +1037,19 @@ class Engine:
                 ):
                     yield m, t
 
+        said_marks = {t for _, t in marked(raw)}
         kept_marks = {t for _, t in marked(out)}
         for m, t in marked(raw):
             taken_back = any(m.start() <= spans[k].start() < m.end() for k in corrected)
             if t not in kept_marks and not taken_back:
+                return True
+        # A new one is only one said aloud, marks too: "alice at example dot com" may become
+        # "alice@example.com", but "Email Alice" not, nor "use force" "--force".
+        spoken = set(raw_words) | {w for run in glossary for w in run}
+        entries = {a.lower().replace("’", "'") for a in allowed}  # "Node.js" as listed
+        for t in kept_marks - said_marks - entries:
+            marks = {cls.MARK_WORDS[c] for c in t if c in cls.MARK_WORDS}
+            if not set(words(t)) <= spoken or any(not names & spoken for names in marks):
                 return True
 
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
@@ -1056,6 +1104,14 @@ class Engine:
         fixes = min(len(lost), sum(w in named for w in bare(new)))
         if len(new) - fixes > max(2, 0.25 * len(raw_words)):
             return True  # too many words the user never said
+
+        # So does each person said, in some form: not "He" -> "They" or "to him" -> "" ("Me and
+        # him" -> "He and I" is fine).
+        def persons(tokens):  # "I'm" is "i"
+            return {cls.PERSONS[w] for w in (t.split("'")[0] for t in tokens) if w in cls.PERSONS}
+
+        if persons(spoken) - persons(out_words):
+            return True
         # A name survives unless taken back or fixed by the glossary: "Send it to Alice" is not
         # "Send it to Bob", nor "Meet on Monday" "Meet on Friday".
         gone = {n for n in lost & names if not any(w.startswith(n) for w in out_words)}  # "SHA256"
@@ -1085,6 +1141,7 @@ class Engine:
             if ((set(dropped) - written) | (written - set(raw_words[i1:i2]))) & cls.SCOPE:
                 return True  # "all", "always", or "must" dropped or added
             said, wrote = set(raw_words[i1:i2]), set(out_words[j1:j2])
+
             swapped = {cls.SIDES[w] for w in said - wrote if w in cls.SIDES}
             if any(
                 (cls.SIDES[w][0], 1 - cls.SIDES[w][1]) in swapped

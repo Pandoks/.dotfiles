@@ -1,7 +1,8 @@
 """Pin the dictation backend's text pipeline and boosted decoder with stub models.
 
 Run: .hammerspoon/dictation/.venv/bin/python .hammerspoon/tests/dictation_test.py
-No model load, microphone, network, or Hammerspoon; the cleanup tokenizer comes from the cache.
+No model load, microphone, or Hammerspoon; only the cleanup tokenizer's small files are fetched,
+once, when they are not cached yet.
 """
 
 import functools
@@ -13,13 +14,13 @@ from types import SimpleNamespace
 from unittest import mock
 
 sys.dont_write_bytecode = True
-os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "dictation"))
 
 import mlx.core as mx
 import server  # pyright: ignore[reportMissingImports]
 from huggingface_hub import snapshot_download
+from huggingface_hub.errors import LocalEntryNotFoundError
 from mlx_lm.utils import load_tokenizer
 from parakeet_mlx import ParakeetTDT
 
@@ -65,11 +66,15 @@ engine = server.Engine(
     }
 )
 # config.lua's cleanup tokenizer (the real words Engine.load adds), from files mlx_lm.load caches.
-cleanup = snapshot_download(
-    "mlx-community/Qwen3.5-2B-MLX-4bit",
-    revision="93760be4f1f69842a46bc13dbdc0f19e291392a3",
-    allow_patterns=["*.json", "*.jinja"],
-)
+tokenizer_files = {
+    "repo_id": "mlx-community/Qwen3.5-2B-MLX-4bit",
+    "revision": "93760be4f1f69842a46bc13dbdc0f19e291392a3",
+    "allow_patterns": ["*.json", "*.jinja"],
+}
+try:
+    cleanup = snapshot_download(**tokenizer_files, local_files_only=True)
+except LocalEntryNotFoundError:  # a fresh checkout: a few MB, not the model
+    cleanup = snapshot_download(**tokenizer_files)
 tokenizer = load_tokenizer(Path(cleanup))
 engine.words |= server.whole_words(tokenizer.get_vocab())  # pyright: ignore[reportCallIssue]
 
@@ -127,6 +132,9 @@ check(
             "Check GitHub's API docs.",
             "Open github.com please.",
             "Mail ghosty@example.com now.",
+            "Mail ghosty+tag@example.com now.",
+            "Open C:\\ghosty\\x now.",
+            "Set KEY=ghosty now.",
             "Ping me at me@ghosty.",
             "Edit ~/.hammerspoon/init.lua now.",
             "cd ~/.hammerspoon",
@@ -369,6 +377,8 @@ check(
             ("Basically we should ship it.", "We should ship it."),
             ("Email alice@example.com, no wait, bob@example.com.", "Email bob@example.com."),
             ("I will go there.", "I'll go there."),
+            ("Email alice at example dot com.", "Email alice@example.com."),
+            ("Me and him went.", "He and I went."),
             ("Turn on 2FA for my account please.", "Turn on 2FA for my account."),
             ("Use SHA-256 for it.", "Use SHA256 for it."),
             ("My three-year-old is here.", "My 3-year-old is here."),
@@ -517,6 +527,12 @@ check(
             ("Delete all files.", "Delete files."),
             ("Always encrypt backups.", "Encrypt backups."),
             ("Users must authenticate.", "Users authenticate."),
+            ("Email Alice today.", "Email alice@example.com today."),
+            ("Use force please.", "Use --force please."),
+            ("He approved it.", "They approved it."),
+            ("Send it to him.", "Send it."),
+            ("Use half the dose.", "Use double the dose."),
+            ("Retry once.", "Retry twice."),
             ("Set opacity to .5.", "Set opacity to .8."),
             ("Set it to −15.", "Set it to 15."),
             ("Use 1e-3.", "Use 1e3."),
