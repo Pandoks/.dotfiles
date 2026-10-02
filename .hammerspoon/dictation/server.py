@@ -882,6 +882,13 @@ class Engine:
                 tokens.append("#" + re.sub(r"(?<=.)(?<!\de)-", "", core))  # "-1e-3" keeps its sign
             else:
                 tokens += re.findall(rf"{number}|[a-zμ]+|[%°$€£½¼¾⅓⅔⅛]", w)
+        # A spoken zero inside a number: "four oh four", "one point oh five", "two point oh".
+        for i, token in enumerate(tokens):
+            before, after = tokens[i - 1] if i else "", tokens[i + 1 : i + 2] or [""]
+            if token == "oh" and (
+                before == "point" or (before in cls.NUMBERS and after[0] in {"oh", *cls.NUMBERS})
+            ):
+                tokens[i] = "zero"
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
         for token in tokens + [""]:
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
@@ -1331,11 +1338,19 @@ class Engine:
             for k, w in enumerate(raw_words)
             if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
         }
-        numeric |= {  # "two hundred and five", "one point five"
-            k
-            for k, w in enumerate(raw_words)
-            if w in ("and", "point") and {k - 1, k + 1} <= numeric
-        }
+        while True:  # and the words joining them: "two hundred and five", "one point oh five"
+            joins = {
+                k
+                for k, w in enumerate(raw_words)
+                if k not in numeric
+                and (
+                    (w in ("and", "point", "oh") and {k - 1, k + 1} <= numeric)
+                    or (w == "oh" and raw_words[k - 1 : k] == ["point"] and k - 2 in numeric)
+                )
+            }
+            if not joins:
+                break
+            numeric |= joins
 
         def uncorrected(i1, i2):
             gone = corrected | fillers | numeric
