@@ -710,6 +710,7 @@ class Engine:
             "more|greater/less|fewer",
             "and/or",
             "to|into|onto|toward/from",  # "towards" is an inflection
+            "is|are|am|do|does|has|have/was|were|did|had",  # "is running" is not "was running"
         ]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
@@ -720,6 +721,7 @@ class Engine:
         + ["least", "most", "more", "less", "greater", "fewer", "all", "every", "each", "some"]
         + ["that"]
         + ["and", "or", "to", "into", "onto", "toward", "towards", "from"]
+        + ["is", "are", "am", "do", "does", "has", "have", "was", "were", "did", "had"]
     )
     # Prefixes that make one word the other's opposite: "unsafe", "deactivate", "decrypt". A bare
     # "de" only on a verb ending that takes it, not on misheard words ("ploy" -> "deploy").
@@ -912,19 +914,42 @@ class Engine:
                     spans.append((m.start() + t.start(), m.start() + t.end()))
         zeros = cls.zeros(text)  # "four oh four"
         tokens = ["zero" if span in zeros else t for t, span in zip(tokens, spans, strict=True)]
+        # A sentence's end or a list's comma ends a number ("twenty. Five", "one, two"); a comma
+        # around a stall does not ("two hundred, um, fifty").
+        gaps = [""] + [text[a[1] : b[0]] for a, b in itertools.pairwise(spans)]
+        ends = {
+            k
+            for k, gap in enumerate(gaps)
+            if re.search(r"[.!?;]", gap)
+            or ("," in gap and not {tokens[k - 1], tokens[k]} & {"um", "uh"})
+        }
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
 
-        def decimal():  # its digits follow the point: "one point two five" is 1.25
-            runs = [str(total + part) for total, part, _ in chunks]
-            said({point + "".join(runs) if runs else point[:-1]})
+        def fraction():  # the decimal said so far; its digits follow the point: "1.25"
+            runs = [str(total + part) for total, part, *_ in chunks]
+            return point + "".join(runs) if runs else point[:-1]
 
-        for token in tokens + [""]:
+        def flush():  # the number said so far, if any
+            nonlocal point, chunks
+            runs = [str(total + part) for total, part, *_ in chunks]
+            if point:
+                said({fraction()})
+            elif chunks:  # a run reads as its chunks joined too: "nineteen ninety nine" is 1999
+                said(
+                    {"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)}, len(runs)
+                )
+            point, chunks = "", []
+
+        for k, token in enumerate(tokens + [""]):
+            if k in ends:
+                flush()
+                scalable = False
             if token in cls.QUALIFIERS or (token == "and" and chunks and chunks[-1][2] >= 100):
                 continue  # "negative about fifteen", "two hundred and five"
             if (
                 token == "point" and chunks
             ):  # "one point five" is 1.5, "one point one point two" 1.1.2
-                point += "".join(str(total + part) for total, part, _ in chunks) + "."
+                point += "".join(str(total + part) for total, part, *_ in chunks) + "."
                 chunks = []
                 continue
             if token == "dozen" and chunks:  # "two dozen" is 24, not "2 12"
@@ -932,22 +957,20 @@ class Engine:
                 continue
             ordinal = cls.NUMBERS.get(re.sub(r"ieth$", "y", token).removesuffix("th"))
             value = cls.NUMBERS.get(token, ordinal)
-            if value is not None and value >= 1000 and scalable:  # "$1.5 million" is $1,500,000
+            # A scale multiplies a number said in digits or a decimal: "$1.5 million" and "one
+            # point five million dollars" are both $1,500,000, "2 dozen" is 24.
+            scale = value is not None and (value >= 100 or token == "dozen")
+            if scale and scalable:
                 forms, parts = found[-1]
                 found[-1], scalable = ({cls.scaled(f, value) for f in forms}, parts), False
                 continue
+            if scale and point:
+                said({cls.scaled(fraction(), value)})
+                point, chunks = "", []
+                continue
             scalable = False
             if value is None:
-                runs = [str(total + part) for total, part, _ in chunks]
-                if point:
-                    decimal()
-                elif chunks:
-                    # A run reads as its chunks joined too: "nineteen ninety nine" is 1999.
-                    said(
-                        {"".join(runs[i:j]) for j in range(len(runs) + 1) for i in range(j)},
-                        len(runs),
-                    )
-                point, chunks = "", []
+                flush()
                 if token[:1] == "#" or re.fullmatch(r"[-+]?\d+(?:\.\d+)*", token):  # "1.2.3" too
                     said({token})
                     scalable = re.fullmatch(r"[-+]?\d+(?:\.\d+)?", token) is not None
@@ -972,9 +995,6 @@ class Engine:
                     signs = {"minus": "-", "negative": "-", "positive": "+", "plus": "+"}
                     sign, unit, fresh = signs.get(token, ""), "", False
                 continue
-            if point and value >= 100:  # "one point five thousand" is 1.5 thousand, as written
-                decimal()
-                point, chunks = "", []
             cls.add_word(chunks, value)
         return found
 
@@ -997,21 +1017,24 @@ class Engine:
 
     @staticmethod
     def add_word(chunks, value):
-        """Add a number word to chunks of [total, part under the scale, last word]. Scales and
-        words after one join a chunk, as do ones after tens ("ninety nine"); anything else starts
-        one ("nineteen | ninety nine"), as does a zero, always read as a digit ("twenty oh one")."""
+        """Add a number word to chunks of [total, part under the scale, last word, last scale].
+        Scales and words after one join a chunk, as do ones after tens ("ninety nine"); anything
+        else starts one ("nineteen | ninety nine"), as does a zero, always read as a digit
+        ("twenty oh one")."""
         last = chunks[-1][2] if chunks else 0
         if (
             not chunks
             or value == 0
             or not (value >= 100 or last >= 100 or (last in range(20, 100, 10) and value < 10))
         ):
-            chunks.append([0, 0, 0])
+            chunks.append([0, 0, 0, 0])
         chunk = chunks[-1]
         if value == 100:
             chunk[1] = (chunk[1] or 1) * 100
-        elif value > 100:
-            chunk[0], chunk[1] = chunk[0] + (chunk[1] or 1) * value, 0
+        elif value > 100 and value > chunk[3]:  # past the last scale: "a thousand million"
+            chunk[0], chunk[1], chunk[3] = ((chunk[0] + chunk[1]) or 1) * value, 0, value
+        elif value > 100:  # under it, it adds on: "two million three thousand"
+            chunk[0], chunk[1], chunk[3] = chunk[0] + (chunk[1] or 1) * value, 0, value
         else:
             chunk[1] += value
         chunk[2] = value
@@ -1023,7 +1046,7 @@ class Engine:
         chunks = []
         for w in words:
             cls.add_word(chunks, cls.NUMBERS[w])
-        return [total + part for total, part, _ in chunks]
+        return [total + part for total, part, *_ in chunks]
 
     # Number words a speech model leaves, and an ordinal one may end in ("twenty first").
     COUNTS = frozenset(UNITS + list(TENS) + ["hundred", "thousand", "million", "billion"])
@@ -1214,9 +1237,6 @@ class Engine:
                 re.fullmatch(r"\w{2,}[^s']s", after[0]) and after[0] not in cls.SINGULAR_S
             )
             bare = words[0] in scales and not (article and (len(words) > 1 or plural))
-            # "At one point five people left" is a time, not 1.5 people.
-            if before == "at" and words[:2] == ["one", "point"] and (plural or after[0] == "of"):
-                return group
             if (words == ["one"] and not ranged) or bare:
                 return group
             counts = [w for w in words if w in cls.COUNTS]  # not "point" or "oh"
@@ -1371,9 +1391,7 @@ class Engine:
         # or taken back ("15, no, 50"), never replaced, dropped, or invented. Each said one needs
         # its own written one ("15 files into 15 folders"); a run may be several ("3:30").
         # In order too: "width fifteen, height twenty" is not "width 20, height 15".
-        # Each side as write_numbers writes it, so both read alike: "twenty. Five" stays 20 and 5,
-        # "two million" is "2 million" either way.
-        written = [w for w, _ in cls.numbers(cls.write_numbers(out))]
+        written = [w for w, _ in cls.numbers(out)]
         # With the rest of its written word: "256" in "SHA-256, no wait" takes back "SHA-256".
         pieces = list(re.finditer(r"\S+", raw))
         back_words = {
@@ -1384,7 +1402,7 @@ class Engine:
         }
         taken = [n for n, _ in cls.numbers(" ".join(back_words[s] for s in sorted(back_words)))]
         at = 0
-        for n, parts in cls.numbers(cls.write_numbers(raw)):
+        for n, parts in cls.numbers(raw):
             k = next((k for k in range(at, len(written)) if written[k] & n), None)
             back = next((t for t in taken if t & n), None)
             if k is None and back is not None:
@@ -1538,6 +1556,9 @@ class Engine:
                     for p, q in cls.PREFIXES
                 ):
                     return False
+            # Nor one made plural or singular: "Delete the backup" is not "Delete the backups".
+            if any(y in (x + "s", x + "es", x[:-1] + "ies") for x, y in ((a, b), (b, a))):
+                return False
             close = difflib.SequenceMatcher(None, a, b).ratio() >= 0.6
             return a in b or b in a or close or bool(shortens(a, b) or shortens(b, a))
 

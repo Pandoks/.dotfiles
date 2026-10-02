@@ -42,16 +42,16 @@ recorder.ffmpeg = ffmpeg
 -- Per-user 0700 temp dir, not the shared /tmp.
 local temporary = hs.fs.temporaryDirectory()
 
--- Recordings a crash left behind (reload and quit see to their own): each wav with audio in it.
--- Their raw PCM copies and empty wavs are deleted.
----@return string[]
+-- Recordings a crash left behind (reload and quit see to their own): each wav with more than a
+-- moment of audio past its header. Their raw PCM copies and the rest are deleted.
+---@return DictationRecording[]
 function recorder.leftovers()
   local found = {}
   for entry in hs.fs.dir(temporary) do
-    local extension = entry:match("^dictation%-[%x%-]+%.(%a+)$")
+    local base, extension = entry:match("^(dictation%-[%x%-]+)%.(%a+)$")
     local path = temporary .. entry
-    if extension == "wav" and (hs.fs.attributes(path, "size") or 0) > 44 then -- past its header
-      found[#found + 1] = path
+    if extension == "wav" and (hs.fs.attributes(path, "size") or 0) > 4096 then
+      found[#found + 1] = { wav = path, pcm = temporary .. base .. ".pcm" }
     elseif extension == "wav" or extension == "pcm" then
       os.remove(path)
     end

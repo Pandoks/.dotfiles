@@ -22,7 +22,7 @@ end
 ---@param settings DictationHistoryConfig
 ---@param extension string
 ---@return string? path, string? failure
-local function slot(settings, extension)
+local function slot(settings, extension, time)
   local directory = folder(settings)
   -- Owner-only: transcripts may hold anything said.
   if
@@ -43,7 +43,7 @@ local function slot(settings, extension)
   end
 
   -- Timestamped names sort oldest first; a second take in the same second gets a suffix.
-  local stamp = tostring(os.date("%Y-%m-%d_%H-%M-%S"))
+  local stamp = tostring(os.date("%Y-%m-%d_%H-%M-%S", time))
   local name, count = ("%s.%s"):format(stamp, extension), 1
   while hs.fs.attributes(directory .. "/" .. name, "mode") do
     count = count + 1
@@ -96,17 +96,18 @@ end
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.keep(file, settings)
-  if not hs.fs.attributes(file, "mode") then
+  local time = hs.fs.attributes(file, "modification")
+  if not time then
     return "the recording " .. file .. " is gone"
   end
-  local path, failure = slot(settings, "wav")
+  -- Named for when it was recorded, not when it was kept.
+  local path, failure = slot(settings, "wav", time)
   if not path then
     return failure
   end
-  -- Owner-only already: the recorder writes it under umask 077.
-  local moved, message = os.rename(file, path)
-  if not moved then
-    return "could not move " .. file .. " to " .. path .. ": " .. tostring(message)
+  -- mv, which copies across volumes where a rename cannot; owner-only already (umask 077).
+  if not os.execute("mv " .. quote(file) .. " " .. quote(path)) then
+    return "could not move " .. file .. " to " .. path
   end
 end
 

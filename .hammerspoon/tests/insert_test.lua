@@ -77,7 +77,7 @@ local env = setmetatable({
         end,
         cleanup = function() end,
         leftovers = function()
-          return { "crashed.wav" } -- a take a crash left behind
+          return { { wav = "crashed.wav" } } -- a take a crash left behind
         end,
       },
     })[name]
@@ -221,7 +221,7 @@ end
 -- First: init.lua kept the crash's leftovers as it loaded.
 test("a recording a crash left is kept and announced at load", function()
   assert(kept[1] == "crashed.wav" and #kept == 1, tostring(kept[1]))
-  assert(alerts[1] and alerts[1]:find("1 recording left by a crash kept in", 1, true), alerts[1])
+  assert(alerts[1] and alerts[1]:find("1 recording kept in .*left by a crash"), alerts[1])
 end)
 
 test("spacing joins the text to its neighbors", function()

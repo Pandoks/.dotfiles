@@ -71,12 +71,13 @@ test("a crash's recordings with audio are found; their PCM and empty ones are de
     file:write(("\0"):rep(bytes))
     file:close()
   end
-  write("dictation-0a1b-2c3d.wav", 4096)
+  write("dictation-0a1b-2c3d.wav", 8192)
   write("dictation-0a1b-2c3d.pcm", 4096)
-  write("dictation-4e5f-6a7b.wav", 44) -- a header and no audio
+  write("dictation-4e5f-6a7b.wav", 78) -- ffmpeg's header and no audio
   write("notes.wav", 4096)
   local found = recorder.leftovers()
-  assert(#found == 1 and found[1] == scratch .. "/dictation-0a1b-2c3d.wav", tostring(found[1]))
+  local wav = scratch .. "/dictation-0a1b-2c3d.wav"
+  assert(#found == 1 and found[1].wav == wav, tostring(found[1] and found[1].wav))
   assert(not fs.attributes(scratch .. "/dictation-0a1b-2c3d.pcm"), "kept its PCM")
   assert(not fs.attributes(scratch .. "/dictation-4e5f-6a7b.wav"), "kept an empty one")
   assert(fs.attributes(scratch .. "/notes.wav"), "deleted a file not its own")

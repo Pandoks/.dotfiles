@@ -142,8 +142,7 @@ local config = {
     },
   },
 
-  -- 10 MB is ~2,500 takes (a 4 KB block each); Caches survives reboots, unlike $TMPDIR.
-  -- Application Support, not Caches: macOS may purge caches, and this is the copy that survives.
+  -- 10 MB is ~2,500 takes (a 4 KB block each); Application Support, as macOS may purge Caches.
   history = { directory = "~/Library/Application Support/dictation", maxMegabytes = 10 },
 
   insert = "auto",

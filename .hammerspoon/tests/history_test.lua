@@ -33,6 +33,9 @@ local history = assert(loadfile(
         commands[#commands + 1] = command
         return execute(command)
       end,
+      rename = function() -- as across volumes: a recording is kept all the same
+        return nil, "Cross-device link"
+      end,
     }, { __index = os }),
   }, { __index = _G })
 ))()
@@ -170,10 +173,12 @@ test("keep moves a recording in, where prune never deletes it", function()
   local file = assert(io.open(recording, "w"))
   file:write("RIFF")
   file:close()
+  -- Named for when it was recorded.
+  assert(os.execute(("touch -t 202601020304.05 %q"):format(recording)))
   assert(history.keep(recording, settings) == nil and not fs.attributes(recording))
   assert(history.save("take", settings) == nil and history.prune(settings) == nil)
   local stamp = date("%Y-%m-%d_%H-%M-%S", clock)
-  expect(settings.directory, { stamp .. ".wav", stamp .. ".txt" })
+  expect(settings.directory, { "2026-01-02_03-04-05.wav", stamp .. ".txt" })
 end)
 
 test("keep reports a recording that is gone, leaving nothing", function()

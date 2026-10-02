@@ -346,6 +346,19 @@ local function keep(capture)
   return true
 end
 
+-- Keep each recording; how many were kept and where, or nil for none.
+---@param captures DictationRecording[]
+---@return string?
+local function keepAll(captures)
+  local kept = 0
+  for _, capture in ipairs(captures) do
+    kept = kept + (keep(capture) and 1 or 0)
+  end
+  local where = config.history.directory
+  return kept > 0 and ("%d recording%s kept in %s"):format(kept, kept > 1 and "s" or "", where)
+    or nil
+end
+
 -- Deliver the result and return to idle.
 ---@param text string?
 ---@return boolean delivered written or copied, so not a ⌘V nothing confirms
@@ -557,19 +570,12 @@ engine, engineError = Engine.new(config, {
       end
     else
       -- The backend died: what it had not transcribed survives only as recordings, so keep them.
-      local kept = 0
+      local captures = {}
       for key, capture in pairs(requests) do
-        requests[key] = nil
-        kept = kept + (keep(capture) and 1 or 0)
+        requests[key], captures[#captures + 1] = nil, capture
       end
-      if kept > 0 then
-        message = ("%s; %d recording%s kept in %s"):format(
-          message,
-          kept,
-          kept > 1 and "s" or "",
-          config.history.directory
-        )
-      end
+      local kept = keepAll(captures)
+      message = message .. (kept and "; " .. kept or "")
     end
     fail("Dictation backend: " .. message)
     -- A take still recording or finalizing goes on: stopped, it finds no backend and is kept.
@@ -583,23 +589,9 @@ if not engine then
 end
 
 -- Recordings a crash left are the only copies of what was said: kept in history, and announced.
-local recovered = 0
-for _, wav in ipairs(recorder.leftovers()) do
-  local problem = history.keep(wav, config.history)
-  if problem then
-    fail("Dictation: " .. problem)
-  else
-    recovered = recovered + 1
-  end
-end
-if recovered > 0 then
-  fail(
-    ("Dictation: %d recording%s left by a crash kept in %s"):format(
-      recovered,
-      recovered > 1 and "s" or "",
-      config.history.directory
-    )
-  )
+local recovered = keepAll(recorder.leftovers())
+if recovered then
+  fail("Dictation: " .. recovered .. ", left by a crash")
 end
 
 if config.trigger == "hotkey" then
