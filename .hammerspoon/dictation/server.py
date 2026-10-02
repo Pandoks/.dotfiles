@@ -489,13 +489,22 @@ class Engine:
     CONTINUATION = frozenset(
         ["the", "a", "an", "my", "your", "our", "their", "its", "every"]
         + ["and", "but", "or", "nor", "because", "although", "whereas", "whether", "unless", "if"]
-        + ["than", "via", "versus", "per"]
+        + ["than", "via", "versus", "per", "to", "with", "of", "from", "into", "onto", "toward"]
+        + ["towards", "for", "between", "among", "without"]  # "Send it to"
+    )
+    # Words a complete sentence ends "to" after: "I'd love to", "You don't have to".
+    ELLIPTICAL = frozenset(
+        ["want", "wants", "wanted", "like", "likes", "liked", "love", "loves", "loved", "need"]
+        + ["needs", "needed", "have", "has", "had", "going", "got", "ought", "used", "try"]
+        + ["tried", "plan", "hope", "mean", "meant", "supposed", "able", "glad", "happy"]
     )
 
     @classmethod
     def dangles(cls, words):
         """Ends on a continuation word; an all-caps one after others is a name ("plan A")."""
         last = words[-1]
+        if last.lower() == "to" and len(words) > 1 and words[-2].lower() in cls.ELLIPTICAL:
+            return False
         return last.lower() in cls.CONTINUATION and not (len(words) > 1 and last.isupper())
 
     def end_policy(self, raw, text):
@@ -793,6 +802,8 @@ class Engine:
         }
         | {"~": frozenset(["tilde"]), ":": frozenset(["colon"])}
     )
+    # Verbs that oblige before "to": "have to", "need to", "got to".
+    OBLIGING = frozenset(["have", "has", "had", "need", "needs", "needed", "ought", "got"])
     # Question words a cleanup keeps as said: "Where should we deploy" is not "Should we deploy".
     ASKING = frozenset(["who", "whom", "whose", "what", "which", "when", "where", "why", "how"])
     WHEN_PREPOSITIONS = frozenset(["by", "on", "at", "before", "after", "until", "till", "since"])
@@ -1001,9 +1012,13 @@ class Engine:
 
     # Number words a speech model leaves, and an ordinal one may end in ("twenty first").
     COUNTS = frozenset(UNITS + list(TENS) + ["hundred", "thousand", "million", "billion"])
+    # Ordinals a run may end in, by their cardinal: "first" is "one", "fiftieth" "fifty".
     ORDINAL_ENDS = types.MappingProxyType(
-        {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6}
-        | {"seventh": 7, "eighth": 8, "ninth": 9}
+        {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight"}
+        | {"ninth": "nine", "twelfth": "twelve"}
+        | {w + "th": w for w in UNITS[4:] if w not in ("five", "eight", "nine", "twelve")}
+        | {w[:-1] + "ieth": w for w in TENS}
+        | {w + "th": w for w in ("hundred", "thousand", "million", "billion")}
     )
 
     # Decades a century leads ("nineteen eighties"), plurals that end in no "s" ("a hundred
@@ -1015,10 +1030,20 @@ class Engine:
         ["people", "children", "men", "women", "feet", "teeth", "mice", "geese", "sheep", "fish"]
         + ["deer", "data", "series", "species", "police", "cattle"]
     )
+    # Words that make a "one" after them a pronoun: "no one", "this one", "the blue one".
+    DETERMINERS = frozenset(
+        ["the", "a", "an", "this", "that", "these", "those", "no", "each", "every", "any"]
+        + ["which", "what", "some", "another", "other", "either", "neither", "my", "your"]
+        + ["his", "her", "its", "our", "their", "whose", "same", "only"]
+    )
     # Words in "s" that are no plural: "at three thirty this afternoon".
     SINGULAR_S = frozenset(
         ["this", "thus", "plus", "minus", "always", "perhaps", "sometimes", "besides", "towards"]
         + ["afterwards", "whereas", "does", "goes", "says", "ours", "yours", "theirs", "hers"]
+        # Verbs a time or year often has after it: "at three thirty starts".
+        + ["starts", "ends", "begins", "works", "sounds", "suits", "opens", "closes", "finishes"]
+        + ["happens", "comes", "means", "makes", "gets", "runs", "leaves", "arrives", "kicks"]
+        + ["wraps", "marks", "sees", "brings", "lands", "hits"]
     )
     COUNTED = frozenset(
         ["dollar", "dollars", "cent", "cents", "percent", "minute", "minutes", "hour", "hours"]
@@ -1035,7 +1060,8 @@ class Engine:
         rf"|(?P<zero>(?:\s+oh)+)(?=\s+(?:{_COUNT})\b)|(?:\s+oh){{2,}}\b"
         rf"|\s+point(?:\s+oh)*(?:(?=\s+(?:{_COUNT})\b)|(?<=oh)\b))*"  # "one point oh five"
         rf"(?(zero)(?:\s+oh\b)?)"  # a last digit once one was read: "eight oh eight oh"
-        rf"(?:(?:\s+and)?(?:\s+|-)(?:{'|'.join([*ORDINAL_ENDS, *DECADES])}))?\b(?![/@+#=\\]|\.\w)",
+        rf"(?:(?:\s+and)?(?:\s+|-)(?:{'|'.join(sorted([*ORDINAL_ENDS, *DECADES], key=len)[::-1])}))?"
+        rf"\b(?![/@+#=\\]|\.\w)",
         re.IGNORECASE,
     )
 
@@ -1054,15 +1080,18 @@ class Engine:
             for found in re.finditer(rf"{ALONE[0]}{re.escape(name)}{ALONE[1]}", text, re.IGNORECASE)
         ]
 
-        def digits(words, timed, counted):  # None leaves the words
+        def digits(words, timed, counted, yearly=False):  # None leaves the words
             if "point" in words:  # "2.5 million", "1.2.3"; digits after a point read as written
-                big = words[-1] if words[-1] in scales[2:] else ""
+                # Its scale stays a word, like Parakeet's "2.5 million": "1.5 thousand".
+                scaled = len(words)
+                while words[scaled - 1] in scales:
+                    scaled -= 1
+                big = " ".join(words[scaled:])
                 head, *tails = (
-                    part.split()
-                    for part in re.split(r"\bpoint\b", " ".join(words[: len(words) - bool(big)]))
+                    part.split() for part in re.split(r"\bpoint\b", " ".join(words[:scaled]))
                 )
-                if not (head and all(tails)):  # "one point million": no digits
-                    return None
+                if not (head and all(tails)) or set(scales) & {w for t in tails for w in t}:
+                    return None  # "one point million", "one point two hundred thousand"
                 values = cls.values(head) if "oh" not in head else [digits(head, False, counted)]
                 if len(values) > 1 or values[0] is None:
                     return None
@@ -1099,7 +1128,13 @@ class Engine:
                 # "100 million", like Parakeet's "2.5 million"; not "one billion two hundred million"
                 return f"{digits(words[:-1], timed, counted) if words[:-1] else 1} {words[-1]}"
             # A year said "two thousand nineteen" takes no comma; a count does ("2,019 users").
-            year = words[:2] == ["two", "thousand"] and 2000 < values[0] < 2100 and not counted
+            # "two thousand" alone is a year only where one is meant (`yearly`): "in two thousand".
+            year = (
+                words[:2] == ["two", "thousand"]
+                and values[0] < 2100
+                and (values[0] > 2000 or yearly)
+                and not counted
+            )
             return f"{values[0]:,}" if set(words) & set(scales) and not year else str(values[0])
 
         def convert(start, end):
@@ -1113,7 +1148,7 @@ class Engine:
             titled = re.search(r"[\s-][A-Z]", group) or (follower[:1].isupper() and follower != "I")
             if group[0].isupper() and (not opens or titled):
                 return group
-            before = (re.findall(r"[\w']+", text[:start].lower()) or [""])[-1]
+            prior, before = ([""] * 2 + re.findall(r"[\w']+", text[:start].lower()))[-2:]
             after = re.findall(r"[\w']+|[^\w\s]", text[end:].lower())[:3] + ["", "", ""]
             # An ordinal or decade end goes with its number ("one hundred and twenty first" ->
             # "121st", "nineteen eighties" -> "1980s"); otherwise the whole run stays.
@@ -1127,9 +1162,12 @@ class Engine:
                 if end_word in cls.DECADES:  # a century, then its decade
                     ok = len(values) == 1 and 10 <= values[0] <= 99
                     return f"{values[0]}{cls.DECADES[end_word]:02d}s" if ok else group
-                if len(values) == 1 and head[-1] in cls.TENS + scales:
-                    n = values[0] + cls.ORDINAL_ENDS[end_word]
-                    return f"{n}{({1: 'st', 2: 'nd', 3: 'rd'}).get(n % 10 if n % 100 not in (11, 12, 13) else 0, 'th')}"
+                cardinal = cls.ORDINAL_ENDS[end_word]
+                values = cls.values(head + [cardinal])
+                # "two hundredth" is 200th; "one hundredth" a fraction ("of a second").
+                if len(values) == 1 and not (head == ["one"] and cardinal in scales):
+                    n = values[0]
+                    return f"{n:,}{({1: 'st', 2: 'nd', 3: 'rd'}).get(n % 10 if n % 100 not in (11, 12, 13) else 0, 'th')}"
                 return group
             # "and" joins a scale's parts ("seven hundred and fifty"), or two numbers ("1 and 2").
             for found in re.finditer(r"\s+and\s+", group):
@@ -1143,9 +1181,11 @@ class Engine:
             # another number ("one or two", "between 1 and ten").
             joins = ("or", "to", "and", "through")
             listed = after[1] in cls.COUNTS or after[1][:1].isdigit()
+            # After a determiner it is a pronoun: "no one, two people", "the blue one, two of them".
+            pronoun = {before, prior} & cls.DETERMINERS
             ranged = (before in joins and re.search(r"\d\s+\w+\s*$", text[:start])) or (
-                listed and (after[0] in joins or after[0] == "," and after[2] in (",", *joins))
-            )  # "one or two", "one, two, three"; not "no one, two people"
+                listed and (after[0] in joins or after[0] == "," and not pronoun)
+            )  # "one or two", "one, two"
             # A scale needs its number: "a hundred" before a plural ("a hundred users", "a
             # million people"), not "a billion dollar company", never Parakeet's "2.5 million".
             plural = after[0] in cls.PLURALS or (
@@ -1162,13 +1202,16 @@ class Engine:
             # Followed by what it counts: a unit, a measure, or a plural ("2,019 users").
             measured = after[0] in cls.COUNTED | cls.PLURALS | cls.MEASURES.keys() - {"am", "pm"}
             counted = measured or bool(plural)
-            # A time, "at" one or "a.m.", unless it counts ("at one twenty people"); a verb after it
-            # is no count ("at three thirty starts"), nor "a" an "a.m." ("four oh four a lot").
+            # A time, "at" one or "a.m.", unless it counts ("at one twenty students"); "a" is no
+            # "a.m." ("four oh four a lot").
             meridiem = after[0] in ("am", "pm") or (
                 after[0] in ("a", "p") and after[1] in ("m", ".")
             )
-            timed = (before in ("at", "by", "until", "till") or meridiem) and not measured
-            written = digits(words, timed, counted)
+            timed = (before in ("at", "by", "until", "till") or meridiem) and not counted
+            yearly = before in ("in", "since", "until", "till") or re.search(
+                r"\byears?\b[^.!?]*$", text[:start], re.IGNORECASE
+            )
+            written = digits(words, timed, counted, bool(yearly))
             return group if written is None else written
 
         text = cls.NUMBER_RUN.sub(lambda m: convert(*m.span()), text)
@@ -1546,6 +1589,15 @@ class Engine:
             w for w in out_words if w in cls.TIMING
         ):
             return True  # "Deploy tomorrow" -> "Deploy today"
+
+        def obliged(tokens):  # "Users have to authenticate" is not "Users authenticate"
+            return sum(
+                w in ("gotta", "hafta") or (w in cls.OBLIGING and tokens[k + 1 : k + 2] == ["to"])
+                for k, w in enumerate(tokens)
+            )
+
+        if obliged(heard) != obliged(out_words):
+            return True
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before

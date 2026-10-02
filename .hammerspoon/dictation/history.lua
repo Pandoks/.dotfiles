@@ -100,6 +100,10 @@ function history.keep(file, settings)
   if not path then
     return failure
   end
+  -- ffmpeg wrote it 0644, private only inside the temporary folder; the history folder may not be.
+  if not os.execute("chmod 600 " .. quote(file)) then
+    return "could not make " .. file .. " owner-only"
+  end
   local moved, message = os.rename(file, path)
   if not moved then
     return "could not move " .. file .. " to " .. path .. ": " .. tostring(message)
