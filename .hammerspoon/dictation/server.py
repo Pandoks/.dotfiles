@@ -1790,48 +1790,49 @@ class Engine:
         ):
             return True
 
-        # Questions stay questions: each asked (opened by an auxiliary or question word past any
-        # filler, and not taken back) still ends in "?". "Is it ready?" is not "It's ready.", nor
-        # "Is it ready? Ship it." "It's ready. Ship it."; "Is it ready, no wait, ship it?" may be
-        # "Ship it."
-        asked, first = 0, 0
-        small = cls.FUNCTION | cls.AUXILIARIES | cls.MARKERS | cls.ASKING | cls.CORRECTIONS
-        small |= cls.PERSONS.keys()
-        for k, s in enumerate(spans):
-            tail = raw[s.end() : spans[k + 1].start()] if k + 1 < len(spans) else raw[s.end() :]
-            # A sentence ends at word k ("3 p.m." and "config.lua" end none).
-            if re.search(r"[.!?][\"”’')\]]*\s", tail) or (k + 1 == len(spans) and "?" in tail):
-                sentence = [j for j in range(first, k + 1) if raw_words[j] not in cls.MARKERS]
-                start = next((j for j in sentence if j not in fillers), None)
-                opener = next(
-                    (
-                        j
-                        for j in sentence
-                        if j not in corrected | fillers and raw_words[j] not in cls.CORRECTIONS
-                    ),
-                    None,
+        # Questions stay questions: each sentence said with a "?" lands, word for word, in one
+        # written with a "?" ("Is it ready?" is not "It's ready.", nor "Hey Alice? Is it done?"
+        # "Hey Alice? It's done."), though questions may merge ("...the file? And the logs?" ->
+        # "...the file and the logs?"). Not one cut whole, nor one taken back and finished as a
+        # statement ("Is it ready, no wait, ship it?" -> "Ship it.").
+        def sentences(text, spans):  # each word's sentence: (its first word, whether it asks)
+            out, first = [], 0
+            for k, s in enumerate(spans):
+                tail = (
+                    text[s.end() : spans[k + 1].start()] if k + 1 < len(spans) else text[s.end() :]
                 )
-                # One the cleanup kept: some word of it still written, if it has any to check
-                # ("Should we move it? Actually, should we cancel it?" keeps only the second).
-                content = {plain(raw_words[j]) for j in sentence} - small
-                spoken = {plain(raw_words[j]) for j in sentence if j not in corrected | fillers}
-                survived = not content or bool(spoken & content & set(map(plain, out_words)))
-                # Asked as said, a verb in it ("You're coming?", not "Hey Alice?"), or asked again
-                # past a correction ("Is it ready, no wait, is it deployed?"), not taken back
-                # ("..., no wait, ship it?").
-                verb = any(w in cls.AUXILIARIES for j in sentence for w in expand([raw_words[j]]))
-                asked += (
-                    "?" in tail
-                    and opener is not None
-                    and survived
-                    and (
-                        (opener == start and verb)
-                        or plain(raw_words[opener]) in cls.AUXILIARIES | cls.ASKING
-                    )
-                )
-                first = k + 1
-        if asked > cls.ensure_question(raw, out).count("?"):
-            return True
+                # It ends at a mark and a space ("3 p.m." and "config.lua" end none), or the text.
+                if re.search(r"[.!?][\"”’')\]]*\s", tail) or k + 1 == len(spans):
+                    out += [(first, "?" in tail)] * (k + 1 - first)
+                    first = k + 1
+            return out
+
+        ensured = cls.ensure_question(raw, out)  # the "?" it puts back at the end
+        asks = [q for _, q in sentences(ensured, list(re.finditer(word, ensured)))]
+        landed = {}  # each said word kept in place, by where it is written
+        for tag, i1, i2, j1, j2 in edits:
+            if tag in ("equal", "replace"):
+                landed |= {i: min(j1 + i - i1, j2 - 1) for i in range(i1, i2)}
+        said_in = sentences(raw, spans)
+        for k, (begin, asked) in enumerate(said_in):
+            if not asked or k + 1 < len(said_in) and said_in[k + 1][0] == begin:
+                continue  # not a question, or not its last word
+            sentence = [j for j in range(begin, k + 1) if raw_words[j] not in cls.MARKERS]
+            start = next((j for j in sentence if j not in fillers), None)
+            alive = next(
+                (
+                    j
+                    for j in sentence
+                    if j not in corrected | fillers and raw_words[j] not in cls.CORRECTIONS
+                ),
+                None,
+            )
+            retracted = start in corrected and (
+                alive is None or plain(raw_words[alive]) not in cls.AUXILIARIES | cls.ASKING
+            )
+            placed = [landed[j] for j in sentence if j in landed]
+            if placed and not retracted and not asks[max(placed)]:
+                return True
 
         # An opposite or pointer said survives on its side, and none is added: "Turn logging off"
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
