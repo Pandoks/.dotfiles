@@ -568,6 +568,19 @@ check(
             ),
             ("Upgrade to Python 3.11, no wait, 3.12.", "Upgrade to Python 3.12."),
             ("Let's meet at 3.30 tomorrow.", "Let's meet at 3:30 tomorrow."),
+            ("Meet me at 1.30pm.", "Meet me at 1:30pm."),
+            ("The call is at 4.15pm tomorrow.", "The call is at 4:15 pm tomorrow."),
+            ("Don't merge it, no wait, merge it.", "Merge it."),
+            ("Never deploy, no wait, never deploy.", "Never deploy."),
+            ("Call Dr. Smith, no wait, Dr. Jones.", "Call Dr. Jones."),
+            # Said as written: "thank you" and "US dollars" name nobody, and a "you know", "I mean",
+            # or "make it" ending a sentence is meant.
+            ("Thank you for getting back to me.", "Thank you for getting back to me."),
+            ("It costs 15 US dollars.", "It costs 15 US dollars."),
+            ("I'll let you know.", "I'll let you know."),
+            ("That's not what I mean.", "That's not what I mean."),
+            ("Sorry, I can't make it.", "Sorry, I can't make it."),
+            ("I mean, it's fine.", "I mean, it's fine."),  # a filler may stay
             ("Book it from 9.30 to 11.30 am.", "Book it from 9:30 to 11:30 am."),
             ("echo $HOME, no wait, $PATH", "echo $PATH"),
             (">> Hello there.", "Hello there."),
@@ -715,6 +728,14 @@ run = subprocess.run(
 events = [json.loads(line)["event"] for line in run.stdout.splitlines()]
 assert events == ["ready", "final"] and "native chatter" in run.stderr, (run.stdout, run.stderr)
 print("PASS a library that prints cannot corrupt the protocol")
+# The prompt opens and closes an empty think block; the model may close it again, and only what
+# follows is the reply.
+cleaner = server.MlxLmCleaner("stub", "0" * 40, None, None, 400)
+cleaner.llm, cleaner.tokenizer = None, tokenizer
+with mock.patch("mlx_lm.generate", return_value="Fix the bug.</think>\n\nFix the bug."):
+    reply = cleaner.complete([{"role": "user", "content": "Fix the bug."}], "Fix the bug.")
+assert reply == "Fix the bug.", reply
+print("PASS a stray closing think tag leaves only the reply")
 # A rewritten take fails with what was heard in its error event, and no traceback logged.
 rewritten = """
 import sys, server
@@ -811,6 +832,7 @@ check(
             ("Drive fifteen miles per hour.", "Drive 15 miles per minute."),
             ("Pick two of the apples.", "Pick 2 apples."),  # the words after a number stay
             ("It costs 3.30.", "It costs 3:30."),  # a price is no time
+            ("Always run the tests, no wait, run the tests.", "Always run the tests."),
             ("It's not working, no wait, it's working.", "It's not working."),
             ("I don't think so, no wait, I think so.", "I don't think so."),
             (

@@ -330,7 +330,9 @@ class MlxLmCleaner(Cleaner):
             sampler=make_sampler(temp=0.0),  # greedy
             verbose=False,
         )
-        return re.sub(r"<think>.*?</think>\s*", "", out, flags=re.DOTALL).strip()
+        # What follows the last "</think>", as Qwen's template reads it: the prompt opens and
+        # closes an empty one, and the model may close it again.
+        return out.rpartition("</think>")[2].strip()
 
 
 CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
@@ -1107,6 +1109,8 @@ class Engine:
             cls.add_word(chunks, cls.NUMBERS[w])
         return [total + part for total, part, *_ in chunks]
 
+    # Abbreviations whose "." ends no sentence: "3 p.m.", "Dr. Smith", "etc.".
+    ABBREVIATION = r"\b(?:[ap]\.m|etc|dr|mr|mrs|ms|vs|e\.g|i\.e)$"
     # Words that scale the number before them: "two hundred", "1.5 million".
     SCALES = ("hundred", "thousand", "million", "billion")
     # Number words a speech model leaves, and an ordinal one may end in ("twenty first").
@@ -1388,9 +1392,9 @@ class Engine:
         raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
         # The speech model's time may be written as write_numbers will write it: "at 3.30" may be
         # "at 3:30", not "costs 3.30" "costs 3:30".
-        hhmm = r"\b\d{1,2}:\d\d\b"
+        hhmm = r"(?<!\d)\d{1,2}:\d\d(?!\d)"  # "1:30pm" too
         for t in set(re.findall(hhmm, cls.clock(raw))) - set(re.findall(hhmm, raw)):
-            out = re.sub(rf"\b{t}\b", t.replace(":", "."), out)
+            out = re.sub(rf"(?<!\d){t}(?!\d)", t.replace(":", "."), out)
 
         def words(text):
             return re.findall(word, text)
@@ -1412,11 +1416,13 @@ class Engine:
             }
             led = not before or re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
             liked = m.group() == "like" and not (led or before[0] in cls.FILLER_LEADS)
-            # Set off by a mark or after a discourse marker it is filler or a cue (", I mean Jane",
-            # "so you know we"); "I mean it" and "You know the answer" are meant.
+            # Set off before, after a discourse marker, or a sentence's opening on its own it is
+            # filler or a cue (", I mean Jane", "so you know we", "You know, it works"); "I mean
+            # it", "You know the answer", "I'll let you know.", and "I can't make it." are meant.
             # "make it" is a cue only set off too: "no, make it Friday", not "Make it bold".
+            opens = not before or re.search(r"[.!?]\s*$", raw[: m.start()])
             running = m.group() in ("you know", "i mean", "i meant", "make it") and not (
-                re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
+                (opens and re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :]))
                 or re.search(r"[,;:…—]\s*$", raw[: m.start()])
                 or (before and before[0] in cls.MARKERS)
             )
@@ -1439,12 +1445,14 @@ class Engine:
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
         # A cue is set off by a mark ("no, make it Friday"); a negating "no" is not ("no tests").
         paused = {k for k, m in enumerate(spans) if re.match(r"[,.;:!?…—]", raw[m.end() :])}
-        # A sentence ends at a mark before a space or the end, not inside "1.2.3" or "example.com".
+        # A sentence ends at a mark before a space or the end, not inside "1.2.3" or "example.com",
+        # nor after "Dr." or "3 p.m.".
         closing = r"[\"”’')\]]*"
         ends = {
             k
             for k, m in enumerate(spans)
             if re.match(rf"{closing}[.!?]+{closing}(?:\s|$)", raw[m.end() :])
+            and not re.search(cls.ABBREVIATION, raw[max(0, m.end() - 4) : m.end()])
         }
         set_off = paused | {
             k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
@@ -1475,8 +1483,10 @@ class Engine:
         # 2 tickets for Tuesday"). The match keeps the first saying, so the second is taken back
         # in its place, and the marks from the first saying to the cue go with it ("cat a | grep
         # b, no wait, cat a | sort").
+        # A word cut just before the first saying is part of it: "Don't merge it, no wait, merge
+        # it" -> "Merge it".
         attempts, restated = [], set()  # (start, end) in raw of each first saying; its words
-        for tag, i1, i2, _, _ in edits:
+        for e, (tag, i1, i2, _, _) in enumerate(edits):
             inside = [c for c in cues if i1 <= c < i2]
             if tag == "equal" or not inside:
                 continue
@@ -1486,9 +1496,16 @@ class Engine:
                 for n in range(1, min(i2 - start, i1) + 1)
                 if raw_words[start : start + n] == raw_words[i1 - n : i1]
             ]
-            if again:
-                restated |= set(range(start, start + again[-1]))
-                attempts.append((spans[i1 - again[-1]].start(), spans[max(inside)].start()))
+            if not again:
+                continue
+            first = i1 - again[-1]
+            if e > 1 and edits[e - 1][1] == first and edits[e - 2][0] == "delete":
+                lead = range(edits[e - 2][1], first)
+                if min(inside) - lead[0] <= 6:
+                    corrected |= set(lead)
+                    first = lead[0]
+            restated |= set(range(start, start + again[-1]))
+            attempts.append((spans[first].start(), spans[max(inside)].start()))
         corrected |= restated
 
         # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15", "fifteen" -> "15")
@@ -1537,11 +1554,15 @@ class Engine:
 
         # A written name keeps its marks unless taken back: "alice@example.com" is not
         # "bob@example.com", nor "--force" "--delete", "/usr/local" "/usr/share", or "C++" "C#".
+        measure = rf"[-+$€£]?\d+(?:[.,:]\d+)*(?:[ap]m|{cls.UNIT})"  # "4.15pm" is no name
+
         def marked(text):
             for m in re.finditer(r"\S+", text):
                 t = re.sub(r"^[\"'“‘(\[{]+|[\"'”’)\]}.,!?;:]+$", "", m.group())
-                if re.search(r"[^\W\d_]", t) and re.search(
-                    r"[@/\\#+~=_]|^--?[^\W\d_]|[^\W_]\.[^\W_]|[^\W\d_]:[^\W\d_]", t
+                if (
+                    re.search(r"[^\W\d_]", t)
+                    and re.search(r"[@/\\#+~=_]|^--?[^\W\d_]|[^\W_]\.[^\W_]|[^\W\d_]:[^\W\d_]", t)
+                    and not re.fullmatch(measure, t)
                 ):
                     yield m, t
 
@@ -1617,8 +1638,8 @@ class Engine:
             if w in ("and", "point") and {k - 1, k + 1} <= numeric
         }
 
-        def uncorrected(i1, i2, also=()):
-            gone = corrected | fillers | numeric | set(also)
+        def uncorrected(i1, i2, also=(), keep=()):
+            gone = (corrected - set(keep)) | fillers | numeric | set(also)
             return [raw_words[k] for k in range(i1, i2) if k not in gone]
 
         # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more.
@@ -1806,20 +1827,24 @@ class Engine:
                 cls.PERSONS[w] for w in (t.split("'")[0] for t in tokens) if w in cls.PERSONS
             )
 
+        def nobody(tokens, k):  # "Thank you" names nobody, nor "fifteen US dollars" ("paid us")
+            return (tokens[k] == "you" and tokens[k - 1 : k] == ["thank"]) or (
+                tokens[k] == "us"
+                and tokens[k + 1 : k + 2] in (["dollar"], ["dollars"])
+                and bool(cls.numbers(" ".join(tokens[k - 1 : k])))
+            )
+
+        # A filler kept as said keeps its person: "I mean, it's fine." as is.
+        unsaid = fillers - {
+            k for tag, i1, i2, _, _ in edits if tag == "equal" for k in range(i1, i2)
+        }
         heard = [
             w
             for k, w in enumerate(raw_words)
-            if k not in corrected | fillers | restarted
-            and not (  # "fifteen US dollars" is currency; "They paid us dollars" is not
-                w == "us"
-                and raw_words[k + 1 : k + 2] in (["dollar"], ["dollars"])
-                and cls.numbers(" ".join(raw_words[k - 1 : k]))
-            )
+            if k not in corrected | unsaid | restarted and not nobody(raw_words, k)
         ]
-        # Nor one added: "Send the report" is not "Send her the report" ("Thank you" names nobody).
-        written = [
-            w for k, w in enumerate(out_words) if out_words[k - 1 : k] != ["thank"] or w != "you"
-        ]
+        # Nor one added: "Send the report" is not "Send her the report".
+        written = [w for k, w in enumerate(out_words) if not nobody(out_words, k)]
 
         # In order too: "He sent her" is not "She sent him"; people joined by "and" or "or" may
         # trade places ("me and him" -> "he and I").
@@ -1908,8 +1933,7 @@ class Engine:
                 short = (
                     re.match(r"\.[\"”’')\]]*\s", tail)
                     and re.search(  # its own "." then a space, past a closing quote
-                        r"\b(?:[ap]\.m|etc|dr|mr|mrs|ms|vs|e\.g|i\.e)$",
-                        text[max(0, s.end() - 4) : s.end()],
+                        cls.ABBREVIATION, text[max(0, s.end() - 4) : s.end()]
                     )
                 )
                 if (re.search(r"[.!?][\"”’')\]]*\s", tail) and not short) or k + 1 == len(spans):
@@ -2035,25 +2059,32 @@ class Engine:
             dropped = [] if repeats(i1, i2) else [w for w in cut if stem(w) not in again(i1, i2)]
             # Nor a correction cut and the words it corrected kept: "I do not, I do want it" is not
             # "I do not want it", nor "It is, it was working" "It is working", nor "It's not
-            # working, no wait, it's working" "It's not working" (its cue aside).
-            later = [w for w in expand(uncorrected(i1, i2, cues)) if w != "not"]
-            for m in range(1, len(cut) + 2 if tag == "delete" and len(cut) <= 8 else 1):
+            # working, no wait, it's working" "It's not working" (its cue aside, words said again
+            # in). Each without its "not", "never", or "always" ("Always run it, no wait, run it").
+            scoped = cls.NEGATIONS | cls.SCOPE
+            correction = expand(uncorrected(i1, i2, cues, restated))
+            later = [w for w in correction if w not in scoped]
+            # The whole first saying first: "Never deploy, no wait, never deploy" says it again.
+            reach = len(correction) + 2 if tag == "delete" and len(correction) <= 8 else 1
+            for m in reversed(range(1, reach)):
                 earlier = raw_words[max(0, i1 - m) : i1]
                 said = expand(earlier)
-                # Without its "not", or its "do" too: "I don't think so" said again "I think so".
+                if said == correction:
+                    break  # the same words said again
+                # Or its "do" too: "I don't think so" said again "I think so".
                 firsts = [
-                    [w for k, w in enumerate(said) if w != "not" and not (do and nots(said, k))]
+                    [
+                        w
+                        for k, w in enumerate(said)
+                        if w not in scoped and not (do and nots(said, k))
+                    ]
                     for do in (False, True)
                 ]
-                if (
-                    out_words[max(0, j1 - m) : j1] == earlier
-                    and expand(earlier) != expand(cut)
-                    and any(
-                        len(first) == len(later) > 0
-                        and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(first, later))
-                        and any(a == b and a not in cls.TENSE for a, b in zip(first, later))
-                        for first in firsts
-                    )
+                if out_words[max(0, j1 - m) : j1] == earlier and any(
+                    len(first) == len(later) > 0
+                    and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(first, later))
+                    and any(a == b and a not in cls.TENSE for a, b in zip(first, later))
+                    for first in firsts
                 ):
                     return True
             # Its "no" negates ("no tests", "no way") unless the cut took words back and is replaced
