@@ -64,9 +64,21 @@ local function gatherContext()
   if not prompted() then
     return context
   end
-  local window = app:focusedWindow()
-  if window then
-    context.title = clip(window:title())
+  -- Read through accessibility, which tells a failure from no window (hs.window says "" for both).
+  local element = hs.axuielement.applicationElement(app)
+  local window, problem = nil, "no accessibility element" ---@type hs.axuielement?, string?
+  if element then
+    window, problem = element:attributeValue("AXFocusedWindow")
+  end
+  local title
+  if window and not problem then
+    ---@cast window hs.axuielement
+    title, problem = window:attributeValue("AXTitle")
+  end
+  if problem and problem ~= "Attribute is not supported by target" then
+    problems[#problems + 1] = "could not read the window title: " .. problem
+  elseif type(title) == "string" then
+    context.title = clip(title)
   end
   -- URL of the front tab when the app is a known browser.
   local browser = context.app and browsers[context.app]
@@ -472,19 +484,15 @@ local function toggle()
         finish(nil)
         return
       end
-      if unread then
-        -- No take without the context asked for; its recording is kept.
-        recording = nil -- kept, or left where it is: not for finish() to clean up
-        local kept = keep(capture) and "; the recording is kept in " .. config.history.directory
-        fail("Dictation: " .. unread .. (kept or ""))
-        finish(nil)
-        return
+      -- No take without the context asked for; none once the backend died during it.
+      local id, message = nil, unread
+      if not unread then
+        local request = assert(context, "the context is read at stop, before the wav is final")
+        request.wav = wav
+        id, message = backend:transcribe(request)
       end
-      local request = assert(context, "the context is read at stop, before the wav is final")
-      request.wav = wav
-      local id, message = backend:transcribe(request)
       if not id then
-        -- The backend died during the take: its recording is the only copy, so keep it.
+        -- Its recording is the only copy, so keep it.
         recording = nil -- kept, or left where it is: not for finish() to clean up
         local kept = keep(capture) and "; the recording is kept in " .. config.history.directory
         fail("Dictation: " .. tostring(message) .. (kept or ""))

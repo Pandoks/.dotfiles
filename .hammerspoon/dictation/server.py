@@ -36,6 +36,10 @@ def log(message):
     emit({"event": "log", "msg": str(message)})
 
 
+class Rewritten(RuntimeError):
+    """The cleanup rewrote what was said: the take fails, what was heard kept."""
+
+
 def pinned(revision, name):
     # A commit SHA loads from the cache with no Hub request; a branch is looked up every launch.
     if not re.fullmatch(r"[0-9a-f]{40}", str(revision)):
@@ -616,7 +620,7 @@ class Engine:
             return ""  # no coherent speech, as the prompt asks; what was heard goes to history
         # Guard: an answer, paraphrase, or rewrite fails the take (what was heard goes to history).
         if self.looks_rewritten(raw, out, self.glossary(request)):
-            raise RuntimeError("the cleanup rewrote what was said, so nothing was typed")
+            raise Rewritten("the cleanup rewrote what was said, so nothing was typed")
         return out
 
     # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
@@ -2088,7 +2092,8 @@ def main():
             # What was heard rides along: the take is saved even when a later step fails.
             heard = getattr(engine, "heard", None)
             emit({"event": "error", "id": request.get("id"), "msg": str(error), "heard": heard})
-            log(traceback.format_exc())
+            if not isinstance(error, Rewritten):  # a verdict, not a bug: no traceback
+                log(traceback.format_exc())
         mx.clear_cache()
     return 0
 

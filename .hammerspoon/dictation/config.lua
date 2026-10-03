@@ -34,7 +34,7 @@
 ---@field vocabulary? string[] Extra glossary words merged into the global `vocabulary` for this app.
 
 ---@class DictationHistoryConfig
----@field directory string Every result is saved here as <timestamp>.txt ("~" = home), before it is inserted; a recording that could not be transcribed is kept here as <timestamp>.wav.
+---@field directory string Every result is saved here as <timestamp>.txt ("~" = home), before it is inserted; a recording whose transcript was not saved (the backend failed, or context it asked for could not be read) is kept here as <timestamp>.wav.
 ---@field maxMegabytes number Size cap for the saved transcripts in MB of disk space (as `du` reports it); the oldest are deleted once it is exceeded. Other files in the directory are never counted or deleted.
 
 ---@class DictationHotkeyConfig
@@ -58,7 +58,7 @@
 ---@field dictionary table<string, string[]> Correct spelling -> explicit spoken variants, for mishearings `vocabulary` similarity cannot reach. Applied deterministically before and after cleanup.
 ---@field apps table<string, DictationAppConfig> Per-app overrides keyed by bundle id (`osascript -e 'id of app "Slack"'`).
 ---@field history DictationHistoryConfig Local archive of every transcript, oldest dropped past a size cap.
----@field insert DictationInsertMode How the result is delivered: into the focused field, to the clipboard, or field-with-clipboard-fallback.
+---@field insert DictationInsertMode How the result is delivered: into the focused field, or to the clipboard.
 ---@field includeSelection boolean Send the current text selection as context (plain instruct cleanup model only, like the window title and browser URL). Off by default (privacy; can cause echoing). Only a real selection, capped, is ever sent.
 ---@field minLevel number 0..1 peak loudness required, else the take is treated as silence. Raise to demand a closer, louder voice.
 ---@field minDuration number Minimum recording length in seconds; shorter takes are ignored.

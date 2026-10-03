@@ -102,8 +102,7 @@ def dictate(raw, cleaned=None, numbers=False):
             return engine.process(raw, {})
         with mock.patch.object(engine, "write_numbers", lambda text, names: text):
             return engine.process(raw, {})
-    except RuntimeError as error:  # the guard fails a rewritten take: None
-        assert "rewrote" in str(error), error
+    except server.Rewritten:  # the guard fails a rewritten take: None
         return None
 
 
@@ -698,6 +697,35 @@ run = subprocess.run(
 events = [json.loads(line)["event"] for line in run.stdout.splitlines()]
 assert events == ["ready", "final"] and "native chatter" in run.stderr, (run.stdout, run.stderr)
 print("PASS a library that prints cannot corrupt the protocol")
+# A rewritten take fails with what was heard in its error event, and no traceback logged.
+rewritten = """
+import sys, server
+from types import SimpleNamespace
+class Stub(server.Engine):
+    def __init__(self, config):
+        self.config, self.heard, self.cleaner, self.dictionary = config, None, None, []
+        self.speech = SimpleNamespace(transcribe=lambda wav, hint: "Send fifteen dollars.")
+    def load(self):
+        self.cleaner = SimpleNamespace(frozen_prompt="p", complete=lambda m, raw: "Send 50 dollars.")
+server.Engine = Stub
+sys.argv = ["server.py", "--config", "{}"]
+sys.exit(server.main())
+"""
+with tempfile.NamedTemporaryFile(suffix=".wav") as take:
+    run = subprocess.run(
+        [sys.executable, "-c", rewritten],
+        input=json.dumps({"cmd": "transcribe", "id": 3, "wav": take.name}) + "\n",
+        capture_output=True,
+        text=True,
+        cwd=Path(server.__file__).parent,
+        timeout=120,
+        check=False,
+    )
+events = [json.loads(line) for line in run.stdout.splitlines()]
+assert [e["event"] for e in events] == ["ready", "error"], (run.stdout, run.stderr)
+assert events[1]["heard"] == "Send fifteen dollars." and "rewrote" in events[1]["msg"], events[1]
+assert "Traceback" not in run.stdout, run.stdout
+print("PASS a rewritten take fails with what was heard")
 # A stall between two counts does not join them; between a number's parts it does.
 check(
     "guard reads a number across a stall only when it goes on",

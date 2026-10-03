@@ -9,7 +9,8 @@ self-corrections, your vocabulary fixes names, and the text goes into the focuse
 
 1. `~/.hammerspoon/dictation/setup.sh` (needs `uv` and `ffmpeg` from `mise install`).
 2. Grant **Hammerspoon** Microphone and Accessibility in **System Settings > Privacy & Security**.
-   Browsers ask once for Automation (URL context, plain instruct cleanup models only).
+   With a plain instruct cleanup model, browsers ask once for Automation (the URL is context);
+   allow it, since a take whose context can't be read stops (its recording kept in history).
 3. Reload Hammerspoon. The first start downloads the models pinned in `config.lua` into
    `~/.cache/huggingface`; later starts load them offline.
 

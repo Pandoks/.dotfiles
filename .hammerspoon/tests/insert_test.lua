@@ -5,6 +5,7 @@ local changes, pasteWrites, starts, clearFails = 0, false, 0, false
 local toggle, handlers, done, escape, focus, copied, saved, refused
 local pruned, kept, down = 0, {}, false
 local sent, front, saveFails -- the last request, the frontmost app, history.save's failure
+local windowProblem -- what reading the front app's window title fails with
 local trusted = true -- Accessibility granted
 local config = {
   insert = "direct",
@@ -136,6 +137,18 @@ local env = setmetatable({
         return {
           attributeValue = function()
             return focus
+          end,
+        }
+      end,
+      applicationElement = function()
+        local window = {
+          attributeValue = function()
+            return "Inbox"
+          end,
+        }
+        return {
+          attributeValue = function()
+            return not windowProblem and window or nil, windowProblem
           end,
         }
       end,
@@ -560,6 +573,44 @@ test("context that cannot be read stops the take, its recording kept", function(
   assert(#kept == 1, "lost the recording")
   assert(alerts[1] and alerts[1]:find("could not read the URL", 1, true), tostring(alerts[1]))
   assert(alerts[1]:find("recording is kept in", 1, true), alerts[1])
+end)
+
+test("a window title that cannot be read stops the take too", function()
+  config.cleanup = { enabled = true }
+  front = {
+    bundleID = function()
+      return "com.apple.mail"
+    end,
+  }
+  alerts, focus, kept, sent, windowProblem = {}, field("", "", ""), {}, nil, "Cannot complete"
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  config.cleanup, front, windowProblem = { enabled = false }, nil, nil
+  assert(sent == nil and #kept == 1, "transcribed without the title")
+  local message = "could not read the window title: Cannot complete"
+  assert(alerts[1] and alerts[1]:find(message, 1, true), tostring(alerts[1]))
+end)
+
+test("every context problem is reported together", function()
+  config.includeSelection, config.cleanup = true, { enabled = true }
+  front = {
+    bundleID = function()
+      return "com.google.Chrome"
+    end,
+  }
+  local unreadable = field("", "", "")
+  function unreadable:attributeValue()
+    return nil, "Cannot complete"
+  end
+  alerts, focus, kept, sent = {}, unreadable, {}, nil
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  config.includeSelection, config.cleanup, front = nil, { enabled = false }, nil
+  local message = tostring(alerts[1])
+  assert(message:find("could not read the URL", 1, true), message)
+  assert(message:find("could not read the selection: Cannot complete", 1, true), message)
 end)
 
 test("a take whose speech recognition fails keeps its recording", function()
