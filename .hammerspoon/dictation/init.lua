@@ -61,22 +61,29 @@ local function gatherContext()
   if not prompted() then
     return context
   end
-  -- The window's title, read through accessibility, which tells a failure from no window (hs.window
-  -- says "" for both); no window, no title or URL.
-  local window, failed
+  -- The window's title, read through accessibility, which tells a failure from no window
+  -- (hs.window says "" for both); only a window has one, not the app element some apps return.
   if app then
     local element = hs.axuielement.applicationElement(app)
-    window, failed = nil, "no accessibility element"
+    local window, failed = nil, "no accessibility element" ---@type any, string?
     if element then
       window, failed = element:attributeValue("AXFocusedWindow")
     end
     local title
     if window ~= nil and not failed then
-      -- An app may hand back something else; that is reported, never raised.
-      local read, value, problem = pcall(function()
-        return window:attributeValue("AXTitle")
+      -- Something else handed back is reported, never raised.
+      local read, role, value, problem = pcall(function()
+        local role = window:attributeValue("AXRole")
+        if role == "AXWindow" then
+          return role, window:attributeValue("AXTitle")
+        end
+        return role
       end)
-      title, failed = value, read and problem or "the focused window is no accessibility element"
+      if not read then
+        failed = "the focused window is no accessibility element"
+      elseif role == "AXWindow" then
+        title, failed = value, problem
+      end
     end
     if failed and failed ~= "Attribute is not supported by target" then
       problems[#problems + 1] = "could not read the window title: " .. failed
@@ -84,12 +91,14 @@ local function gatherContext()
       context.title = clip(title)
     end
   end
-  -- URL of the front tab when the app is a known browser with a window.
+  -- URL of the front tab when the app is a known browser; none without a window.
   local browser = context.app and browsers[context.app]
-  if browser and window ~= nil then
-    local script = browser == "Safari"
-        and [[tell application "Safari" to return URL of current tab of front window]]
-      or ([[tell application "%s" to return URL of active tab of front window]]):format(browser)
+  if browser then
+    local tab = browser == "Safari" and "current tab" or "active tab"
+    local script = ([[tell application "%s" to if (count windows) > 0 then return URL of %s of front window]]):format(
+      browser,
+      tab
+    )
     local ok, url, descriptor = hs.osascript.applescript(script)
     if not ok then
       local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage

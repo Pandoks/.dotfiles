@@ -722,6 +722,8 @@ class Engine:
             "and/or",
             "to|into|onto|toward/from",  # "towards" is an inflection
             "positive/negative",  # as a label; signing a number ("negative fifteen") it is a sign
+            "north/south",
+            "east/west",
         ]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
@@ -1509,8 +1511,8 @@ class Engine:
             return True
         for pattern, spoken_as in cls.SHELL.values():  # "hello grep" is not "hello | grep"
             extra = len(re.findall(pattern, out)) - len(re.findall(pattern, raw))
-            if extra > 0 and sum(said_count[w] for w in spoken_as) < extra:
-                return True
+            if extra < 0 or (extra > 0 and sum(said_count[w] for w in spoken_as) < extra):
+                return True  # one cut ("echo hi | grep x" -> "echo hi grep x") or never said
 
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
         # ("#2fa") counts nothing.

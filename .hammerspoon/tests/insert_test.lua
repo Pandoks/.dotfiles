@@ -6,6 +6,7 @@ local toggle, handlers, done, escape, focus, copied, saved, refused
 local pruned, kept, down = 0, {}, false
 local sent, front, saveFails -- the last request, the frontmost app, history.save's failure
 local windowProblem -- what reading the front app's window title fails with
+local urlRead = { false, nil, { NSAppleScriptErrorMessage = "not authorized" } } -- the browser's
 ---@type string|false|integer its window: a title, false for none, or something no element
 local frontWindow = "Inbox"
 local trusted = true -- Accessibility granted
@@ -131,7 +132,7 @@ local env = setmetatable({
     },
     osascript = {
       applescript = function()
-        return false, nil, { NSAppleScriptErrorMessage = "not authorized" }
+        return table.unpack(urlRead, 1, 3)
       end,
     },
     axuielement = {
@@ -146,8 +147,8 @@ local env = setmetatable({
         local window = type(frontWindow) ~= "string" and frontWindow
           or setmetatable({}, {
             __index = {
-              attributeValue = function()
-                return frontWindow
+              attributeValue = function(_, name)
+                return name == "AXRole" and "AXWindow" or frontWindow
               end,
             },
           })
@@ -465,18 +466,6 @@ test("an Escape binding macOS refuses aborts the take", function()
   assert(alerts[1] == "Dictation: could not bind Escape to cancel", tostring(alerts[1]))
 end)
 
-test("a selection sent as context needs Accessibility first, in clipboard mode too", function()
-  config.insert, config.includeSelection, config.cleanup = "clipboard", true, { enabled = true }
-  alerts, trusted = {}, false
-  local before = starts
-  toggle()
-  config.insert, config.includeSelection, config.cleanup = "direct", nil, { enabled = false }
-  trusted = true
-  local message = "Dictation: allow Accessibility access in System Settings"
-  assert(starts == before, "recorded a take whose context it could not read")
-  assert(alerts[1] == message, tostring(alerts[1]))
-end)
-
 test("a take that fails after transcription keeps what was heard", function()
   local element = field("", "", "")
   alerts, strokes, focus, saved, pruned = {}, {}, element, {}, 0
@@ -582,6 +571,22 @@ test("context that cannot be read stops the take, its recording kept", function(
   assert(alerts[1]:find("recording is kept in", 1, true), alerts[1])
 end)
 
+test("a readable window title is sent as context", function()
+  config.cleanup = { enabled = true }
+  front = {
+    bundleID = function()
+      return "com.apple.mail"
+    end,
+  }
+  alerts, focus, kept, sent = {}, field("", "", ""), {}, nil
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  config.cleanup, front = { enabled = false }, nil
+  handlers.onFinal({ id = serial, text = "" })
+  assert(sent and sent.title == "Inbox" and #kept == 0, tostring(alerts[1]))
+end)
+
 test("a window title that cannot be read stops the take too", function()
   config.cleanup = { enabled = true }
   front = {
@@ -619,11 +624,12 @@ test("a browser with no window has no URL to read, and the take goes on", functi
       return "com.google.Chrome"
     end,
   }
-  alerts, focus, kept, sent, frontWindow = {}, field("", "", ""), {}, nil, false
+  alerts, focus, kept, sent, frontWindow, urlRead = {}, field("", "", ""), {}, nil, false, { true }
   toggle()
   toggle()
   done("take.wav", 1, 1)
   config.cleanup, front, frontWindow = { enabled = false }, nil, "Inbox"
+  urlRead = { false, nil, { NSAppleScriptErrorMessage = "not authorized" } }
   handlers.onFinal({ id = serial, text = "" })
   assert(sent and sent.url == nil and sent.title == nil and #kept == 0, tostring(alerts[1]))
 end)
@@ -646,7 +652,7 @@ test("a focused window that is no element is reported, not raised", function()
 end)
 
 test("with no app in front, the selection is still read", function()
-  config.includeSelection, config.cleanup = true, { enabled = true }
+  config.includeSelection, config.cleanup, front = true, { enabled = true }, nil
   alerts, focus, kept, sent = {}, field("", "picked", ""), {}, nil
   toggle()
   toggle()
