@@ -1172,7 +1172,7 @@ class Engine:
     def clock(cls, text):
         """The speech model's times written as times: "at 3.30" -> "at 3:30", "1.30 pm" -> "1:30
         pm"; not "by 1.05", "at 2.50 each", "at 3.30 dollars", or "at 2.15 million"."""
-        times = r"\b(at|until|till) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)(\s*[\w']*)"
+        times = r"(?i)\b(at|until|till) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)(\s*[\w']*)"
         measured = cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"} | set(cls.SCALES)
 
         def time(m):  # not a price, rate, size, or scale
@@ -1186,7 +1186,10 @@ class Engine:
             return f"{m[1]} {m[2]}:{m[3]}{m[4]}"
 
         text = re.sub(times, time, text)
-        return re.sub(r"\b(1[0-2]|[1-9])\.([0-5]\d)(?=\s?[ap]\.?m\b)", r"\1:\2", text)
+        # A range's first time too: "between 3.30 and 4.30 pm", "from 9.30 to 11.30 am".
+        hour = r"(?:1[0-2]|[1-9])[.:][0-5]\d"
+        meridiem = rf"(?=(?:\s*(?:-|–|to|and|until|till)\s*{hour})?\s?[ap]\.?m\b)"
+        return re.sub(rf"(?i)\b(1[0-2]|[1-9])\.([0-5]\d){meridiem}", r"\1:\2", text)
 
     @classmethod
     def write_numbers(cls, text, names):
@@ -1472,7 +1475,7 @@ class Engine:
         # 2 tickets for Tuesday"). The match keeps the first saying, so the second is taken back
         # in its place, and the marks from the first saying to the cue go with it ("cat a | grep
         # b, no wait, cat a | sort").
-        attempts = []  # (start, end) in raw of each first attempt said again
+        attempts, restated = [], set()  # (start, end) in raw of each first saying; its words
         for tag, i1, i2, _, _ in edits:
             inside = [c for c in cues if i1 <= c < i2]
             if tag == "equal" or not inside:
@@ -1484,8 +1487,9 @@ class Engine:
                 if raw_words[start : start + n] == raw_words[i1 - n : i1]
             ]
             if again:
-                corrected |= set(range(start, start + again[-1]))
+                restated |= set(range(start, start + again[-1]))
                 attempts.append((spans[i1 - again[-1]].start(), spans[max(inside)].start()))
+        corrected |= restated
 
         # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15", "fifteen" -> "15")
         # or taken back ("15, no, 50"), never replaced, dropped, or invented. Each said one needs
@@ -1572,11 +1576,12 @@ class Engine:
         def kept_at(position, prefix):  # an operator not inside words taken back
             if any(a <= position < b for a, b in attempts):
                 return False
+            back = corrected - restated  # the words said again keep theirs
             before = [k for k, s in enumerate(spans) if s.end() <= position][-1:]
             after = [k for k, s in enumerate(spans) if s.start() >= position][:1]
             if prefix:  # a "$" is its word's: "echo $HOME, no wait, $PATH" takes back "$HOME"
-                return not (after and after[0] in corrected)
-            return not (before and after and {before[0], after[0]} <= corrected)
+                return not (after and after[0] in back)
+            return not (before and after and {before[0], after[0]} <= back)
 
         for symbol, (pattern, spoken_as) in cls.SHELL.items():  # "hello grep" is not "hello | grep"
             said_at = [m.start() for m in re.finditer(pattern, raw)]
@@ -1612,8 +1617,8 @@ class Engine:
             if w in ("and", "point") and {k - 1, k + 1} <= numeric
         }
 
-        def uncorrected(i1, i2):
-            gone = corrected | fillers | numeric
+        def uncorrected(i1, i2, also=()):
+            gone = corrected | fillers | numeric | set(also)
             return [raw_words[k] for k in range(i1, i2) if k not in gone]
 
         # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more.
@@ -1767,6 +1772,9 @@ class Engine:
                 stem, _, ending = w.rpartition("'") if "'" in w else (w, "", "")
                 out += [plain(w), short[ending]] if ending in short and stem else [w]
             return out
+
+        def nots(words, k):  # a "do" its "not" follows
+            return words[k] in ("do", "does", "did") and words[k + 1 : k + 2] == ["not"]
 
         def repeats(i1, i2):  # a false start said again beside it, word for word
             cut = expand(uncorrected(i1, i2))
@@ -2026,17 +2034,26 @@ class Engine:
             # A false start's "not" is said again right beside it ("I don't, I don't know").
             dropped = [] if repeats(i1, i2) else [w for w in cut if stem(w) not in again(i1, i2)]
             # Nor a correction cut and the words it corrected kept: "I do not, I do want it" is not
-            # "I do not want it", nor "It is, it was working" "It is working".
-            later = [w for w in expand(cut) if w != "not"]
+            # "I do not want it", nor "It is, it was working" "It is working", nor "It's not
+            # working, no wait, it's working" "It's not working" (its cue aside).
+            later = [w for w in expand(uncorrected(i1, i2, cues)) if w != "not"]
             for m in range(1, len(cut) + 2 if tag == "delete" and len(cut) <= 8 else 1):
                 earlier = raw_words[max(0, i1 - m) : i1]
-                said_first = [w for w in expand(earlier) if w != "not"]
+                said = expand(earlier)
+                # Without its "not", or its "do" too: "I don't think so" said again "I think so".
+                firsts = [
+                    [w for k, w in enumerate(said) if w != "not" and not (do and nots(said, k))]
+                    for do in (False, True)
+                ]
                 if (
                     out_words[max(0, j1 - m) : j1] == earlier
                     and expand(earlier) != expand(cut)
-                    and len(said_first) == len(later) > 0
-                    and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(said_first, later))
-                    and any(a == b and a not in cls.TENSE for a, b in zip(said_first, later))
+                    and any(
+                        len(first) == len(later) > 0
+                        and all(a == b or {a, b} <= cls.TENSE.keys() for a, b in zip(first, later))
+                        and any(a == b and a not in cls.TENSE for a, b in zip(first, later))
+                        for first in firsts
+                    )
                 ):
                     return True
             # Its "no" negates ("no tests", "no way") unless the cut took words back and is replaced

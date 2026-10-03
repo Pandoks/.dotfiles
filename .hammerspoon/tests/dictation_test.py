@@ -233,6 +233,8 @@ check(
         ("The market closed at one point fifteen.", "The market closed at 1.15."),
         ("We raised at two point fifteen million dollars.", "We raised at 2.15 million dollars."),
         ("We raised at 2.15 million dollars.", "We raised at 2.15 million dollars."),
+        ("Let's meet between 3.30 and 4.30 p.m.", "Let's meet between 3:30 and 4:30 p.m."),
+        ("At 3.30 we have standup.", "At 3:30 we have standup."),
         ("The call is 4.45 pm.", "The call is 4:45 pm."),
         ("Version one point two point three.", "Version 1.2.3."),
         ("Set it to zero point twenty five.", "Set it to 0.25."),
@@ -566,6 +568,7 @@ check(
             ),
             ("Upgrade to Python 3.11, no wait, 3.12.", "Upgrade to Python 3.12."),
             ("Let's meet at 3.30 tomorrow.", "Let's meet at 3:30 tomorrow."),
+            ("Book it from 9.30 to 11.30 am.", "Book it from 9:30 to 11:30 am."),
             ("echo $HOME, no wait, $PATH", "echo $PATH"),
             (">> Hello there.", "Hello there."),
             ("It's ready? Right?", "It's ready, right?"),
@@ -808,6 +811,12 @@ check(
             ("Drive fifteen miles per hour.", "Drive 15 miles per minute."),
             ("Pick two of the apples.", "Pick 2 apples."),  # the words after a number stay
             ("It costs 3.30.", "It costs 3:30."),  # a price is no time
+            ("It's not working, no wait, it's working.", "It's not working."),
+            ("I don't think so, no wait, I think so.", "I don't think so."),
+            (
+                "Run cat log | grep error, no wait, cat log | grep warning.",
+                "Run cat log grep warning.",
+            ),
             ("Set it to exactly fifteen.", "Set it to 15."),
             ("Set it to at least fifteen.", "Set it to 15."),
             ("Set it to over fifteen.", "Set it to 15."),
