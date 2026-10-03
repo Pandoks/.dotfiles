@@ -581,6 +581,8 @@ check(
             ("That's not what I mean.", "That's not what I mean."),
             ("Sorry, I can't make it.", "Sorry, I can't make it."),
             ("I mean, it's fine.", "I mean, it's fine."),  # a filler may stay
+            ("It works you know.", "It works."),  # or go, set off or not
+            ("Please send it, no wait, send it to Bob.", "Please send it to Bob."),
             ("Book it from 9.30 to 11.30 am.", "Book it from 9:30 to 11:30 am."),
             ("echo $HOME, no wait, $PATH", "echo $PATH"),
             (">> Hello there.", "Hello there."),
@@ -833,6 +835,17 @@ check(
             ("Pick two of the apples.", "Pick 2 apples."),  # the words after a number stay
             ("It costs 3.30.", "It costs 3:30."),  # a price is no time
             ("Always run the tests, no wait, run the tests.", "Always run the tests."),
+            (
+                "Never skip the tests, sorry, skip the tests on docs changes.",
+                "Never skip the tests on docs changes.",
+            ),
+            (
+                "Never use tabs, I mean, use tabs for indentation.",
+                "Never use tabs for indentation.",
+            ),
+            ("Never push to main. Merge it, no wait, close it.", "Close it."),  # its sentence only
+            ("Do not deploy. Merge it, no wait, merge it.", "Merge it."),
+            ("Sorry, I can't make it.", "Sorry, I can't."),
             ("It's not working, no wait, it's working.", "It's not working."),
             ("I don't think so, no wait, I think so.", "I don't think so."),
             (

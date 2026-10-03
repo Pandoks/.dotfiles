@@ -1416,13 +1416,14 @@ class Engine:
             }
             led = not before or re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
             liked = m.group() == "like" and not (led or before[0] in cls.FILLER_LEADS)
-            # Set off before, after a discourse marker, or a sentence's opening on its own it is
-            # filler or a cue (", I mean Jane", "so you know we", "You know, it works"); "I mean
-            # it", "You know the answer", "I'll let you know.", and "I can't make it." are meant.
-            # "make it" is a cue only set off too: "no, make it Friday", not "Make it bold".
-            opens = not before or re.search(r"[.!?]\s*$", raw[: m.start()])
+            # Set off by a mark or after a discourse marker it is filler or a cue (", I mean Jane",
+            # "so you know we", "It works you know."); "I mean it" and "You know the answer" are
+            # meant. One kept as said counts as said ("I'll let you know.").
+            # "make it" is a cue only set off before: "no, make it Friday", not "Make it bold" or
+            # "I can't make it."
+            ending = m.group() != "make it" and re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
             running = m.group() in ("you know", "i mean", "i meant", "make it") and not (
-                (opens and re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :]))
+                ending
                 or re.search(r"[,;:…—]\s*$", raw[: m.start()])
                 or (before and before[0] in cls.MARKERS)
             )
@@ -1472,12 +1473,20 @@ class Engine:
                 or {tuple(raw_words[k - 1 : k + 1]), tuple(raw_words[k : k + 2])} & phrases
             )
         ]
+
+        def opening(k):  # the first word of k's sentence
+            return max((e + 1 for e in ends if e < k), default=0)
+
+        def reach(c):  # in the cue's sentence, or the one before when it opens one ("No, Friday")
+            start = opening(c)
+            return opening(start - 1) if start == c > 0 else start
+
         corrected = {
             k
             for tag, i1, i2, _, _ in edits
             if tag != "equal"
             for k in range(i1, i2)
-            if any(k < c < i2 and c - k <= 6 for c in cues)
+            if any(reach(c) <= k < c < i2 and c - k <= 6 for c in cues)
         }
         # A correction may start by saying its first words again ("2 tickets for Monday, no wait,
         # 2 tickets for Tuesday"). The match keeps the first saying, so the second is taken back
@@ -1500,13 +1509,32 @@ class Engine:
                 continue
             first = i1 - again[-1]
             if e > 1 and edits[e - 1][1] == first and edits[e - 2][0] == "delete":
-                lead = range(edits[e - 2][1], first)
-                if min(inside) - lead[0] <= 6:
+                lead = range(max(edits[e - 2][1], reach(min(inside))), first)
+                if lead and min(inside) - lead[0] <= 6:
                     corrected |= set(lead)
                     first = lead[0]
             restated |= set(range(start, start + again[-1]))
             attempts.append((spans[first].start(), spans[max(inside)].start()))
         corrected |= restated
+        # Said again from its middle, it takes back the "never" or "always" that led it in its
+        # sentence: "Never skip the tests, sorry, skip the tests on docs changes" is not "Never skip
+        # the tests on docs changes" ("Please send it, no wait, send it to Bob" keeps "Please").
+        for tag, i1, i2, j1, _ in edits:
+            inside = [c for c in cues if i1 <= c < i2]
+            if tag != "delete" or not inside:
+                continue
+            cue = min(inside)
+            cue -= tuple(raw_words[cue - 1 : cue + 1]) in phrases  # "I mean" starts at "I"
+            first = raw_words[i1:cue]
+            led = raw_words[reach(min(inside)) : i1]
+            if (
+                first
+                and raw_words[i2 : i2 + len(first)] == first
+                and led
+                and out_words[max(0, j1 - len(led)) : j1] == led
+                and (negative(led) or not cls.SCOPE.isdisjoint(led))
+            ):
+                return True
 
         # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15", "fifteen" -> "15")
         # or taken back ("15, no, 50"), never replaced, dropped, or invented. Each said one needs
