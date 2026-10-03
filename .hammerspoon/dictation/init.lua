@@ -57,32 +57,36 @@ local function gatherContext()
   ---@type DictationTranscribeRequest, string[]
   local context, problems = { wav = "" }, {} -- the caller sets wav
   local app = hs.application.frontmostApplication()
-  if not app then
-    return context
-  end
-  context.app = app:bundleID()
+  context.app = app and app:bundleID()
   if not prompted() then
     return context
   end
-  -- Read through accessibility, which tells a failure from no window (hs.window says "" for both).
-  local element = hs.axuielement.applicationElement(app)
-  local window, problem = nil, "no accessibility element" ---@type hs.axuielement?, string?
-  if element then
-    window, problem = element:attributeValue("AXFocusedWindow")
+  -- The window's title, read through accessibility, which tells a failure from no window (hs.window
+  -- says "" for both); no window, no title or URL.
+  local window, failed
+  if app then
+    local element = hs.axuielement.applicationElement(app)
+    window, failed = nil, "no accessibility element"
+    if element then
+      window, failed = element:attributeValue("AXFocusedWindow")
+    end
+    local title
+    if window ~= nil and not failed then
+      -- An app may hand back something else; that is reported, never raised.
+      local read, value, problem = pcall(function()
+        return window:attributeValue("AXTitle")
+      end)
+      title, failed = value, read and problem or "the focused window is no accessibility element"
+    end
+    if failed and failed ~= "Attribute is not supported by target" then
+      problems[#problems + 1] = "could not read the window title: " .. failed
+    elseif type(title) == "string" then
+      context.title = clip(title)
+    end
   end
-  local title
-  if window and not problem then
-    ---@cast window hs.axuielement
-    title, problem = window:attributeValue("AXTitle")
-  end
-  if problem and problem ~= "Attribute is not supported by target" then
-    problems[#problems + 1] = "could not read the window title: " .. problem
-  elseif type(title) == "string" then
-    context.title = clip(title)
-  end
-  -- URL of the front tab when the app is a known browser.
+  -- URL of the front tab when the app is a known browser with a window.
   local browser = context.app and browsers[context.app]
-  if browser then
+  if browser and window ~= nil then
     local script = browser == "Safari"
         and [[tell application "Safari" to return URL of current tab of front window]]
       or ([[tell application "%s" to return URL of active tab of front window]]):format(browser)
@@ -425,9 +429,8 @@ local function toggle()
       fail("Dictation: allow Microphone access in System Settings")
       return
     end
-    -- AX inserts the text and reads the selection sent as context.
-    local selects = config.includeSelection and prompted()
-    if (config.insert ~= "clipboard" or selects) and not hs.accessibilityState(true) then
+    -- AX inserts the text and reads the context: the window title and the selection.
+    if (config.insert ~= "clipboard" or prompted()) and not hs.accessibilityState(true) then
       fail("Dictation: allow Accessibility access in System Settings")
       return
     end
@@ -505,7 +508,13 @@ local function toggle()
     -- After SIGINT so a slow app cannot extend the take; the text goes here only if it keeps focus.
     target, targetError = focused()
     -- The app at stop, not whichever is in front once the wav is final.
-    context, unread = gatherContext()
+    -- Run to the end: an error here would leave the take waiting, so it stops it instead.
+    local gathered, found, problem = pcall(gatherContext)
+    if gathered then
+      context, unread = found, problem
+    else
+      context, unread = nil, "could not read the context: " .. tostring(found)
+    end
   end
 end
 
@@ -698,8 +707,8 @@ hs.shutdownCallback = function()
   if engine then
     engine:stop()
   end
-  for id, capture in pairs(requests) do
-    recorder.cleanup(capture)
+  for id, cancelled in pairs(requests) do
+    recorder.cleanup(cancelled)
     requests[id] = nil
   end
   if overlay then

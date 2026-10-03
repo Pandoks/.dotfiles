@@ -60,11 +60,11 @@ function recorder.leftovers()
   local found = {}
   for entry in hs.fs.dir(temporary) do
     local base, extension = entry:match("^(dictation%-[%x%-]+)%.(%a+)$")
-    local path = temporary .. entry
-    if extension == "wav" and (hs.fs.attributes(path, "size") or 0) > 4096 then
-      found[#found + 1] = { wav = path, pcm = temporary .. base .. ".pcm" }
+    local file = temporary .. entry
+    if extension == "wav" and (hs.fs.attributes(file, "size") or 0) > 4096 then
+      found[#found + 1] = { wav = file, pcm = temporary .. base .. ".pcm" }
     elseif extension == "wav" or extension == "pcm" then
-      os.remove(path)
+      os.remove(file)
     end
   end
   return found

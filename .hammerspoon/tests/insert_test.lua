@@ -6,6 +6,8 @@ local toggle, handlers, done, escape, focus, copied, saved, refused
 local pruned, kept, down = 0, {}, false
 local sent, front, saveFails -- the last request, the frontmost app, history.save's failure
 local windowProblem -- what reading the front app's window title fails with
+---@type string|false|integer its window: a title, false for none, or something no element
+local frontWindow = "Inbox"
 local trusted = true -- Accessibility granted
 local config = {
   insert = "direct",
@@ -141,14 +143,20 @@ local env = setmetatable({
         }
       end,
       applicationElement = function()
-        local window = {
-          attributeValue = function()
-            return "Inbox"
-          end,
-        }
+        local window = type(frontWindow) ~= "string" and frontWindow
+          or setmetatable({}, {
+            __index = {
+              attributeValue = function()
+                return frontWindow
+              end,
+            },
+          })
         return {
           attributeValue = function()
-            return not windowProblem and window or nil, windowProblem
+            if windowProblem or frontWindow == false then
+              return nil, windowProblem
+            end
+            return window
           end,
         }
       end,
@@ -562,7 +570,6 @@ test("context that cannot be read stops the take, its recording kept", function(
     bundleID = function()
       return "com.google.Chrome"
     end,
-    focusedWindow = function() end,
   }
   alerts, focus, kept, sent = {}, field("", "picked", ""), {}, nil
   toggle()
@@ -590,6 +597,63 @@ test("a window title that cannot be read stops the take too", function()
   assert(sent == nil and #kept == 1, "transcribed without the title")
   local message = "could not read the window title: Cannot complete"
   assert(alerts[1] and alerts[1]:find(message, 1, true), tostring(alerts[1]))
+end)
+
+test("a prompted take needs Accessibility first, in clipboard mode too", function()
+  config.insert, config.cleanup = "clipboard", { enabled = true }
+  alerts, trusted = {}, false
+  local before = starts
+  toggle()
+  config.insert, config.cleanup, trusted = "direct", { enabled = false }, true
+  assert(starts == before, "recorded a take whose window title it could not read")
+  assert(
+    alerts[1] == "Dictation: allow Accessibility access in System Settings",
+    tostring(alerts[1])
+  )
+end)
+
+test("a browser with no window has no URL to read, and the take goes on", function()
+  config.cleanup = { enabled = true }
+  front = {
+    bundleID = function()
+      return "com.google.Chrome"
+    end,
+  }
+  alerts, focus, kept, sent, frontWindow = {}, field("", "", ""), {}, nil, false
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  config.cleanup, front, frontWindow = { enabled = false }, nil, "Inbox"
+  handlers.onFinal({ id = serial, text = "" })
+  assert(sent and sent.url == nil and sent.title == nil and #kept == 0, tostring(alerts[1]))
+end)
+
+test("a focused window that is no element is reported, not raised", function()
+  config.cleanup = { enabled = true }
+  front = {
+    bundleID = function()
+      return "com.apple.mail"
+    end,
+  }
+  alerts, focus, kept, sent, frontWindow = {}, field("", "", ""), {}, nil, 42
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  config.cleanup, front, frontWindow = { enabled = false }, nil, "Inbox"
+  assert(sent == nil and #kept == 1, "lost the take or sent it without its title")
+  local message = "could not read the window title: the focused window is no accessibility element"
+  assert(alerts[1] and alerts[1]:find(message, 1, true), tostring(alerts[1]))
+end)
+
+test("with no app in front, the selection is still read", function()
+  config.includeSelection, config.cleanup = true, { enabled = true }
+  alerts, focus, kept, sent = {}, field("", "picked", ""), {}, nil
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  config.includeSelection, config.cleanup = nil, { enabled = false }
+  handlers.onFinal({ id = serial, text = "" })
+  assert(sent and sent.selected == "picked" and sent.app == nil, "dropped the selection")
 end)
 
 test("every context problem is reported together", function()
