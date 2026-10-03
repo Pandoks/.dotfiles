@@ -559,6 +559,13 @@ check(
             ("I went home; then I slept.", "I went home, then I slept."),
             ("Johnson & Johnson and Pfizer met.", "Johnson and Johnson and Pfizer met."),
             ("cat file | grep foo, no wait, cat file | sort", "cat file | sort"),
+            ("Run cat file | grep foo, no wait, cat file | sort.", "Run cat file | sort."),
+            (
+                "I want 2 tickets for Monday, no wait, 2 tickets for Tuesday.",
+                "I want 2 tickets for Tuesday.",
+            ),
+            ("Upgrade to Python 3.11, no wait, 3.12.", "Upgrade to Python 3.12."),
+            ("Let's meet at 3.30 tomorrow.", "Let's meet at 3:30 tomorrow."),
             ("echo $HOME, no wait, $PATH", "echo $PATH"),
             (">> Hello there.", "Hello there."),
             ("It's ready? Right?", "It's ready, right?"),
@@ -800,6 +807,7 @@ check(
             ("Wait fifteen long minutes.", "Wait 15 long seconds."),
             ("Drive fifteen miles per hour.", "Drive 15 miles per minute."),
             ("Pick two of the apples.", "Pick 2 apples."),  # the words after a number stay
+            ("It costs 3.30.", "It costs 3:30."),  # a price is no time
             ("Set it to exactly fifteen.", "Set it to 15."),
             ("Set it to at least fifteen.", "Set it to 15."),
             ("Set it to over fifteen.", "Set it to 15."),

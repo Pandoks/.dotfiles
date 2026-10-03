@@ -1107,15 +1107,17 @@ class Engine:
             cls.add_word(chunks, cls.NUMBERS[w])
         return [total + part for total, part, *_ in chunks]
 
+    # Words that scale the number before them: "two hundred", "1.5 million".
+    SCALES = ("hundred", "thousand", "million", "billion")
     # Number words a speech model leaves, and an ordinal one may end in ("twenty first").
-    COUNTS = frozenset(UNITS + list(TENS) + ["hundred", "thousand", "million", "billion"])
+    COUNTS = frozenset(UNITS + list(TENS) + list(SCALES))
     # Ordinals a run may end in, by their cardinal: "first" is "one", "fiftieth" "fifty".
     ORDINAL_ENDS = types.MappingProxyType(
         {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight"}
         | {"ninth": "nine", "twelfth": "twelve"}
         | {w + "th": w for w in UNITS[4:] if w not in ("five", "eight", "nine", "twelve")}
         | {w[:-1] + "ieth": w for w in TENS}
-        | {w + "th": w for w in ("hundred", "thousand", "million", "billion")}
+        | {w + "th": w for w in SCALES}
     )
 
     # Decades a century leads ("nineteen eighties"), plurals that end in no "s" ("a hundred
@@ -1167,13 +1169,33 @@ class Engine:
     )
 
     @classmethod
+    def clock(cls, text):
+        """The speech model's times written as times: "at 3.30" -> "at 3:30", "1.30 pm" -> "1:30
+        pm"; not "by 1.05", "at 2.50 each", "at 3.30 dollars", or "at 2.15 million"."""
+        times = r"\b(at|until|till) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)(\s*[\w']*)"
+        measured = cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"} | set(cls.SCALES)
+
+        def time(m):  # not a price, rate, size, or scale
+            follower = m[4].strip().lower()
+            counts = follower in cls.PLURALS or (  # "at 3.30 tasks per hour"
+                re.fullmatch(r"\w{2,}[^s']s", follower)
+                and follower not in cls.SINGULAR_S | cls.TIME_VERBS
+            )
+            if follower in measured or re.fullmatch(cls.UNIT, follower) or counts:
+                return m[0]
+            return f"{m[1]} {m[2]}:{m[3]}{m[4]}"
+
+        text = re.sub(times, time, text)
+        return re.sub(r"\b(1[0-2]|[1-9])\.([0-5]\d)(?=\s?[ap]\.?m\b)", r"\1:\2", text)
+
+    @classmethod
     def write_numbers(cls, text, names):
         """Number words a speech model left, as digits with commas and decimal points: "three
         things" -> "3 things", "one thousand two hundred forty" -> "1,240", "a hundred million"
         -> "100 million", "zero point two five" -> "0.25", "twenty twenty six" -> "2026", "at
         3.30" -> "at 3:30". "one" alone stays a word ("one of them", "no one"), as do idioms,
         titles ("Ocean's Eleven"), and glossary names."""
-        scales = ("hundred", "thousand", "million", "billion")
+        scales = cls.SCALES
         kept = [  # glossary names with number words: "Three.js", "Fifty Shades"
             found.span()
             for name in names
@@ -1318,24 +1340,9 @@ class Engine:
             written = digits(words, timed, counted, bool(yearly))
             return group if written is None else written
 
-        # The speech model writes a time "3.30": "at 3:30", not "by 1.05" or "at 2.50 each". Only
-        # its own, before number words are digits: "at one point fifteen" is "at 1.15".
-        times = r"\b(at|until|till) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)(\s*[\w']*)"
-        measured = cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"} | set(scales)
-
-        def clock(m):  # not a price, rate, size, or scale: "at 3.30 dollars", "at 2.15 million"
-            follower = m[4].strip().lower()
-            counts = follower in cls.PLURALS or (  # "at 3.30 tasks per hour"
-                re.fullmatch(r"\w{2,}[^s']s", follower)
-                and follower not in cls.SINGULAR_S | cls.TIME_VERBS
-            )
-            if follower in measured or re.fullmatch(cls.UNIT, follower) or counts:
-                return m[0]
-            return f"{m[1]} {m[2]}:{m[3]}{m[4]}"
-
-        text = re.sub(times, clock, text)
-        text = re.sub(r"\b(1[0-2]|[1-9])\.([0-5]\d)(?=\s?[ap]\.?m\b)", r"\1:\2", text)
-        return cls.NUMBER_RUN.sub(lambda m: convert(*m.span()), text)
+        # The speech model's own times first, before number words are digits: "at one point
+        # fifteen" is "at 1.15". Same length, so the names' spans still hold.
+        return cls.NUMBER_RUN.sub(lambda m: convert(*m.span()), cls.clock(text))
 
     @classmethod
     def looks_rewritten(cls, raw, out, allowed):
@@ -1376,6 +1383,11 @@ class Engine:
         names, written_names = set(names_in(raw)), names_in(out)
         # Its unit is checked as a word: "16GB" is not "16MB".
         raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
+        # The speech model's time may be written as write_numbers will write it: "at 3.30" may be
+        # "at 3:30", not "costs 3.30" "costs 3:30".
+        hhmm = r"\b\d{1,2}:\d\d\b"
+        for t in set(re.findall(hhmm, cls.clock(raw))) - set(re.findall(hhmm, raw)):
+            out = re.sub(rf"\b{t}\b", t.replace(":", "."), out)
 
         def words(text):
             return re.findall(word, text)
@@ -1424,7 +1436,13 @@ class Engine:
         edits = difflib.SequenceMatcher(None, raw_words, out_words, autojunk=False).get_opcodes()
         # A cue is set off by a mark ("no, make it Friday"); a negating "no" is not ("no tests").
         paused = {k for k, m in enumerate(spans) if re.match(r"[,.;:!?…—]", raw[m.end() :])}
-        ends = {k for k, m in enumerate(spans) if re.match(r"[\"”’')\]]*[.!?]", raw[m.end() :])}
+        # A sentence ends at a mark before a space or the end, not inside "1.2.3" or "example.com".
+        closing = r"[\"”’')\]]*"
+        ends = {
+            k
+            for k, m in enumerate(spans)
+            if re.match(rf"{closing}[.!?]+{closing}(?:\s|$)", raw[m.end() :])
+        }
         set_off = paused | {
             k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
         }
@@ -1450,6 +1468,24 @@ class Engine:
             for k in range(i1, i2)
             if any(k < c < i2 and c - k <= 6 for c in cues)
         }
+        # A correction may start by saying its first words again ("2 tickets for Monday, no wait,
+        # 2 tickets for Tuesday"). The match keeps the first saying, so the second is taken back
+        # in its place, and the marks from the first saying to the cue go with it ("cat a | grep
+        # b, no wait, cat a | sort").
+        attempts = []  # (start, end) in raw of each first attempt said again
+        for tag, i1, i2, _, _ in edits:
+            inside = [c for c in cues if i1 <= c < i2]
+            if tag == "equal" or not inside:
+                continue
+            start = max(inside) + 1
+            again = [
+                n
+                for n in range(1, min(i2 - start, i1) + 1)
+                if raw_words[start : start + n] == raw_words[i1 - n : i1]
+            ]
+            if again:
+                corrected |= set(range(start, start + again[-1]))
+                attempts.append((spans[i1 - again[-1]].start(), spans[max(inside)].start()))
 
         # A said number may be reformatted ("1,240" -> "1240", "15th" -> "15", "fifteen" -> "15")
         # or taken back ("15, no, 50"), never replaced, dropped, or invented. Each said one needs
@@ -1534,6 +1570,8 @@ class Engine:
             return True
 
         def kept_at(position, prefix):  # an operator not inside words taken back
+            if any(a <= position < b for a, b in attempts):
+                return False
             before = [k for k, s in enumerate(spans) if s.end() <= position][-1:]
             after = [k for k, s in enumerate(spans) if s.start() >= position][:1]
             if prefix:  # a "$" is its word's: "echo $HOME, no wait, $PATH" takes back "$HOME"
