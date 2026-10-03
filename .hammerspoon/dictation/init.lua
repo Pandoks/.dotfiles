@@ -102,7 +102,7 @@ local function gatherContext()
 end timeout]]):format(browser, tab)
     local ok, url, descriptor = hs.osascript.applescript(script)
     if not ok then
-      local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage
+      local message = (descriptor --[[@as table]]).OSAScriptErrorMessageKey
       problems[#problems + 1] = "could not read the URL: " .. tostring(message)
     elseif type(url) == "string" and #url > 0 then
       context.url = clip(url)

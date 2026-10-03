@@ -60,9 +60,11 @@ test("the capture shell writes recordings owner-only", function()
   local watchdog = assert(args and args[2], "no capture task")
   local file = scratch .. "/written.wav"
   -- The capture's own shell, running touch in place of ffmpeg; stdin stays open until it is done.
-  local command = ("sleep 1 | /bin/sh -c '%s' /usr/bin/touch %q"):format(watchdog, file)
+  -- Started under a umask that lets others read, as Hammerspoon's may.
+  local command = ("umask 022; sleep 1 | /bin/sh -c '%s' /usr/bin/touch %q"):format(watchdog, file)
   assert(os.execute(command))
-  assert(fs.attributes(file, "permissions") == "rw-------", tostring(fs.attributes(file, "mode")))
+  local mode = fs.attributes(file, "permissions")
+  assert(mode == "rw-------", tostring(mode))
 end)
 
 test("a crash's recordings with audio are found; their PCM and empty ones are deleted", function()
@@ -84,7 +86,6 @@ test("a crash's recordings with audio are found; their PCM and empty ones are de
 end)
 
 test("ffmpeg is resolved by mise itself, not by running a shim that is no link", function()
-  local ran = {}
   local loaded = assert(loadfile(
     root .. "/recorder.lua",
     "t",
@@ -105,16 +106,16 @@ test("ffmpeg is resolved by mise itself, not by running a shim that is no link",
             return scratch .. "/"
           end,
         }, { __index = fs }),
+        -- Only mise prints where ffmpeg is; the shim would run ffmpeg itself, printing nothing.
         execute = function(command)
-          ran[#ran + 1] = command
-          return "/opt/mise/installs/ffmpeg/9.0/bin/ffmpeg\n"
+          local mise = command:find("/opt/homebrew/bin/mise", 1, true)
+          return mise and "/opt/mise/installs/ffmpeg/9.0/bin/ffmpeg\n" or ""
         end,
         host = {},
         task = {},
       },
     }, { __index = _G })
   ))()
-  assert(ran[1] and ran[1]:find("'/opt/homebrew/bin/mise' which ffmpeg", 1, true), tostring(ran[1]))
   assert(loaded.ffmpeg == "/opt/mise/installs/ffmpeg/9.0/bin/ffmpeg", tostring(loaded.ffmpeg))
 end)
 

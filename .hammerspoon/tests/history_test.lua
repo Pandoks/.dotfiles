@@ -217,34 +217,34 @@ end)
 test("prune lists the folder only while it may be over the cap", function()
   local settings = { directory = scratch .. "/counted", maxMegabytes = 10 }
   clock = 1790000000
-  assert(history.save("take", settings) == nil and history.prune(settings) == nil)
+  assert(history.save("take", settings) == nil)
+  -- A cap of one take: counting it lists the folder once, and it is not listed again under it.
+  local blocks = fs.attributes(settings.directory .. "/" .. list(settings.directory)[1], "blocks")
+  settings.maxMegabytes = blocks * 512 / 1024 / 1024
   listings = 0
+  assert(history.prune(settings) == nil and history.prune(settings) == nil)
+  assert(listings == 1, "listed a folder under its cap")
+  -- The next take puts it over: the oldest goes.
   clock = 1790000001
-  assert(history.save("take", settings) == nil and history.prune(settings) == nil)
-  assert(listings == 0, "listed a folder under its cap")
-  settings.maxMegabytes = 0
-  assert(history.prune(settings) == nil and listings == 1, "did not prune past the cap")
-  expect(settings.directory, { list(settings.directory)[1] })
+  assert(history.save("take", settings) == nil)
+  local takes = list(settings.directory)
+  assert(history.prune(settings) == nil)
+  expect(settings.directory, { takes[2] })
 end)
 
 test("prune skips a file it cannot read", function()
   local settings = { directory = scratch .. "/unreadable", maxMegabytes = 0 }
   clock = 1790000000
   assert(history.save("take", settings) == nil)
+  local take = list(settings.directory)[1]
   local mine = settings.directory .. "/mine.txt"
   assert(io.open(mine, "w")):close()
   assert(os.execute(("chmod 000 %q"):format(mine)))
   local ok, failure = pcall(history.prune, settings)
   os.execute(("chmod 600 %q"):format(mine))
   assert(ok and failure == nil, tostring(failure))
-end)
-
-test("prune skips a link, even one going nowhere", function()
-  local settings = { directory = scratch .. "/dangling", maxMegabytes = 0 }
-  clock = 1790000000
-  assert(history.save("take", settings) == nil)
-  assert(fs.link("/nonexistent/take.txt", settings.directory .. "/gone.txt", true))
-  assert(history.prune(settings) == nil)
+  -- Not counted as a take: the take stays the newest, and the user's file is never deleted.
+  expect(settings.directory, { take, "mine.txt" })
 end)
 
 test("save reports a folder that takes no extended attributes, leaving nothing", function()

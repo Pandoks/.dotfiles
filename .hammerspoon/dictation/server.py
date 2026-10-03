@@ -344,8 +344,10 @@ ALONE = (r"(?<![\w./~@+#=\\:${-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 
 # Directions, in their adjective and travel forms too; no verb endings ("easing" is no "east").
 COMPASS = (
-    "north|northern|northbound|northward|northwards/south|southern|southbound|southward|southwards",
-    "east|eastern|eastbound|eastward|eastwards/west|western|westbound|westward|westwards",
+    "north|northern|northerly|northbound|northward|northwards"
+    "/south|southern|southerly|southbound|southward|southwards",
+    "east|eastern|easterly|eastbound|eastward|eastwards"
+    "/west|western|westerly|westbound|westward|westwards",
 )
 
 
@@ -907,10 +909,10 @@ class Engine:
     def numbers(cls, text):
         """Each number in `text`: the forms it may be written in and how many numbers it may be
         written as ("three thirty": 3, 30, or 330, as 2)."""
-        # "−15" (U+2212) is -15, "µs" is "μs", and ".5" is 0.5.
-        text = text.lower().replace("−", "-").replace("µ", "μ")
+        # "−15" (U+2212) is -15, and ".5" is 0.5.
+        text = text.lower().replace("−", "-")
         text = re.sub(r"(?<![\w.])\.(?=\d)", "0.", text)
-        text = re.sub(r"(?<=\d),(?=\d{3})|:00\b", "", cls.spaced(text))  # "1,240", "10:00"
+        text = re.sub(r"(?<=\d),(?=\d{3})", "", cls.spaced(text))  # "1,240"
         text = re.sub(r"\b([ap])\.m\.", r"\1m", text)  # "p.m." is "pm"
         text = re.sub(r"\bnoon\b", "12 pm", re.sub(r"\bmidnight\b", "12 am", text))
         text = re.sub(r"([-+])([$€£])(?=\d)", r"\2\1", text)  # "-$15" is "$-15"
@@ -925,7 +927,8 @@ class Engine:
         # Not digits in a name ("SHA256", "SHA-256", "2FA", "TLS1.3"); a range's ("10-15") count, and
         # "15th", "3pm", "1990s".
         end = r"(?=(?:st|nd|rd|th|s|am|pm)?\b)"
-        number = rf"(?<![\w+.-])[-+]?\d+(?:\.\d+)*{end}|(?<![a-z\d.])(?<![a-z]-)\d+(?:\.\d+)*{end}"
+        digits = r"\d+(?:\.\d+)*(?::00)?"  # "10:00" too
+        number = rf"(?<![\w+.-])[-+]?{digits}{end}|(?<![a-z\d.])(?<![a-z]-){digits}{end}"
         # A name mixing letters and digits is a value of its own, not a number: "HTTP/2" is not
         # "HTTP/3" or "2" ("C++20", "SHA3-256", "2FA"). "15th", "3pm", "1990s", "3-year-old" count.
         ending = r"[-+$€£]?\d+(?:[.,:]\d+)*(?:st|nd|rd|th|s|am|pm|-.+)"
@@ -959,6 +962,7 @@ class Engine:
             if re.search(r"[.!?;—–…]", gap) or ("," in gap and not (stalls[k - 1] or stalls[k]))
         }
         point = ""  # the whole part of a decimal said so far: "one point" -> "1."
+        head = []  # its chunks, a run again if nothing follows the point: "at one twenty point"
         loose = False  # past a stall
 
         def pieces():  # each chunk's value as written
@@ -969,6 +973,8 @@ class Engine:
 
         def flush():  # the number said so far, if any
             nonlocal point, chunks
+            if point.count(".") == 1 and not chunks:
+                point, chunks = "", head
             runs = pieces()
             if point:
                 said({fraction()})
@@ -990,6 +996,8 @@ class Engine:
             if (
                 token == "point" and chunks
             ):  # "one point five" is 1.5, "one point one point two" 1.1.2
+                if not point:
+                    head = chunks
                 point += "".join(pieces()) + "."
                 chunks = []
                 continue
@@ -1015,6 +1023,8 @@ class Engine:
                 if token[:1] == "#" or re.fullmatch(r"[-+]?\d+(?:\.\d+)*", token):  # "1.2.3" too
                     said({token})
                     scalable = re.fullmatch(r"[-+]?\d+(?:\.\d+)?", token) is not None
+                elif re.fullmatch(r"[-+]?\d+:00", token):  # its hour, or digits ("eight oh oh")
+                    said({token[:-3], token})
                 elif token in cls.MULTIPLES:
                     said({"#" + cls.MULTIPLES[token]})  # a value of its own, counting nothing
                 elif fresh and (token in cls.MEASURES or re.fullmatch(cls.UNIT, token)):
@@ -1157,7 +1167,7 @@ class Engine:
     )
 
     @classmethod
-    def write_numbers(cls, text, names=()):
+    def write_numbers(cls, text, names):
         """Number words a speech model left, as digits with commas and decimal points: "three
         things" -> "3 things", "one thousand two hundred forty" -> "1,240", "a hundred million"
         -> "100 million", "zero point two five" -> "0.25", "twenty twenty six" -> "2026", "at
@@ -1308,12 +1318,12 @@ class Engine:
             written = digits(words, timed, counted, bool(yearly))
             return group if written is None else written
 
-        text = cls.NUMBER_RUN.sub(lambda m: convert(*m.span()), text)
-        # The speech model writes a time "3.30": "at 3:30", not "by 1.05" or "at 2.50 each".
+        # The speech model writes a time "3.30": "at 3:30", not "by 1.05" or "at 2.50 each". Only
+        # its own, before number words are digits: "at one point fifteen" is "at 1.15".
         times = r"\b(at|until|till) (1[0-2]|[1-9])\.(00|15|30|45)\b(?!\d|%|\.\d)(\s*[\w']*)"
-        measured = cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"}
+        measured = cls.COUNTED | cls.MEASURES.keys() - {"am", "pm"} | set(scales)
 
-        def clock(m):  # not a price, rate, or size: "at 3.30 dollars", "at 4.15 GB"
+        def clock(m):  # not a price, rate, size, or scale: "at 3.30 dollars", "at 2.15 million"
             follower = m[4].strip().lower()
             counts = follower in cls.PLURALS or (  # "at 3.30 tasks per hour"
                 re.fullmatch(r"\w{2,}[^s']s", follower)
@@ -1324,7 +1334,8 @@ class Engine:
             return f"{m[1]} {m[2]}:{m[3]}{m[4]}"
 
         text = re.sub(times, clock, text)
-        return re.sub(r"\b(1[0-2]|[1-9])\.([0-5]\d)(?=\s?[ap]\.?m\b)", r"\1:\2", text)
+        text = re.sub(r"\b(1[0-2]|[1-9])\.([0-5]\d)(?=\s?[ap]\.?m\b)", r"\1:\2", text)
+        return cls.NUMBER_RUN.sub(lambda m: convert(*m.span()), text)
 
     @classmethod
     def looks_rewritten(cls, raw, out, allowed):
@@ -1470,7 +1481,9 @@ class Engine:
             # In a fixed order, never a set's: the same take always gets the same verdict.
             shared = written[k] & n
             whole = max(n, key=lambda f: (len(f), f))
-            joined = whole if whole in shared else min(shared, key=lambda f: (len(f), f))
+            # Said digit by digit, it may be a time on the hour: "eight oh oh" -> "8:00".
+            hour = whole in {f.replace(":", "") for f in written[k]}
+            joined = whole if whole in shared or hour else min(shared, key=lambda f: (len(f), f))
             at = k + 1
             while parts > 1 and at < len(written):
                 more = [f for f in written[at] if joined + f in n]
@@ -1520,9 +1533,11 @@ class Engine:
         if any(sum(said_count[w] for w in cls.MARK_WORDS[c]) < n for c, n in marks.items()):
             return True
 
-        def kept_at(position):  # an operator not inside words taken back
+        def kept_at(position, prefix):  # an operator not inside words taken back
             before = [k for k, s in enumerate(spans) if s.end() <= position][-1:]
             after = [k for k, s in enumerate(spans) if s.start() >= position][:1]
+            if prefix:  # a "$" is its word's: "echo $HOME, no wait, $PATH" takes back "$HOME"
+                return not (after and after[0] in corrected)
             return not (before and after and {before[0], after[0]} <= corrected)
 
         for symbol, (pattern, spoken_as) in cls.SHELL.items():  # "hello grep" is not "hello | grep"
@@ -1533,7 +1548,10 @@ class Engine:
             # One cut ("echo hi | grep x" -> "echo hi grep x"), not one taken back, a prose ";",
             # an "&" written "and", or a speaker's leading ">>".
             kept_ops = [
-                p for p in said_at if kept_at(p) and not (symbol == ">" and not raw[:p].strip())
+                p
+                for p in said_at
+                if kept_at(p, symbol == "$")
+                and not (symbol == ">" and re.fullmatch(r"[\s>]*", raw[:p]))
             ]
             lost = len(kept_ops) - len(re.findall(pattern, out))
             if symbol == "&":  # each "and" gained may be one written out
@@ -2033,7 +2051,7 @@ class Engine:
             marks = ["#" if cls.numbers(t) else t for t in tokens]  # "15th", "fourth", "15"
             return [t for k, t in enumerate(marks) if t != "#" or marks[k - 1 : k] != ["#"]]
 
-        rest = iter(ordered(raw_words))
+        rest = iter(ordered(words(raw.replace("&", " and "))))  # an "&" may be written "and"
         return not all(w in rest for w in ordered(out_words) if w in raw_set or w == "#")
 
     def process(self, wav, request):

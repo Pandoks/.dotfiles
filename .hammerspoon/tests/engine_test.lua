@@ -52,7 +52,7 @@ local engine = assert(loadfile(
 ))()
 
 test("a handler's error is reported and later results are still read", function()
-  local finals = {}
+  local finals, failed = {}, {}
   local backend = assert(engine.new({ stt = {}, cleanup = {} }, {
     onFinal = function(result)
       finals[#finals + 1] = result.id
@@ -60,14 +60,19 @@ test("a handler's error is reported and later results are still read", function(
         error("disk full")
       end
     end,
-    onError = function() end,
+    onError = function(_, id)
+      failed[#failed + 1] = id
+      error("no window")
+    end,
   }))
   assert(backend and output, "no backend task")
   local lines = '{"event":"ready"}\n{"event":"final","id":1,"text":"a"}\n'
+    .. '{"event":"error","id":2,"msg":"no speech"}\n'
   assert(output(nil, lines, "") == true, "stopped reading")
-  assert(output(nil, '{"event":"final","id":2,"text":"b"}\n', "") == true, "stopped reading")
-  assert(#finals == 2 and finals[2] == 2, "the second result was lost")
+  assert(output(nil, '{"event":"final","id":3,"text":"b"}\n', "") == true, "stopped reading")
+  assert(#finals == 2 and finals[2] == 3 and failed[1] == 2, "a later result was lost")
   assert(alerts[1] and alerts[1]:find("disk full", 1, true), tostring(alerts[1]))
+  assert(alerts[2] and alerts[2]:find("no window", 1, true), tostring(alerts[2]))
 end)
 
 test("what the backend prints once ready reaches the console", function()
