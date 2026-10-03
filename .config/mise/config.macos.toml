@@ -63,6 +63,7 @@ test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoo
 "~/.hammerspoon/.luarc.json" = "../../.hammerspoon/.luarc.json"
 "~/.hammerspoon/.stylua.toml" = "../../.hammerspoon/.stylua.toml"
 "~/.hammerspoon/applications.lua" = "../../.hammerspoon/applications.lua"
+"~/.hammerspoon/dictation" = "../../.hammerspoon/dictation"
 "~/.hammerspoon/ghostty.lua" = "../../.hammerspoon/ghostty.lua"
 "~/.hammerspoon/init.lua" = "../../.hammerspoon/init.lua"
 "~/.hammerspoon/window_profiles.lua" = "../../.hammerspoon/window_profiles.lua"
