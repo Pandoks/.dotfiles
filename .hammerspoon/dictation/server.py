@@ -342,6 +342,13 @@ CLEANUP_BACKENDS = {cls.name: cls for cls in (MlxLmCleaner,)}
 ALONE = (r"(?<![\w./~@+#=\\:${-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 
 
+# Directions, in their adjective and travel forms too; no verb endings ("easing" is no "east").
+COMPASS = (
+    "north|northern|northbound|northward|northwards/south|southern|southbound|southward|southwards",
+    "east|eastern|eastbound|eastward|eastwards/west|western|westbound|westward|westwards",
+)
+
+
 class Engine:
     def __init__(self, config):
         self.config = config
@@ -722,8 +729,7 @@ class Engine:
             "and/or",
             "to|into|onto|toward/from",  # "towards" is an inflection
             "positive/negative",  # as a label; signing a number ("negative fifteen") it is a sign
-            "north/south",
-            "east/west",
+            *COMPASS,
         ]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
@@ -771,8 +777,12 @@ class Engine:
             for n, pair in enumerate(OPPOSITES)
             for side, words in enumerate(pair.split("/"))
             for w in words.split("|")
-            for form in (w, w + "s", w + "es", w + "d", w + "ed", w + "ing", w[:-1] + "ing")
-            + (w + w[-1] + "ed", w + w[-1] + "ing", w[:-1] + "ies", w[:-1] + "ied")
+            for form in (
+                (w,)
+                if pair in COMPASS
+                else (w, w + "s", w + "es", w + "d", w + "ed", w + "ing", w[:-1] + "ing")
+                + (w + w[-1] + "ed", w + w[-1] + "ing", w[:-1] + "ies", w[:-1] + "ied")
+            )
         }
         | {
             w: (pair, side)
@@ -1509,10 +1519,27 @@ class Engine:
             )
         if any(sum(said_count[w] for w in cls.MARK_WORDS[c]) < n for c, n in marks.items()):
             return True
-        for pattern, spoken_as in cls.SHELL.values():  # "hello grep" is not "hello | grep"
-            extra = len(re.findall(pattern, out)) - len(re.findall(pattern, raw))
-            if extra < 0 or (extra > 0 and sum(said_count[w] for w in spoken_as) < extra):
-                return True  # one cut ("echo hi | grep x" -> "echo hi grep x") or never said
+
+        def kept_at(position):  # an operator not inside words taken back
+            before = [k for k, s in enumerate(spans) if s.end() <= position][-1:]
+            after = [k for k, s in enumerate(spans) if s.start() >= position][:1]
+            return not (before and after and {before[0], after[0]} <= corrected)
+
+        for symbol, (pattern, spoken_as) in cls.SHELL.items():  # "hello grep" is not "hello | grep"
+            said_at = [m.start() for m in re.finditer(pattern, raw)]
+            extra = len(re.findall(pattern, out)) - len(said_at)
+            if extra > 0 and sum(said_count[w] for w in spoken_as) < extra:
+                return True  # one never said
+            # One cut ("echo hi | grep x" -> "echo hi grep x"), not one taken back, a prose ";",
+            # an "&" written "and", or a speaker's leading ">>".
+            kept_ops = [
+                p for p in said_at if kept_at(p) and not (symbol == ">" and not raw[:p].strip())
+            ]
+            lost = len(kept_ops) - len(re.findall(pattern, out))
+            if symbol == "&":  # each "and" gained may be one written out
+                lost -= max(0, len(re.findall(r"\band\b", out)) - len(re.findall(r"\band\b", raw)))
+            if lost > 0 and symbol != ";":
+                return True
 
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
         # ("#2fa") counts nothing.
@@ -1872,7 +1899,12 @@ class Engine:
         # is not "Turn logging", "Put this here" not "Put here", "Run deploy" not "Run before
         # deploy". Not everyday ones ("all right", "right?", "on Monday", "that"), only kept from
         # swapping below.
+        def compass(w):  # a compound direction is its parts: "north east" may be "northeast"
+            m = re.fullmatch(r"(north|south)(east|west)\w*", w)
+            return m.groups() if m else (w,)
+
         def sides(tokens):  # counted: "logging off and tracing off" keeps both
+            tokens = [part for w in tokens for part in compass(w)]
             return collections.Counter(
                 cls.SIDES[w]
                 for k, w in enumerate(tokens)

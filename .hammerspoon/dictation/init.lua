@@ -72,17 +72,17 @@ local function gatherContext()
     local title
     if window ~= nil and not failed then
       -- Something else handed back is reported, never raised.
-      local read, role, value, problem = pcall(function()
-        local role = window:attributeValue("AXRole")
-        if role == "AXWindow" then
-          return role, window:attributeValue("AXTitle")
+      local read, value, problem = pcall(function()
+        local role, failure = window:attributeValue("AXRole")
+        if failure or role ~= "AXWindow" then
+          return nil, failure
         end
-        return role
+        return window:attributeValue("AXTitle")
       end)
-      if not read then
-        failed = "the focused window is no accessibility element"
-      elseif role == "AXWindow" then
+      if read then
         title, failed = value, problem
+      else
+        failed = "the focused window is no accessibility element"
       end
     end
     if failed and failed ~= "Attribute is not supported by target" then
@@ -91,14 +91,15 @@ local function gatherContext()
       context.title = clip(title)
     end
   end
-  -- URL of the front tab when the app is a known browser; none without a window.
+  -- URL of the front tab when the app is a known browser; none without a window. Not after the
+  -- title failed: a hung browser would hang this too.
   local browser = context.app and browsers[context.app]
-  if browser then
+  if browser and #problems == 0 then
+    -- Bounded: it runs on Hammerspoon's main thread.
     local tab = browser == "Safari" and "current tab" or "active tab"
-    local script = ([[tell application "%s" to if (count windows) > 0 then return URL of %s of front window]]):format(
-      browser,
-      tab
-    )
+    local script = ([[with timeout of 2 seconds
+  tell application "%s" to if (count windows) > 0 then return URL of %s of front window
+end timeout]]):format(browser, tab)
     local ok, url, descriptor = hs.osascript.applescript(script)
     if not ok then
       local message = (descriptor --[[@as table]]).NSAppleScriptErrorMessage

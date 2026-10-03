@@ -6,6 +6,8 @@ local toggle, handlers, done, escape, focus, copied, saved, refused
 local pruned, kept, down = 0, {}, false
 local sent, front, saveFails -- the last request, the frontmost app, history.save's failure
 local windowProblem -- what reading the front app's window title fails with
+local roleProblem -- what reading its window's role fails with
+local scripts = 0 -- AppleScripts run
 local urlRead = { false, nil, { NSAppleScriptErrorMessage = "not authorized" } } -- the browser's
 ---@type string|false|integer its window: a title, false for none, or something no element
 local frontWindow = "Inbox"
@@ -132,6 +134,7 @@ local env = setmetatable({
     },
     osascript = {
       applescript = function()
+        scripts = scripts + 1
         return table.unpack(urlRead, 1, 3)
       end,
     },
@@ -148,7 +151,10 @@ local env = setmetatable({
           or setmetatable({}, {
             __index = {
               attributeValue = function(_, name)
-                return name == "AXRole" and "AXWindow" or frontWindow
+                if name == "AXRole" then
+                  return not roleProblem and "AXWindow" or nil, roleProblem
+                end
+                return frontWindow
               end,
             },
           })
@@ -660,6 +666,24 @@ test("with no app in front, the selection is still read", function()
   config.includeSelection, config.cleanup = nil, { enabled = false }
   handlers.onFinal({ id = serial, text = "" })
   assert(sent and sent.selected == "picked" and sent.app == nil, "dropped the selection")
+end)
+
+test("a window whose role cannot be read is reported, and no URL is asked for", function()
+  config.cleanup = { enabled = true }
+  front = {
+    bundleID = function()
+      return "com.google.Chrome"
+    end,
+  }
+  alerts, focus, kept, sent, roleProblem, scripts =
+    {}, field("", "", ""), {}, nil, "Cannot complete", 0
+  toggle()
+  toggle()
+  done("take.wav", 1, 1)
+  config.cleanup, front, roleProblem = { enabled = false }, nil, nil
+  assert(sent == nil and #kept == 1 and scripts == 0, "sent it, lost it, or ran the URL script")
+  local message = "could not read the window title: Cannot complete"
+  assert(alerts[1] and alerts[1]:find(message, 1, true), tostring(alerts[1]))
 end)
 
 test("every context problem is reported together", function()
