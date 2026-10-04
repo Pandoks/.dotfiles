@@ -818,12 +818,11 @@ class Engine:
         ["what", "who", "whom", "whatever", "whoever", "how", "where", "why", "when", "if"]
         + ["whether", "than", "someone", "somebody", "anyone", "anybody", "everyone", "everybody"]
         + ["people", "something", "anything", "everything", "know", "knows", "knew", "let"]
-        + ["now", "as", "do", "does", "did", "that"]
+        + ["now", "as", "do", "does", "did"]
     )
-    # Verbs a "not" leans on, gone with it: "don't", "can't", "won't".
-    AUXILIARIES = frozenset(
-        ["do", "does", "did", "can", "could", "will", "would", "should", "shall", "may", "might"]
-        + ["must", "is", "are", "was", "were", "am", "has", "have", "had"]
+    # Verbs a "that you know" completes: "I know that you know", "I'm sure that you know".
+    KNOWING = frozenset(
+        ["know", "knew", "think", "thought", "sure", "bet", "hope", "guess", "said"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(
@@ -875,6 +874,7 @@ class Engine:
     )
     # Words that open a yes/no question: "Is it ready?", "Can you send it?"
     AUXILIARIES = TENSE.keys() | {"can", "could", "will", "would", "should", "shall", "may"}
+    AUXILIARIES |= {"might", "must"}  # a "not" leans on each, gone with it: "can't", "mustn't"
     # Verbs that oblige before "to": "have to", "need to", "got to".
     OBLIGING = frozenset(["have", "has", "had", "need", "needs", "needed", "ought", "got"])
     # Question words a cleanup keeps as said: "Where should we deploy" is not "Should we deploy".
@@ -908,7 +908,15 @@ class Engine:
         | {">": (">", frozenset(["greater", "redirect"])), "<": ("<", frozenset(["less"]))}
         | {";": (";", frozenset(["semicolon"]))}  # "echo hello; echo goodbye"
         # An operand of marks alone: "git add .", "cd ..", "rm -rf /", "cd ~", "ls *".
-        | {".": (r"(?<!\S)(?:\.\.?|[/~*])(?!\S)", frozenset(["dot", "slash", "tilde", "star"]))}
+        | {
+            ".": (r"(?<!\S)\.(?!\S)", frozenset(["dot"])),
+            "..": (r"(?<!\S)\.\.(?!\S)", frozenset(["dot"])),
+        }
+        | {
+            "/": (r"(?<!\S)/(?!\S)", frozenset(["slash"])),
+            "~": (r"(?<!\S)~(?!\S)", frozenset(["tilde"])),
+        }
+        | {"*": (r"(?<!\S)\*(?!\S)", frozenset(["star", "asterisk"]))}
     )
     # Exact quantities that are not numbers: "half" is not "double", "once" not "twice".
     MULTIPLES = types.MappingProxyType(
@@ -1141,6 +1149,13 @@ class Engine:
             cls.add_word(chunks, cls.NUMBERS[w])
         return [total + part for total, part, *_ in chunks]
 
+    # Days, months, and time zones a time goes on to: "3 p.m. Tuesday", "5 p.m. Eastern".
+    CALENDAR = frozenset(
+        ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        + ["january", "february", "march", "april", "may", "june", "july", "august"]
+        + ["september", "october", "november", "december", "eastern", "pacific", "central"]
+        + ["mountain"]
+    )
     # Abbreviations whose "." ends no sentence: "3 p.m.", "Dr. Smith", "etc.".
     ABBREVIATION = r"\b(?:[ap]\.m|etc|dr|mr|mrs|ms|vs|e\.g|i\.e)$"
     # Words that scale the number before them: "two hundred", "1.5 million".
@@ -1426,7 +1441,8 @@ class Engine:
         written_cased = collections.Counter(tokens[1])
         written_lower = collections.Counter(t.lower() for t in tokens[1])
         for t, n in collections.Counter(tokens[0]).items():
-            exact = t.startswith("$") or re.fullmatch(r"[A-Z][A-Z0-9_]*[A-Z0-9]", t)
+            # Not a short one a speech model spells out ("LS", "NPM"), which a cleanup may lower.
+            exact = t.startswith("$") or re.fullmatch(r"[A-Z][A-Z0-9_]{2,}[A-Z0-9]", t)
             if (
                 exact
                 and t.lower() not in cls.MARKERS
@@ -1439,11 +1455,16 @@ class Engine:
         for inner in ("".join(m) for m in re.findall(quoted, raw)):
             if inner in out and not re.search(rf"[\"“'‘]{re.escape(inner)}[\"”'’]", out):
                 return True
-        # "3 p.m." or "etc." before a capital ends its sentence ("Meet at 3 p.m. Wait.").
-        closes = [
-            bool(re.match(r"[\"”’')\]]*\s+[\"“‘(\[]*[A-Z]", raw[m.end() :]))
-            for m in re.finditer(r"\b(?:[ap]\.m|etc)\.", raw, re.IGNORECASE)
-        ]
+
+        # "3 p.m." or "etc." before a capital ends its sentence ("Meet at 3 p.m. Wait."), but not
+        # before a day, a month, or a time zone ("3 p.m. Tuesday", "5 p.m. PST").
+        def opens_sentence(m):
+            after = re.match(r"[\"”’')\]]*\s+[\"“‘(\[]*([A-Z][\w']*)", raw[m.end() :])
+            return bool(after) and not (
+                after[1].lower() in cls.CALENDAR or re.fullmatch(r"[A-Z]{2,4}", after[1])
+            )
+
+        closes = [opens_sentence(m) for m in re.finditer(r"\b(?:[ap]\.m|etc)\.", raw, re.I)]
         # Its unit is checked as a word: "16GB" is not "16MB".
         raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
         closing_at = {
@@ -1471,7 +1492,8 @@ class Engine:
         # Fillers by word index: "like" after "I" and a "you know" running on are meant words.
         fillers, meant = set(), set()
         for m in cls.DROPPED_RE.finditer(raw):
-            before = [s.group() for s in spans if s.end() <= m.start()][-1:]
+            two = [s.group() for s in spans if s.end() <= m.start()][-2:]
+            before = two[-1:]
             inside = {
                 k for k, s in enumerate(spans) if m.start() <= s.start() and s.end() <= m.end()
             }
@@ -1486,6 +1508,12 @@ class Engine:
                 m.group() != "make it"
                 and re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
                 and not (m.group() == "you know" and before and before[0] in cls.KNOWN)
+                and not (  # "I know that you know", not "We tried that you know"
+                    m.group() == "you know"
+                    and before == ["that"]
+                    and two[:1]
+                    and two[0] in cls.KNOWING
+                )
             )
             running = m.group() in ("you know", "i mean", "i meant", "make it") and not (
                 ending
@@ -1530,8 +1558,7 @@ class Engine:
         cues = [
             k
             for k, w in enumerate(raw_words)
-            # "not actually" is no cue; "no wait" is. Nor one with nothing after it, or ending its
-            # sentence unled: "Please wait.", "I am sorry. Then go."
+            # "not actually" is no cue; "no wait" is. Nor one with nothing after it: "Please wait."
             if w in cls.CORRECTIONS
             and not negative(raw_words[k - 1 : k], no=False)
             and (
@@ -1539,7 +1566,7 @@ class Engine:
                 or k + 1 < len(raw_words)
                 and (
                     k in led
-                    or k in paused - ends
+                    or k in paused  # "Monday sorry. Tuesday."
                     or {tuple(raw_words[k - 1 : k + 1]), tuple(raw_words[k : k + 2])} & phrases
                 )
             )
@@ -1557,14 +1584,29 @@ class Engine:
                 or (k == c - 1 and (raw_words[k], raw_words[c]) in phrases)
                 for k in range(start, c)
             )
-            return opening(start - 1) if opens and start > 0 else start
+            while opens and start > 0:  # past a sentence of only "Okay." or "Yeah."
+                before = opening(start - 1)
+                opens = all(
+                    k in fillers or raw_words[k] in cls.MARKERS for k in range(before, start)
+                )
+                start = before
+            return start
+
+        def span(c):  # what a cue takes back: up to 6 words, and 2 more than its correction says
+            # ("Meet at 3 p.m. Tuesday, no wait, Wednesday" takes back no "3 p.m.")
+            correction = 0
+            for k in range(c + 1, len(raw_words)):
+                if k in cues or (k - 1 in ends and correction):
+                    break
+                correction += k not in fillers
+            return min(6, correction + 2)
 
         corrected = {
             k
             for tag, i1, i2, _, _ in edits
             if tag != "equal"
             for k in range(i1, i2)
-            if any(reach(c) <= k < c < i2 and c - k <= 6 for c in cues)
+            if any(reach(c) <= k < c < i2 and c - k <= span(c) for c in cues)
         }
         # A correction may start by saying its first words again ("2 tickets for Monday, no wait,
         # 2 tickets for Tuesday"). The match keeps the first saying, so the second is taken back
@@ -1597,6 +1639,25 @@ class Engine:
                 (raw.rfind(" ", 0, spans[first].start()) + 1, spans[max(inside)].start())
             )
         corrected |= restated
+        # A cue dropped on its own between two sayings of one thing keeps both and loses the
+        # choice: "Use the red one actually. Use the blue one." is not "Use the red one. Use the
+        # blue one." ("It was, actually, fine." -> "It was fine." is a filler gone).
+        for tag, i1, i2, _, _ in edits:
+            inside = [c for c in cues if i1 <= c < i2]
+            if (
+                tag != "delete"
+                or not inside
+                or any(
+                    k not in cues and k not in fillers and raw_words[k] not in cls.MARKERS
+                    for k in range(i1, i2)
+                )
+                or {i1 - 1, i2} & set(cues)  # one beside it stays: "today. No, we will"
+            ):
+                continue
+            said = {w for w in raw_words[reach(min(inside)) : i1] if w not in cls.FUNCTION}
+            after = {w for w in raw_words[i2 : i2 + len(said) + 2] if w not in cls.FUNCTION}
+            if any(not cls.numbers(w) for w in said & after):
+                return True
         # Said again from its middle, it takes back the "never" or "always" that led it in its
         # sentence: "Never skip the tests, sorry, skip the tests on docs changes" is not "Never skip
         # the tests on docs changes" ("Please send it, no wait, send it to Bob" keeps "Please").
@@ -1735,8 +1796,10 @@ class Engine:
             lost = len(kept_ops) - len(re.findall(pattern, out))
             if symbol == "&":  # each "and" gained may be one written out
                 lost -= max(0, len(re.findall(r"\band\b", out)) - len(re.findall(r"\band\b", raw)))
-            if symbol == ";":  # each "," or "." gained may be one: "home; then" -> "home, then"
-                lost -= max(0, len(re.findall(r"[,.]", out)) - len(re.findall(r"[,.]", raw)))
+            if symbol == ";":  # each clause mark gained may be one: "home; then" -> "home, then"
+                marks = r"[,.?!:—–]"
+                said = cls.strip_stalls(raw)  # "So, um, I tried it; it" -> "So I tried it, it"
+                lost -= max(0, len(re.findall(marks, out)) - len(re.findall(marks, said)))
             if lost > 0:
                 return True
 
@@ -1779,7 +1842,8 @@ class Engine:
                 if j in paused:
                     break
                 j += 1
-        skipped = cls.MEASURES.keys() | cls.QUALIFIERS | {"and"}  # "fifteen dollars" -> "$15"
+        # "fifteen dollars" -> "$15", "one more thing actually" -> "one more thing"
+        skipped = cls.MEASURES.keys() | cls.QUALIFIERS | cls.DISPOSABLE | {"and"}
         if any(
             raw_words[k] not in kept | skipped and k not in corrected | fillers for k in counted
         ):
@@ -1983,7 +2047,7 @@ class Engine:
         thanked = sum(
             raw_words[k + 1 : k + 2] == ["you"]
             for k in range(len(raw_words))
-            if raw_words[k] == "thank" and k not in corrected
+            if raw_words[k] == "thank" and k not in corrected | restarted  # "thank you, thank you"
         )
         if thanked > len(re.findall(r"\bthank you\b|\bthanks\b", out)):
             return True

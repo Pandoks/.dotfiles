@@ -594,6 +594,20 @@ check(
             ("We should leave at five, no wait, leave at six.", "We should leave at six."),
             ("Let's meet on Thursday. Uh, no, Friday.", "Let's meet on Friday."),
             ("cd .., no wait, cd ~", "cd ~"),
+            ("Book the room for Monday sorry. Tuesday.", "Book the room for Tuesday."),
+            ("I'll take the blue one actually.", "I'll take the blue one."),
+            ("Meet at 3 p.m. Tuesday, sorry, 4 p.m. Tuesday.", "Meet at 4 p.m. Tuesday."),
+            ("Thank you, thank you so much for your help.", "Thank you so much for your help."),
+            ("We already tried that you know.", "We already tried that."),
+            ("Run LS in the home folder.", "Run ls in the home folder."),  # letters heard
+            ("Is it done; did you check?", "Is it done? Did you check?"),
+            ("So, um, I tried it; it didn't work.", "So I tried it, it didn't work."),
+            ("Ship it Monday. Yeah. No. Ship it Tuesday.", "Ship it Tuesday."),
+            ("It was, actually, fine.", "It was fine."),
+            (
+                "We might ship today, no wait, we will ship today.",
+                "We might ship today. No, we will ship today.",
+            ),
             ("Meet at 3 p.m. tomorrow.", "Meet at 3 p.m. tomorrow."),
             ("Let's meet on Monday. I mean, Tuesday.", "Let's meet on Tuesday."),
             ("Send it to Alice. No, wait. Send it to Bob.", "Send it to Bob."),
@@ -872,6 +886,10 @@ check(
             ("Rebuild the index.", "Build the index."),
             ("Select all users.", "Delete all users."),  # a destructive verb never said
             ("Meet at 3 p.m. Wait.", "Meet at 3 p.m."),
+            ("cd ~", "cd /"),
+            ("You mustn't merge it, no wait, merge it today.", "You mustn't merge it today."),
+            ("Let's meet at 3 p.m. Tuesday, no wait, Wednesday.", "Let's meet at Wednesday."),
+            ("Use the red one actually. Use the blue one.", "Use the red one. Use the blue one."),
             ("Meet at 3 p.m. Thanks.", "Meet at 3 p.m."),  # its "." before a capital ends one
             ("Thank you for helping.", "Thank for helping."),
             ("Please wait.", "Please."),
