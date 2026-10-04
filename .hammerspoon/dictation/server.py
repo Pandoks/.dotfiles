@@ -1624,6 +1624,7 @@ class Engine:
             prior = [s.group() for s in spans if s.end() <= m.start()]
             # a clause after it: "that you know, he's leaving", "that, you know, the flight is late"
             goes_on = r"(?:i|we|you|he|she|they|it|this|nobody|everyone|everybody|the)(?:'\w+)?\b"
+            comparing = r"the\s+(?:more|less|fewer|better|sooner)"  # "the more detail the better"
             before = prior[-1:]
             inside = {
                 k for k, s in enumerate(spans) if m.start() <= s.start() and s.end() <= m.end()
@@ -1697,9 +1698,13 @@ class Engine:
                                 and not (
                                     prior[-2] in cls.HEADS
                                     and re.match(
-                                        r"\s*[,;:…—]\s*(?:the\s+(?:more|less|fewer|better|sooner)|everyone|everybody)\b",
+                                        rf"\s*[,;:…—]\s*(?:{comparing}|everyone|everybody)\b",
                                         raw[m.end() :],
                                     )
+                                )
+                                and not (
+                                    prior[-2] in ("everything", "anything", "nothing")
+                                    and re.match(r"\s*[,;:…—]\s*the\b", raw[m.end() :])
                                 )
                             )
                         )
@@ -1810,8 +1815,15 @@ class Engine:
                 (w.endswith("n't") or w in ("not", "never", "cannot"))
                 and lead[p + 1 : p + 2] != ["to"]
                 for p, w in enumerate(lead)
-                # the subject unsaid: "Can't make Friday", not the order "Don't call Sarah"
-                if p or w in ("can't", "cannot", "won't", "couldn't", "isn't", "aren't", "wasn't")
+                # the subject unsaid: "Can't make Friday", not the order "Don't call Sarah" or the
+                # question "Isn't the review Monday", "Can't we meet Monday"
+                if p
+                or (
+                    w in ("can't", "cannot", "won't", "couldn't", "isn't", "aren't", "wasn't")
+                    and lead[1:2] != []
+                    and lead[1].split("'")[0]
+                    not in cls.SUBJECTS | cls.DETERMINERS | {"it", "there"}
+                )
             )
 
         # A time offered on its terms after a refusal: "We can't deliver Friday, sorry, Monday at
@@ -1847,6 +1859,8 @@ class Engine:
                 len(after),
             )
             term, then, more = (after[at : at + 3] + ["", "", ""])[:3]
+            if (term, then, more) == ("by", "the", "way") or (term, then) == ("after", "all"):
+                return False  # an aside, no bound: "Tuesday, by the way", "Thursday, after all"
             bounds = {"before", "after", "around", "by", "or", "earliest", "latest", "soonest"}
             if strict:  # after an order, only a bound of its own: "Tuesday at the earliest"
                 return term in ("earliest", "latest", "soonest")
@@ -1961,7 +1975,7 @@ class Engine:
             end = min((e for e in ends if e >= stop), default=len(raw_words) - 1)
             tail = (
                 after + [raw_words[i] for i in range(stop + 1, end + 1) if i not in fillers]
-                if after and kin_of(after[-1])
+                if any(kin_of(w) for w in after)  # "Tuesday morning, if that works" too
                 else after
             )
             if refused and offered(said, tail):
@@ -2001,7 +2015,19 @@ class Engine:
                 or (
                     refusing
                     and linked < len(after)
-                    and after[linked] not in ("because", "since", "so", "while", "until", "till")
+                    and (
+                        after[linked] not in ("because", "since", "so", "while", "until", "till")
+                        # unless it makes the day an offer: "Tuesday so come by then", "Tuesday
+                        # since I'm free", "Tuesday while you're in town"
+                        or bool(
+                            set(after[linked + 1 :])
+                            & {"then", "free", "open", "available", "you", "you're"}
+                        )
+                    )
+                    and after[linked] not in ("which", "who")  # "Thursday which is the holiday"
+                    # nor one on a thing of its own: "when the movers come", "unless the repairs
+                    # finish", "once the inventory starts" ("when I'm back", "after nine" offer)
+                    and after[linked + 1 : linked + 2] not in ([w] for w in cls.OPENERS)
                 )
             )
             if bare:
@@ -2090,9 +2116,13 @@ class Engine:
                 "",
             )
             if w in cls.CALENDAR:
-                return max(
+                day = max(
                     (p for p in range(start, c) if raw_words[p] in cls.CALENDAR), default=start
                 )
+                # with the word picking which one: "this Friday, no wait, Saturday" -> "Saturday"
+                while day > start and raw_words[day - 1] in ("this", "next", "last", "coming"):
+                    day -= 1
+                return day
             return start
 
         corrected = {

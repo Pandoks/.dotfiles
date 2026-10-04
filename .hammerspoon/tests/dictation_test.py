@@ -629,6 +629,20 @@ check(
             ("Ask Sarah, I'm sorry, Emily.", "Ask Emily."),
             ("I'll call Monday, I'm sorry, I'll call Tuesday.", "I'll call Tuesday."),
             ("Make it red, I'm sorry, blue.", "Make it blue."),
+            ("Let's meet this Friday, no wait, Saturday.", "Let's meet Saturday."),
+            (
+                "Isn't the review Monday, sorry, Tuesday before lunch?",
+                "Isn't the review Tuesday before lunch?",
+            ),
+            ("I can't do Friday, sorry, Thursday, after all.", "I can't do Thursday after all."),
+            (
+                "The gym is closed Friday, sorry, Thursday which is the holiday.",
+                "The gym is closed Thursday which is the holiday.",
+            ),
+            (
+                "The office is closed Monday, sorry, Tuesday when the movers come.",
+                "The office is closed Tuesday when the movers come.",
+            ),
             ("Send it to John, I'm sorry, to Jane and her team.", "Send it to Jane and her team."),
             ("Send it to John, no wait, and Jane.", "Send it to John and Jane."),
             ("Send it to John, no wait, uh, and Jane.", "Send it to John and Jane."),
@@ -1057,6 +1071,22 @@ check(
                 "I'm off Tuesday if you need me.",
             ),
             ("Invite Tom, sorry, Jerry.", "Invite Tom and Jerry."),
+            (
+                "Share everything that you know, the team needs it.",
+                "Share everything that the team needs it.",
+            ),
+            (
+                "I'm busy Thursday, I'm sorry, Friday since that's my free day.",
+                "I'm busy Friday since that's my free day.",
+            ),
+            (
+                "I can't do Monday, sorry, Tuesday morning, if that works.",
+                "I can't do Tuesday morning if that works.",
+            ),
+            (
+                "I'm traveling Monday, I'm sorry, Tuesday if that works.",
+                "I'm traveling Tuesday if that works.",
+            ),
             ("I'm meeting Sarah Monday, I'm sorry, Tuesday.", "I'm meeting Tuesday."),
             (
                 "We're fully booked for Monday, I'm sorry, Tuesday if you can wait.",
