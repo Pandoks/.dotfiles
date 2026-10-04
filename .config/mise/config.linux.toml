@@ -15,6 +15,7 @@ sh "$script"
 # Linger keeps user services running after logout and starts them at boot
 [bootstrap.hooks.post-tools]
 run = '''
+[ -d /run/systemd/system ] || exit 0
 user=$(id -un)
 loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
 '''
