@@ -109,6 +109,34 @@ and claude.ai connectors load only from a claude.ai login. Don't set
 `ANTHROPIC_AUTH_TOKEN`, because it takes precedence and disables the
 connectors. Pick non-Claude models by ID, for example `/model gpt-6-sol`.
 
+### CLIProxyAPI host
+
+The machine tagged `tag:cliproxyapi` on the tailnet runs that proxy.
+[`config.cliproxyapi.toml`](.config/mise/config.cliproxyapi.toml) installs it,
+links its config, runs it as a systemd user service, and publishes it as the
+`svc:cliproxyapi` Tailscale Service. mise loads the module only on machines
+that opt in, which needs mise 2026.10.0 or later:
+
+```sh
+echo 'env = ["cliproxyapi"]' > ~/.config/mise/miserc.local.toml
+mkdir -p ~/.cli-proxy-api
+(umask 077; echo 'MANAGEMENT_PASSWORD=CHOOSE_A_PASSWORD' > ~/.cli-proxy-api/.env)
+mise bootstrap --yes
+```
+
+Then sign in to the dashboard at
+`https://cliproxyapi.<tailnet>.ts.net/management.html` with that password, add
+accounts under OAuth Login, and turn on WebSockets for each Codex credential.
+Account logins stay in `~/.cli-proxy-api`, outside this repository.
+
+`~/.cli-proxy-api/config.yaml` links to
+[`.cli-proxy-api/config.yaml`](.cli-proxy-api/config.yaml), so dashboard saves
+show up as changes here. The first save rewrites `auth-dir` to an absolute
+path; revert that line. This repository is public, so keep secrets out of the
+config: the dashboard password belongs in `.env`, and API keys shouldn't be
+added on the AI Providers page. After `mise up`, run
+`systemctl --user restart dev.mise.cli-proxy-api`.
+
 SSH configuration and `authorized_keys` are managed, but SSH private keys are
 not. Ensure the managed SSH files have the required permissions:
 

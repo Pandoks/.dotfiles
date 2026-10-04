@@ -25,7 +25,6 @@ k9s = "latest"
 yazi = "latest"
 ffmpeg = "latest"
 go = "latest"
-"github:router-for-me/CLIProxyAPI" = "latest"
 
 [settings]
 minimum_release_age_excludes = ["http:t3", "claude-code", "codex", "npm:@moonshot-ai/kimi-code", "opencode", "grok"]

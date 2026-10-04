@@ -1,0 +1,28 @@
+# CLIProxyAPI host module. Load it on a machine with
+# `env = ["cliproxyapi"]` in ~/.config/mise/miserc.local.toml.
+
+[tools]
+"github:router-for-me/CLIProxyAPI" = "latest"
+
+[dotfiles]
+"~/.cli-proxy-api/config.yaml" = "../../.cli-proxy-api/config.yaml"
+
+[bootstrap.linux.systemd.units.cli-proxy-api]
+description = "CLIProxyAPI"
+after = ["network.target"]
+exec_start = "%h/.local/share/mise/installs/github-router-for-me-cli-proxy-api/latest/cli-proxy-api --config %h/.cli-proxy-api/config.yaml"
+# MANAGEMENT_PASSWORD lives here so config.yaml stays free of secrets
+environment_file = ["-%h/.cli-proxy-api/.env"]
+restart = "always"
+restart_sec = "10"
+wanted_by = ["default.target"]
+start = true
+
+[bootstrap.hooks.post-tools]
+run = '''
+user=$(id -un)
+loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
+
+tailscale serve status --json 2>/dev/null | grep -q '"svc:cliproxyapi"' ||
+  sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
+'''

@@ -1,3 +1,6 @@
 .env
 .hammerspoon/secrets.lua
 .hammerspoon/Spoons/
+.config/mise/miserc.local.toml
+.cli-proxy-api/*
+!.cli-proxy-api/config.yaml
