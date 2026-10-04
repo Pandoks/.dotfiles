@@ -1328,6 +1328,12 @@ class Engine:
         + ["page", "pages", "mile", "miles", "times", "people", "pound", "pounds", "degree"]
         + ["degrees"]
     )
+    # Units one amount is said in two of: "5 feet 6", "2 hours 10", "7 pounds 6".
+    MIXED = frozenset(
+        ["foot", "feet", "pound", "pounds", "stone", "hour", "hours", "minute", "minutes"]
+        + ["dollar", "dollars", "euro", "euros", "year", "years", "week", "weeks", "day", "days"]
+        + ["meter", "meters", "metre", "metres"]
+    )
     _COUNT = "|".join(sorted(COUNTS, key=len, reverse=True))
     _SCALE = "hundred|thousand|million|billion"
     _ENDS = "|".join(sorted([*ORDINAL_ENDS, *DECADES], key=len, reverse=True))
@@ -1837,7 +1843,7 @@ class Engine:
         # A time offered on its terms after a refusal: "We can't deliver Friday, sorry, Monday at
         # the earliest"; not "He doesn't work at Google, sorry, Apple" or "It won't ship Monday,
         # sorry, Tuesday".
-        def offered(said, after, strict=False):
+        def offered(said, after, strict=False, cut=frozenset()):  # cut: words a mark follows
             named = next(
                 (
                     p
@@ -1867,9 +1873,11 @@ class Engine:
                 len(after),
             )
             term, then, more = (after[at : at + 3] + ["", "", ""])[:3]
-            # an aside, no bound: "Tuesday, by the way", "Thursday, after all" ("after all the
-            # meetings" bounds it)
-            if (term, then, more) in (("by", "the", "way"), ("after", "all", "")):
+            # an aside, no bound: "Tuesday, by the way", "Thursday, after all", "Friday after all,
+            # so count me out" ("after all the meetings" bounds it)
+            if (term, then, more) == ("by", "the", "way") or (
+                (term, then) == ("after", "all") and (not more or at + 1 in cut)
+            ):
                 return False
             bounds = {"before", "after", "around", "by", "or", "earliest", "latest", "soonest"}
             if strict:  # after an order, only a bound of its own: "Tuesday at the earliest"
@@ -1983,12 +1991,14 @@ class Engine:
             # sorry, Tuesday".
             # past a comma after the time: "Monday, if that works"
             end = min((e for e in ends if e >= stop), default=len(raw_words) - 1)
-            tail = (
-                after + [raw_words[i] for i in range(stop + 1, end + 1) if i not in fillers]
+            heard = (
+                later + [i for i in range(stop + 1, end + 1) if i not in fillers]
                 if any(kin_of(w) for w in after)  # "Tuesday morning, if that works" too
-                else after
+                else later
             )
-            if refused and offered(said, tail):
+            tail = [raw_words[i] for i in heard]
+            cut = frozenset(p for p, i in enumerate(heard) if i in paused)
+            if refused and offered(said, tail, cut=cut):
                 return True
             # So does an order offering a time "at the earliest": "Don't book Monday, I'm sorry,
             # Tuesday at the earliest" ("Don't call Sarah, I'm sorry, Emily" corrects)
@@ -2034,12 +2044,25 @@ class Engine:
                                 set(after[linked + 1 :])
                                 & {"free", "open", "opens", "available", "you're"}
                                 or (after[linked] == "so" and "then" in after[linked + 1 :])
+                                # or asks one over: "so you can stop by", "so come see me"
+                                or any(
+                                    w in ("come", "stop", "swing", "pop", "visit", "shop")
+                                    and ("you" in after[j - 2 : j] or after[j - 1 : j] == ["so"])
+                                    for j, w in enumerate(after)
+                                    if j > linked
+                                )
                             )
+                            # "so nobody is free", "since nothing is available" too
                             and not any(
-                                w.endswith("n't") or w in ("not", "never", "no", "cannot")
+                                w.endswith("n't")
+                                or w.split("'")[0]
+                                in ("not", "never", "no", "cannot", "nothing", "nobody", "none")
+                                or w in ("neither", "nowhere")
                                 for w in after[linked + 1 :]
                             )
-                            and not set(after[linked + 1 :]) & cls.CALENDAR
+                            # nor one for another time: "so I'm free Wednesday", "next week"
+                            and not set(after[linked + 1 :])
+                            & (cls.CALENDAR | {"today", "tomorrow", "tonight", "week", "weekend"})
                         )
                         or (
                             after[linked]
@@ -2313,27 +2336,6 @@ class Engine:
                 "",
             )
 
-        # Or when it is what is corrected: right before the cue, or one word before it with a new
-        # amount or time after ("ten minutes, no wait, an hour"), not "three Tuesday, no wait,
-        # Wednesday".
-        replaced = {
-            k
-            for k in corrected
-            if k in restated
-            or not keeps_numbers(cue_of(k))
-            or between(k) == 0
-            or (
-                between(k) <= 2
-                # "one night" counts; "five this afternoon" is a time
-                and not cls.POINTS & {raw_words[j] for j in range(k + 2, cue_of(k))}
-                # nor "six next week": a time, its day after
-                and raw_words[k + 1]
-                not in cls.POINTS - {"morning", "afternoon", "evening", "night"}
-                | {"next", "this", "last", "every"}
-                and correction_opener(cue_of(k)) in cls.NEW_AMOUNT
-            )
-        }
-
         def piece_of(k):  # k's written word, its marks too: "kill -9", "3:30", "p.m."
             return next(p for p in pieces if p.start() <= spans[k].start() < p.end())
 
@@ -2344,14 +2346,73 @@ class Engine:
         # A number said as words and taken back before its cue counts from its first word: "three
         # fifteen, sorry, three thirty" takes back "three fifteen", though "three" is said again.
         def run_from(k):
+            end = k
             while (
                 k > 0
                 and k - 1 not in paused
-                and single(k - 1)
                 and (raw_words[k - 1] == "point" or cls.numbers(raw_words[k - 1]))
+                # one number with it: "three fifteen", not "kill -9 1234, sorry, 4321"
+                and len(cls.numbers(" ".join(raw_words[k - 1 : end + 1]))) == 1
             ):
                 k -= 1
             return k
+
+        # Not one counting a thing of its own before the number corrected, nor one beside it of its
+        # own: "two kids, one dog, and two, sorry, three cats" keeps the kids and the dog, "kill -9
+        # 1234, sorry, 4321" the "-9" ("two or three chairs, sorry, four", "five, uh, five thirty,
+        # no wait, six" take back all).
+        def apart(k):
+            if not cls.numbers(raw_words[k]):  # a unit stays with its number: "7 pounds 6"
+                return False
+            c = cue_of(k)
+            last = max(  # a count, not a multiple or a name: "two double rooms"
+                (
+                    j
+                    for j in range(k + 1, c)
+                    for n, _ in cls.numbers(raw_words[j])
+                    if not any(f.startswith("#") for f in n)
+                ),
+                default=None,
+            )
+            if last is None:
+                return False
+            if run_from(last) == k + 1 and k not in paused:
+                return True
+            said = [
+                raw_words[j]
+                for j in range(k + 1, run_from(last))
+                if j not in fillers and not cls.numbers(raw_words[j])
+            ]
+            if set(said) & {"or", "to", "through", "thru"}:  # a range
+                return False
+            # nor one amount in two units, "5 feet 6, sorry, 6 feet 1", nor the thing said again:
+            # "5 miles, 6, sorry, 7 miles"
+            units = cls.MIXED | {"point"} | set(raw_words[c + 1 :])
+            return any(w not in units and not re.fullmatch(cls.UNIT, w) for w in said)
+
+        # Or when it is what is corrected: right before the cue, or one word before it with a new
+        # amount or time after ("ten minutes, no wait, an hour"), not "three Tuesday, no wait,
+        # Wednesday".
+        replaced = {
+            k
+            for k in corrected
+            if k in restated
+            or not apart(k)
+            and (
+                not keeps_numbers(cue_of(k))
+                or between(k) == 0
+                or (
+                    between(k) <= 2
+                    # "one night" counts; "five this afternoon" is a time
+                    and not cls.POINTS & {raw_words[j] for j in range(k + 2, cue_of(k))}
+                    # nor "six next week": a time, its day after
+                    and raw_words[k + 1]
+                    not in cls.POINTS - {"morning", "afternoon", "evening", "night"}
+                    | {"next", "this", "last", "every"}
+                    and correction_opener(cue_of(k)) in cls.NEW_AMOUNT
+                )
+            )
+        }
 
         back_at = replaced | {
             j
@@ -2360,8 +2421,9 @@ class Engine:
             for j in range(run_from(k), k)
         }
         # Each run of them on its own, one said again as its own word: "at 3, sorry, 3:30" says
-        # "3" again, not "30".
-        before_cue, taken = [], []
+        # "3" again, not "30". One taken back before its cue is known by where it was said, not by
+        # its value: "two eggs, one cup of milk, and two, sorry, three cups" keeps the first "two".
+        before_cue, taken = {}, []
         for _, group in itertools.groupby(enumerate(sorted(back_at)), lambda e: e[1] - e[0]):
             ks = [k for _, k in group]
             heard_at = {
@@ -2371,13 +2433,15 @@ class Engine:
                 for k in ks
             }
             found = [n for n, _ in cls.numbers(" ".join(heard_at[s] for s in sorted(heard_at)))]
-            (taken if set(ks) & restated else before_cue).extend(found)
-        taken += before_cue
+            if set(ks) & restated:
+                taken.extend(found)
+            else:
+                before_cue.update(
+                    enumerate(found, len(cls.numbers(raw[: piece_of(ks[0]).start()])))
+                )
         at = 0
-        for n, parts in cls.numbers(raw):
-            if n in before_cue:  # taken back before its cue: its correction is still written whole
-                before_cue.remove(n)
-                taken.remove(n)
+        for p, (n, parts) in enumerate(cls.numbers(raw)):
+            if before_cue.get(p) == n:  # taken back before its cue: its correction is still written
                 continue
             k = next((k for k in range(at, len(written)) if written[k] & n), None)
             back = next((t for t in taken if t & n), None)
@@ -2391,8 +2455,6 @@ class Engine:
                 ):
                     return True
                 taken.remove(back)  # once: not "15, no 50, with 15 retries" -> "50 with retries"
-                if back in before_cue:
-                    before_cue.remove(back)
                 continue
             if k is None or k > at:
                 return True  # dropped, moved, or after one never said

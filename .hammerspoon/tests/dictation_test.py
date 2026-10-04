@@ -652,6 +652,18 @@ check(
                 "I'm busy Tuesday so I won't be free.",
             ),
             (
+                "I'm away Monday, sorry, Tuesday so nobody is free to cover.",
+                "I'm away Tuesday so nobody is free to cover.",
+            ),
+            (
+                "I'm out Wednesday, sorry, Thursday so nobody's free to cover my shift.",
+                "I'm out Thursday so nobody's free to cover my shift.",
+            ),
+            (
+                "I'm out Monday, sorry, Tuesday so neither of us is free.",
+                "I'm out Tuesday so neither of us is free.",
+            ),
+            (
                 "I'm busy Monday, sorry, Tuesday because I have a dentist appointment then.",
                 "I'm busy Tuesday because I have a dentist appointment then.",
             ),
@@ -660,8 +672,35 @@ check(
                 "I'm away Tuesday so my calendar is open Wednesday.",
             ),
             (
+                "I'm out Friday, sorry, Monday so I'll be available next week.",
+                "I'm out Monday so I'll be available next week.",
+            ),
+            (
                 "Upgrade to version two point three, no wait, two point four.",
                 "Upgrade to version two point four.",
+            ),
+            ("Run kill -9 1234, sorry, 4321.", "Run kill -9 4321."),
+            ("Call extensions 21, 22, sorry, 23.", "Call extensions 21, 23."),
+            (
+                "Call extensions twenty one, twenty two, sorry, twenty three.",
+                "Call extensions twenty one, twenty three.",
+            ),
+            ("It takes two, three, sorry, four hours.", "It takes four hours."),
+            ("He's 5 feet 6, sorry, 6 feet 1.", "He's 6 feet 1."),
+            ("The baby weighed 7 pounds 6, sorry, 8 pounds 2.", "The baby weighed 8 pounds 2."),
+            ("The drive took 2 hours 10, sorry, 3 hours 15.", "The drive took 3 hours 15."),
+            ("The movie runs 1 hour 50, sorry, 2 hours 10.", "The movie runs 2 hours 10."),
+            ("The movie runs 1 hr 50, sorry, 2 hrs 10.", "The movie runs 2 hrs 10."),
+            ("I ran 5 miles, 6, sorry, 7 miles this week.", "I ran 7 miles this week."),
+            ("Set it to two point, uh, five, sorry, three.", "Set it to three."),
+            ("Bring two or three chairs, sorry, four chairs.", "Bring four chairs."),
+            (
+                "Add two eggs, one cup of milk, and two, sorry, three cups of flour.",
+                "Add two eggs, one cup of milk, and three cups of flour.",
+            ),
+            (
+                "I can't come Thursday, sorry, Friday after all, so count me out.",
+                "I can't come Friday after all, so count me out.",
             ),
             (
                 "Can you pick me up at five, sorry, five thirty?",
@@ -1154,6 +1193,19 @@ check(
                 "We're closed Monday when the shop opens at ten.",
             ),
             ("I'm meeting Sarah Monday, I'm sorry, Tuesday.", "I'm meeting Tuesday."),
+            ("I have two kids, one dog, and two, sorry, three cats.", "I have three cats."),
+            ("Book rooms 2 and 25, sorry, 3.", "Book rooms 3."),
+            ("Order 2 pizzas, 3 salads, sorry, 4 salads.", "Order 4 salads."),
+            (
+                "Take one pill at eight and one, sorry, two pills at night.",
+                "Take two pills at night.",
+            ),
+            ("Run kill -9 1234, sorry, 4321.", "Run kill 4321."),
+            (
+                "We're closed Monday, sorry, Tuesday so you can stop by.",
+                "We're closed Tuesday so you can stop by.",
+            ),
+            ("We're closed Monday, sorry, Tuesday so come by.", "We're closed Tuesday so come by."),
             (
                 "We're fully booked for Monday, I'm sorry, Tuesday if you can wait.",
                 "We're fully booked for Tuesday if you can wait.",
