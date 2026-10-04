@@ -102,6 +102,22 @@ gh auth login
 aws sso login --profile PROFILE_NAME
 ```
 
+SSH configuration and `authorized_keys` are managed, but SSH private keys are
+not. Ensure the managed SSH files have the required permissions:
+
+```sh
+chmod 700 "$HOME/.ssh"
+chmod 600 "$HOME/.ssh/authorized_keys"
+```
+
+The source of truth is
+[`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
+packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
+
+## CLIProxyAPI
+
+### Clients
+
 Claude Code and Codex send model requests to the [CLIProxyAPI] service on the
 tailnet, which uses its own accounts, so Tailscale must be connected. Still run
 `/login` in Claude Code once per machine: it won't start without a credential,
@@ -109,9 +125,9 @@ and claude.ai connectors load only from a claude.ai login. Don't set
 `ANTHROPIC_AUTH_TOKEN`, because it takes precedence and disables the
 connectors. Pick non-Claude models by ID, for example `/model gpt-6-sol`.
 
-### CLIProxyAPI host
+### Host
 
-The machine tagged `tag:cliproxyapi` on the tailnet runs that proxy.
+The machine tagged `tag:cliproxyapi` on the tailnet runs the proxy.
 [`config.cliproxyapi.toml`](.config/mise/config.cliproxyapi.toml) installs it,
 links its config, and runs it as a systemd user service with linger enabled.
 mise loads the module only when it's selected with `-E cliproxyapi`, so set it
@@ -139,18 +155,6 @@ config: don't commit the `secret-key` line, and don't add API keys on the AI
 Providers page. Plain `mise up` skips the module; upgrade with
 `mise -E cliproxyapi up`, then run
 `systemctl --user restart dev.mise.cli-proxy-api`.
-
-SSH configuration and `authorized_keys` are managed, but SSH private keys are
-not. Ensure the managed SSH files have the required permissions:
-
-```sh
-chmod 700 "$HOME/.ssh"
-chmod 600 "$HOME/.ssh/authorized_keys"
-```
-
-The source of truth is
-[`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
-packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
