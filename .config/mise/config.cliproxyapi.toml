@@ -17,11 +17,9 @@ restart_sec = "10"
 wanted_by = ["default.target"]
 start = true
 
+# Linger keeps the user service running without a login session
 [bootstrap.hooks.post-tools]
 run = '''
 user=$(id -un)
 loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
-
-tailscale serve status --json 2>/dev/null | grep -q '"svc:cliproxyapi"' ||
-  sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 '''

@@ -113,15 +113,18 @@ connectors. Pick non-Claude models by ID, for example `/model gpt-6-sol`.
 
 The machine tagged `tag:cliproxyapi` on the tailnet runs that proxy.
 [`config.cliproxyapi.toml`](.config/mise/config.cliproxyapi.toml) installs it,
-links its config, runs it as a systemd user service, and publishes it as the
-`svc:cliproxyapi` Tailscale Service. mise loads the module only when it's
-selected with `-E cliproxyapi`, so set it up by hand on that machine:
+links its config, and runs it as a systemd user service with linger enabled.
+mise loads the module only when it's selected with `-E cliproxyapi`, so set it
+up by hand on that machine, then publish it as the `svc:cliproxyapi` Tailscale
+Service:
 
 ```sh
 mise -E cliproxyapi bootstrap --yes
+sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 ```
 
-Set the dashboard password by hand: put it in `management.secret-key` in
+The serve setting persists across reboots, so it's needed once per host. Set
+the dashboard password by hand: put it in `management.secret-key` in
 `~/.cli-proxy-api/config.yaml`. CLIProxyAPI hashes it on first start. Then
 sign in to the dashboard at
 `https://cliproxyapi.<tailnet>.ts.net/management.html` with that password, add
