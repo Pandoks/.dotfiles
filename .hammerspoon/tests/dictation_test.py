@@ -643,6 +643,40 @@ check(
                 "The office is closed Monday, sorry, Tuesday when the movers come.",
                 "The office is closed Tuesday when the movers come.",
             ),
+            (
+                "I'm out Thursday, sorry, Friday so can you cover for me?",
+                "I'm out Friday so can you cover for me?",
+            ),
+            (
+                "I'm busy Monday, sorry, Tuesday so I won't be free.",
+                "I'm busy Tuesday so I won't be free.",
+            ),
+            (
+                "I'm busy Monday, sorry, Tuesday because I have a dentist appointment then.",
+                "I'm busy Tuesday because I have a dentist appointment then.",
+            ),
+            (
+                "I'm away Monday, sorry, Tuesday so my calendar is open Wednesday.",
+                "I'm away Tuesday so my calendar is open Wednesday.",
+            ),
+            (
+                "Upgrade to version two point three, no wait, two point four.",
+                "Upgrade to version two point four.",
+            ),
+            (
+                "Can you pick me up at five, sorry, five thirty?",
+                "Can you pick me up at five thirty?",
+            ),
+            ("I'll pick up the kids at 3, sorry, 3.30.", "I'll pick up the kids at 3:30."),
+            ("Dinner at 8. Sorry. 8.30.", "Dinner at 8.30."),
+            ("Meet at three fifteen, sorry, three thirty.", "Meet at three thirty."),
+            ("It costs twenty five, sorry, twenty nine dollars.", "It costs twenty nine dollars."),
+            ("Pick me up at 5.15, I mean, 5.45.", "Pick me up at 5:15. I mean, 5:45."),
+            ("Don't merge it, scratch that, merge it.", "Merge it."),
+            (
+                "I want two tickets for Monday, no wait, uh, two tickets for Tuesday.",
+                "I want two tickets for Tuesday.",
+            ),
             ("Send it to John, I'm sorry, to Jane and her team.", "Send it to Jane and her team."),
             ("Send it to John, no wait, and Jane.", "Send it to John and Jane."),
             ("Send it to John, no wait, uh, and Jane.", "Send it to John and Jane."),
@@ -1086,6 +1120,38 @@ check(
             (
                 "I'm traveling Monday, I'm sorry, Tuesday if that works.",
                 "I'm traveling Tuesday if that works.",
+            ),
+            (
+                "I'm booked Monday, sorry, Tuesday which is wide open.",
+                "I'm booked Tuesday which is wide open.",
+            ),
+            (
+                "I'm busy Monday, sorry, Tuesday when my calendar is free.",
+                "I'm busy Tuesday when my calendar is free.",
+            ),
+            (
+                "I can't do Monday, sorry, Tuesday after all the meetings.",
+                "I can't do Tuesday after all the meetings.",
+            ),
+            ("We moved in last March, sorry, April.", "We moved in April."),
+            ("The deadline is next Thursday, sorry, Friday.", "The deadline is Friday."),
+            ("I'll pick up the kids at 3, sorry, 3.30.", "I'll pick up the kids at 3."),
+            ("Selling at 3, sorry, 3.30 dollars.", "Selling at 3:30 dollars."),
+            (
+                "I'll pick up the kids at three, sorry, three thirty.",
+                "I'll pick up the kids at three.",
+            ),
+            (
+                "Set the alarm for twenty three thirty, sorry, three thirty.",
+                "Set the alarm for twenty three thirty.",
+            ),
+            (
+                "We're closed Monday, sorry, Tuesday so come by then.",
+                "We're closed Tuesday so come by then.",
+            ),
+            (
+                "We're closed Sunday, sorry, Monday when the shop opens at ten.",
+                "We're closed Monday when the shop opens at ten.",
             ),
             ("I'm meeting Sarah Monday, I'm sorry, Tuesday.", "I'm meeting Tuesday."),
             (

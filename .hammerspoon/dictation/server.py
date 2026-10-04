@@ -1604,7 +1604,15 @@ class Engine:
         # The speech model's time may be written as write_numbers will write it: "at 3.30" may be
         # "at 3:30", not "costs 3.30" "costs 3:30".
         hhmm = r"(?<!\d)\d{1,2}:\d\d(?!\d)"  # "1:30pm" too
-        for t in set(re.findall(hhmm, cls.clock(raw))) - set(re.findall(hhmm, raw)):
+        # So may a time's correction, as it would be after "at": "at 3.15. Sorry. 3.30", "at 3,
+        # sorry, 3.30", not "at 3, sorry, 3.30 dollars".
+        timed = re.sub(
+            r"(\b(?:at|until|till) (?:1[0-2]|[1-9])(?::[0-5]\d)?[.,]? (?:sorry|no wait|i mean|"
+            r"actually|no)[.,]? )((?:1[0-2]|[1-9])\.\d\d(?!\.\d)\s*[\w']*)",
+            lambda m: m[1] + cls.clock(f"at {m[2]}")[3:],
+            cls.clock(raw),
+        )
+        for t in set(re.findall(hhmm, timed)) - set(re.findall(hhmm, raw)):
             out = re.sub(rf"(?<!\d){t}(?!\d)", t.replace(":", "."), out)
 
         def words(text):
@@ -1859,8 +1867,10 @@ class Engine:
                 len(after),
             )
             term, then, more = (after[at : at + 3] + ["", "", ""])[:3]
-            if (term, then, more) == ("by", "the", "way") or (term, then) == ("after", "all"):
-                return False  # an aside, no bound: "Tuesday, by the way", "Thursday, after all"
+            # an aside, no bound: "Tuesday, by the way", "Thursday, after all" ("after all the
+            # meetings" bounds it)
+            if (term, then, more) in (("by", "the", "way"), ("after", "all", "")):
+                return False
             bounds = {"before", "after", "around", "by", "or", "earliest", "latest", "soonest"}
             if strict:  # after an order, only a bound of its own: "Tuesday at the earliest"
                 return term in ("earliest", "latest", "soonest")
@@ -2016,18 +2026,30 @@ class Engine:
                     refusing
                     and linked < len(after)
                     and (
-                        after[linked] not in ("because", "since", "so", "while", "until", "till")
-                        # unless it makes the day an offer: "Tuesday so come by then", "Tuesday
-                        # since I'm free", "Tuesday while you're in town"
-                        or bool(
-                            set(after[linked + 1 :])
-                            & {"then", "free", "open", "available", "you", "you're"}
+                        # one making the day an offer: "Tuesday so come by then", "Tuesday since
+                        # I'm free", "Tuesday while you're in town", "Tuesday which is wide open",
+                        # not "Tuesday so I won't be free", "Tuesday since I'm away then"
+                        (
+                            (
+                                set(after[linked + 1 :])
+                                & {"free", "open", "opens", "available", "you're"}
+                                or (after[linked] == "so" and "then" in after[linked + 1 :])
+                            )
+                            and not any(
+                                w.endswith("n't") or w in ("not", "never", "no", "cannot")
+                                for w in after[linked + 1 :]
+                            )
+                            and not set(after[linked + 1 :]) & cls.CALENDAR
+                        )
+                        or (
+                            after[linked]
+                            not in ("because", "since", "so", "while", "until", "till")
+                            and after[linked] not in ("which", "who")  # "Thursday which is the
+                            # holiday"; nor one on a thing of its own: "when the movers come",
+                            # "unless the repairs finish" ("when I'm back", "after nine" offer)
+                            and after[linked + 1 : linked + 2] not in ([w] for w in cls.OPENERS)
                         )
                     )
-                    and after[linked] not in ("which", "who")  # "Thursday which is the holiday"
-                    # nor one on a thing of its own: "when the movers come", "unless the repairs
-                    # finish", "once the inventory starts" ("when I'm back", "after nine" offer)
-                    and after[linked + 1 : linked + 2] not in ([w] for w in cls.OPENERS)
                 )
             )
             if bare:
@@ -2120,7 +2142,7 @@ class Engine:
                     (p for p in range(start, c) if raw_words[p] in cls.CALENDAR), default=start
                 )
                 # with the word picking which one: "this Friday, no wait, Saturday" -> "Saturday"
-                while day > start and raw_words[day - 1] in ("this", "next", "last", "coming"):
+                while day > start and raw_words[day - 1] in ("this", "coming"):
                     day -= 1
                 return day
             return start
@@ -2144,6 +2166,8 @@ class Engine:
             if tag == "equal" or not inside:
                 continue
             start = max(inside) + 1
+            while start < i2 and start in fillers:  # "scratch that", "no wait, uh, 2 tickets"
+                start += 1
             said_again = [
                 n
                 for n in range(1, min(i2 - start, i1) + 1)
@@ -2309,19 +2333,66 @@ class Engine:
                 and correction_opener(cue_of(k)) in cls.NEW_AMOUNT
             )
         }
-        back_words = {
-            p.start(): p.group()
-            for k in replaced
-            for p in pieces
-            if p.start() <= spans[k].start() < p.end()
+
+        def piece_of(k):  # k's written word, its marks too: "kill -9", "3:30", "p.m."
+            return next(p for p in pieces if p.start() <= spans[k].start() < p.end())
+
+        def single(k):  # its written word holds no other: "-9", not "3:30"
+            p = piece_of(k)
+            return all(s is spans[k] or not p.start() <= s.start() < p.end() for s in spans)
+
+        # A number said as words and taken back before its cue counts from its first word: "three
+        # fifteen, sorry, three thirty" takes back "three fifteen", though "three" is said again.
+        def run_from(k):
+            while (
+                k > 0
+                and k - 1 not in paused
+                and single(k - 1)
+                and (raw_words[k - 1] == "point" or cls.numbers(raw_words[k - 1]))
+            ):
+                k -= 1
+            return k
+
+        back_at = replaced | {
+            j
+            for k in replaced - restated
+            if single(k) and cls.numbers(raw_words[k])
+            for j in range(run_from(k), k)
         }
-        taken = [n for n, _ in cls.numbers(" ".join(back_words[s] for s in sorted(back_words)))]
+        # Each run of them on its own, one said again as its own word: "at 3, sorry, 3:30" says
+        # "3" again, not "30".
+        before_cue, taken = [], []
+        for _, group in itertools.groupby(enumerate(sorted(back_at)), lambda e: e[1] - e[0]):
+            ks = [k for _, k in group]
+            heard_at = {
+                piece_of(k).start(): piece_of(k).group()
+                if k not in restated or single(k)
+                else raw_words[k]
+                for k in ks
+            }
+            found = [n for n, _ in cls.numbers(" ".join(heard_at[s] for s in sorted(heard_at)))]
+            (taken if set(ks) & restated else before_cue).extend(found)
+        taken += before_cue
         at = 0
         for n, parts in cls.numbers(raw):
+            if n in before_cue:  # taken back before its cue: its correction is still written whole
+                before_cue.remove(n)
+                taken.remove(n)
+                continue
             k = next((k for k in range(at, len(written)) if written[k] & n), None)
             back = next((t for t in taken if t & n), None)
             if k is None and back is not None:
+                # A run said again unwritten, it is still written whole before: "at three, sorry,
+                # three thirty" is not "at three", nor "twenty three thirty, sorry, three thirty"
+                # "twenty three thirty".
+                whole = max(n, key=lambda f: (len(f), f))
+                if parts > 1 and not (
+                    at and whole in {f.replace(":", "") for f in written[at - 1]}
+                ):
+                    return True
                 taken.remove(back)  # once: not "15, no 50, with 15 retries" -> "50 with retries"
+                if back in before_cue:
+                    before_cue.remove(back)
                 continue
             if k is None or k > at:
                 return True  # dropped, moved, or after one never said
