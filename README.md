@@ -116,45 +116,30 @@ packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 ## CLIProxyAPI
 
-### Clients
-
-Claude Code and Codex send model requests to the [CLIProxyAPI] service on the
-tailnet, which uses its own accounts, so Tailscale must be connected. Still run
-`/login` in Claude Code once per machine: it won't start without a credential,
-and claude.ai connectors load only from a claude.ai login. Don't set
-`ANTHROPIC_AUTH_TOKEN`, because it takes precedence and disables the
-connectors. Pick non-Claude models by ID, for example `/model gpt-6-sol`.
+Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
+Keep Tailscale connected, run `/login` once in Claude Code for claude.ai
+connectors, and don't set `ANTHROPIC_AUTH_TOKEN`.
 
 ### Host
 
-The machine tagged `tag:cliproxyapi` on the tailnet runs the proxy.
-[`config.cliproxyapi.toml`](.config/mise/config.cliproxyapi.toml) installs it,
-links its config, and runs it as a systemd user service with linger enabled.
-mise loads the module only when it's selected with `-E cliproxyapi`, so set it
-up by hand on that machine, then publish it as the `svc:cliproxyapi` Tailscale
-Service:
+On the machine tagged `tag:cliproxyapi`:
 
 ```sh
 mise -E cliproxyapi bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 ```
 
-The serve setting persists across reboots, so it's needed once per host. Set
-the dashboard password by hand: put it in `management.secret-key` in
-`~/.cli-proxy-api/config.yaml`. CLIProxyAPI hashes it on first start. Then
-sign in to the dashboard at
-`https://cliproxyapi.<tailnet>.ts.net/management.html` with that password, add
-accounts under OAuth Login, and turn on WebSockets for each Codex credential.
-Account logins stay in `~/.cli-proxy-api`, outside this repository.
+Set the dashboard password in `management.secret-key` of
+`~/.cli-proxy-api/config.yaml` (hashed on first start), then add accounts and
+enable WebSockets on Codex ones at
+`https://cliproxyapi.<tailnet>.ts.net/management.html`. The config links into
+this public repo, so never commit `secret-key` or API keys.
 
-`~/.cli-proxy-api/config.yaml` links to
-[`.cli-proxy-api/config.yaml`](.cli-proxy-api/config.yaml), so dashboard saves
-show up as changes here. The first save rewrites `auth-dir` to an absolute
-path; revert that line. This repository is public, so keep secrets out of the
-config: don't commit the `secret-key` line, and don't add API keys on the AI
-Providers page. Plain `mise up` skips the module; upgrade with
-`mise -E cliproxyapi up`, then run
-`systemctl --user restart dev.mise.cli-proxy-api`.
+Upgrade:
+
+```sh
+mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
+```
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI

@@ -12,6 +12,12 @@ fi
 sh "$script"
 '''
 
+[bootstrap.hooks.post-tools]
+run = '''
+user=$(id -un)
+loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
+'''
+
 [bootstrap.packages]
 "apt:zsh" = "latest"
 "apt:curl" = "latest"

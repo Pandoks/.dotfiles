@@ -13,9 +13,3 @@ restart = "always"
 restart_sec = "10"
 wanted_by = ["default.target"]
 start = true
-
-[bootstrap.hooks.post-tools]
-run = '''
-user=$(id -un)
-loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
-'''
