@@ -182,6 +182,18 @@ test("keep moves a recording in, where prune never deletes it", function()
   expect(settings.directory, { "2026-01-02_03-04-05.wav", stamp .. ".txt" })
 end)
 
+test("prune never deletes the user's copy of a take", function()
+  local settings = { directory = scratch .. "/copied", maxMegabytes = 0 }
+  clock = 1790000100
+  assert(history.save("take", settings) == nil)
+  local take = settings.directory .. "/" .. date("%Y-%m-%d_%H-%M-%S", clock) .. ".txt"
+  -- Finder's Duplicate and cp keep extended attributes.
+  assert(os.execute(("cp %q %q"):format(take, settings.directory .. "/mine.txt")))
+  clock = clock + 1
+  assert(history.save("take", settings) == nil and history.prune(settings) == nil)
+  expect(settings.directory, { date("%Y-%m-%d_%H-%M-%S", clock) .. ".txt", "mine.txt" })
+end)
+
 test("keep reports why a recording could not move, and leaves it", function()
   local settings = { directory = scratch .. "/unmoved", maxMegabytes = 10 }
   local locked = scratch .. "/locked"

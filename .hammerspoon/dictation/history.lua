@@ -66,8 +66,9 @@ function history.save(text, settings)
   if not os.execute("umask 077 && set -C && : > " .. quote(path)) then
     return "could not create " .. path
   end
-  -- hs.fs.xattr raises on failure (a volume without extended attributes).
-  local ok, marked = pcall(hs.fs.xattr.set, path, MARK, "take")
+  -- hs.fs.xattr raises on failure (a volume without extended attributes). Its own name, which a
+  -- copy (Finder's Duplicate, cp) keeps under another: that copy is the user's, never pruned.
+  local ok, marked = pcall(hs.fs.xattr.set, path, MARK, path:match("[^/]+$"))
   if not ok or not marked then
     os.remove(path)
     return "could not mark " .. path .. " as a take: " .. tostring(marked)
@@ -134,7 +135,7 @@ function history.prune(settings)
     if attributes.mode == "file" then
       -- hs.fs.xattr raises on a file it cannot read, which save() never wrote.
       local ok, marked = pcall(hs.fs.xattr.get, path, MARK)
-      if ok and marked then
+      if ok and marked == entry then
         local size = (attributes.blocks or 0) * 512
         files[#files + 1] = { name = entry, size = size, created = attributes.creation or 0 }
         total = total + size
