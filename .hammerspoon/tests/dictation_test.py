@@ -671,6 +671,14 @@ check(
             ),
             ("I'm free Monday, I'm sorry, Tuesday after two.", "I'm free Tuesday after two."),
             (
+                "Let's do Monday, I'm sorry, Tuesday the sales meeting.",
+                "Let's do Tuesday the sales meeting.",
+            ),
+            (
+                "Ship it Friday, sorry, Thursday we need it early.",
+                "Ship it Thursday we need it early.",
+            ),
+            (
                 "Let's meet Monday, I'm sorry, Tuesday a few hours later.",
                 "Let's meet Tuesday a few hours later.",
             ),
@@ -1018,6 +1026,31 @@ check(
                 "I'm busy Tuesday if you're free.",
             ),
             ("Bring a friend that you know, it'll be fun.", "Bring a friend, it'll be fun."),
+            (
+                "Sarah isn't available Monday, I'm sorry, Tuesday if that works for you.",
+                "Sarah isn't available Tuesday if that works for you.",
+            ),
+            ("I can't meet at two, sorry, three instead.", "I can't meet at three instead."),
+            (
+                "We're fully booked for Monday, I'm sorry, Tuesday if you can wait.",
+                "We're fully booked for Tuesday if you can wait.",
+            ),
+            (
+                "We're closed Monday, sorry, Tuesday the doors open at nine.",
+                "We're closed Tuesday the doors open at nine.",
+            ),
+            (
+                "Tell them everything that you know, the more detail the better.",
+                "Tell them everything, the more detail the better.",
+            ),
+            (
+                "The meeting room is booked Monday, I'm sorry, Tuesday if that works.",
+                "The meeting room is booked Tuesday if that works.",
+            ),
+            (
+                "Don't book Monday, I'm sorry, Tuesday at the earliest.",
+                "Don't book Tuesday at the earliest.",
+            ),
             (
                 "We're closed Monday, I'm sorry, Tuesday the doors open at nine.",
                 "We're closed Tuesday the doors open at nine.",

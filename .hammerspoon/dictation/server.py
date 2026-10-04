@@ -1692,6 +1692,13 @@ class Engine:
                                 # you know, it'll be fun"
                                 prior[-2] in cls.HEADS - cls.PEOPLE | cls.TOLD
                                 and re.match(rf"\s*[,;:…—]\s*{goes_on}", raw[m.end() :])
+                                # "everything that you know, the rest" is what one knows
+                                and not (
+                                    prior[-2] in cls.HEADS
+                                    and re.match(
+                                        r"\s*[,;:…—]\s*(?:the|everyone|everybody)\b", raw[m.end() :]
+                                    )
+                                )
                             )
                         )
                     )
@@ -1807,7 +1814,7 @@ class Engine:
         # A time offered on its terms after a refusal: "We can't deliver Friday, sorry, Monday at
         # the earliest"; not "He doesn't work at Google, sorry, Apple" or "It won't ship Monday,
         # sorry, Tuesday".
-        def offered(said, after):
+        def offered(said, after, strict=False):
             named = next(
                 (
                     p
@@ -1827,19 +1834,37 @@ class Engine:
             # past the time said more closely ("Tuesday morning", "ten in the morning"), a bound
             # on it: "at the earliest", "before ten", "around one", not "sixty dollars"
             told = cls.POINTS | cls.CALENDAR | {"point", "in", "the", "at", "this", "last", "year"}
-            term = next(
-                (w for w in after[named + 1 :] if not cls.numbers(w) and w not in told), None
+            told |= cls.DISPOSABLE | {"absolute"}  # "at the very earliest"
+            at = next(
+                (
+                    p
+                    for p in range(named + 1, len(after))
+                    if not cls.numbers(after[p]) and after[p] not in told
+                ),
+                len(after),
             )
-            return term in ("before", "after", "around", "by", "or", "earliest", "latest", "works")
+            term, then = (after[at : at + 2] + ["", ""])[:2]
+            bounds = {"before", "after", "around", "by", "or", "earliest", "latest", "soonest"}
+            if strict:  # after an order, only a bound of its own: "Tuesday at the earliest"
+                return term in ("earliest", "latest", "soonest")
+            # or on the listener's terms: "Monday if that works", "Tuesday if you're free", not
+            # "Tuesday if it snows"
+            return (
+                term in bounds | {"works", "instead", "onward", "onwards"}
+                or term in ("if", "unless")
+                and then in ("you", "you're", "that", "that's")
+            )
 
-        def predicated(k):  # the sentence's own: "Please wait.", "I am sorry.", not an aside set
-            # off by marks: "Monday, I'm sorry, Tuesday"
-            j = k - 1
-            if j < 0 or raw_words[j] not in cls.PREDICATING:
+        def predicated(k, bare=False):  # the sentence's own: "Please wait.", "I am sorry.", not
+            # an aside set off by marks: "Monday, I'm sorry, Tuesday". A bare "sorry" between marks
+            # is a cue unless what follows offers instead: "We're closed Monday, sorry, Tuesday the
+            # doors open at nine".
+            j = k if bare else k - 1
+            if not bare and (j < 0 or raw_words[j] not in cls.PREDICATING):
                 return False
-            while j > 0 and raw_words[j - 1] in cls.PREDICATING:
+            while not bare and j > 0 and raw_words[j - 1] in cls.PREDICATING:
                 j -= 1
-            if j not in led or j - 1 in ends:  # "I'm sorry." opening a sentence is its own
+            if not bare and (j not in led or j - 1 in ends):  # "I'm sorry." opening a sentence
                 return True
             stop = next((e for e in sorted(paused) if e > k), len(raw_words) - 1)
             later = [i for i in range(k + 1, stop + 1) if i not in fillers]
@@ -1849,9 +1874,14 @@ class Engine:
             said = [raw_words[i] for i in before]
             # Written as said around it, it took nothing back: "We're closed, I'm sorry, try
             # tomorrow" -> "We're closed, try tomorrow" drops an apology.
-            if not before or (
-                before[-1] in as_said
-                and out_words[as_said[before[-1]] + 1 :][: len(after)] == after
+            if bare and not before:
+                return False
+            if not bare and (
+                not before
+                or (
+                    before[-1] in as_said
+                    and out_words[as_said[before[-1]] + 1 :][: len(after)] == after
+                )
             ):
                 return True
             # After a refusal it offers instead: "We can't deliver Friday, I'm sorry, Monday at
@@ -1886,9 +1916,24 @@ class Engine:
             )
             refusing = (
                 bool(set(lead) & cls.COPULAS)
-                and state in cls.AWAY
-                and lead[-2:-1] != ["for"]  # "booked for Monday" schedules
-                and not any(w.endswith("ing") for w in lead)
+                # or one right after its copula: "I'm out of the office Monday"
+                and (
+                    state in cls.AWAY
+                    or lead[max(p for p, w in enumerate(lead) if w in cls.COPULAS) + 1 :][:1]
+                    in ([w] for w in cls.AWAY)
+                )
+                # "The flight is booked for Monday" schedules; "We're fully booked for Monday",
+                # "sold out for Friday" turn one away
+                and not (
+                    lead[-2:-1] == ["for"]
+                    and state == "booked"
+                    and not set(lead) & {"i'm", "we're", "they're", "fully", "all", "completely"}
+                )
+                # "We're meeting Monday", not "The meeting room is booked Monday"
+                and not any(
+                    w.endswith("ing")
+                    for w in lead[max(p for p, w in enumerate(lead) if w in cls.COPULAS) :]
+                )
             )
             linked = next((p for p, w in enumerate(after) if p and w in cls.LINKS), len(after))
             own = after[:linked]
@@ -1897,6 +1942,10 @@ class Engine:
             # not "He doesn't work at Google, I'm sorry, Apple" or "It won't ship Monday, I'm
             # sorry, Tuesday".
             if refused and offered(said, after):
+                return True
+            # So does an order offering a time "at the earliest": "Don't book Monday, I'm sorry,
+            # Tuesday at the earliest" ("Don't call Sarah, I'm sorry, Emily" corrects)
+            if lead[:1] and negative(lead[:1], no=False) and offered(said, after, strict=True):
                 return True
             opener = after[named + 1 : named + 3] if named is not None else []
             clause = bool(
@@ -1917,11 +1966,18 @@ class Engine:
                         re.fullmatch(r"\w+(?<!s)s|\w+ed", after[named + 3])
                         or re.fullmatch(r"\w+[^s']s", opener[1])
                     )
+                    # after a refusal, or with one's own: "closed Monday, ..., Tuesday the doors
+                    # open", "Sunday my parents fly in"; not "Let's do Monday, ..., Tuesday the
+                    # sales meeting" or "the morning sessions"
+                    and (refused or refusing or opener[0] not in ("the", "a", "an"))
                 )
                 or set(own[1:]) & (cls.COPULAS | cls.AUXILIARIES - {"may"})
                 or any(w.endswith("n't") for w in own[1:])
                 or (refusing and linked < len(after))
             )
+            if bare:
+                # only after one turned away: "We're closed Monday, sorry, Tuesday the doors open"
+                return bool(named is not None and clause and (refused or refusing))
             # A few words in place of the last ones said, its lead kept: "Make it red, I'm sorry,
             # blue" -> "Make it blue"; not "I'm late, I'm sorry, I overslept" -> "I overslept".
             if (
@@ -1962,23 +2018,7 @@ class Engine:
             and not negative(raw_words[k - 1 : k], no=False)
             # nor a bare "sorry" after a refusal, offering a time: "We can't deliver Friday, sorry,
             # Monday at the earliest"
-            and not (
-                w == "sorry"
-                and k in led
-                and (b := [i for i in range(opening(k), k) if i not in fillers])
-                and refuses(lead_of(b, opening(k)))
-                and offered(
-                    [raw_words[i] for i in b],
-                    [
-                        raw_words[i]
-                        for i in range(
-                            k + 1,
-                            next((e for e in sorted(paused) if e > k), len(raw_words) - 1) + 1,
-                        )
-                        if i not in fillers
-                    ],
-                )
-            )
+            and not (w == "sorry" and k in led and predicated(k, bare=True))
             and (
                 w == "no"
                 or k + 1 < len(raw_words)
@@ -2747,11 +2787,6 @@ class Engine:
                 and tokens[k - 1 : k] not in (["all"], ["so"])
             )
 
-        out_ends = {
-            j
-            for j, m in enumerate(out_spans)
-            if re.match(r"[\"”’')\]]*(?:[.!?]|$)", out[m.end() :])
-        }
         cued = {k for k in range(1, len(raw_words)) if (raw_words[k - 1], raw_words[k]) in phrases}
         said_finals = finals(
             ["" if k in corrected | set(cues) | cued else w for k, w in enumerate(raw_words)],
