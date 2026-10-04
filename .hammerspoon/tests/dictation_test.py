@@ -604,6 +604,8 @@ check(
             ("So, um, I tried it; it didn't work.", "So, I tried it, it didn't work."),
             ("Ship it Monday. Yeah. No. Ship it Tuesday.", "Ship it Tuesday."),
             ("It was, actually, fine.", "It was fine."),
+            ("git add dot slash", "git add ./"),
+            ("Okay, so let's go.", "Let's go."),
             (
                 "Let's meet at the coffee shop on Main Street, no wait, the library.",
                 "Let's meet at the library.",
@@ -894,6 +896,15 @@ check(
             ("Select all users.", "Delete all users."),  # a destructive verb never said
             ("Meet at 3 p.m. Wait.", "Meet at 3 p.m."),
             ("cd ~", "cd /"),
+            ("echo hi; rm x", "echo hi rm x."),  # its "." is no replacement
+            ("Please wait. Then continue.", "Please. Then continue."),
+            ("Please wait, then continue.", "Please, then continue."),
+            ("Attach the volume.", "Detach the volume."),
+            ('echo "safe|wc"', "echo safer|wc"),
+            ("git add ./", "git add"),
+            ("The result is okay.", "The result is."),
+            ("Turn logging on.", "Turn logging."),
+            ("Delete that.", "Delete."),
             ("Tell him that you know.", "Tell him that."),
             ("So, um, run make; make install.", "So, run make make install."),
             ("I'm really sorry. I missed the meeting.", "I missed the meeting."),

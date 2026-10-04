@@ -774,7 +774,7 @@ class Engine:
     SUFFIXES = (("ful", "less"),)
     PREFIXES = tuple(
         [("", p) for p in ("un", "in", "im", "il", "ir", "non", "dis", "mis", "de", "anti", "re")]
-        + [("en", "de"), ("in", "de"), ("in", "ex"), ("in", "out"), ("en", "dis")]
+        + [("en", "de"), ("in", "de"), ("in", "ex"), ("in", "out"), ("en", "dis"), ("at", "de")]
         + [("up", "down"), ("over", "under"), ("pre", "post"), ("max", "min")]
     )
     # Who and where, never inflected ("i" is not "is"): "him" is not "her", "here" not "there".
@@ -819,6 +819,17 @@ class Engine:
         + ["whether", "than", "someone", "somebody", "anyone", "anybody", "everyone", "everybody"]
         + ["people", "something", "anything", "everything", "know", "knows", "knew", "let"]
         + ["now", "as", "do", "does", "did"]
+    )
+    # Everyday opposites that end a sentence as its point: "Turn it on.", "Delete that."
+    FINAL_SIDES = frozenset(
+        ["on", "up", "down", "left", "right", "first", "last", "over", "under", "above", "below"]
+        + ["that", "this", "here", "there"]
+    )
+    # Words after which a cue word is the sentence's own: "Please wait.", "I am sorry."
+    PREDICATING = frozenset(
+        ["please", "am", "i'm", "is", "are", "was", "were", "be", "been", "so", "very", "really"]
+        + ["truly", "terribly", "awfully", "just", "to", "can", "will", "could", "would", "should"]
+        + ["must", "might", "let's", "i", "we", "you", "they", "he", "she", "i'll", "we'll"]
     )
     # Words after which "that" is a thing, not a clause, so a "you know" after it is filler: "We
     # already tried that you know", "as easy as that you know" (not "Tell him that you know").
@@ -909,16 +920,10 @@ class Engine:
         | {"&": ("&", frozenset(["and", "ampersand"])), "`": ("`", frozenset(["backtick"]))}
         | {">": (">", frozenset(["greater", "redirect"])), "<": ("<", frozenset(["less"]))}
         | {";": (";", frozenset(["semicolon"]))}  # "echo hello; echo goodbye"
-        # An operand of marks alone: "git add .", "cd ..", "rm -rf /", "cd ~", "ls *".
-        | {
-            ".": (r"(?<!\S)\.(?!\S)", frozenset(["dot"])),
-            "..": (r"(?<!\S)\.\.(?!\S)", frozenset(["dot"])),
-        }
-        | {
-            "/": (r"(?<!\S)/(?!\S)", frozenset(["slash"])),
-            "~": (r"(?<!\S)~(?!\S)", frozenset(["tilde"])),
-        }
-        | {"*": (r"(?<!\S)\*(?!\S)", frozenset(["star", "asterisk"]))}
+    )
+    # How the marks of an operand are said: "dot slash" is "./".
+    OPERAND_WORDS = types.MappingProxyType(
+        {".": ("dot",), "/": ("slash",), "~": ("tilde",), "*": ("star", "asterisk")}
     )
     # Exact quantities that are not numbers: "half" is not "double", "once" not "twice".
     MULTIPLES = types.MappingProxyType(
@@ -1451,12 +1456,17 @@ class Engine:
                 and written_cased[t] < min(n, written_lower[t.lower()])
             ):
                 return True
+
         # A quoted shell operator stays quoted: 'echo "a|b"' is not 'echo a|b'.
-        op = r"[|&;<>`$]"
-        quoted = rf"\"([^\"]*{op}[^\"]*)\"|“([^”]*{op}[^”]*)”|(?<!\w)'([^']*{op}[^']*)'(?!\w)"
-        for inner in ("".join(m) for m in re.findall(quoted, raw)):
-            if inner in out and not re.search(rf"[\"“'‘]{re.escape(inner)}[\"”'’]", out):
-                return True
+        def quoted_operators(text):  # inside quotes of any style
+            inside = re.findall(r"\"([^\"]*)\"|“([^”]*)”|(?<!\w)'([^']*)'(?!\w)", text)
+            return collections.Counter(
+                re.findall(r"[|&;<>`$]", " ".join("".join(m) for m in inside))
+            )
+
+        unquoted = quoted_operators(raw) - quoted_operators(out)
+        if any(o in out for o in unquoted):  # 'echo "safe|wc"' is not 'echo safer|wc'
+            return True
 
         # "3 p.m." or "etc." before a capital ends its sentence ("Meet at 3 p.m. Wait."), but not
         # before a day, a month, or a time zone ("3 p.m. Tuesday", "5 p.m. PST").
@@ -1589,8 +1599,12 @@ class Engine:
                 or k + 1 < len(raw_words)
                 and (
                     k in led
-                    or k in paused - ends
-                    or (k in paused & ends and follows_up(k))
+                    or (k in paused - ends and raw_words[k - 1] not in cls.PREDICATING)
+                    or (
+                        k in paused & ends
+                        and raw_words[k - 1] not in cls.PREDICATING
+                        and follows_up(k)
+                    )
                     or {tuple(raw_words[k - 1 : k + 1]), tuple(raw_words[k : k + 2])} & phrases
                 )
             )
@@ -1821,6 +1835,26 @@ class Engine:
                 return not (after and after[0] in back)
             return not (before and after and {before[0], after[0]} <= back)
 
+        out_spans = list(re.finditer(word, out))
+        aligned = {  # each said word written as said: its written index
+            i: j
+            for tag, i1, i2, j1, _ in edits
+            if tag == "equal"
+            for i, j in zip(range(i1, i2), itertools.count(j1))
+        }
+
+        def replaced_at(position):  # a clause mark written between the words around it
+            before = [k for k, s in enumerate(spans) if s.end() <= position][-1:]
+            after = [k for k, s in enumerate(spans) if s.start() >= position][:1]
+            if not (before and after) or before[0] not in aligned or after[0] not in aligned:
+                return False
+            j = aligned[before[0]]
+            if aligned[after[0]] != j + 1:
+                return False
+            return bool(
+                re.search(r"[,.;:?!—–]", out[out_spans[j].end() : out_spans[j + 1].start()])
+            )
+
         for symbol, (pattern, spoken_as) in cls.SHELL.items():  # "hello grep" is not "hello | grep"
             said_at = [m.start() for m in re.finditer(pattern, raw)]
             extra = len(re.findall(pattern, out)) - len(said_at)
@@ -1837,12 +1871,27 @@ class Engine:
             lost = len(kept_ops) - len(re.findall(pattern, out))
             if symbol == "&":  # each "and" gained may be one written out
                 lost -= max(0, len(re.findall(r"\band\b", out)) - len(re.findall(r"\band\b", raw)))
-            if symbol == ";":  # each clause mark gained may be one: "home; then" -> "home, then"
-                marks = r"[,.?!:—–]"
-                # A stall set off by commas leaves one: "So, um, run" is "So, run".
-                said = re.sub(rf"(^|,)\s*(?:{cls.STALL_WORD})\b\s*,", r"\1", raw)
-                lost -= max(0, len(re.findall(marks, out)) - len(re.findall(marks, said)))
+            if (
+                symbol == ";"
+            ):  # one a clause mark replaces where it was: "home; then" -> "home, then"
+                lost -= sum(replaced_at(p) for p in kept_ops)
             if lost > 0:
+                return True
+
+        # An operand of marks alone keeps them: "git add ./" is not "git add", nor "rm -rf" "rm -rf
+        # /*", nor "cd ~" "cd /" ("dot slash" said may be "./").
+        operand = r"(?<!\S)[./~*]+(?!\S)"
+        said_operands = [m for m in re.finditer(operand, raw) if not re.fullmatch(r"\.{3,}", m[0])]
+        written = collections.Counter(
+            t for t in re.findall(operand, out) if not re.fullmatch(r"\.{3,}", t)
+        )
+        kept_operands = collections.Counter(
+            m[0] for m in said_operands if kept_at(m.start(), False)
+        )
+        if kept_operands - written:
+            return True
+        for t, n in (written - collections.Counter(m[0] for m in said_operands)).items():
+            if not all(any(said_count[w] for w in cls.OPERAND_WORDS[c]) for c in set(t)):
                 return True
 
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
@@ -1976,6 +2025,14 @@ class Engine:
         loose |= {w for names in cls.MARK_WORDS.values() for w in names}
         loose |= {w for _, names in cls.SHELL.values() for w in names}
         loose -= {"with", "from", "into", "onto", "via"}  # "Run with sudo" is not "Run sudo"
+        # "okay" or "well" leading its clause is talk, past it is content: "Okay, so we go", not
+        # "The result is okay." -> "The result is."
+        loose -= {
+            w
+            for k, w in enumerate(raw_words)
+            if w in {"okay", "ok", "well", "yeah"}
+            and not (k == 0 or k in led or raw_words[k - 1] in cls.MARKERS)
+        }
         counted = {  # numbers are checked as numbers; names with digits ("SHA256") pair too
             w for w in out_words if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
         }
@@ -2246,6 +2303,29 @@ class Engine:
                 )
             )
 
+        # One ending its sentence carries it, though everyday: "Turn logging on." is not "Turn
+        # logging.", nor "Delete that." "Delete." ("all right", "and so on" aside).
+        def finals(tokens, stops):
+            return collections.Counter(
+                w
+                for k, w in enumerate(tokens)
+                if w in cls.FINAL_SIDES
+                and k in stops
+                and tokens[k - 1 : k] not in (["all"], ["so"])
+            )
+
+        out_ends = {
+            j
+            for j, m in enumerate(out_spans)
+            if re.match(r"[\"”’')\]]*(?:[.!?]|$)", out[m.end() :])
+        }
+        cued = {k for k in range(1, len(raw_words)) if (raw_words[k - 1], raw_words[k]) in phrases}
+        said_finals = finals(
+            ["" if k in corrected | set(cues) | cued else w for k, w in enumerate(raw_words)],
+            ends,
+        )  # not a cue's own: "Scratch that."
+        if said_finals - finals(out_words, out_ends):
+            return True
         if sides(heard) != sides(out_words):
             return True
         # A name survives unless taken back or fixed by the glossary: "Send it to Alice" is not
