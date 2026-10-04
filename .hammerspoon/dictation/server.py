@@ -874,12 +874,24 @@ class Engine:
         ["so", "when", "if", "once", "since", "because", "until", "till", "while", "unless"]
         + ["before", "after", "who", "whom", "whose", "which"]  # "to Jane who can review it"
     )
+    # Words that end or bound a time named after a day, no verb: "Tuesday the week after".
+    SPANS = frozenset(
+        ["after", "before", "later", "earlier", "ago", "from", "of", "at", "in", "on", "by"]
+        + ["around", "or", "and", "instead", "too", "then", "time", "week", "weekend", "month"]
+        + ["year", "day", "morning", "afternoon", "evening", "night", "noon", "seconds"]
+        + ["minutes", "hours", "days", "weeks", "months", "years"]
+    )
     # Words that open a thing right after a day, its clause: "Tuesday the shop opens".
     OPENERS = frozenset(["the", "a", "an", "my", "your", "our", "their", "his"])
     # Words a clause may follow as theirs: "someone that you know", "nothing that you know".
     HEADS = frozenset(
         ["someone", "somebody", "anyone", "anybody", "everyone", "everybody", "something"]
         + ["anything", "everything", "nothing", "nobody", "people"]
+    )
+    # States that turn one away: "I'm busy Monday", "We're fully booked Friday", not "I'm free".
+    AWAY = frozenset(
+        ["busy", "closed", "booked", "full", "taken", "out", "away", "unavailable", "swamped"]
+        + ["slammed", "tied", "up", "sold", "occupied", "packed", "gone"]
     )
     # Heads that are people: "Ask someone that you know, they'll help" is theirs.
     PEOPLE = frozenset(
@@ -891,6 +903,20 @@ class Engine:
         ["feeling", "sense", "idea", "chance", "fact", "hope", "impression", "news", "sign"]
         + ["possibility", "belief", "thought", "notion", "risk", "fear", "worry", "point"]
         + ["problem", "thing", "reason", "way", "place", "time", "day", "one", "stuff"]
+        + ["rumor", "concern", "decision", "rule", "email", "message", "note", "shame", "promise"]
+        + ["policy", "theory", "agreement", "requirement", "guarantee", "suggestion", "claim"]
+        + ["assumption", "report", "story", "plan", "understanding", "expectation", "warning"]
+        + [
+            "reminder",
+            "notice",
+            "announcement",
+            "condition",
+            "deal",
+            "word",
+            "proof",
+            "evidence",
+            "issue",
+        ]
     )
     # Who a clause word is told to before "that": "Tell him that you know", "find out that".
     CLAUSE_OBJECTS = frozenset(
@@ -1595,7 +1621,8 @@ class Engine:
         fillers, meant = set(), set()
         for m in cls.DROPPED_RE.finditer(raw):
             prior = [s.group() for s in spans if s.end() <= m.start()]
-            goes_on = r"(?:i|we|you|he|she|they|it|this|nobody)(?:'\w+)?\b"  # a clause after
+            # a clause after it: "that you know, he's leaving", "that, you know, the flight is late"
+            goes_on = r"(?:i|we|you|he|she|they|it|this|nobody|everyone|everybody|the)(?:'\w+)?\b"
             before = prior[-1:]
             inside = {
                 k for k, s in enumerate(spans) if m.start() <= s.start() and s.end() <= m.end()
@@ -1624,7 +1651,16 @@ class Engine:
                     m.group() == "you know"
                     and before == ["that"]
                     and (  # right after a clause word or "is", or "tell him", "find out"
-                        prior[-2:-1] in ([w] for w in cls.CLAUSING | cls.COPULAS)
+                        (
+                            prior[-2:-1] in ([w] for w in cls.CLAUSING | cls.COPULAS)
+                            # not after what a clause tells: "The problem is that you know, it's
+                            # slow"
+                            and not (
+                                prior[-2] in cls.COPULAS
+                                and prior[-3:-2] in ([w] for w in cls.TOLD)
+                                and re.match(rf"\s*[,;:…—]\s*{goes_on}", raw[m.end() :])
+                            )
+                        )
                         or (  # "It's great that", not "I'm handling that", "We're past that"
                             prior[-3:-2] in ([w] for w in cls.COPULAS)
                             and not prior[-2].endswith("ing")
@@ -1746,6 +1782,9 @@ class Engine:
                     and (
                         raw_words[max(e + 1 for e in [start - 1, *paused] if e < i)] in subordinate
                         or raw_words[i + 1] in ("but", "so", "and", "then")
+                        # an order after a call or an aside: "Hey, don't book Monday"
+                        or raw_words[i + 1] in ("don't", "never")
+                        or raw_words[i + 1 : i + 3] == ["do", "not"]
                     )
                 ),
                 default=start,
@@ -1785,10 +1824,13 @@ class Engine:
                 return False
             # on its terms past the time itself: "nine thirty at the earliest", not "three point
             # eight"
-            rest = after[named + 1 :]
-            while rest and (cls.numbers(rest[0]) or rest[0] == "point"):
-                rest = rest[1:]
-            return bool(rest)
+            # past the time said more closely ("Tuesday morning", "ten in the morning"), a bound
+            # on it: "at the earliest", "before ten", "around one", not "sixty dollars"
+            told = cls.POINTS | cls.CALENDAR | {"point", "in", "the", "at", "this", "last", "year"}
+            term = next(
+                (w for w in after[named + 1 :] if not cls.numbers(w) and w not in told), None
+            )
+            return term in ("before", "after", "around", "by", "or", "earliest", "latest", "works")
 
         def predicated(k):  # the sentence's own: "Please wait.", "I am sorry.", not an aside set
             # off by marks: "Monday, I'm sorry, Tuesday"
@@ -1844,7 +1886,8 @@ class Engine:
             )
             refusing = (
                 bool(set(lead) & cls.COPULAS)
-                and state not in cls.COPULAS
+                and state in cls.AWAY
+                and lead[-2:-1] != ["for"]  # "booked for Monday" schedules
                 and not any(w.endswith("ing") for w in lead)
             )
             linked = next((p for p, w in enumerate(after) if p and w in cls.LINKS), len(after))
@@ -1866,8 +1909,14 @@ class Engine:
                     and opener[0] in cls.OPENERS
                     and after[named] in cls.CALENDAR | cls.POINTS
                     and not (opener[1:] and cls.numbers(opener[1]))
-                    # and its verb: "the shop opens", not "an hour earlier" or "the week after"
-                    and re.fullmatch(r"\w+(?<!s)s|\w+ed", "".join(after[named + 3 : named + 4]))
+                    # and its verb: "the shop opens", "the doors open", not "an hour earlier", "the
+                    # week after", "a few hours later", or "the usual place"
+                    and after[named + 3 : named + 4]
+                    and after[named + 3] not in cls.SPANS
+                    and (
+                        re.fullmatch(r"\w+(?<!s)s|\w+ed", after[named + 3])
+                        or re.fullmatch(r"\w+[^s']s", opener[1])
+                    )
                 )
                 or set(own[1:]) & (cls.COPULAS | cls.AUXILIARIES - {"may"})
                 or any(w.endswith("n't") for w in own[1:])

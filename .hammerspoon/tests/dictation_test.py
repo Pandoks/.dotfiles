@@ -665,6 +665,25 @@ check(
                 "Move it to Tuesday the week after.",
             ),
             ("This doesn't work on Safari, sorry, Firefox.", "This doesn't work on Firefox."),
+            (
+                "The deadline isn't Friday, sorry, Monday at five.",
+                "The deadline isn't Monday at five.",
+            ),
+            ("I'm free Monday, I'm sorry, Tuesday after two.", "I'm free Tuesday after two."),
+            (
+                "Let's meet Monday, I'm sorry, Tuesday a few hours later.",
+                "Let's meet Tuesday a few hours later.",
+            ),
+            ("There's a rumor that you know, he's leaving.", "There's a rumor that he's leaving."),
+            ("The thing is that you know, nobody told me.", "The thing is that nobody told me."),
+            (
+                "Hey, don't book Monday, I'm sorry, Tuesday before noon.",
+                "Hey, don't book Tuesday before noon.",
+            ),
+            (
+                "The password can't be shorter than eight, sorry, twelve characters.",
+                "The password can't be shorter than twelve characters.",
+            ),
             ("Invite Tom, I'm sorry, Jerry and his wife.", "Invite Jerry and his wife."),
             (
                 "Okay. That, that was the one I meant. Delete that.",
@@ -999,6 +1018,10 @@ check(
                 "I'm busy Tuesday if you're free.",
             ),
             ("Bring a friend that you know, it'll be fun.", "Bring a friend, it'll be fun."),
+            (
+                "We're closed Monday, I'm sorry, Tuesday the doors open at nine.",
+                "We're closed Tuesday the doors open at nine.",
+            ),
             (
                 "We can't deliver on Friday, sorry, Monday morning at the earliest.",
                 "We can't deliver on Monday morning at the earliest.",
