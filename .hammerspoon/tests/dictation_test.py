@@ -631,6 +631,20 @@ check(
             ("Make it red, I'm sorry, blue.", "Make it blue."),
             ("Send it to John, I'm sorry, to Jane and her team.", "Send it to Jane and her team."),
             ("Send it to John, no wait, and Jane.", "Send it to John and Jane."),
+            ("Send it to John, no wait, uh, and Jane.", "Send it to John and Jane."),
+            (
+                "That, you know, is the problem.",
+                "That, you know, is the problem.",
+            ),  # no word before
+            (
+                "I have a feeling that you know, this won't work.",
+                "I have a feeling that this won't work.",
+            ),
+            (
+                "Send it to John, I'm sorry, to Jane so she can review it.",
+                "Send it to Jane so she can review it.",
+            ),
+            ("Don't call Sarah, I'm sorry, Emily.", "Don't call Emily."),
             ("Invite Tom, I'm sorry, Jerry and his wife.", "Invite Jerry and his wife."),
             (
                 "Okay. That, that was the one I meant. Delete that.",
@@ -960,6 +974,18 @@ check(
             ("Talk to someone that you know.", "Talk to someone."),
             ("Trust the people that you know.", "Trust the people."),
             ("Call a friend that you know.", "Call a friend."),
+            (
+                "The bank is closed Monday, I'm sorry, Tuesday it opens at nine thirty.",
+                "The bank is closed Tuesday it opens at nine thirty.",
+            ),
+            (
+                "We don't deliver on Sunday, I'm sorry, Monday before noon.",
+                "We don't deliver on Monday before noon.",
+            ),
+            (
+                "The library is closed Monday, I'm sorry, Tuesday the shop opens late.",
+                "The library is closed Tuesday the shop opens late.",
+            ),
             ("Meet Monday, I'm sorry, Tuesday is better for me.", "Meet Tuesday is better for me."),
             (
                 "We're closed Monday, I'm sorry, Tuesday we open late.",

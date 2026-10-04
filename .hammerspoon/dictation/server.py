@@ -869,6 +869,13 @@ class Engine:
     ADVERBS = frozenset(["just", "still", "mostly", "mainly", "simply", "merely", "also", "even"])
     # Who a clause is said by: "on Monday we open" is a clause, "on Monday at nine" none.
     SUBJECTS = frozenset(["i", "you", "he", "she", "we", "they"])
+    # Words that lead a clause on from a correction: "to Jane so she can review it".
+    LINKS = frozenset(
+        ["so", "when", "if", "once", "since", "because", "until", "till", "while", "unless"]
+        + ["before", "after"]
+    )
+    # Words that open a thing right after a day, its clause: "Tuesday the shop opens".
+    OPENERS = frozenset(["the", "a", "an", "my", "your", "our", "their", "his"])
     # Words a clause may follow as theirs: "someone that you know", "nothing that you know".
     HEADS = frozenset(
         ["someone", "somebody", "anyone", "anybody", "everyone", "everybody", "something"]
@@ -1617,12 +1624,24 @@ class Engine:
                             and prior[-2] in cls.CLAUSE_OBJECTS
                         )
                         # A clause on what it follows: "someone that you know", "Trust the people
-                        # that you know".
-                        or prior[-2] in cls.HEADS
+                        # that you know"; not one its clause goes on past: "a feeling that you know,
+                        # this won't work".
                         or (
-                            prior[-3:-2]
-                            in ([w] for w in cls.DETERMINERS - {"only", "her", "this", "that"})
-                            and prior[-2] not in cls.FUNCTION | cls.PLACING
+                            (
+                                prior[-2:-1] in ([w] for w in cls.HEADS)
+                                or (
+                                    prior[-3:-2]
+                                    in (
+                                        [w]
+                                        for w in cls.DETERMINERS - {"only", "her", "this", "that"}
+                                    )
+                                    and prior[-2] not in cls.FUNCTION | cls.PLACING
+                                )
+                            )
+                            and not re.match(
+                                r"\s*[,;:…—]\s*(?:i|we|you|he|she|they|it|this|nobody)(?:'\w+)?\b",
+                                raw[m.end() :],
+                            )
                         )
                     )
                 )
@@ -1717,6 +1736,12 @@ class Engine:
                 and out_words[as_said[before[-1]] + 1 :][: len(after)] == after
             ):
                 return True
+            # After a refusal it offers instead: "We can't deliver Friday, I'm sorry, Monday at
+            # the earliest" is not "We can't deliver Monday at the earliest" (an order is
+            # corrected: "Don't call Sarah, I'm sorry, Emily").
+            lead = [w for w in said if w not in cls.MARKERS | {"please", "no", "just"}]
+            if any(w.endswith("n't") or w in ("not", "never", "cannot") for w in lead[1:]):
+                return True
             pairs = set(itertools.pairwise(said))
 
             def repeated(w, n):  # said again: a content word, or a small word with the next
@@ -1733,11 +1758,34 @@ class Engine:
             kin = any(kin_of(w) for w in after) or (
                 after[:1] and repeated(after[0], tuple(after[:2]))
             )
+            # The thing it names opens no clause of its own: "Tuesday at noon", "Jerry and his
+            # wife", not "Tuesday it opens late", "Tuesday the shop opens", "Mark can come".
+            # Its own words, up to a clause it goes on to: "to Jane so she can review it".
+            own = after[
+                : next((p for p, w in enumerate(after) if p and w in cls.LINKS), len(after))
+            ]
+            named = next((p for p, w in enumerate(after) if kin_of(w)), None)
+            opener = after[named + 1 : named + 3] if named is not None else []
+            clause = bool(
+                (opener and opener[0].split("'")[0] in cls.SUBJECTS | {"it", "there"})
+                # a day then a thing that does something: "Tuesday the shop opens", not
+                # "Tuesday the fifth" or "Emily the new designer"
+                or (
+                    named is not None
+                    and opener[:1]
+                    and opener[0] in cls.OPENERS
+                    and after[named] in cls.CALENDAR | cls.POINTS
+                    and not (opener[1:] and cls.numbers(opener[1]))
+                )
+                or set(own[1:]) & (cls.COPULAS | cls.AUXILIARIES - {"may"})
+                or any(w.endswith("n't") for w in own[1:])
+            )
             # A few words in place of the last ones said, its lead kept: "Make it red, I'm sorry,
             # blue" -> "Make it blue"; not "I'm late, I'm sorry, I overslept" -> "I overslept".
             if (
                 0 < len(after) <= 3
                 and (kin or any(i in as_said for i in before))
+                and not clause
                 and all(w in out_words or cls.numbers(w) for w in after)
             ):
                 return False
@@ -1749,14 +1797,14 @@ class Engine:
                 and (
                     repeated(after[0], tuple(after[:2]))
                     or (
-                        (after[0] in said or kin_of(after[0]))
+                        (after[0] in said or (kin_of(after[0]) and not clause))
                         and (
                             # the thing it names, no clause of its own: "to Jane and her team",
                             # not "on Monday we open at nine" or "Monday is fine"
                             (
                                 kin
-                                and not {w.split("'")[0] for w in after[1:]} & cls.SUBJECTS
-                                and not set(after[1:]) & (cls.COPULAS | cls.TENSE.keys())
+                                and not {w.split("'")[0] for w in own[1:]} & cls.SUBJECTS
+                                and not clause
                             )
                             or not content(after).isdisjoint(content(said))
                         )
@@ -1871,7 +1919,11 @@ class Engine:
                 and any(k not in fillers for k in range(i2, len(raw_words)))
                 # not one adding to it: "Send it to John, no wait, and Jane"
                 and next(
-                    (raw_words[k] for k in range(max(inside) + 1, len(raw_words)) if k not in cues),
+                    (
+                        raw_words[k]
+                        for k in range(max(inside) + 1, len(raw_words))
+                        if k not in cues and not re.fullmatch(cls.STALL_WORD, raw_words[k])
+                    ),
                     "",
                 )
                 not in ("and", "also", "plus")
