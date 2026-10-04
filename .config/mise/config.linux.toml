@@ -12,6 +12,7 @@ fi
 sh "$script"
 '''
 
+# Linger keeps user services running after logout and starts them at boot
 [bootstrap.hooks.post-tools]
 run = '''
 user=$(id -un)
