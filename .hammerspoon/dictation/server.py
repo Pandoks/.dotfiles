@@ -1873,13 +1873,28 @@ class Engine:
                 len(after),
             )
             term, then, more = (after[at : at + 3] + ["", "", ""])[:3]
-            # an aside, no bound: "Tuesday, by the way", "Thursday, after all", "Friday after all,
-            # so count me out" ("after all the meetings" bounds it)
-            if (term, then, more) == ("by", "the", "way") or (
-                (term, then) == ("after", "all") and (not more or at + 1 in cut)
-            ):
+            # an aside, no bound: "Tuesday, by the way"
+            if (term, then, more) == ("by", "the", "way"):
                 return False
+            # "Thursday, after all", "Friday after all, so count me out", its comma unheard too
+            # ("after all so"), is an aside; what follows it still offers: "Monday after all, if
+            # that works" ("after all the meetings" bounds it)
+            if (term, then) == ("after", "all") and (
+                not more
+                or at + 1 in cut
+                or more.split("'")[0] in cls.LINKS | cls.MARKERS | cls.SUBJECTS
+            ):
+                at = next(
+                    (
+                        p
+                        for p in range(at + 2, len(after))
+                        if not cls.numbers(after[p]) and after[p] not in told
+                    ),
+                    len(after),
+                )
+                term, then, more = (after[at : at + 3] + ["", "", ""])[:3]
             bounds = {"before", "after", "around", "by", "or", "earliest", "latest", "soonest"}
+            bounds |= {"most", "max", "maximum", "tops"}  # "We can't fit ten, sorry, eight at most"
             if strict:  # after an order, only a bound of its own: "Tuesday at the earliest"
                 return term in ("earliest", "latest", "soonest")
             # or on the listener's terms: "Monday if that works", "Tuesday if you're free", not
@@ -1897,6 +1912,12 @@ class Engine:
                     )
                 )
             )
+
+        # A visit asked for: the verb and what makes it one ([] when it ends what was said).
+        over = [["by"], ["over"], ["see"], ["visit"], ["round"], ["around"]]
+        visits = {"come": over, "stop": [["by"], ["in"], ["over"]], "swing": [["by"]]}
+        visits |= {"pop": [["by"], ["in"], ["over"]], "visit": [[], ["me"], ["us"], ["then"]]}
+        visits |= {"shop": [[], ["then"]]}
 
         def predicated(k, bare=False):  # the sentence's own: "Please wait.", "I am sorry.", not
             # an aside set off by marks: "Monday, I'm sorry, Tuesday". A bare "sorry" between marks
@@ -2044,9 +2065,10 @@ class Engine:
                                 set(after[linked + 1 :])
                                 & {"free", "open", "opens", "available", "you're"}
                                 or (after[linked] == "so" and "then" in after[linked + 1 :])
-                                # or asks one over: "so you can stop by", "so come see me"
+                                # or asks one over: "so you can stop by", "so come see me", not
+                                # "so you can stop worrying" or "so you can come in late"
                                 or any(
-                                    w in ("come", "stop", "swing", "pop", "visit", "shop")
+                                    after[j + 1 : j + 2] in visits.get(w, ())
                                     and ("you" in after[j - 2 : j] or after[j - 1 : j] == ["so"])
                                     for j, w in enumerate(after)
                                     if j > linked
@@ -2210,6 +2232,45 @@ class Engine:
                 (raw.rfind(" ", 0, spans[first].start()) + 1, spans[max(inside)].start())
             )
         corrected |= restated
+        # A number corrected past the words it counts, written in its place: "two tickets, sorry,
+        # three" -> "three tickets", "three or four people, sorry, five" -> "five people".
+        for tag, i1, i2, j1, j2 in edits:
+            c = min((c for c in cues if c >= i2), default=None)
+            counts = [
+                not any(f.startswith("#") for n, _ in cls.numbers(w) for f in n)
+                and bool(cls.numbers(w))
+                for w in raw_words[i1:i2]
+            ]  # not a name: "-n20"
+            if (
+                tag != "replace"
+                or c is None
+                or c - i1 > 6
+                or taken_from(c) > i1
+                or not any(counts)
+                or not all(
+                    n or w in ("or", "to") for n, w in zip(counts, raw_words[i1:i2], strict=True)
+                )
+            ):  # a count or a range of them: "three or four"
+                continue
+            # the words it counts written as said, up to the cue, no number among them: "two or
+            # three, sorry, three" is not "three or three"
+            if not all(
+                (j in as_said or j in fillers) and not cls.numbers(raw_words[j])
+                for j in range(i2, c)
+            ):
+                continue
+            start = next(
+                (j for j in range(c + 1, len(raw_words)) if j not in cues and j not in fillers),
+                len(raw_words),
+            )
+            told = cls.numbers(" ".join(itertools.takewhile(cls.numbers, raw_words[start:])))
+            wrote = cls.numbers(" ".join(out_words[j1:j2]))
+            if (
+                told
+                and len(told) == len(wrote)
+                and all(a & b for (a, _), (b, _) in zip(told, wrote, strict=True))
+            ):
+                corrected |= set(range(i1, i2))
         # A cue written as "and" or "or" keeps both as a list: "Invite Tom, sorry, Jerry" is not
         # "Invite Tom and Jerry", nor "at ten, I'm sorry, eleven" "at ten or eleven".
         for tag, i1, i2, j1, j2 in edits:
@@ -2376,19 +2437,43 @@ class Engine:
             )
             if last is None:
                 return False
-            if run_from(last) == k + 1 and k not in paused:
+            # the correction's own words, up to its first mark: "sorry, 7 miles this week", not
+            # "sorry, four lamps. Put the chairs ..."
+            start = next(
+                (j for j in range(c + 1, len(raw_words)) if j not in cues and j not in fillers),
+                len(raw_words),
+            )
+            told = [
+                raw_words[j]
+                for j in range(
+                    start, min((j for j in paused if j >= start), default=len(raw_words) - 1) + 1
+                )
+                if j not in fillers
+            ]
+            # the numbers it opens with: "-15 4321" replaces "-9 1234", "4321" only "1234"
+            first = next((p for p, w in enumerate(told) if cls.numbers(w)), len(told))
+            run = list(itertools.takewhile(cls.numbers, told[first:]))
+            beside = cls.numbers(" ".join(raw_words[k : last + 1]))
+            if (
+                run_from(last) == k + 1
+                and k not in paused
+                and len(cls.numbers(" ".join(run))) < len(beside)
+            ):
                 return True
             said = [
                 raw_words[j]
                 for j in range(k + 1, run_from(last))
                 if j not in fillers and not cls.numbers(raw_words[j])
             ]
-            if set(said) & {"or", "to", "through", "thru"}:  # a range
-                return False
             # nor one amount in two units, "5 feet 6, sorry, 6 feet 1", nor the thing said again:
             # "5 miles, 6, sorry, 7 miles"
-            units = cls.MIXED | {"point"} | set(raw_words[c + 1 :])
-            return any(w not in units and not re.fullmatch(cls.UNIT, w) for w in said)
+            units = cls.MIXED | {"point"} | set(told)
+            unit = [w in units or bool(re.fullmatch(cls.UNIT, w)) for w in said]
+            ranged = [w in ("or", "to", "through", "thru") for w in said]
+            # a range, "two or three chairs", not "Send 2 to Alice and 3"
+            if any(ranged) and all(u or r for u, r in zip(unit, ranged, strict=True)):
+                return False
+            return not all(unit)
 
         # Or when it is what is corrected: right before the cue, or one word before it with a new
         # amount or time after ("ten minutes, no wait, an hour"), not "three Tuesday, no wait,
@@ -2414,11 +2499,21 @@ class Engine:
             )
         }
 
+        # With the numbers right before it that its correction replaces too: "seq 1 5, sorry, 2 10"
+        # takes back "1 5", "kill -9 1234, sorry, 4321" only "1234".
+        def start_of(k):
+            j = run_from(k)
+            while (
+                j > 0 and j - 1 not in paused and cls.numbers(raw_words[j - 1]) and not apart(j - 1)
+            ):
+                j = run_from(j - 1)
+            return j
+
         back_at = replaced | {
             j
             for k in replaced - restated
             if single(k) and cls.numbers(raw_words[k])
-            for j in range(run_from(k), k)
+            for j in range(start_of(k), k)
         }
         # Each run of them on its own, one said again as its own word: "at 3, sorry, 3:30" says
         # "3" again, not "30". One taken back before its cue is known by where it was said, not by

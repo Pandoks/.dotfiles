@@ -703,6 +703,38 @@ check(
                 "I can't come Friday after all, so count me out.",
             ),
             (
+                "I can't come Thursday, sorry, Friday after all, the trains are down.",
+                "I can't come Friday after all, the trains are down.",
+            ),
+            (
+                "I'm out Monday, sorry, Tuesday so you can pop the champagne.",
+                "I'm out Tuesday so you can pop the champagne.",
+            ),
+            (
+                "I can't make Monday, sorry, Tuesday after all so let's reschedule.",
+                "I can't make Tuesday after all so let's reschedule.",
+            ),
+            (
+                "Set the resolution to 1920 1080, sorry, 2560 1440.",
+                "Set the resolution to 2560 1440.",
+            ),
+            ("Run seq 1 5, sorry, 2 10.", "Run seq 2 10."),
+            ("I need two tickets, sorry, three.", "I need three tickets."),
+            ("Book 2 rooms for 3 nights, sorry, 4.", "Book 2 rooms for 4 nights."),
+            ("We need three or four people, sorry, five.", "We need five people."),
+            (
+                "Move 3 boxes to the garage and 4, sorry, 5 to the attic.",
+                "Move three boxes to the garage and four, sorry, five to the attic.",
+            ),
+            (
+                "I'm out Monday, sorry, Tuesday so you can stop worrying.",
+                "I'm out Tuesday so you can stop worrying.",
+            ),
+            (
+                "I'm away Monday, sorry, Tuesday so you can come in late.",
+                "I'm away Tuesday so you can come in late.",
+            ),
+            (
                 "Can you pick me up at five, sorry, five thirty?",
                 "Can you pick me up at five thirty?",
             ),
@@ -1205,7 +1237,62 @@ check(
                 "We're closed Monday, sorry, Tuesday so you can stop by.",
                 "We're closed Tuesday so you can stop by.",
             ),
+            ("Order 3 pizzas, no wait, 4 5.", "Order 4 pizzas."),
+            (
+                "We're closed Monday, sorry, Tuesday so swing by.",
+                "We're closed Tuesday so swing by.",
+            ),
+            (
+                "We're closed Monday, sorry, Tuesday so you can pop in.",
+                "We're closed Tuesday so you can pop in.",
+            ),
             ("We're closed Monday, sorry, Tuesday so come by.", "We're closed Tuesday so come by."),
+            (
+                "I'm out Monday, sorry, Tuesday so you can come see me.",
+                "I'm out Tuesday so you can come see me.",
+            ),
+            (
+                "We're closed Monday, sorry, Tuesday so you can visit.",
+                "We're closed Tuesday so you can visit.",
+            ),
+            (
+                "The store is closed Sunday, sorry, Monday so you can shop.",
+                "The store is closed Monday so you can shop.",
+            ),
+            ("Send 2 to Alice and 3, sorry, 4 to Bob.", "Send 4 to Bob."),
+            (
+                "We need two chairs, one table, and two, sorry, four lamps. Put the chairs and the "
+                "table in the hall.",
+                "We need four lamps. Put the chairs and the table in the hall.",
+            ),
+            ("Run seq 1 5, sorry, 2 10.", "Run seq 1 2 10."),
+            ("Run head dash n20 log, sorry, 50.", "Run head dash 50 log."),
+            ("I need two red tickets, sorry, three.", "I need three tickets."),
+            ("Add 2 and two, sorry, two.", "Add two."),
+            ("Add two or three, sorry, three.", "Add three or three."),
+            (
+                "We can't deliver Friday, sorry, Monday after all, if that works.",
+                "We can't deliver Monday after all, if that works.",
+            ),
+            (
+                "I can't do Friday, sorry, Monday after all, at the earliest.",
+                "I can't do Monday after all, at the earliest.",
+            ),
+            (
+                "Set the timer for two minutes on the oven, sorry, three.",
+                "Set the timer for three minutes.",
+            ),
+            ("Bring two chairs. Bring cups, sorry, three.", "Bring three chairs. Bring cups."),
+            (
+                "Order 2 pizzas and a salad for the table near the window, sorry, 3.",
+                "Order 3 pizzas and a salad for the table near the window.",
+            ),
+            ("We can't fit ten, sorry, eight at the most.", "We can't fit eight at the most."),
+            (
+                "We can't fit ten people, sorry, eight at the most.",
+                "We can't fit eight people at the most.",
+            ),
+            ("I can't spend 500, sorry, 300 tops.", "I can't spend 300 tops."),
             (
                 "We're fully booked for Monday, I'm sorry, Tuesday if you can wait.",
                 "We're fully booked for Tuesday if you can wait.",
