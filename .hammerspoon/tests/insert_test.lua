@@ -351,6 +351,16 @@ test("spacing joins the text to its neighbors", function()
   end
 end)
 
+test("a Gecko app's field gets ⌘V, never a write it would apply late", function()
+  front = app("org.mozilla.firefox")
+  copy({ ["public.utf8-plain-text"] = "mine" })
+  local element = field("Hello", "", "")
+  dictate(element, "there.")
+  front = nil
+  assert(element.written == nil and pasted(" there.") and #alerts == 0, "wrote to it")
+  timers[#timers]()
+end)
+
 test("a write the field ignores is pasted with ⌘V and the clipboard restored", function()
   copy({ ["public.utf8-plain-text"] = "mine" })
   local element = field("Hello", "", "", true)

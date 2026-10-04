@@ -30,6 +30,17 @@ local browsers = {
   ["com.microsoft.edgemac"] = "Microsoft Edge",
   ["net.imput.helium"] = "Helium",
 }
+-- Gecko apps apply accessibility writes late, after the read-back that would then paste it again.
+local gecko = {
+  ["org.mozilla.firefox"] = true,
+  ["org.mozilla.firefoxdeveloperedition"] = true,
+  ["org.mozilla.nightly"] = true,
+  ["org.mozilla.thunderbird"] = true,
+  ["app.zen-browser.zen"] = true,
+  ["io.gitlab.librewolf-community"] = true,
+  ["one.ablaze.floorp"] = true,
+  ["net.waterfox.waterfox"] = true,
+}
 
 -- The focused UI element; nil and an error string when accessibility fails.
 ---@return hs.axuielement?, string?
@@ -338,6 +349,11 @@ local function insertText(text)
   end
   if not settable(element, "AXSelectedText") then
     -- Terminals and Messages take no writes: paste. Read-only views look alike; ⌘V fails silently.
+    return paste(shown())
+  end
+  -- Gecko writes land late, so its fields get ⌘V before any write (never both).
+  local app = hs.application.frontmostApplication()
+  if app and gecko[app:bundleID()] then
     return paste(shown())
   end
   -- Nothing to space against or compare without a string value.
