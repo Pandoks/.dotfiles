@@ -1,5 +1,5 @@
-# CLIProxyAPI host module. Load it on a machine with
-# `env = ["cliproxyapi"]` in ~/.config/mise/miserc.local.toml.
+# CLIProxyAPI host module. Only loads when selected, for example
+# `mise -E cliproxyapi bootstrap`.
 
 [tools]
 "github:router-for-me/CLIProxyAPI" = "latest"

@@ -114,14 +114,13 @@ connectors. Pick non-Claude models by ID, for example `/model gpt-6-sol`.
 The machine tagged `tag:cliproxyapi` on the tailnet runs that proxy.
 [`config.cliproxyapi.toml`](.config/mise/config.cliproxyapi.toml) installs it,
 links its config, runs it as a systemd user service, and publishes it as the
-`svc:cliproxyapi` Tailscale Service. mise loads the module only on machines
-that opt in, which needs mise 2026.10.0 or later:
+`svc:cliproxyapi` Tailscale Service. mise loads the module only when it's
+selected with `-E cliproxyapi`, so set it up by hand on that machine:
 
 ```sh
-echo 'env = ["cliproxyapi"]' > ~/.config/mise/miserc.local.toml
 mkdir -p ~/.cli-proxy-api
-(umask 077; echo 'MANAGEMENT_PASSWORD=CHOOSE_A_PASSWORD' > ~/.cli-proxy-api/.env)
-mise bootstrap --yes
+(umask 077; echo 'MANAGEMENT_PASSWORD=CHOOSE_PASSWORD' > ~/.cli-proxy-api/.env)
+mise -E cliproxyapi bootstrap --yes
 ```
 
 Then sign in to the dashboard at
@@ -134,7 +133,8 @@ Account logins stay in `~/.cli-proxy-api`, outside this repository.
 show up as changes here. The first save rewrites `auth-dir` to an absolute
 path; revert that line. This repository is public, so keep secrets out of the
 config: the dashboard password belongs in `.env`, and API keys shouldn't be
-added on the AI Providers page. After `mise up`, run
+added on the AI Providers page. Plain `mise up` skips the module; upgrade with
+`mise -E cliproxyapi up`, then run
 `systemctl --user restart dev.mise.cli-proxy-api`.
 
 SSH configuration and `authorized_keys` are managed, but SSH private keys are
