@@ -8,11 +8,10 @@
 "~/.cli-proxy-api/config.yaml" = "../../.cli-proxy-api/config.yaml"
 
 [bootstrap.linux.systemd.units.cli-proxy-api]
-description = "CLIProxyAPI"
+description = "cli-proxy-api Service"
 after = ["network.target"]
+type = "simple"
 exec_start = "%h/.local/share/mise/installs/github-router-for-me-cli-proxy-api/latest/cli-proxy-api --config %h/.cli-proxy-api/config.yaml"
-# MANAGEMENT_PASSWORD lives here so config.yaml stays free of secrets
-environment_file = ["-%h/.cli-proxy-api/.env"]
 restart = "always"
 restart_sec = "10"
 wanted_by = ["default.target"]

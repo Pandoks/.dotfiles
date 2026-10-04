@@ -118,12 +118,12 @@ links its config, runs it as a systemd user service, and publishes it as the
 selected with `-E cliproxyapi`, so set it up by hand on that machine:
 
 ```sh
-mkdir -p ~/.cli-proxy-api
-(umask 077; echo 'MANAGEMENT_PASSWORD=CHOOSE_PASSWORD' > ~/.cli-proxy-api/.env)
 mise -E cliproxyapi bootstrap --yes
 ```
 
-Then sign in to the dashboard at
+Set the dashboard password by hand: put it in `management.secret-key` in
+`~/.cli-proxy-api/config.yaml`. CLIProxyAPI hashes it on first start. Then
+sign in to the dashboard at
 `https://cliproxyapi.<tailnet>.ts.net/management.html` with that password, add
 accounts under OAuth Login, and turn on WebSockets for each Codex credential.
 Account logins stay in `~/.cli-proxy-api`, outside this repository.
@@ -132,8 +132,8 @@ Account logins stay in `~/.cli-proxy-api`, outside this repository.
 [`.cli-proxy-api/config.yaml`](.cli-proxy-api/config.yaml), so dashboard saves
 show up as changes here. The first save rewrites `auth-dir` to an absolute
 path; revert that line. This repository is public, so keep secrets out of the
-config: the dashboard password belongs in `.env`, and API keys shouldn't be
-added on the AI Providers page. Plain `mise up` skips the module; upgrade with
+config: don't commit the `secret-key` line, and don't add API keys on the AI
+Providers page. Plain `mise up` skips the module; upgrade with
 `mise -E cliproxyapi up`, then run
 `systemctl --user restart dev.mise.cli-proxy-api`.
 
