@@ -593,6 +593,8 @@ check(
             ),
             ("We should leave at five, no wait, leave at six.", "We should leave at six."),
             ("Let's meet on Thursday. Uh, no, Friday.", "Let's meet on Friday."),
+            ("cd .., no wait, cd ~", "cd ~"),
+            ("Meet at 3 p.m. tomorrow.", "Meet at 3 p.m. tomorrow."),
             ("Let's meet on Monday. I mean, Tuesday.", "Let's meet on Tuesday."),
             ("Send it to Alice. No, wait. Send it to Bob.", "Send it to Bob."),
             ("Set PATH to $HOME/bin, no wait, $HOME/.local/bin.", "Set PATH to $HOME/.local/bin."),
@@ -860,6 +862,20 @@ check(
             ("Do not deploy. Merge it, no wait, merge it.", "Merge it."),
             ("Sorry, I can't make it.", "Sorry, I can't."),
             ("Tell me what you know.", "Tell me what."),
+            ("I know that you know.", "I know that."),
+            # Shell input keeps its operators, operands, quoting, and case.
+            ("echo hi; rm x", "echo hi rm x"),
+            ("git add .", "git add"),
+            ('echo "a|touch b"', "echo a|touch b"),
+            ("git checkout HEAD", "git checkout head"),
+            ("Take the service online.", "Take the service offline."),
+            ("Rebuild the index.", "Build the index."),
+            ("Select all users.", "Delete all users."),  # a destructive verb never said
+            ("Meet at 3 p.m. Wait.", "Meet at 3 p.m."),
+            ("Meet at 3 p.m. Thanks.", "Meet at 3 p.m."),  # its "." before a capital ends one
+            ("Thank you for helping.", "Thank for helping."),
+            ("Please wait.", "Please."),
+            ("Copy it from the source folder.", "Copy it the source folder."),
             ("Uh, don't call me, sorry, call me after five.", "Don't call me after five."),
             (
                 "Um never skip the tests, sorry, skip the tests on docs changes.",

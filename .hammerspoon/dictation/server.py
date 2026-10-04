@@ -700,6 +700,16 @@ class Engine:
     )
     # Scope, frequency, and obligation a cleanup must not drop or add: "Delete all files" is not
     # "Delete files". "will" and "would" contract ("I'll"), so they are checked by meaning below.
+    # Verbs that destroy, by their forms: "deleted" is "delete".
+    DESTROYS = types.MappingProxyType(
+        {
+            form: w
+            for w in ["delete", "remove", "drop", "kill", "destroy", "erase", "wipe", "purge"]
+            + ["truncate", "overwrite", "format", "uninstall", "reset", "revoke", "terminate"]
+            for form in (w, w + "s", w + "d", w + "ed", w + "ing", w[:-1] + "ing")
+            + (w + w[-1] + "ed", w + w[-1] + "ing")
+        }
+    )
     # Words that flip or bound what follows, which a correction may take back ("Always run the
     # tests, no wait, run the tests") or say again without ("Never skip it, sorry, skip it today").
     FLIPS = frozenset(
@@ -714,6 +724,7 @@ class Engine:
     # Opposites a cleanup must not swap, alternatives per side: "Turn logging off" is not "on".
     OPPOSITES = (
         ["on/off", "enable/disable", "before/after", "start/stop", "open/close", "true/false"]
+        + ["online/offline"]
         + [
             "left/right",
             "add/remove",
@@ -762,7 +773,7 @@ class Engine:
     # Suffixes that make one word the other's opposite: "useful" is not "useless".
     SUFFIXES = (("ful", "less"),)
     PREFIXES = tuple(
-        [("", p) for p in ("un", "in", "im", "il", "ir", "non", "dis", "mis", "de", "anti")]
+        [("", p) for p in ("un", "in", "im", "il", "ir", "non", "dis", "mis", "de", "anti", "re")]
         + [("en", "de"), ("in", "de"), ("in", "ex"), ("in", "out"), ("en", "dis")]
         + [("up", "down"), ("over", "under"), ("pre", "post"), ("max", "min")]
     )
@@ -807,7 +818,7 @@ class Engine:
         ["what", "who", "whom", "whatever", "whoever", "how", "where", "why", "when", "if"]
         + ["whether", "than", "someone", "somebody", "anyone", "anybody", "everyone", "everybody"]
         + ["people", "something", "anything", "everything", "know", "knows", "knew", "let"]
-        + ["now", "as", "do", "does", "did"]
+        + ["now", "as", "do", "does", "did", "that"]
     )
     # Verbs a "not" leans on, gone with it: "don't", "can't", "won't".
     AUXILIARIES = frozenset(
@@ -896,6 +907,8 @@ class Engine:
         | {"&": ("&", frozenset(["and", "ampersand"])), "`": ("`", frozenset(["backtick"]))}
         | {">": (">", frozenset(["greater", "redirect"])), "<": ("<", frozenset(["less"]))}
         | {";": (";", frozenset(["semicolon"]))}  # "echo hello; echo goodbye"
+        # An operand of marks alone: "git add .", "cd ..", "rm -rf /", "cd ~", "ls *".
+        | {".": (r"(?<!\S)(?:\.\.?|[/~*])(?!\S)", frozenset(["dot", "slash", "tilde", "star"]))}
     )
     # Exact quantities that are not numbers: "half" is not "double", "once" not "twice".
     MULTIPLES = types.MappingProxyType(
@@ -1407,8 +1420,37 @@ class Engine:
             )
 
         names, written_names = set(names_in(raw)), names_in(out)
+        # A shell variable or an all-caps name keeps its case: "$PATH" is not "$path", nor "HEAD"
+        # "head" ("OK" may be "ok").
+        tokens = [re.findall(r"\$\w+|" + word, t.replace("’", "'")) for t in (raw, out)]
+        written_cased = collections.Counter(tokens[1])
+        written_lower = collections.Counter(t.lower() for t in tokens[1])
+        for t, n in collections.Counter(tokens[0]).items():
+            exact = t.startswith("$") or re.fullmatch(r"[A-Z][A-Z0-9_]*[A-Z0-9]", t)
+            if (
+                exact
+                and t.lower() not in cls.MARKERS
+                and written_cased[t] < min(n, written_lower[t.lower()])
+            ):
+                return True
+        # A quoted shell operator stays quoted: 'echo "a|b"' is not 'echo a|b'.
+        op = r"[|&;<>`$]"
+        quoted = rf"\"([^\"]*{op}[^\"]*)\"|“([^”]*{op}[^”]*)”|(?<!\w)'([^']*{op}[^']*)'(?!\w)"
+        for inner in ("".join(m) for m in re.findall(quoted, raw)):
+            if inner in out and not re.search(rf"[\"“'‘]{re.escape(inner)}[\"”'’]", out):
+                return True
+        # "3 p.m." or "etc." before a capital ends its sentence ("Meet at 3 p.m. Wait.").
+        closes = [
+            bool(re.match(r"[\"”’')\]]*\s+[\"“‘(\[]*[A-Z]", raw[m.end() :]))
+            for m in re.finditer(r"\b(?:[ap]\.m|etc)\.", raw, re.IGNORECASE)
+        ]
         # Its unit is checked as a word: "16GB" is not "16MB".
         raw, out = (cls.spaced(t.lower().replace("’", "'").replace("µ", "μ")) for t in (raw, out))
+        closing_at = {
+            m.end()
+            for m, shut in zip(re.finditer(r"\b(?:[ap]\.m|etc)\.", raw), closes, strict=True)
+            if shut
+        }
         # The speech model's time may be written as write_numbers will write it: "at 3.30" may be
         # "at 3:30", not "costs 3.30" "costs 3:30".
         hhmm = r"(?<!\d)\d{1,2}:\d\d(?!\d)"  # "1:30pm" too
@@ -1476,24 +1518,30 @@ class Engine:
             k
             for k, m in enumerate(spans)
             if re.match(rf"{closing}[.!?]+{closing}(?:\s|$)", raw[m.end() :])
-            and not re.search(cls.ABBREVIATION, raw[max(0, m.end() - 4) : m.end()])
+            and not (
+                re.search(cls.ABBREVIATION, raw[max(0, m.end() - 4) : m.end()])
+                and m.end() + 1 not in closing_at
+            )
         }
-        set_off = paused | {
-            k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
-        }
+        led = {k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])}
         phrases = {("no", "wait"), ("i", "mean"), ("scratch", "that")}
         # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one"). Besides
         # "no", a cue is set off or a cue phrase: not "please wait for" or "it actually works".
         cues = [
             k
             for k, w in enumerate(raw_words)
-            # "not actually" is no cue; "no wait" is.
+            # "not actually" is no cue; "no wait" is. Nor one with nothing after it, or ending its
+            # sentence unled: "Please wait.", "I am sorry. Then go."
             if w in cls.CORRECTIONS
             and not negative(raw_words[k - 1 : k], no=False)
             and (
                 w == "no"
-                or k in set_off
-                or {tuple(raw_words[k - 1 : k + 1]), tuple(raw_words[k : k + 2])} & phrases
+                or k + 1 < len(raw_words)
+                and (
+                    k in led
+                    or k in paused - ends
+                    or {tuple(raw_words[k - 1 : k + 1]), tuple(raw_words[k : k + 2])} & phrases
+                )
             )
         ]
 
@@ -1687,7 +1735,9 @@ class Engine:
             lost = len(kept_ops) - len(re.findall(pattern, out))
             if symbol == "&":  # each "and" gained may be one written out
                 lost -= max(0, len(re.findall(r"\band\b", out)) - len(re.findall(r"\band\b", raw)))
-            if lost > 0 and symbol != ";":
+            if symbol == ";":  # each "," or "." gained may be one: "home; then" -> "home, then"
+                lost -= max(0, len(re.findall(r"[,.]", out)) - len(re.findall(r"[,.]", raw)))
+            if lost > 0:
                 return True
 
         # Number words checked above may go as digits: "one hundred and five" -> "105". A name
@@ -1709,8 +1759,9 @@ class Engine:
             gone = (corrected - set(keep)) | fillers | numeric | set(also)
             return [raw_words[k] for k in range(i1, i2) if k not in gone]
 
-        # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more.
-        kept = out_set | cls.CORRECTIONS
+        # Fillers, cues, and corrected words may go, plus 2 words or 30%; a summary loses more. A
+        # cue word said as no cue stays: "Please wait." is not "Please."
+        kept = out_set | {raw_words[c] for c in cues}
         spoken = uncorrected(0, len(raw_words))
         lost = set(spoken) - kept
         # What a number counts survives too, past modifiers: "fifteen (very long) minutes" is
@@ -1818,6 +1869,7 @@ class Engine:
         loose |= cls.MULTIPLES.keys() | {"minus", "negative", "positive", "plus", "point", "please"}
         loose |= {w for names in cls.MARK_WORDS.values() for w in names}
         loose |= {w for _, names in cls.SHELL.values() for w in names}
+        loose -= {"with", "from", "into", "onto", "via"}  # "Run with sudo" is not "Run sudo"
         counted = {  # numbers are checked as numbers; names with digits ("SHA256") pair too
             w for w in out_words if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
         }
@@ -1927,6 +1979,20 @@ class Engine:
                 joined = t in ("and", "or") and person is None and bool(out)
             return out
 
+        # "Thank you" goes whole or as "Thanks": not "Thank you for helping" -> "Thank for helping".
+        thanked = sum(
+            raw_words[k + 1 : k + 2] == ["you"]
+            for k in range(len(raw_words))
+            if raw_words[k] == "thank" and k not in corrected
+        )
+        if thanked > len(re.findall(r"\bthank you\b|\bthanks\b", out)):
+            return True
+        # A destructive verb is never written unsaid, however alike it looks: "Select all users"
+        # is not "Delete all users".
+        if {cls.DESTROYS[w] for w in out_words if w in cls.DESTROYS} - {
+            cls.DESTROYS[w] for w in raw_words if w in cls.DESTROYS
+        }:
+            return True
         if persons(heard) != persons(written) or roles(heard) != roles(written):
             return True
         if collections.Counter(w for w in heard if w in cls.ASKING) != collections.Counter(
