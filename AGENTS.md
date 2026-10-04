@@ -1,7 +1,7 @@
 # Global Agent Instructions
 
-My defaults for every project and agent. My explicit requests in the conversation and a project's
-own AGENTS.md take precedence when they conflict.
+These are my global defaults. If a project's AGENTS.md or my message in the chat says otherwise,
+follow that.
 
 ## Communication
 
