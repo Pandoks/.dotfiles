@@ -865,6 +865,8 @@ class Engine:
         ["like", "past", "over", "after", "before", "without", "against", "around", "beyond"]
         + ["through", "under", "behind", "near", "off", "up", "down", "out", "onto", "upon"]
     )
+    # Adverbs that judge nothing between a copula and "that": "It's just that you know."
+    ADVERBS = frozenset(["just", "still", "mostly", "mainly", "simply", "merely", "also", "even"])
     # Who a clause word is told to before "that": "Tell him that you know", "find out that".
     CLAUSE_OBJECTS = frozenset(
         ["him", "her", "them", "me", "us", "you", "anyone", "everyone", "anybody", "everybody"]
@@ -1575,11 +1577,11 @@ class Engine:
             led = not before or re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
             liked = (
                 m.group() == "like"
-                and not led
                 and (  # after "it's" a stall, unless it likens to what ends: "It's like that."
-                    before[0] not in cls.FILLER_LEADS
+                    (not led and before[0] not in cls.FILLER_LEADS)
                     or re.match(
-                        r"\s+(?:that|this)(?:\s+you know)?\s*(?:[,.;:!?…—]|$)", raw[m.end() :]
+                        r"\s+(?:that|this)(?:\s+ones?)?(?:\s+you know)?\s*(?:[,.;:!?…—]|$)",
+                        raw[m.end() :],
                     )
                 )
             )
@@ -1600,7 +1602,8 @@ class Engine:
                         or (  # "It's great that", not "I'm handling that", "We're past that"
                             prior[-3:-2] in ([w] for w in cls.COPULAS)
                             and not prior[-2].endswith("ing")
-                            and prior[-2] not in cls.FUNCTION | cls.PLACING
+                            and prior[-2] not in cls.FUNCTION | cls.PLACING | cls.DISPOSABLE
+                            and prior[-2] not in cls.SCOPE | cls.NEGATIONS | cls.ADVERBS
                         )
                         or (
                             prior[-3:-2] in ([w] for w in cls.CLAUSING)
@@ -1670,6 +1673,13 @@ class Engine:
                 or not content(first).isdisjoint(content(nxt))
             )
 
+        as_said = {  # each said word written as said: its written index
+            i: j
+            for tag, i1, i2, j1, _ in edits
+            if tag == "equal"
+            for i, j in zip(range(i1, i2), itertools.count(j1))
+        }
+
         def predicated(k):  # the sentence's own: "Please wait.", "I am sorry.", not an aside set
             # off by marks: "Monday, I'm sorry, Tuesday"
             j = k - 1
@@ -1679,26 +1689,48 @@ class Engine:
                 j -= 1
             if j not in led or j - 1 in ends:  # "I'm sorry." opening a sentence is its own
                 return True
-            # An aside corrects with a word or two ("Monday, I'm sorry, Tuesday") or by saying its
-            # clause again from one of its words ("Send it to John, I'm sorry, send it to Jane");
-            # else it is an apology ("I'm late, I'm sorry, traffic was bad").
             stop = next((e for e in sorted(paused) if e > k), len(raw_words) - 1)
-            after = [raw_words[i] for i in range(k + 1, stop + 1) if i not in fillers]
+            later = [i for i in range(k + 1, stop + 1) if i not in fillers]
+            after = [raw_words[i] for i in later]
             start = max((e + 1 for e in ends if e < j), default=0)
-            said = [raw_words[i] for i in range(start, j) if i not in fillers]
-            # A word or two that names what it replaces, not "try tomorrow" or "I'm traveling".
+            before = [i for i in range(start, j) if i not in fillers]
+            said = [raw_words[i] for i in before]
+            # Written as said around it, it took nothing back: "We're closed, I'm sorry, try
+            # tomorrow" -> "We're closed, try tomorrow" drops an apology.
+            if not before or (
+                before[-1] in as_said
+                and out_words[as_said[before[-1]] + 1 :][: len(after)] == after
+            ):
+                return True
+            pairs = set(itertools.pairwise(said))
+
+            def repeated(w, n):  # said again: a content word, or a small word with the next
+                return w in said and (w not in cls.FUNCTION | cls.PERSONS.keys() or n in pairs)
+
+            # Names what it replaces: "Monday, I'm sorry, Tuesday", "Ask Sarah, I'm sorry, Emily".
+            kin = any(
+                (w in cls.CALENDAR and cls.CALENDAR & set(said))
+                or (w in names and names & set(said))
+                or (cls.numbers(w) and any(cls.numbers(v) for v in said))
+                for w in after
+            ) or (after[:1] and repeated(after[0], tuple(after[:2])))
+            # A few words in place of the last ones said, its lead kept: "Make it red, I'm sorry,
+            # blue" -> "Make it blue"; not "I'm late, I'm sorry, I overslept" -> "I overslept".
             if (
-                len(after) <= 2
-                and after[:1]
-                and (after[0] in cls.FUNCTION | cls.CALENDAR | names or cls.numbers(after[0]))
+                0 < len(after) <= 3
+                and (kin or any(i in as_said for i in before))
+                and all(w in out_words or cls.numbers(w) for w in after)
             ):
                 return False
-            if not after or after[0] not in said:
-                return True
-            # A person said again says its verb again too: "I'll call Monday, I'm sorry, I'll call
-            # Tuesday", not "I didn't see it, I'm sorry, I was busy".
-            return after[0].split("'")[0] in cls.PERSONS and tuple(after[:2]) not in set(
-                itertools.pairwise(said)
+            # Or its clause said again from one of its words ("Send it to John, I'm sorry, send it
+            # to Jane"), a small one with what follows it or the thing it names ("Use the red one,
+            # I'm sorry, the blue one"); not "That was my fault, I'm sorry, that won't happen".
+            return not (
+                after[:1]
+                and (
+                    repeated(after[0], tuple(after[:2]))
+                    or (after[0] in said and not content(after).isdisjoint(content(said)))
+                )
             )
 
         cues = [
@@ -1793,6 +1825,21 @@ class Engine:
             ):
                 continue
             first = raw_words[reach(min(inside)) : i1]
+            # "no wait" or "scratch that" is no filler: dropped alone, what it took back stays
+            # ("Wait thirty minutes, no wait, until noon" is not "Wait thirty minutes until noon").
+            if (
+                any(
+                    (raw_words[c], raw_words[c + 1]) in phrases - {("i", "mean")}
+                    for c in inside
+                    if c + 1 < i2
+                )
+                and any(
+                    k not in fillers and raw_words[k] not in cls.MARKERS
+                    for k in range(reach(min(inside)), i1)
+                )
+                and any(k not in fillers for k in range(i2, len(raw_words)))
+            ):
+                return True
             said, after = content(first), content(raw_words[i2 : i2 + len(first) + 2])
             # One thing said twice with a word swapped, not added to: "red" -> "blue", not "That's
             # true actually. That's very true."
@@ -1875,8 +1922,11 @@ class Engine:
             or not keeps_numbers(cue_of(k))
             or between(k) == 0
             or (
-                between(k) == 1
-                and not cls.POINTS & {raw_words[j] for j in range(k + 1, cue_of(k))}
+                between(k) <= 2
+                # "one night" counts; "five this afternoon" is a time
+                and not cls.POINTS & {raw_words[j] for j in range(k + 2, cue_of(k))}
+                and raw_words[k + 1]
+                not in cls.POINTS - {"morning", "afternoon", "evening", "night"}
                 and correction_opener(cue_of(k)) in cls.NEW_AMOUNT
             )
         }
@@ -1970,23 +2020,17 @@ class Engine:
             return not (before and after and {before[0], after[0]} <= back)
 
         out_spans = list(re.finditer(word, out))
-        aligned = {  # each said word written as said: its written index
-            i: j
-            for tag, i1, i2, j1, _ in edits
-            if tag == "equal"
-            for i, j in zip(range(i1, i2), itertools.count(j1))
-        }
 
         def replaced_at(position):  # a clause mark written between the words around it, stalls
             # aside ("I called; um nobody answered." -> "I called. Nobody answered.")
             before = [k for k, s in enumerate(spans) if s.end() <= position and k not in fillers]
             after = [k for k, s in enumerate(spans) if s.start() >= position and k not in fillers]
             before, after = before[-1:], after[:1]
-            if not (before and after) or before[0] not in aligned or after[0] not in aligned:
+            if not (before and after) or before[0] not in as_said or after[0] not in as_said:
                 return False
-            j, end = aligned[before[0]], aligned[after[0]]
+            j, end = as_said[before[0]], as_said[after[0]]
             # Only stalls written as said between: "I called; um nobody" -> "I called, um, nobody"
-            if end - j - 1 != sum(k in aligned for k in range(before[0] + 1, after[0])):
+            if end - j - 1 != sum(k in as_said for k in range(before[0] + 1, after[0])):
                 return False
             return bool(re.search(r"[,.:?!—–]", out[out_spans[j].end() : out_spans[end].start()]))
 
@@ -2467,8 +2511,18 @@ class Engine:
         # It may move ("sign up. Before Friday" -> "sign up before"), not go: as many written as
         # said ("Turn it on. On Friday." is not "Turn it on Friday.").
         written_count = collections.Counter(out_words)
-        # A stutter said again inside its sentence counts once: "That, that was it. Delete that."
-        stutters = {k for k in restarted if k not in ends and k - 1 not in ends}
+
+        # A stutter said again beside it in its sentence counts once: "That, that was it. Delete
+        # that.", "Okay. That, that was it.", not "Turn it on. Uh, on Friday."
+        def stuttered(k):
+            return any(
+                stem(raw_words[p]) == stem(raw_words[k])
+                and ends.isdisjoint(range(min(p, k), max(p, k)))
+                for p in range(max(0, k - 8), min(len(raw_words), k + 9))
+                if p != k
+            )
+
+        stutters = {k for k in restarted if k not in ends and stuttered(k)}
         heard_count = collections.Counter(
             w for k, w in enumerate(raw_words) if k not in corrected | set(cues) | cued | stutters
         )
