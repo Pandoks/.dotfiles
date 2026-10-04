@@ -645,6 +645,26 @@ check(
                 "Send it to Jane so she can review it.",
             ),
             ("Don't call Sarah, I'm sorry, Emily.", "Don't call Emily."),
+            ("Do not call Sarah, I'm sorry, Emily.", "Do not call Emily."),
+            ("Do not deliver Friday, I'm sorry, Monday morning.", "Do not deliver Monday morning."),
+            (
+                "Tell him not to come Friday, I'm sorry, Monday morning.",
+                "Tell him not to come Monday morning.",
+            ),
+            (
+                "If you can't reach me, call John, I'm sorry, Jane.",
+                "If you can't reach me, call Jane.",
+            ),
+            ("He doesn't work at Google, I'm sorry, Apple.", "He doesn't work at Apple."),
+            (
+                "Send it to John, I'm sorry, to Jane who can review it.",
+                "Send it to Jane who can review it.",
+            ),
+            (
+                "Move it to Monday, I'm sorry, Tuesday the week after.",
+                "Move it to Tuesday the week after.",
+            ),
+            ("This doesn't work on Safari, sorry, Firefox.", "This doesn't work on Firefox."),
             ("Invite Tom, I'm sorry, Jerry and his wife.", "Invite Jerry and his wife."),
             (
                 "Okay. That, that was the one I meant. Delete that.",
@@ -974,6 +994,15 @@ check(
             ("Talk to someone that you know.", "Talk to someone."),
             ("Trust the people that you know.", "Trust the people."),
             ("Call a friend that you know.", "Call a friend."),
+            (
+                "I'm busy Monday, I'm sorry, Tuesday if you're free.",
+                "I'm busy Tuesday if you're free.",
+            ),
+            ("Bring a friend that you know, it'll be fun.", "Bring a friend, it'll be fun."),
+            (
+                "We can't deliver on Friday, sorry, Monday morning at the earliest.",
+                "We can't deliver on Monday morning at the earliest.",
+            ),
             (
                 "The bank is closed Monday, I'm sorry, Tuesday it opens at nine thirty.",
                 "The bank is closed Tuesday it opens at nine thirty.",

@@ -872,7 +872,7 @@ class Engine:
     # Words that lead a clause on from a correction: "to Jane so she can review it".
     LINKS = frozenset(
         ["so", "when", "if", "once", "since", "because", "until", "till", "while", "unless"]
-        + ["before", "after"]
+        + ["before", "after", "who", "whom", "whose", "which"]  # "to Jane who can review it"
     )
     # Words that open a thing right after a day, its clause: "Tuesday the shop opens".
     OPENERS = frozenset(["the", "a", "an", "my", "your", "our", "their", "his"])
@@ -880,6 +880,17 @@ class Engine:
     HEADS = frozenset(
         ["someone", "somebody", "anyone", "anybody", "everyone", "everybody", "something"]
         + ["anything", "everything", "nothing", "nobody", "people"]
+    )
+    # Heads that are people: "Ask someone that you know, they'll help" is theirs.
+    PEOPLE = frozenset(
+        ["someone", "somebody", "anyone", "anybody", "everyone", "everybody", "people"]
+    )
+    # Things a clause tells or fills: "a feeling that, you know, this won't work", "the place
+    # that, you know, we went".
+    TOLD = frozenset(
+        ["feeling", "sense", "idea", "chance", "fact", "hope", "impression", "news", "sign"]
+        + ["possibility", "belief", "thought", "notion", "risk", "fear", "worry", "point"]
+        + ["problem", "thing", "reason", "way", "place", "time", "day", "one", "stuff"]
     )
     # Who a clause word is told to before "that": "Tell him that you know", "find out that".
     CLAUSE_OBJECTS = frozenset(
@@ -1584,6 +1595,7 @@ class Engine:
         fillers, meant = set(), set()
         for m in cls.DROPPED_RE.finditer(raw):
             prior = [s.group() for s in spans if s.end() <= m.start()]
+            goes_on = r"(?:i|we|you|he|she|they|it|this|nobody)(?:'\w+)?\b"  # a clause after
             before = prior[-1:]
             inside = {
                 k for k, s in enumerate(spans) if m.start() <= s.start() and s.end() <= m.end()
@@ -1638,9 +1650,12 @@ class Engine:
                                     and prior[-2] not in cls.FUNCTION | cls.PLACING
                                 )
                             )
-                            and not re.match(
-                                r"\s*[,;:…—]\s*(?:i|we|you|he|she|they|it|this|nobody)(?:'\w+)?\b",
-                                raw[m.end() :],
+                            and not (
+                                # a thing a clause says or fills, not a person or a pick: "a
+                                # feeling that you know, this won't work", "Bring a friend that
+                                # you know, it'll be fun"
+                                prior[-2] in cls.HEADS - cls.PEOPLE | cls.TOLD
+                                and re.match(rf"\s*[,;:…—]\s*{goes_on}", raw[m.end() :])
                             )
                         )
                     )
@@ -1714,6 +1729,67 @@ class Engine:
             for i, j in zip(range(i1, i2), itertools.count(j1))
         }
 
+        def opening(k):  # the first word of k's sentence
+            return max((e + 1 for e in ends if e < k), default=0)
+
+        # The clause an apology follows, past a clause it follows: "If you can't reach me, call
+        # John", "It's not urgent, but send it to John" (not past an aside: "We can't deliver it,
+        # sadly, on Friday").
+        def lead_of(before, start):
+            subordinate = {"if", "since", "because", "when", "unless", "although", "though"}
+            subordinate |= {"whatever", "once", "while"}
+            cut = max(
+                (
+                    i + 1
+                    for i in paused
+                    if start <= i < before[-1]
+                    and (
+                        raw_words[max(e + 1 for e in [start - 1, *paused] if e < i)] in subordinate
+                        or raw_words[i + 1] in ("but", "so", "and", "then")
+                    )
+                ),
+                default=start,
+            )
+            lead = [
+                raw_words[i]
+                for i in before
+                if i >= cut and raw_words[i] not in cls.MARKERS | {"please", "no", "just"}
+            ]
+            return lead[1:] if lead[:2] == ["do", "not"] else lead  # "Do not call Sarah"
+
+        def refuses(lead):  # "We can't deliver Friday", not "Don't call Sarah" or "Tell him not to"
+            return any(
+                (w.endswith("n't") or w in ("not", "never", "cannot"))
+                and lead[p + 1 : p + 2] != ["to"]
+                for p, w in enumerate(lead)
+                if p
+            )
+
+        # A time offered on its terms after a refusal: "We can't deliver Friday, sorry, Monday at
+        # the earliest"; not "He doesn't work at Google, sorry, Apple" or "It won't ship Monday,
+        # sorry, Tuesday".
+        def offered(said, after):
+            named = next(
+                (
+                    p
+                    for p, w in enumerate(after)
+                    if (w in cls.CALENDAR | cls.POINTS and (cls.CALENDAR | cls.POINTS) & set(said))
+                    or (w in names and names & set(said))
+                    or (cls.numbers(w) and any(cls.numbers(v) for v in said))
+                ),
+                None,
+            )
+            if named is None or not (
+                after[named] in cls.CALENDAR | cls.POINTS or cls.numbers(after[named])
+            ):
+                return False
+            # on its terms past the time itself: "nine thirty at the earliest", not "three point
+            # eight"
+            rest = after[named + 1 :]
+            while rest and (cls.numbers(rest[0]) or rest[0] == "point"):
+                rest = rest[1:]
+            return bool(rest)
+
         def predicated(k):  # the sentence's own: "Please wait.", "I am sorry.", not an aside set
             # off by marks: "Monday, I'm sorry, Tuesday"
             j = k - 1
@@ -1739,9 +1815,8 @@ class Engine:
             # After a refusal it offers instead: "We can't deliver Friday, I'm sorry, Monday at
             # the earliest" is not "We can't deliver Monday at the earliest" (an order is
             # corrected: "Don't call Sarah, I'm sorry, Emily").
-            lead = [w for w in said if w not in cls.MARKERS | {"please", "no", "just"}]
-            if any(w.endswith("n't") or w in ("not", "never", "cannot") for w in lead[1:]):
-                return True
+            lead = lead_of(before, start)
+            refused = refuses(lead)
             pairs = set(itertools.pairwise(said))
 
             def repeated(w, n):  # said again: a content word, or a small word with the next
@@ -1761,10 +1836,25 @@ class Engine:
             # The thing it names opens no clause of its own: "Tuesday at noon", "Jerry and his
             # wife", not "Tuesday it opens late", "Tuesday the shop opens", "Mark can come".
             # Its own words, up to a clause it goes on to: "to Jane so she can review it".
-            own = after[
-                : next((p for p, w in enumerate(after) if p and w in cls.LINKS), len(after))
-            ]
+            # After a state that turns one away, a tail going on past a link is a clause: "I'm busy
+            # Monday, I'm sorry, Tuesday if you're free" offers Tuesday; "The review is Thursday,
+            # I'm sorry, Friday once the numbers are in" and "We're meeting Monday, ..." correct.
+            state = next(
+                (w for w in reversed(lead[:-1]) if w not in cls.FUNCTION - cls.COPULAS), ""
+            )
+            refusing = (
+                bool(set(lead) & cls.COPULAS)
+                and state not in cls.COPULAS
+                and not any(w.endswith("ing") for w in lead)
+            )
+            linked = next((p for p, w in enumerate(after) if p and w in cls.LINKS), len(after))
+            own = after[:linked]
             named = next((p for p, w in enumerate(after) if kin_of(w)), None)
+            # A time offered on its terms: "Monday before noon", "nine thirty at the earliest";
+            # not "He doesn't work at Google, I'm sorry, Apple" or "It won't ship Monday, I'm
+            # sorry, Tuesday".
+            if refused and offered(said, after):
+                return True
             opener = after[named + 1 : named + 3] if named is not None else []
             clause = bool(
                 (opener and opener[0].split("'")[0] in cls.SUBJECTS | {"it", "there"})
@@ -1776,9 +1866,12 @@ class Engine:
                     and opener[0] in cls.OPENERS
                     and after[named] in cls.CALENDAR | cls.POINTS
                     and not (opener[1:] and cls.numbers(opener[1]))
+                    # and its verb: "the shop opens", not "an hour earlier" or "the week after"
+                    and re.fullmatch(r"\w+(?<!s)s|\w+ed", "".join(after[named + 3 : named + 4]))
                 )
                 or set(own[1:]) & (cls.COPULAS | cls.AUXILIARIES - {"may"})
                 or any(w.endswith("n't") for w in own[1:])
+                or (refusing and linked < len(after))
             )
             # A few words in place of the last ones said, its lead kept: "Make it red, I'm sorry,
             # blue" -> "Make it blue"; not "I'm late, I'm sorry, I overslept" -> "I overslept".
@@ -1818,6 +1911,25 @@ class Engine:
             # "not actually" is no cue; "no wait" is. Nor one with nothing after it: "Please wait."
             if w in cls.CORRECTIONS
             and not negative(raw_words[k - 1 : k], no=False)
+            # nor a bare "sorry" after a refusal, offering a time: "We can't deliver Friday, sorry,
+            # Monday at the earliest"
+            and not (
+                w == "sorry"
+                and k in led
+                and (b := [i for i in range(opening(k), k) if i not in fillers])
+                and refuses(lead_of(b, opening(k)))
+                and offered(
+                    [raw_words[i] for i in b],
+                    [
+                        raw_words[i]
+                        for i in range(
+                            k + 1,
+                            next((e for e in sorted(paused) if e > k), len(raw_words) - 1) + 1,
+                        )
+                        if i not in fillers
+                    ],
+                )
+            )
             and (
                 w == "no"
                 or k + 1 < len(raw_words)
@@ -1829,9 +1941,6 @@ class Engine:
                 )
             )
         ]
-
-        def opening(k):  # the first word of k's sentence
-            return max((e + 1 for e in ends if e < k), default=0)
 
         def reach(c):  # in the cue's sentence, or the one before when it opens one ("No, Friday",
             # "Uh, no, Friday", "I mean, Tuesday")
