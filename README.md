@@ -102,6 +102,13 @@ gh auth login
 aws sso login --profile PROFILE_NAME
 ```
 
+Claude Code and Codex send model requests to the [CLIProxyAPI] service on the
+tailnet, which uses its own accounts, so Tailscale must be connected. Still run
+`/login` in Claude Code once per machine: it won't start without a credential,
+and claude.ai connectors load only from a claude.ai login. Don't set
+`ANTHROPIC_AUTH_TOKEN`, because it takes precedence and disables the
+connectors. Pick non-Claude models by ID, for example `/model gpt-6-sol`.
+
 SSH configuration and `authorized_keys` are managed, but SSH private keys are
 not. Ensure the managed SSH files have the required permissions:
 
@@ -115,5 +122,6 @@ The source of truth is
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
+[CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
