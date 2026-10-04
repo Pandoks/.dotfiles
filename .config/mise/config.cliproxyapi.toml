@@ -1,6 +1,3 @@
-# CLIProxyAPI host module. Only loads when selected, for example
-# `mise -E cliproxyapi bootstrap`.
-
 [tools]
 "github:router-for-me/CLIProxyAPI" = "latest"
 
@@ -17,7 +14,6 @@ restart_sec = "10"
 wanted_by = ["default.target"]
 start = true
 
-# Linger keeps the user service running without a login session
 [bootstrap.hooks.post-tools]
 run = '''
 user=$(id -un)
