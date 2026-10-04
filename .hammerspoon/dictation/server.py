@@ -834,6 +834,17 @@ class Engine:
     # How a correction names a new amount or time in place of a number: "an hour", "next week".
     NEW_AMOUNT = frozenset(
         ["a", "an", "next", "another", "this", "last", "tomorrow", "tonight", "today"]
+        + ["the", "in", "later", "soon", "now", "noon", "midnight", "monday", "tuesday"]
+        + ["wednesday", "thursday", "friday", "saturday", "sunday", "january", "february"]
+        + ["march", "april", "may", "june", "july", "august", "september", "october"]
+        + ["november", "december"]
+    )
+    # A day or time of day a number is said at: "three Tuesday", "seven tonight" (not a span the
+    # number counts, "two weeks").
+    POINTS = frozenset(
+        ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "today"]
+        + ["tomorrow", "tonight", "yesterday", "morning", "afternoon", "evening", "night"]
+        + ["noon", "midnight"]
     )
     # Words that take a clause, so a "that you know" shortly after them is meant: "Tell him that
     # you know", "It's important that you know" (not "We need to fix that you know").
@@ -848,6 +859,11 @@ class Engine:
     COPULAS = frozenset(
         ["is", "was", "are", "were", "am", "be", "been", "it's", "that's", "i'm", "we're", "you're"]
         + ["they're", "he's", "she's", "what's"]
+    )
+    # Words placing a thing, not judging it: "We're past that", "It's like that".
+    PLACING = frozenset(
+        ["like", "past", "over", "after", "before", "without", "against", "around", "beyond"]
+        + ["through", "under", "behind", "near", "off", "up", "down", "out", "onto", "upon"]
     )
     # Who a clause word is told to before "that": "Tell him that you know", "find out that".
     CLAUSE_OBJECTS = frozenset(
@@ -1557,7 +1573,16 @@ class Engine:
                 k for k, s in enumerate(spans) if m.start() <= s.start() and s.end() <= m.end()
             }
             led = not before or re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])
-            liked = m.group() == "like" and not (led or before[0] in cls.FILLER_LEADS)
+            liked = (
+                m.group() == "like"
+                and not led
+                and (  # after "it's" a stall, unless it likens to what ends: "It's like that."
+                    before[0] not in cls.FILLER_LEADS
+                    or re.match(
+                        r"\s+(?:that|this)(?:\s+you know)?\s*(?:[,.;:!?…—]|$)", raw[m.end() :]
+                    )
+                )
+            )
             # Set off by a mark or after a discourse marker it is filler or a cue (", I mean Jane",
             # "so you know we", "It works you know."); "I mean it" and "You know the answer" are
             # meant. One kept as said counts as said ("I'll let you know.").
@@ -1572,7 +1597,11 @@ class Engine:
                     and before == ["that"]
                     and (  # right after a clause word or "is", or "tell him", "find out"
                         prior[-2:-1] in ([w] for w in cls.CLAUSING | cls.COPULAS)
-                        or prior[-3:-2] in ([w] for w in cls.COPULAS)
+                        or (  # "It's great that", not "I'm handling that", "We're past that"
+                            prior[-3:-2] in ([w] for w in cls.COPULAS)
+                            and not prior[-2].endswith("ing")
+                            and prior[-2] not in cls.FUNCTION | cls.PLACING
+                        )
                         or (
                             prior[-3:-2] in ([w] for w in cls.CLAUSING)
                             and prior[-2] in cls.CLAUSE_OBJECTS
@@ -1650,9 +1679,27 @@ class Engine:
                 j -= 1
             if j not in led or j - 1 in ends:  # "I'm sorry." opening a sentence is its own
                 return True
-            # An aside's correction is a few words ("Monday, I'm sorry, Tuesday"), not a clause.
+            # An aside corrects with a word or two ("Monday, I'm sorry, Tuesday") or by saying its
+            # clause again from one of its words ("Send it to John, I'm sorry, send it to Jane");
+            # else it is an apology ("I'm late, I'm sorry, traffic was bad").
             stop = next((e for e in sorted(paused) if e > k), len(raw_words) - 1)
-            return sum(i not in fillers for i in range(k + 1, stop + 1)) > 3
+            after = [raw_words[i] for i in range(k + 1, stop + 1) if i not in fillers]
+            start = max((e + 1 for e in ends if e < j), default=0)
+            said = [raw_words[i] for i in range(start, j) if i not in fillers]
+            # A word or two that names what it replaces, not "try tomorrow" or "I'm traveling".
+            if (
+                len(after) <= 2
+                and after[:1]
+                and (after[0] in cls.FUNCTION | cls.CALENDAR | names or cls.numbers(after[0]))
+            ):
+                return False
+            if not after or after[0] not in said:
+                return True
+            # A person said again says its verb again too: "I'll call Monday, I'm sorry, I'll call
+            # Tuesday", not "I didn't see it, I'm sorry, I was busy".
+            return after[0].split("'")[0] in cls.PERSONS and tuple(after[:2]) not in set(
+                itertools.pairwise(said)
+            )
 
         cues = [
             k
@@ -1827,7 +1874,11 @@ class Engine:
             if k in restated
             or not keeps_numbers(cue_of(k))
             or between(k) == 0
-            or (between(k) == 1 and correction_opener(cue_of(k)) in cls.NEW_AMOUNT)
+            or (
+                between(k) == 1
+                and not cls.POINTS & {raw_words[j] for j in range(k + 1, cue_of(k))}
+                and correction_opener(cue_of(k)) in cls.NEW_AMOUNT
+            )
         }
         back_words = {
             p.start(): p.group()
@@ -1933,10 +1984,11 @@ class Engine:
             before, after = before[-1:], after[:1]
             if not (before and after) or before[0] not in aligned or after[0] not in aligned:
                 return False
-            j = aligned[before[0]]
-            if aligned[after[0]] != j + 1:
+            j, end = aligned[before[0]], aligned[after[0]]
+            # Only stalls written as said between: "I called; um nobody" -> "I called, um, nobody"
+            if end - j - 1 != sum(k in aligned for k in range(before[0] + 1, after[0])):
                 return False
-            return bool(re.search(r"[,.:?!—–]", out[out_spans[j].end() : out_spans[j + 1].start()]))
+            return bool(re.search(r"[,.:?!—–]", out[out_spans[j].end() : out_spans[end].start()]))
 
         for symbol, (pattern, spoken_as) in cls.SHELL.items():  # "hello grep" is not "hello | grep"
             said_at = [m.start() for m in re.finditer(pattern, raw)]
@@ -2415,8 +2467,10 @@ class Engine:
         # It may move ("sign up. Before Friday" -> "sign up before"), not go: as many written as
         # said ("Turn it on. On Friday." is not "Turn it on Friday.").
         written_count = collections.Counter(out_words)
+        # A stutter said again inside its sentence counts once: "That, that was it. Delete that."
+        stutters = {k for k in restarted if k not in ends and k - 1 not in ends}
         heard_count = collections.Counter(
-            w for k, w in enumerate(raw_words) if k not in corrected | set(cues) | cued
+            w for k, w in enumerate(raw_words) if k not in corrected | set(cues) | cued | stutters
         )
         if any(written_count[w] < heard_count[w] for w in said_finals):
             return True
