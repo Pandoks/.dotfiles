@@ -1873,9 +1873,6 @@ class Engine:
                 len(after),
             )
             term, then, more = (after[at : at + 3] + ["", "", ""])[:3]
-            # an aside, no bound: "Tuesday, by the way"
-            if (term, then, more) == ("by", "the", "way"):
-                return False
             # "Thursday, after all", "Friday after all, so count me out", its comma unheard too
             # ("after all so"), is an aside; what follows it still offers: "Monday after all, if
             # that works" ("after all the meetings" bounds it)
@@ -1893,6 +1890,9 @@ class Engine:
                     len(after),
                 )
                 term, then, more = (after[at : at + 3] + ["", "", ""])[:3]
+            # an aside, no bound: "Tuesday, by the way", "Friday after all, by the way"
+            if (term, then, more) == ("by", "the", "way"):
+                return False
             bounds = {"before", "after", "around", "by", "or", "earliest", "latest", "soonest"}
             bounds |= {"most", "max", "maximum", "tops"}  # "We can't fit ten, sorry, eight at most"
             if strict:  # after an order, only a bound of its own: "Tuesday at the earliest"
@@ -1914,7 +1914,8 @@ class Engine:
             )
 
         # A visit asked for: the verb and what makes it one ([] when it ends what was said).
-        over = [["by"], ["over"], ["see"], ["visit"], ["round"], ["around"]]
+        over = [["by"], ["over"], ["see"], ["visit"], ["round"], ["around"], ["into"], ["shop"]]
+        over += [["in"], ["on", "in"], ["and", "see"], ["and", "visit"]]  # "so you can come in"
         visits = {"come": over, "stop": [["by"], ["in"], ["over"]], "swing": [["by"]]}
         visits |= {"pop": [["by"], ["in"], ["over"]], "visit": [[], ["me"], ["us"], ["then"]]}
         visits |= {"shop": [[], ["then"]]}
@@ -2068,10 +2069,13 @@ class Engine:
                                 # or asks one over: "so you can stop by", "so come see me", not
                                 # "so you can stop worrying" or "so you can come in late"
                                 or any(
-                                    after[j + 1 : j + 2] in visits.get(w, ())
+                                    after[j + 1 : j + 1 + max(len(v), 1)] == v
+                                    and after[j + 1 + len(v) : j + 2 + len(v)]
+                                    not in (["late"], ["early"])
                                     and ("you" in after[j - 2 : j] or after[j - 1 : j] == ["so"])
                                     for j, w in enumerate(after)
                                     if j > linked
+                                    for v in visits.get(w, ())
                                 )
                             )
                             # "so nobody is free", "since nothing is available" too
@@ -2232,14 +2236,32 @@ class Engine:
                 (raw.rfind(" ", 0, spans[first].start()) + 1, spans[max(inside)].start())
             )
         corrected |= restated
+
+        def plural(a, b):  # one the other's plural: "ticket", "tickets"
+            return any(y in (x + "s", x + "es", x[:-1] + "ies") for x, y in ((a, b), (b, a)))
+
         # A number corrected past the words it counts, written in its place: "two tickets, sorry,
         # three" -> "three tickets", "three or four people, sorry, five" -> "five people".
+        # The word it counts may be written in the new number: "one ticket for Bob, sorry, two" ->
+        # "two tickets for Bob" (recounted: its written index).
+        recounted, recued = set(), set()
+        written_at = list(re.finditer(word, out))
+
+        def counting(j, w):  # out_words[j] is w's other number, right after a number (no mark)
+            return (
+                j < len(out_words)
+                and plural(w, out_words[j])
+                and bool(cls.numbers(out_words[j - 1]))
+                and not out[written_at[j - 1].end() : written_at[j].start()].strip()
+            )
+
         for tag, i1, i2, j1, j2 in edits:
             c = min((c for c in cues if c >= i2), default=None)
+            inflected = min(i2 - i1, j2 - j1) > 1 and counting(j2 - 1, raw_words[i2 - 1])
             counts = [
                 not any(f.startswith("#") for n, _ in cls.numbers(w) for f in n)
                 and bool(cls.numbers(w))
-                for w in raw_words[i1:i2]
+                for w in raw_words[i1 : i2 - inflected]
             ]  # not a name: "-n20"
             if (
                 tag != "replace"
@@ -2248,7 +2270,8 @@ class Engine:
                 or taken_from(c) > i1
                 or not any(counts)
                 or not all(
-                    n or w in ("or", "to") for n, w in zip(counts, raw_words[i1:i2], strict=True)
+                    n or w in ("or", "to")
+                    for n, w in zip(counts, raw_words[i1 : i2 - inflected], strict=True)
                 )
             ):  # a count or a range of them: "three or four"
                 continue
@@ -2264,13 +2287,33 @@ class Engine:
                 len(raw_words),
             )
             told = cls.numbers(" ".join(itertools.takewhile(cls.numbers, raw_words[start:])))
-            wrote = cls.numbers(" ".join(out_words[j1:j2]))
+            wrote = cls.numbers(" ".join(out_words[j1 : j2 - inflected]))
             if (
                 told
                 and len(told) == len(wrote)
                 and all(a & b for (a, _), (b, _) in zip(told, wrote, strict=True))
             ):
                 corrected |= set(range(i1, i2))
+                recounted |= {j2 - 1} if inflected else set()
+                recued.add(c)  # its "no" took it back: "two tickets, no, three"
+        # Or taken back with it right before the cue, written after its correction's number as said:
+        # "one ticket, sorry, two" -> "two tickets".
+        for c in cues:
+            k = max((j for j in range(c) if j not in fillers), default=-1)
+            start = next(
+                (j for j in range(c + 1, len(raw_words)) if j not in cues and j not in fillers),
+                len(raw_words),
+            )
+            end = start  # its number's last word: "twenty five"
+            while end + 1 < len(raw_words) and cls.numbers(raw_words[end + 1]):
+                end += 1
+            if (
+                k in corrected
+                and start < len(raw_words)
+                and all(j in as_said for j in range(start, end + 1))
+                and counting(as_said[end] + 1, raw_words[k])
+            ):
+                recounted.add(as_said[end] + 1)
         # A cue written as "and" or "or" keeps both as a list: "Invite Tom, sorry, Jerry" is not
         # "Invite Tom and Jerry", nor "at ten, I'm sorry, eleven" "at ten or eleven".
         for tag, i1, i2, j1, j2 in edits:
@@ -2828,7 +2871,10 @@ class Engine:
             w for w in out_words if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
         }
         gone_words = {plain(w) for w in bare(lost)} - loose
-        added = {plain(w) for w in bare(set(out_words) - raw_set - counted)} - loose
+        recount = {  # each place it is written recounted
+            w for w in out_words if all(j in recounted for j, x in enumerate(out_words) if x == w)
+        }
+        added = {plain(w) for w in bare(set(out_words) - raw_set - counted - recount)} - loose
         # Each in its own place: "Delete bakcup and restore datbase" is not "Delete database and
         # restore backup".
         places = [
@@ -3176,7 +3222,7 @@ class Engine:
 
         gaps = re.split(word, out)  # gaps[j] precedes out_words[j]
         for n, (tag, i1, i2, j1, j2) in enumerate(edits):
-            cut = uncorrected(i1, i2)
+            cut = uncorrected(i1, i2, recued)  # a "no" that took a count back
             gone = [w for w in cut if w not in kept]
             # A false start's "not" is said again right beside it ("I don't, I don't know").
             dropped = [] if repeats(i1, i2) else [w for w in cut if stem(w) not in again(i1, i2)]
@@ -3251,7 +3297,12 @@ class Engine:
                 return True  # a meant "like" or "you know" cut: "I like cats" -> "I cats"
             # Unsaid words first, last, or as a sentence of their own are a reply: "Sure. Thanks."
             alone = n in (0, len(edits) - 1) or all(re.search(r"[.!?]", gaps[j]) for j in (j1, j2))
-            if tag in ("insert", "replace") and set(range(i1, i2)) <= fillers and alone:
+            if (
+                tag in ("insert", "replace")
+                and set(range(i1, i2)) <= fillers
+                and alone
+                and not set(range(j1, j2)) <= recounted
+            ):
                 return True
 
         # Kept words keep their order, numbers too ("fifteen apples" is not "apples ... 15");

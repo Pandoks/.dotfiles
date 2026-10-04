@@ -720,6 +720,15 @@ check(
             ),
             ("Run seq 1 5, sorry, 2 10.", "Run seq 2 10."),
             ("I need two tickets, sorry, three.", "I need three tickets."),
+            ("I need two tickets, no, three.", "I need three tickets."),
+            ("Order three pizzas, no wait, four.", "Order four pizzas."),
+            ("Run kill dash 9 1234, sorry, dash 15 4321.", "Run kill dash 15 4321."),
+            ("I need one ticket, sorry, two.", "I need two tickets."),
+            ("Take two pills, sorry, one.", "Take one pill."),
+            ("We need one box, sorry, two.", "We need two boxes."),
+            ("Add one cherry, sorry, two.", "Add two cherries."),
+            ("I need one ticket for Bob, sorry, two.", "I need two tickets for Bob."),
+            ("I need one ticket, sorry, twenty five.", "I need twenty five tickets."),
             ("Book 2 rooms for 3 nights, sorry, 4.", "Book 2 rooms for 4 nights."),
             ("We need three or four people, sorry, five.", "We need five people."),
             (
@@ -733,6 +742,10 @@ check(
             (
                 "I'm away Monday, sorry, Tuesday so you can come in late.",
                 "I'm away Tuesday so you can come in late.",
+            ),
+            (
+                "I can't come Thursday, sorry, Friday after all, by the way.",
+                "I can't come Friday after all, by the way.",
             ),
             (
                 "Can you pick me up at five, sorry, five thirty?",
@@ -1238,6 +1251,19 @@ check(
                 "We're closed Tuesday so you can stop by.",
             ),
             ("Order 3 pizzas, no wait, 4 5.", "Order 4 pizzas."),
+            ("Order 3 pizzas, no wait, 4 5.", "Order four pizzas."),
+            ("I need one ticket, sorry, two.", "I need two. Tickets."),
+            ("I need one ticket, sorry, two.", "I need two, tickets."),
+            ("I need one ticket for Bob, sorry, two.", "I need two, tickets for Bob."),
+            ("Book one room, sorry, two.", "Book rooms for two."),
+            ("Add one backup, I mean, two.", "Add two backups backups."),
+            (
+                "We have one backup tomorrow, actually, three.",
+                "We have three backups tomorrow backups.",
+            ),
+            ("I need one ticket, sorry, two.", "I need three tickets."),
+            ("I need a ticket, sorry, VIP.", "I need VIP tickets."),
+            ("I need one ticket, sorry, two.", "I need one ticket, two tickets."),
             (
                 "We're closed Monday, sorry, Tuesday so swing by.",
                 "We're closed Tuesday so swing by.",
@@ -1247,6 +1273,30 @@ check(
                 "We're closed Tuesday so you can pop in.",
             ),
             ("We're closed Monday, sorry, Tuesday so come by.", "We're closed Tuesday so come by."),
+            (
+                "We're closed Monday, sorry, Tuesday so you can come in.",
+                "We're closed Tuesday so you can come in.",
+            ),
+            (
+                "We're closed Monday, sorry, Tuesday so come on in.",
+                "We're closed Tuesday so come on in.",
+            ),
+            (
+                "We're closed Monday, sorry, Tuesday so you can come and see us.",
+                "We're closed Tuesday so you can come and see us.",
+            ),
+            (
+                "The shop is closed Sunday, sorry, Monday so you can come shop.",
+                "The shop is closed Monday so you can come shop.",
+            ),
+            (
+                "We're closed Monday, sorry, Tuesday so you can come into the store.",
+                "We're closed Tuesday so you can come into the store.",
+            ),
+            (
+                "We're closed Monday, sorry, Tuesday so come and visit.",
+                "We're closed Tuesday so come and visit.",
+            ),
             (
                 "I'm out Monday, sorry, Tuesday so you can come see me.",
                 "I'm out Tuesday so you can come see me.",
@@ -1293,6 +1343,8 @@ check(
                 "We can't fit eight people at the most.",
             ),
             ("I can't spend 500, sorry, 300 tops.", "I can't spend 300 tops."),
+            ("We can't seat twelve, sorry, ten max.", "We can't seat ten max."),
+            ("We can't seat twelve, sorry, ten maximum.", "We can't seat ten maximum."),
             (
                 "We're fully booked for Monday, I'm sorry, Tuesday if you can wait.",
                 "We're fully booked for Tuesday if you can wait.",
