@@ -1,6 +1,19 @@
 model = "gpt-6-astra"
 model_reasoning_effort = "medium"
 service_tier = "fast"
+model_provider = "cliproxyapi"
+
+[features]
+api_key_model_discovery = true
 
 [features.context_management]
 experimental_mode = true
+
+[model_providers.cliproxyapi]
+name = "OpenAI"
+base_url = "https://cliproxyapi.tailb2c81d.ts.net/v1"
+model_catalog_url = "https://cliproxyapi.tailb2c81d.ts.net/v1/models"
+experimental_bearer_token = "sk-dummy"
+wire_api = "responses"
+requires_openai_auth = true
+supports_websockets = true

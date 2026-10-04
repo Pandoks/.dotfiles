@@ -9,7 +9,7 @@ vim = "latest"
 aws-cli = { version = "latest", symlink_bins = "true" }
 jq = "latest"
 tmux = "latest"
-"npm:t3" = { version = "0.0", prerelease = true, trust_policy_excludes = ["@effect/platform-bun", "@effect/platform-node", "@effect/platform-node-shared", "@effect/sql-sqlite-bun", "effect", "@pierre/theme"], allow_builds = ["node-pty"] }
+"http:t3" = { version = "latest", prerelease = true, url = "https://github.com/pingdotgg/t3code/releases/download/v{{version}}/t3-{{version}}-linux-x64.tar.gz", platforms = { linux-x64 = { url = "https://github.com/pingdotgg/t3code/releases/download/v{{version}}/t3-{{version}}-linux-x64.tar.gz" }, linux-arm64 = { url = "https://github.com/pingdotgg/t3code/releases/download/v{{version}}/t3-{{version}}-linux-arm64.tar.gz" }, macos-arm64 = { url = "https://github.com/pingdotgg/t3code/releases/download/v{{version}}/t3-{{version}}-darwin-arm64.tar.gz" } }, checksum_url = "https://github.com/pingdotgg/t3code/releases/download/v{{version}}/SHA256SUMS", version_list_url = "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=100", version_json_path = ".[].tag_name", version_expr = 'sortVersions(filter(versions, # contains "-nightly."))' }
 tree-sitter = "latest"
 ripgrep = "latest"
 fastfetch = "latest"
@@ -28,7 +28,7 @@ uv = "latest"
 go = "latest"
 
 [settings]
-minimum_release_age_excludes = ["npm:t3", "claude-code", "codex", "npm:@moonshot-ai/kimi-code", "opencode", "grok"]
+minimum_release_age_excludes = ["http:t3", "claude-code", "codex", "npm:@moonshot-ai/kimi-code", "opencode", "grok"]
 
 [bootstrap.repos]
 "~/.oh-my-zsh" = { url = "https://github.com/ohmyzsh/ohmyzsh.git" }

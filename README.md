@@ -60,7 +60,16 @@ fi
 brew install mise
 ```
 
-Bootstrap the machine:
+#### Disable SIP
+
+Some of the features need [SIP] disabled.
+
+1. Shut down. Hold power (Apple Silicon) or hold Command-R during startup (Intel).
+2. Apple Silicon: **Options → Continue**. Authenticate when prompted.
+3. **Utilities → Terminal**: `csrutil disable`. Confirm and authenticate.
+4. Restart. Check `csrutil status` reports `disabled`.
+
+## Bootstrap
 
 ```sh
 git clone https://github.com/Pandoks/.dotfiles.git "$HOME/.dotfiles"
@@ -105,5 +114,35 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
+## CLIProxyAPI
+
+Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
+Keep Tailscale connected, run `/login` once in Claude Code for claude.ai
+connectors, and don't set `ANTHROPIC_AUTH_TOKEN`.
+
+### Host
+
+On the machine tagged `tag:cliproxyapi`:
+
+```sh
+mise -E cliproxyapi bootstrap --yes
+sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
+```
+
+Set the dashboard password in `management.secret-key` of
+`~/.cli-proxy-api/config.yaml`, then run
+`systemctl --user restart dev.mise.cli-proxy-api` (it's hashed on start). Add
+accounts and enable WebSockets on Codex ones at
+`https://cliproxyapi.<tailnet>.ts.net/management.html`. The config links into
+this public repo, so never commit `secret-key` or API keys.
+
+Upgrade:
+
+```sh
+mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
+```
+
+[SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
+[CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
