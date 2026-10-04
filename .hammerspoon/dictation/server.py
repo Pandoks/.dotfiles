@@ -831,6 +831,10 @@ class Engine:
         + ["truly", "terribly", "awfully", "just", "to", "can", "will", "could", "would", "should"]
         + ["must", "might", "let's", "i", "we", "you", "they", "he", "she", "i'll", "we'll"]
     )
+    # How a correction names a new amount or time in place of a number: "an hour", "next week".
+    NEW_AMOUNT = frozenset(
+        ["a", "an", "next", "another", "this", "last", "tomorrow", "tonight", "today"]
+    )
     # Words that take a clause, so a "that you know" shortly after them is meant: "Tell him that
     # you know", "It's important that you know" (not "We need to fix that you know").
     CLAUSING = frozenset(
@@ -839,6 +843,16 @@ class Engine:
         + ["believe", "mention", "explain", "remember", "forget", "notice", "understand", "find"]
         + ["glad", "happy", "relieved", "surprised", "important", "certain", "clear", "obvious"]
         + ["possible", "likely", "aware", "assume", "suppose", "mean", "means", "hear", "heard"]
+    )
+    # Copulas a clause may follow: "It's great that you know", "What matters is that you know".
+    COPULAS = frozenset(
+        ["is", "was", "are", "were", "am", "be", "been", "it's", "that's", "i'm", "we're", "you're"]
+        + ["they're", "he's", "she's", "what's"]
+    )
+    # Who a clause word is told to before "that": "Tell him that you know", "find out that".
+    CLAUSE_OBJECTS = frozenset(
+        ["him", "her", "them", "me", "us", "you", "anyone", "everyone", "anybody", "everybody"]
+        + ["someone", "somebody", "out", "up"]
     )
     # Verbs that take an "okay" or "yeah" as theirs: "The result is okay.", "Choose okay."
     TAKES_OKAY = frozenset(
@@ -1556,7 +1570,14 @@ class Engine:
                 and not (  # "Tell him that you know", not "We need to fix that you know"
                     m.group() == "you know"
                     and before == ["that"]
-                    and not cls.CLAUSING.isdisjoint(prior[-4:-1])
+                    and (  # right after a clause word or "is", or "tell him", "find out"
+                        prior[-2:-1] in ([w] for w in cls.CLAUSING | cls.COPULAS)
+                        or prior[-3:-2] in ([w] for w in cls.COPULAS)
+                        or (
+                            prior[-3:-2] in ([w] for w in cls.CLAUSING)
+                            and prior[-2] in cls.CLAUSE_OBJECTS
+                        )
+                    )
                 )
             )
             running = m.group() in ("you know", "i mean", "i meant", "make it") and not (
@@ -1627,7 +1648,11 @@ class Engine:
                 return False
             while j > 0 and raw_words[j - 1] in cls.PREDICATING:
                 j -= 1
-            return j not in led
+            if j not in led or j - 1 in ends:  # "I'm sorry." opening a sentence is its own
+                return True
+            # An aside's correction is a few words ("Monday, I'm sorry, Tuesday"), not a clause.
+            stop = next((e for e in sorted(paused) if e > k), len(raw_words) - 1)
+            return sum(i not in fillers for i in range(k + 1, stop + 1)) > 3
 
         cues = [
             k
@@ -1780,13 +1805,29 @@ class Engine:
         def cue_of(k):  # the cue that takes k back
             return min((c for c in cues if c > k), default=len(raw_words) - 1)
 
-        # Or when it is what is corrected, right before the cue: "ten minutes, no wait, an hour".
+        def between(k):  # words said between k and its cue
+            return sum(j not in fillers for j in range(k + 1, cue_of(k)))
+
+        def correction_opener(c):  # the first word of c's correction
+            return next(
+                (
+                    raw_words[j]
+                    for j in range(c + 1, len(raw_words))
+                    if j not in cues and j not in fillers
+                ),
+                "",
+            )
+
+        # Or when it is what is corrected: right before the cue, or one word before it with a new
+        # amount or time after ("ten minutes, no wait, an hour"), not "three Tuesday, no wait,
+        # Wednesday".
         replaced = {
             k
             for k in corrected
             if k in restated
             or not keeps_numbers(cue_of(k))
-            or sum(j not in fillers for j in range(k + 1, cue_of(k))) <= 1
+            or between(k) == 0
+            or (between(k) == 1 and correction_opener(cue_of(k)) in cls.NEW_AMOUNT)
         }
         back_words = {
             p.start(): p.group()
@@ -1885,9 +1926,11 @@ class Engine:
             for i, j in zip(range(i1, i2), itertools.count(j1))
         }
 
-        def replaced_at(position):  # a clause mark written between the words around it
-            before = [k for k, s in enumerate(spans) if s.end() <= position][-1:]
-            after = [k for k, s in enumerate(spans) if s.start() >= position][:1]
+        def replaced_at(position):  # a clause mark written between the words around it, stalls
+            # aside ("I called; um nobody answered." -> "I called. Nobody answered.")
+            before = [k for k, s in enumerate(spans) if s.end() <= position and k not in fillers]
+            after = [k for k, s in enumerate(spans) if s.start() >= position and k not in fillers]
+            before, after = before[-1:], after[:1]
             if not (before and after) or before[0] not in aligned or after[0] not in aligned:
                 return False
             j = aligned[before[0]]
@@ -2075,6 +2118,7 @@ class Engine:
                 w in {"okay", "ok", "yeah"}
                 and raw_words[k - 1 : k]
                 and raw_words[k - 1] in cls.TAKES_OKAY
+                and k not in led  # "The thing is, yeah, we need"
             )
         }
         counted = {  # numbers are checked as numbers; names with digits ("SHA256") pair too
@@ -2368,10 +2412,13 @@ class Engine:
             ["" if k in corrected | set(cues) | cued else w for k, w in enumerate(raw_words)],
             ends,
         )  # not a cue's own: "Scratch that."
-        written_count = collections.Counter(
-            out_words
-        )  # "sign up. Before Friday" -> "sign up before"
-        if any(written_count[w] < n for w, n in said_finals.items()):
+        # It may move ("sign up. Before Friday" -> "sign up before"), not go: as many written as
+        # said ("Turn it on. On Friday." is not "Turn it on Friday.").
+        written_count = collections.Counter(out_words)
+        heard_count = collections.Counter(
+            w for k, w in enumerate(raw_words) if k not in corrected | set(cues) | cued
+        )
+        if any(written_count[w] < heard_count[w] for w in said_finals):
             return True
         if sides(heard) != sides(out_words):
             return True
