@@ -583,6 +583,19 @@ check(
             ("I mean, it's fine.", "I mean, it's fine."),  # a filler may stay
             ("It works you know.", "It works."),  # or go, set off or not
             ("Please send it, no wait, send it to Bob.", "Please send it to Bob."),
+            (
+                "You should call her, sorry, call her after the meeting.",
+                "You should call her after the meeting.",
+            ),
+            (
+                "Don't worry, I'll call her, no wait, call her after the meeting today.",
+                "Don't worry, I'll call her after the meeting today.",
+            ),
+            ("We should leave at five, no wait, leave at six.", "We should leave at six."),
+            ("Let's meet on Thursday. Uh, no, Friday.", "Let's meet on Friday."),
+            ("Let's meet on Monday. I mean, Tuesday.", "Let's meet on Tuesday."),
+            ("Send it to Alice. No, wait. Send it to Bob.", "Send it to Bob."),
+            ("Set PATH to $HOME/bin, no wait, $HOME/.local/bin.", "Set PATH to $HOME/.local/bin."),
             ("Book it from 9.30 to 11.30 am.", "Book it from 9:30 to 11:30 am."),
             ("echo $HOME, no wait, $PATH", "echo $PATH"),
             (">> Hello there.", "Hello there."),
@@ -846,6 +859,17 @@ check(
             ("Never push to main. Merge it, no wait, close it.", "Close it."),  # its sentence only
             ("Do not deploy. Merge it, no wait, merge it.", "Merge it."),
             ("Sorry, I can't make it.", "Sorry, I can't."),
+            ("Tell me what you know.", "Tell me what."),
+            ("Uh, don't call me, sorry, call me after five.", "Don't call me after five."),
+            (
+                "Um never skip the tests, sorry, skip the tests on docs changes.",
+                "Never skip the tests on docs changes.",
+            ),
+            ("You can't merge it, no wait, merge it today.", "You can't merge it today."),
+            (
+                "Delete all the branches, no wait, delete the merged branches.",
+                "Delete all the merged branches.",
+            ),
             ("It's not working, no wait, it's working.", "It's not working."),
             ("I don't think so, no wait, I think so.", "I don't think so."),
             (

@@ -700,6 +700,12 @@ class Engine:
     )
     # Scope, frequency, and obligation a cleanup must not drop or add: "Delete all files" is not
     # "Delete files". "will" and "would" contract ("I'll"), so they are checked by meaning below.
+    # Words that flip or bound what follows, which a correction may take back ("Always run the
+    # tests, no wait, run the tests") or say again without ("Never skip it, sorry, skip it today").
+    FLIPS = frozenset(
+        ["not", "never", "no", "none", "nobody", "nothing", "only", "cannot"]
+        + ["always", "all", "every", "each"]
+    )
     SCOPE = frozenset(
         ["all", "every", "each", "any", "both", "some", "always", "sometimes", "often", "usually"]
         + ["must", "should", "may", "might", "can", "could", "shall", "maybe", "probably", "if"]
@@ -794,6 +800,19 @@ class Engine:
             for side, words in enumerate(pair.split("/"))
             for w in words.split("|")
         }
+    )
+    # Words a sentence-final "you know" completes, meant: "Tell me what you know", "someone you
+    # know", "I didn't know you know".
+    KNOWN = frozenset(
+        ["what", "who", "whom", "whatever", "whoever", "how", "where", "why", "when", "if"]
+        + ["whether", "than", "someone", "somebody", "anyone", "anybody", "everyone", "everybody"]
+        + ["people", "something", "anything", "everything", "know", "knows", "knew", "let"]
+        + ["now", "as", "do", "does", "did"]
+    )
+    # Verbs a "not" leans on, gone with it: "don't", "can't", "won't".
+    AUXILIARIES = frozenset(
+        ["do", "does", "did", "can", "could", "will", "would", "should", "shall", "may", "might"]
+        + ["must", "is", "are", "was", "were", "am", "has", "have", "had"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(
@@ -1421,7 +1440,11 @@ class Engine:
             # meant. One kept as said counts as said ("I'll let you know.").
             # "make it" is a cue only set off before: "no, make it Friday", not "Make it bold" or
             # "I can't make it."
-            ending = m.group() != "make it" and re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
+            ending = (
+                m.group() != "make it"
+                and re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
+                and not (m.group() == "you know" and before and before[0] in cls.KNOWN)
+            )
             running = m.group() in ("you know", "i mean", "i meant", "make it") and not (
                 ending
                 or re.search(r"[,;:…—]\s*$", raw[: m.start()])
@@ -1477,9 +1500,16 @@ class Engine:
         def opening(k):  # the first word of k's sentence
             return max((e + 1 for e in ends if e < k), default=0)
 
-        def reach(c):  # in the cue's sentence, or the one before when it opens one ("No, Friday")
+        def reach(c):  # in the cue's sentence, or the one before when it opens one ("No, Friday",
+            # "Uh, no, Friday", "I mean, Tuesday")
             start = opening(c)
-            return opening(start - 1) if start == c > 0 else start
+            opens = all(
+                k in fillers
+                or raw_words[k] in cls.MARKERS
+                or (k == c - 1 and (raw_words[k], raw_words[c]) in phrases)
+                for k in range(start, c)
+            )
+            return opening(start - 1) if opens and start > 0 else start
 
         corrected = {
             k
@@ -1500,21 +1530,24 @@ class Engine:
             if tag == "equal" or not inside:
                 continue
             start = max(inside) + 1
-            again = [
+            said_again = [
                 n
                 for n in range(1, min(i2 - start, i1) + 1)
                 if raw_words[start : start + n] == raw_words[i1 - n : i1]
             ]
-            if not again:
+            if not said_again:
                 continue
-            first = i1 - again[-1]
+            first = i1 - said_again[-1]
             if e > 1 and edits[e - 1][1] == first and edits[e - 2][0] == "delete":
                 lead = range(max(edits[e - 2][1], reach(min(inside))), first)
                 if lead and min(inside) - lead[0] <= 6:
                     corrected |= set(lead)
                     first = lead[0]
-            restated |= set(range(start, start + again[-1]))
-            attempts.append((spans[first].start(), spans[max(inside)].start()))
+            restated |= set(range(start, start + said_again[-1]))
+            # From its first word's marks: "$HOME/bin, no wait, $HOME/.local/bin" takes back a "$".
+            attempts.append(
+                (raw.rfind(" ", 0, spans[first].start()) + 1, spans[max(inside)].start())
+            )
         corrected |= restated
         # Said again from its middle, it takes back the "never" or "always" that led it in its
         # sentence: "Never skip the tests, sorry, skip the tests on docs changes" is not "Never skip
@@ -1525,14 +1558,20 @@ class Engine:
                 continue
             cue = min(inside)
             cue -= tuple(raw_words[cue - 1 : cue + 1]) in phrases  # "I mean" starts at "I"
-            first = raw_words[i1:cue]
-            led = raw_words[reach(min(inside)) : i1]
+            first = [raw_words[k] for k in range(i1, cue) if k not in fillers]
+            # Its clause, stalls aside: "No problem, I'll send it" is led by "I'll", "Uh, don't
+            # call me" by "don't".
+            start = max([reach(min(inside))] + [k + 1 for k in paused if k < i1])
+            led = [raw_words[k] for k in range(start, i1) if k not in fillers]
             if (
                 first
-                and raw_words[i2 : i2 + len(first)] == first
+                and [w for k, w in enumerate(raw_words) if k >= i2 and k not in fillers][
+                    : len(first)
+                ]
+                == first
                 and led
                 and out_words[max(0, j1 - len(led)) : j1] == led
-                and (negative(led) or not cls.SCOPE.isdisjoint(led))
+                and any(w in cls.FLIPS or w.endswith("n't") for w in led)
             ):
                 return True
 
@@ -1822,8 +1861,8 @@ class Engine:
                 out += [plain(w), short[ending]] if ending in short and stem else [w]
             return out
 
-        def nots(words, k):  # a "do" its "not" follows
-            return words[k] in ("do", "does", "did") and words[k + 1 : k + 2] == ["not"]
+        def nots(words, k):  # a "do" or "can" its "not" follows ("don't", "can't")
+            return words[k] in cls.AUXILIARIES and words[k + 1 : k + 2] == ["not"]
 
         def repeats(i1, i2):  # a false start said again beside it, word for word
             cut = expand(uncorrected(i1, i2))
@@ -2089,12 +2128,12 @@ class Engine:
             # "I do not want it", nor "It is, it was working" "It is working", nor "It's not
             # working, no wait, it's working" "It's not working" (its cue aside, words said again
             # in). Each without its "not", "never", or "always" ("Always run it, no wait, run it").
-            scoped = cls.NEGATIONS | cls.SCOPE
+            scoped = cls.FLIPS
             correction = expand(uncorrected(i1, i2, cues, restated))
             later = [w for w in correction if w not in scoped]
             # The whole first saying first: "Never deploy, no wait, never deploy" says it again.
-            reach = len(correction) + 2 if tag == "delete" and len(correction) <= 8 else 1
-            for m in reversed(range(1, reach)):
+            widest = len(correction) + 2 if tag == "delete" and len(correction) <= 8 else 1
+            for m in reversed(range(1, widest)):
                 earlier = raw_words[max(0, i1 - m) : i1]
                 said = expand(earlier)
                 if said == correction:
@@ -2149,7 +2188,7 @@ class Engine:
             # "Thank you." or "Hammer spoon." -> "Hammerspoon.".
             whole = (i1 == 0 or i1 - 1 in ends) and (i2 == len(raw_words) or i2 - 1 in ends)
             related = any(a.startswith(b) or b.startswith(a) for a in said for b in wrote)
-            gone_words = set(uncorrected(i1, i2)) - cls.MARKERS
+            gone_words = set(uncorrected(i1, i2, cues)) - cls.MARKERS  # "No, wait." is no sentence
             if whole and gone_words and (tag == "delete" or (tag == "replace" and not related)):
                 return True
             if tag != "equal" and any(k in meant and k not in corrected for k in range(i1, i2)):
