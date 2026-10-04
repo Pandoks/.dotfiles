@@ -679,6 +679,14 @@ check(
                 "Ship it Thursday we need it early.",
             ),
             (
+                "The store is closed Monday, sorry, Tuesday because of the holiday.",
+                "The store is closed Tuesday because of the holiday.",
+            ),
+            (
+                "I'll tell you something that you know, the boss is leaving.",
+                "I'll tell you something that the boss is leaving.",
+            ),
+            (
                 "Let's meet Monday, I'm sorry, Tuesday a few hours later.",
                 "Let's meet Tuesday a few hours later.",
             ),
@@ -1031,6 +1039,25 @@ check(
                 "Sarah isn't available Tuesday if that works for you.",
             ),
             ("I can't meet at two, sorry, three instead.", "I can't meet at three instead."),
+            (
+                "I can't do Monday, sorry, Tuesday if it works for you.",
+                "I can't do Tuesday if it works for you.",
+            ),
+            (
+                "I can't make Friday, I'm sorry, Monday, if that works.",
+                "I can't make Monday if that works.",
+            ),
+            ("Can't make Friday, sorry, Monday if that works.", "Can't make Monday if that works."),
+            (
+                "Mike's busy Monday, I'm sorry, Tuesday if that works.",
+                "Mike's busy Tuesday if that works.",
+            ),
+            (
+                "I'm off Monday, I'm sorry, Tuesday if you need me.",
+                "I'm off Tuesday if you need me.",
+            ),
+            ("Invite Tom, sorry, Jerry.", "Invite Tom and Jerry."),
+            ("I'm meeting Sarah Monday, I'm sorry, Tuesday.", "I'm meeting Tuesday."),
             (
                 "We're fully booked for Monday, I'm sorry, Tuesday if you can wait.",
                 "We're fully booked for Tuesday if you can wait.",

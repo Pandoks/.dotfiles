@@ -891,7 +891,8 @@ class Engine:
     # States that turn one away: "I'm busy Monday", "We're fully booked Friday", not "I'm free".
     AWAY = frozenset(
         ["busy", "closed", "booked", "full", "taken", "out", "away", "unavailable", "swamped"]
-        + ["slammed", "tied", "up", "sold", "occupied", "packed", "gone"]
+        + ["slammed", "tied", "up", "sold", "occupied", "packed", "gone", "off", "vacation"]
+        + ["traveling", "travelling", "meetings"]
     )
     # Heads that are people: "Ask someone that you know, they'll help" is theirs.
     PEOPLE = frozenset(
@@ -1696,7 +1697,8 @@ class Engine:
                                 and not (
                                     prior[-2] in cls.HEADS
                                     and re.match(
-                                        r"\s*[,;:…—]\s*(?:the|everyone|everybody)\b", raw[m.end() :]
+                                        r"\s*[,;:…—]\s*(?:the\s+(?:more|less|fewer|better|sooner)|everyone|everybody)\b",
+                                        raw[m.end() :],
                                     )
                                 )
                             )
@@ -1808,7 +1810,8 @@ class Engine:
                 (w.endswith("n't") or w in ("not", "never", "cannot"))
                 and lead[p + 1 : p + 2] != ["to"]
                 for p, w in enumerate(lead)
-                if p
+                # the subject unsaid: "Can't make Friday", not the order "Don't call Sarah"
+                if p or w in ("can't", "cannot", "won't", "couldn't", "isn't", "aren't", "wasn't")
             )
 
         # A time offered on its terms after a refusal: "We can't deliver Friday, sorry, Monday at
@@ -1843,7 +1846,7 @@ class Engine:
                 ),
                 len(after),
             )
-            term, then = (after[at : at + 2] + ["", ""])[:2]
+            term, then, more = (after[at : at + 3] + ["", "", ""])[:3]
             bounds = {"before", "after", "around", "by", "or", "earliest", "latest", "soonest"}
             if strict:  # after an order, only a bound of its own: "Tuesday at the earliest"
                 return term in ("earliest", "latest", "soonest")
@@ -1852,7 +1855,15 @@ class Engine:
             return (
                 term in bounds | {"works", "instead", "onward", "onwards"}
                 or term in ("if", "unless")
-                and then in ("you", "you're", "that", "that's")
+                and (
+                    then.split("'")[0] in ("you", "that", "this")
+                    or then in ("possible", "needed", "necessary")
+                    # "if it works for you", "if it's okay", not "if it snows"
+                    or (
+                        then in ("it", "it's")
+                        and more in ("works", "suits", "helps", "okay", "ok", "fine", "alright")
+                    )
+                )
             )
 
         def predicated(k, bare=False):  # the sentence's own: "Please wait.", "I am sorry.", not
@@ -1914,6 +1925,11 @@ class Engine:
             state = next(
                 (w for w in reversed(lead[:-1]) if w not in cls.FUNCTION - cls.COPULAS), ""
             )
+            # "Mike's busy", "The team's out": a name's "'s" before a state is its copula
+            lead = [
+                "is" if w.endswith("'s") and lead[p + 1 : p + 2] and lead[p + 1] in cls.AWAY else w
+                for p, w in enumerate(lead)
+            ]
             refusing = (
                 bool(set(lead) & cls.COPULAS)
                 # or one right after its copula: "I'm out of the office Monday"
@@ -1931,7 +1947,7 @@ class Engine:
                 )
                 # "We're meeting Monday", not "The meeting room is booked Monday"
                 and not any(
-                    w.endswith("ing")
+                    w.endswith("ing") and w not in cls.AWAY
                     for w in lead[max(p for p, w in enumerate(lead) if w in cls.COPULAS) :]
                 )
             )
@@ -1941,11 +1957,18 @@ class Engine:
             # A time offered on its terms: "Monday before noon", "nine thirty at the earliest";
             # not "He doesn't work at Google, I'm sorry, Apple" or "It won't ship Monday, I'm
             # sorry, Tuesday".
-            if refused and offered(said, after):
+            # past a comma after the time: "Monday, if that works"
+            end = min((e for e in ends if e >= stop), default=len(raw_words) - 1)
+            tail = (
+                after + [raw_words[i] for i in range(stop + 1, end + 1) if i not in fillers]
+                if after and kin_of(after[-1])
+                else after
+            )
+            if refused and offered(said, tail):
                 return True
             # So does an order offering a time "at the earliest": "Don't book Monday, I'm sorry,
             # Tuesday at the earliest" ("Don't call Sarah, I'm sorry, Emily" corrects)
-            if lead[:1] and negative(lead[:1], no=False) and offered(said, after, strict=True):
+            if lead[:1] and negative(lead[:1], no=False) and offered(said, tail, strict=True):
                 return True
             opener = after[named + 1 : named + 3] if named is not None else []
             clause = bool(
@@ -1973,7 +1996,13 @@ class Engine:
                 )
                 or set(own[1:]) & (cls.COPULAS | cls.AUXILIARIES - {"may"})
                 or any(w.endswith("n't") for w in own[1:])
-                or (refusing and linked < len(after))
+                # a link that offers, not one explaining the state: "Tuesday if you're free",
+                # not "Tuesday because of the holiday", "Tuesday while they fix the roof"
+                or (
+                    refusing
+                    and linked < len(after)
+                    and after[linked] not in ("because", "since", "so", "while", "until", "till")
+                )
             )
             if bare:
                 # only after one turned away: "We're closed Monday, sorry, Tuesday the doors open"
@@ -2048,12 +2077,30 @@ class Engine:
                 start = before
             return start
 
+        # A correction naming a day takes back from the day it replaces: "Call Sarah Monday, no
+        # wait, Tuesday" keeps "Sarah".
+        def taken_from(c):
+            start = reach(c)
+            w = next(
+                (
+                    raw_words[j]
+                    for j in range(c + 1, len(raw_words))
+                    if j not in cues and j not in fillers
+                ),
+                "",
+            )
+            if w in cls.CALENDAR:
+                return max(
+                    (p for p in range(start, c) if raw_words[p] in cls.CALENDAR), default=start
+                )
+            return start
+
         corrected = {
             k
             for tag, i1, i2, _, _ in edits
             if tag != "equal"
             for k in range(i1, i2)
-            if any(reach(c) <= k < c < i2 and c - k <= 6 for c in cues)
+            if any(taken_from(c) <= k < c < i2 and c - k <= 6 for c in cues)
         }
         # A correction may start by saying its first words again ("2 tickets for Monday, no wait,
         # 2 tickets for Tuesday"). The match keeps the first saying, so the second is taken back
@@ -2086,6 +2133,19 @@ class Engine:
                 (raw.rfind(" ", 0, spans[first].start()) + 1, spans[max(inside)].start())
             )
         corrected |= restated
+        # A cue written as "and" or "or" keeps both as a list: "Invite Tom, sorry, Jerry" is not
+        # "Invite Tom and Jerry", nor "at ten, I'm sorry, eleven" "at ten or eleven".
+        for tag, i1, i2, j1, j2 in edits:
+            if (
+                tag == "replace"
+                and any(i1 <= c < i2 for c in cues)
+                and all(
+                    k in cues or k in fillers or raw_words[k] in cls.MARKERS | cls.PREDICATING
+                    for k in range(i1, i2)
+                )
+                and all(w in ("and", "or", "then", "also", "plus") for w in out_words[j1:j2])
+            ):
+                return True
         # A cue dropped on its own between two sayings of one thing keeps both and loses the
         # choice: "Use the red one actually. Use the blue one." is not "Use the red one. Use the
         # blue one." ("It was, actually, fine." -> "It was fine." is a filler gone).
