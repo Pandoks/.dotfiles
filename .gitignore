@@ -1,3 +1,5 @@
 .env
 .hammerspoon/secrets.lua
 .hammerspoon/Spoons/
+.cli-proxy-api/*
+!.cli-proxy-api/config.yaml

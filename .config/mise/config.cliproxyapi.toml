@@ -1,0 +1,15 @@
+[tools]
+"github:router-for-me/CLIProxyAPI" = "latest"
+
+[dotfiles]
+"~/.cli-proxy-api/config.yaml" = "../../.cli-proxy-api/config.yaml"
+
+[bootstrap.linux.systemd.units.cli-proxy-api]
+description = "cli-proxy-api Service"
+after = ["network.target"]
+type = "simple"
+exec_start = "%h/.local/share/mise/installs/github-router-for-me-cli-proxy-api/latest/cli-proxy-api --config %h/.cli-proxy-api/config.yaml"
+restart = "always"
+restart_sec = "10"
+wanted_by = ["default.target"]
+start = true

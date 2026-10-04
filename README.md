@@ -102,13 +102,6 @@ gh auth login
 aws sso login --profile PROFILE_NAME
 ```
 
-Claude Code and Codex send model requests to the [CLIProxyAPI] service on the
-tailnet, which uses its own accounts, so Tailscale must be connected. Still run
-`/login` in Claude Code once per machine: it won't start without a credential,
-and claude.ai connectors load only from a claude.ai login. Don't set
-`ANTHROPIC_AUTH_TOKEN`, because it takes precedence and disables the
-connectors. Pick non-Claude models by ID, for example `/model gpt-6-sol`.
-
 SSH configuration and `authorized_keys` are managed, but SSH private keys are
 not. Ensure the managed SSH files have the required permissions:
 
@@ -120,6 +113,34 @@ chmod 600 "$HOME/.ssh/authorized_keys"
 The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
+
+## CLIProxyAPI
+
+Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
+Keep Tailscale connected, run `/login` once in Claude Code for claude.ai
+connectors, and don't set `ANTHROPIC_AUTH_TOKEN`.
+
+### Host
+
+On the machine tagged `tag:cliproxyapi`:
+
+```sh
+mise -E cliproxyapi bootstrap --yes
+sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
+```
+
+Set the dashboard password in `management.secret-key` of
+`~/.cli-proxy-api/config.yaml`, then run
+`systemctl --user restart dev.mise.cli-proxy-api` (it's hashed on start). Add
+accounts and enable WebSockets on Codex ones at
+`https://cliproxyapi.<tailnet>.ts.net/management.html`. The config links into
+this public repo, so never commit `secret-key` or API keys.
+
+Upgrade:
+
+```sh
+mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
+```
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
