@@ -1,6 +1,6 @@
 local root, frameworks = assert(arg[1], "pass the dictation directory"), arg[2]
 local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
-local passed, alerts, output, printed = 0, {}, nil, {}
+local passed, alerts, output, printed, inputs = 0, {}, nil, {}, {}
 
 local function test(name, callback)
   local ok, failure = pcall(callback)
@@ -42,7 +42,9 @@ local engine = assert(loadfile(
             isRunning = function()
               return true
             end,
-            setInput = function() end,
+            setInput = function(_, data)
+              inputs[#inputs + 1] = json.decode(data)
+            end,
             terminate = function() end,
           }
         end,
@@ -87,6 +89,28 @@ test("what the backend prints once ready reaches the console", function()
   local console = table.concat(printed, "\n")
   assert(not console:find("Downloading", 1, true), "load chatter in the console")
   assert(console:find("requires 9000 MB", 1, true), console)
+end)
+
+test("a take waits for the one before it, never written over it", function()
+  local backend = assert(
+    engine.new({ stt = {}, cleanup = {} }, { onFinal = function() end, onError = function() end })
+  )
+  local feed = assert(output, "no backend task")
+  feed(nil, '{"event":"ready"}\n', "")
+  inputs = {}
+  local first = assert(backend:transcribe({ wav = "/tmp/a.wav" }))
+  local second = assert(backend:transcribe({ wav = "/tmp/b.wav" }))
+  local third = assert(backend:transcribe({ wav = "/tmp/c.wav" }))
+  assert(#inputs == 1 and inputs[1].id == first, "a second request written before an answer")
+  feed(nil, '{"event":"error","id":99,"msg":"stray"}\n', "")
+  assert(#inputs == 1, "an answer to another request sent the next")
+  feed(nil, '{"event":"final","id":' .. first .. ',"text":"a"}\n', "")
+  assert(#inputs == 2 and inputs[2].id == second, "the next request not sent once answered")
+  feed(nil, '{"event":"error","id":' .. second .. ',"msg":"no speech"}\n', "")
+  assert(#inputs == 3 and inputs[3].id == third and inputs[3].wav == "/tmp/c.wav", "lost a take")
+  feed(nil, '{"event":"final","id":' .. third .. ',"text":"c"}\n', "")
+  assert(#inputs == 3, "a request sent twice")
+  assert(backend:transcribe({ wav = "/tmp/d.wav" }) and #inputs == 4, "idle backend kept waiting")
 end)
 
 print(passed .. " engine tests passed")

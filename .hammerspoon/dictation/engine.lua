@@ -11,6 +11,8 @@ local recorder = require("dictation.recorder")
 
 ---@class DictationEngine
 ---@field task hs.task
+---@field sending? integer the request the backend has, answered before the next is sent
+---@field queued { id: integer, line: string }[]
 local engine = {}
 engine.__index = engine
 local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
@@ -28,8 +30,10 @@ function engine.new(config, handlers)
   if not recorder.ffmpeg then
     return nil, "ffmpeg not found; run mise install"
   end
-  local self =
-    setmetatable({ ready = false, stopped = false, serial = 0, buffer = "", errors = "" }, engine)
+  local self = setmetatable(
+    { ready = false, stopped = false, serial = 0, buffer = "", errors = "", queued = {} },
+    engine
+  )
   local function failure(message)
     if self.stopped then
       return
@@ -44,6 +48,18 @@ function engine.new(config, handlers)
     if not ok then
       print("Dictation: " .. tostring(problem))
       hs.alert.show("Dictation: " .. tostring(problem):match("^[^\n]*"), 5)
+    end
+  end
+  -- The next request goes once the last is answered: hs.task:setInput discards what it has not
+  -- written yet when called again, and a busy backend leaves it unwritten in a full pipe.
+  local function answered(id)
+    if id ~= self.sending then
+      return
+    end
+    local queued = table.remove(self.queued, 1)
+    self.sending = queued and queued.id
+    if queued then
+      self.task:setInput(queued.line)
     end
   end
   local function output(_, stdout, stderr)
@@ -76,9 +92,11 @@ function engine.new(config, handlers)
             failure("invalid transcription response")
             return true
           end
+          answered(event.id)
           call(handlers.onFinal, event)
         elseif event.event == "error" then
           if event.id then
+            answered(event.id)
             local heard = type(event.heard) == "string" and event.heard or nil
             call(handlers.onError, event.msg or "unknown error", event.id, heard)
           else
@@ -141,7 +159,13 @@ function engine:transcribe(request)
   end
   self.serial = self.serial + 1
   request.cmd, request.id = "transcribe", self.serial
-  self.task:setInput(hs.json.encode(request) .. "\n")
+  local line = hs.json.encode(request) .. "\n"
+  if self.sending then
+    self.queued[#self.queued + 1] = { id = self.serial, line = line }
+  else
+    self.sending = self.serial
+    self.task:setInput(line)
+  end
   return self.serial
 end
 
