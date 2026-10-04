@@ -11,6 +11,11 @@
   "skipAutoPermissionPrompt": true,
   "agentPushNotifEnabled": true,
   "cleanupPeriodDays": 90,
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://cliproxyapi.tailb2c81d.ts.net",
+    "ANTHROPIC_AUTH_TOKEN": "sk-dummy",
+    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
+  },
   "permissions": {
     "allow": [
       "WebSearch",
