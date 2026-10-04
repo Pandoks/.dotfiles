@@ -601,9 +601,16 @@ check(
             ("We already tried that you know.", "We already tried that."),
             ("Run LS in the home folder.", "Run ls in the home folder."),  # letters heard
             ("Is it done; did you check?", "Is it done? Did you check?"),
-            ("So, um, I tried it; it didn't work.", "So I tried it, it didn't work."),
+            ("So, um, I tried it; it didn't work.", "So, I tried it, it didn't work."),
             ("Ship it Monday. Yeah. No. Ship it Tuesday.", "Ship it Tuesday."),
             ("It was, actually, fine.", "It was fine."),
+            (
+                "Let's meet at the coffee shop on Main Street, no wait, the library.",
+                "Let's meet at the library.",
+            ),
+            ("I'm okay actually. I'm feeling much better.", "I'm okay. I'm feeling much better."),
+            ("That's true actually. That's very true.", "That's true. That's very true."),
+            ("We can do that actually. We can do that tomorrow.", "We can do that tomorrow."),
             (
                 "We might ship today, no wait, we will ship today.",
                 "We might ship today. No, we will ship today.",
@@ -887,6 +894,9 @@ check(
             ("Select all users.", "Delete all users."),  # a destructive verb never said
             ("Meet at 3 p.m. Wait.", "Meet at 3 p.m."),
             ("cd ~", "cd /"),
+            ("Tell him that you know.", "Tell him that."),
+            ("So, um, run make; make install.", "So, run make make install."),
+            ("I'm really sorry. I missed the meeting.", "I missed the meeting."),
             ("You mustn't merge it, no wait, merge it today.", "You mustn't merge it today."),
             ("Let's meet at 3 p.m. Tuesday, no wait, Wednesday.", "Let's meet at Wednesday."),
             ("Use the red one actually. Use the blue one.", "Use the red one. Use the blue one."),

@@ -820,9 +820,11 @@ class Engine:
         + ["people", "something", "anything", "everything", "know", "knows", "knew", "let"]
         + ["now", "as", "do", "does", "did"]
     )
-    # Verbs a "that you know" completes: "I know that you know", "I'm sure that you know".
-    KNOWING = frozenset(
-        ["know", "knew", "think", "thought", "sure", "bet", "hope", "guess", "said"]
+    # Words after which "that" is a thing, not a clause, so a "you know" after it is filler: "We
+    # already tried that you know", "as easy as that you know" (not "Tell him that you know").
+    THAT_OBJECT = frozenset(
+        ["tried", "try", "did", "do", "done", "like", "liked", "love", "loved", "saw", "seen"]
+        + ["heard", "want", "wanted", "need", "needed", "as", "about", "with", "of", "for", "than"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(
@@ -1512,7 +1514,7 @@ class Engine:
                     m.group() == "you know"
                     and before == ["that"]
                     and two[:1]
-                    and two[0] in cls.KNOWING
+                    and two[0] not in cls.THAT_OBJECT
                 )
             )
             running = m.group() in ("you know", "i mean", "i meant", "make it") and not (
@@ -1553,8 +1555,29 @@ class Engine:
         }
         led = {k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])}
         phrases = {("no", "wait"), ("i", "mean"), ("scratch", "that")}
+
         # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one"). Besides
         # "no", a cue is set off or a cue phrase: not "please wait for" or "it actually works".
+        def content(tokens):  # the words that say what: not "the", "I'm", or "that's"
+            return {
+                w
+                for w in tokens
+                if w not in cls.FUNCTION
+                and w.split("'")[0] not in cls.FUNCTION | cls.PERSONS.keys()
+            }
+
+        def follows_up(k):  # the next sentence corrects k's: "Monday sorry. Tuesday.", "Use the
+            # red one actually. Use the blue one.", not "I can't make it sorry. Maybe next week."
+            start = max((e + 1 for e in ends if e < k), default=0)
+            stop = min((e + 1 for e in ends if e > k), default=len(raw_words))
+            nxt = [w for j, w in enumerate(raw_words[k + 1 : stop], k + 1) if j not in fillers]
+            first = raw_words[start:k]
+            return (
+                len(nxt) <= 2
+                or nxt[:1] == first[:1]  # said again from its start: "We can do that actually. We"
+                or not content(first).isdisjoint(content(nxt))
+            )
+
         cues = [
             k
             for k, w in enumerate(raw_words)
@@ -1566,7 +1589,8 @@ class Engine:
                 or k + 1 < len(raw_words)
                 and (
                     k in led
-                    or k in paused  # "Monday sorry. Tuesday."
+                    or k in paused - ends
+                    or (k in paused & ends and follows_up(k))
                     or {tuple(raw_words[k - 1 : k + 1]), tuple(raw_words[k : k + 2])} & phrases
                 )
             )
@@ -1592,21 +1616,12 @@ class Engine:
                 start = before
             return start
 
-        def span(c):  # what a cue takes back: up to 6 words, and 2 more than its correction says
-            # ("Meet at 3 p.m. Tuesday, no wait, Wednesday" takes back no "3 p.m.")
-            correction = 0
-            for k in range(c + 1, len(raw_words)):
-                if k in cues or (k - 1 in ends and correction):
-                    break
-                correction += k not in fillers
-            return min(6, correction + 2)
-
         corrected = {
             k
             for tag, i1, i2, _, _ in edits
             if tag != "equal"
             for k in range(i1, i2)
-            if any(reach(c) <= k < c < i2 and c - k <= span(c) for c in cues)
+            if any(reach(c) <= k < c < i2 and c - k <= 6 for c in cues)
         }
         # A correction may start by saying its first words again ("2 tickets for Monday, no wait,
         # 2 tickets for Tuesday"). The match keeps the first saying, so the second is taken back
@@ -1654,9 +1669,11 @@ class Engine:
                 or {i1 - 1, i2} & set(cues)  # one beside it stays: "today. No, we will"
             ):
                 continue
-            said = {w for w in raw_words[reach(min(inside)) : i1] if w not in cls.FUNCTION}
-            after = {w for w in raw_words[i2 : i2 + len(said) + 2] if w not in cls.FUNCTION}
-            if any(not cls.numbers(w) for w in said & after):
+            first = raw_words[reach(min(inside)) : i1]
+            said, after = content(first), content(raw_words[i2 : i2 + len(first) + 2])
+            # One thing said twice with a word swapped, not added to: "red" -> "blue", not "That's
+            # true actually. That's very true."
+            if any(not cls.numbers(w) for w in said & after) and said - after and after - said:
                 return True
         # Said again from its middle, it takes back the "never" or "always" that led it in its
         # sentence: "Never skip the tests, sorry, skip the tests on docs changes" is not "Never skip
@@ -1691,9 +1708,33 @@ class Engine:
         written = [w for w, _ in cls.numbers(out)]
         # With the rest of its written word: "256" in "SHA-256, no wait" takes back "SHA-256".
         pieces = list(re.finditer(r"\S+", raw))
+
+        def keeps_numbers(
+            c,
+        ):  # its correction is a word or two, no number: "Tuesday, no, Wednesday"
+            said = []
+            for k in range(c + 1, len(raw_words)):
+                if k in cues:
+                    if said:
+                        break
+                    continue
+                said.append(raw_words[k])
+                if k in ends:
+                    break
+            numbered = any(cls.numbers(w) for w in said) or bool(cls.zeros(" ".join(said)))
+            return len(said) <= 2 and not numbered
+
+        # A number stays when only what follows it is corrected: "Meet at 3 p.m. Tuesday, no wait,
+        # Wednesday" keeps its "3 p.m.", "move it to ten? Actually, should we cancel it?" not.
+        replaced = {
+            k
+            for k in corrected
+            if k in restated
+            or not keeps_numbers(min((c for c in cues if c > k), default=len(raw_words) - 1))
+        }
         back_words = {
             p.start(): p.group()
-            for k in corrected
+            for k in replaced
             for p in pieces
             if p.start() <= spans[k].start() < p.end()
         }
@@ -1798,7 +1839,8 @@ class Engine:
                 lost -= max(0, len(re.findall(r"\band\b", out)) - len(re.findall(r"\band\b", raw)))
             if symbol == ";":  # each clause mark gained may be one: "home; then" -> "home, then"
                 marks = r"[,.?!:—–]"
-                said = cls.strip_stalls(raw)  # "So, um, I tried it; it" -> "So I tried it, it"
+                # A stall set off by commas leaves one: "So, um, run" is "So, run".
+                said = re.sub(rf"(^|,)\s*(?:{cls.STALL_WORD})\b\s*,", r"\1", raw)
                 lost -= max(0, len(re.findall(marks, out)) - len(re.findall(marks, said)))
             if lost > 0:
                 return True
