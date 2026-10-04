@@ -752,6 +752,12 @@ class Engine:
             "positive/negative",  # as a label; signing a number ("negative fifteen") it is a sign
             *COMPASS,
         ]
+        # spelled alike, so no misheard word: "Sort in ascending order" is not "descending"
+        + ["ascend|ascent|ascendant|ascendingly/descend|descent|descendant|descendingly"]
+        + ["uppercase/lowercase", "superscript/subscript", "prepend/append", "ingress/egress"]
+        + ["sync|synchronous/async|asynchronous", "symmetric/asymmetric", "major/minor"]
+        + ["innermost/outermost", "junior/senior", "inferior/superior", "convex/concave"]
+        + ["emigrate/immigrate"]
     )
     # Each opposite and its inflections ("includes", "increasing", "stopped", "denied") -> (pair,
     # side).
@@ -1581,14 +1587,29 @@ class Engine:
                 return True
 
         # A quoted shell operator stays quoted: 'echo "a|b"' is not 'echo a|b'.
-        def quoted_operators(text):  # inside quotes of any style
+        def quoted(text):  # inside quotes of any style
             inside = re.findall(r"\"([^\"]*)\"|“([^”]*)”|(?<!\w)'([^']*)'(?!\w)", text)
-            return collections.Counter(
-                re.findall(r"[|&;<>`$]", " ".join("".join(m) for m in inside))
-            )
+            return ["".join(m) for m in inside]
+
+        def quoted_operators(text):
+            return collections.Counter(re.findall(r"[|&;<>`$]", " ".join(quoted(text))))
 
         unquoted = quoted_operators(raw) - quoted_operators(out)
         if any(o in out for o in unquoted):  # 'echo "safe|wc"' is not 'echo safer|wc'
+            return True
+
+        # So does one whose spaces or globs it keeps whole: 'touch "a b"' is not 'touch a b', nor
+        # '-name "*.tmp"' '-name *.tmp'.
+        def bare_quote(q):  # its marks may move in or out: '"Hello world."' keeps '"hello world"'
+            return q.strip(" .,!?;:").casefold()
+
+        kept_quoted = {bare_quote(q) for q in quoted(out)}
+        if any(
+            re.search(r"[\s*?\[\]{}~]", bare_quote(q))
+            and bare_quote(q) not in kept_quoted
+            and bare_quote(q) in out.casefold()
+            for q in quoted(raw)
+        ):
             return True
 
         # "3 p.m." or "etc." before a capital ends its sentence ("Meet at 3 p.m. Wait."), but not
