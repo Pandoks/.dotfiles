@@ -831,11 +831,44 @@ class Engine:
         + ["truly", "terribly", "awfully", "just", "to", "can", "will", "could", "would", "should"]
         + ["must", "might", "let's", "i", "we", "you", "they", "he", "she", "i'll", "we'll"]
     )
-    # Words after which "that" is a thing, not a clause, so a "you know" after it is filler: "We
-    # already tried that you know", "as easy as that you know" (not "Tell him that you know").
-    THAT_OBJECT = frozenset(
-        ["tried", "try", "did", "do", "done", "like", "liked", "love", "loved", "saw", "seen"]
-        + ["heard", "want", "wanted", "need", "needed", "as", "about", "with", "of", "for", "than"]
+    # Words that take a clause, so a "that you know" shortly after them is meant: "Tell him that
+    # you know", "It's important that you know" (not "We need to fix that you know").
+    CLAUSING = frozenset(
+        ["know", "knew", "knows", "think", "thought", "sure", "bet", "hope", "guess", "say", "said"]
+        + ["says", "tell", "told", "show", "showed", "admit", "prove", "realize", "realise", "see"]
+        + ["believe", "mention", "explain", "remember", "forget", "notice", "understand", "find"]
+        + ["glad", "happy", "relieved", "surprised", "important", "certain", "clear", "obvious"]
+        + ["possible", "likely", "aware", "assume", "suppose", "mean", "means", "hear", "heard"]
+    )
+    # Verbs that take an "okay" or "yeah" as theirs: "The result is okay.", "Choose okay."
+    TAKES_OKAY = frozenset(
+        [
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "seems",
+            "seem",
+            "it's",
+            "that's",
+            "i'm",
+            "we're",
+        ]
+        + [
+            "you're",
+            "they're",
+            "he's",
+            "she's",
+            "choose",
+            "pick",
+            "select",
+            "click",
+            "press",
+            "tap",
+        ]
+        + ["type", "hit", "say", "said", "says"]
     )
     # Stalls, fillers, and cue phrases a cleanup drops along with the corrected words.
     DROPPED_RE = re.compile(
@@ -1504,8 +1537,8 @@ class Engine:
         # Fillers by word index: "like" after "I" and a "you know" running on are meant words.
         fillers, meant = set(), set()
         for m in cls.DROPPED_RE.finditer(raw):
-            two = [s.group() for s in spans if s.end() <= m.start()][-2:]
-            before = two[-1:]
+            prior = [s.group() for s in spans if s.end() <= m.start()]
+            before = prior[-1:]
             inside = {
                 k for k, s in enumerate(spans) if m.start() <= s.start() and s.end() <= m.end()
             }
@@ -1520,11 +1553,10 @@ class Engine:
                 m.group() != "make it"
                 and re.match(r"\s*(?:[,.;:!?…—]|$)", raw[m.end() :])
                 and not (m.group() == "you know" and before and before[0] in cls.KNOWN)
-                and not (  # "I know that you know", not "We tried that you know"
+                and not (  # "Tell him that you know", not "We need to fix that you know"
                     m.group() == "you know"
                     and before == ["that"]
-                    and two[:1]
-                    and two[0] not in cls.THAT_OBJECT
+                    and not cls.CLAUSING.isdisjoint(prior[-4:-1])
                 )
             )
             running = m.group() in ("you know", "i mean", "i meant", "make it") and not (
@@ -1588,6 +1620,15 @@ class Engine:
                 or not content(first).isdisjoint(content(nxt))
             )
 
+        def predicated(k):  # the sentence's own: "Please wait.", "I am sorry.", not an aside set
+            # off by marks: "Monday, I'm sorry, Tuesday"
+            j = k - 1
+            if j < 0 or raw_words[j] not in cls.PREDICATING:
+                return False
+            while j > 0 and raw_words[j - 1] in cls.PREDICATING:
+                j -= 1
+            return j not in led
+
         cues = [
             k
             for k, w in enumerate(raw_words)
@@ -1599,12 +1640,8 @@ class Engine:
                 or k + 1 < len(raw_words)
                 and (
                     k in led
-                    or (k in paused - ends and raw_words[k - 1] not in cls.PREDICATING)
-                    or (
-                        k in paused & ends
-                        and raw_words[k - 1] not in cls.PREDICATING
-                        and follows_up(k)
-                    )
+                    or (k in paused - ends and not predicated(k))
+                    or (k in paused & ends and not predicated(k) and follows_up(k))
                     or {tuple(raw_words[k - 1 : k + 1]), tuple(raw_words[k : k + 2])} & phrases
                 )
             )
@@ -1702,16 +1739,16 @@ class Engine:
             # Its clause, stalls aside: "No problem, I'll send it" is led by "I'll", "Uh, don't
             # call me" by "don't".
             start = max([reach(min(inside))] + [k + 1 for k in paused if k < i1])
-            led = [raw_words[k] for k in range(start, i1) if k not in fillers]
+            leading = [raw_words[k] for k in range(start, i1) if k not in fillers]
             if (
                 first
                 and [w for k, w in enumerate(raw_words) if k >= i2 and k not in fillers][
                     : len(first)
                 ]
                 == first
-                and led
-                and out_words[max(0, j1 - len(led)) : j1] == led
-                and any(w in cls.FLIPS or w.endswith("n't") for w in led)
+                and leading
+                and out_words[max(0, j1 - len(leading)) : j1] == leading
+                and any(w in cls.FLIPS or w.endswith("n't") for w in leading)
             ):
                 return True
 
@@ -1740,11 +1777,16 @@ class Engine:
 
         # A number stays when only what follows it is corrected: "Meet at 3 p.m. Tuesday, no wait,
         # Wednesday" keeps its "3 p.m.", "move it to ten? Actually, should we cancel it?" not.
+        def cue_of(k):  # the cue that takes k back
+            return min((c for c in cues if c > k), default=len(raw_words) - 1)
+
+        # Or when it is what is corrected, right before the cue: "ten minutes, no wait, an hour".
         replaced = {
             k
             for k in corrected
             if k in restated
-            or not keeps_numbers(min((c for c in cues if c > k), default=len(raw_words) - 1))
+            or not keeps_numbers(cue_of(k))
+            or sum(j not in fillers for j in range(k + 1, cue_of(k))) <= 1
         }
         back_words = {
             p.start(): p.group()
@@ -1851,9 +1893,7 @@ class Engine:
             j = aligned[before[0]]
             if aligned[after[0]] != j + 1:
                 return False
-            return bool(
-                re.search(r"[,.;:?!—–]", out[out_spans[j].end() : out_spans[j + 1].start()])
-            )
+            return bool(re.search(r"[,.:?!—–]", out[out_spans[j].end() : out_spans[j + 1].start()]))
 
         for symbol, (pattern, spoken_as) in cls.SHELL.items():  # "hello grep" is not "hello | grep"
             said_at = [m.start() for m in re.finditer(pattern, raw)]
@@ -2025,13 +2065,17 @@ class Engine:
         loose |= {w for names in cls.MARK_WORDS.values() for w in names}
         loose |= {w for _, names in cls.SHELL.values() for w in names}
         loose -= {"with", "from", "into", "onto", "via"}  # "Run with sudo" is not "Run sudo"
-        # "okay" or "well" leading its clause is talk, past it is content: "Okay, so we go", not
-        # "The result is okay." -> "The result is."
+        # "well" leading its clause is talk, past it content ("This works well."); "okay" or "yeah"
+        # is talk unless a verb takes it: "Looks good okay." may lose it, "The result is okay." not.
         loose -= {
             w
             for k, w in enumerate(raw_words)
-            if w in {"okay", "ok", "well", "yeah"}
-            and not (k == 0 or k in led or raw_words[k - 1] in cls.MARKERS)
+            if (w == "well" and not (k == 0 or k in led or raw_words[k - 1] in cls.MARKERS))
+            or (
+                w in {"okay", "ok", "yeah"}
+                and raw_words[k - 1 : k]
+                and raw_words[k - 1] in cls.TAKES_OKAY
+            )
         }
         counted = {  # numbers are checked as numbers; names with digits ("SHA256") pair too
             w for w in out_words if any(v[0] != "#" for n, _ in cls.numbers(w) for v in n)
@@ -2324,7 +2368,10 @@ class Engine:
             ["" if k in corrected | set(cues) | cued else w for k, w in enumerate(raw_words)],
             ends,
         )  # not a cue's own: "Scratch that."
-        if said_finals - finals(out_words, out_ends):
+        written_count = collections.Counter(
+            out_words
+        )  # "sign up. Before Friday" -> "sign up before"
+        if any(written_count[w] < n for w, n in said_finals.items()):
             return True
         if sides(heard) != sides(out_words):
             return True
