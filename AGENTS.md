@@ -76,6 +76,8 @@ follow that.
   the exact command or read the source in isolation before giving it. If the obvious route fails,
   check what else the tool supports before saying it can't be done. Skip prototypes and option
   comparisons for these.
+- "What should I use…" is a decision, not a how-to: check this project's versions and constraints
+  first, then compare the options against them.
 - For real decisions between approaches, tools, or architectures, implement and test each credible
   option in isolation, in parallel where possible, until the evidence settles it. Time and compute
   are not the constraint; relevance is.
@@ -109,6 +111,8 @@ follow that.
   datasets, or running it yourself in `/var/tmp`. Decisions made earlier in the conversation don't
   need re-verifying; facts do.
 - Read the repo's own docs and conventions and check the real environment before proposing a design.
+- Link the sources behind research answers and recommendations (official docs, release notes,
+  registry pages).
 - Anecdotes, forums, and expert opinion are supporting evidence only; put them in a separate
   section.
 - For research topics (health, finance, science), assess methodology, sponsors, and limitations, and
