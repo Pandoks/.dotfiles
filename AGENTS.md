@@ -12,8 +12,8 @@ follow that.
     yes/no or lookup rarely needs more than two. Go longer only when I ask or a decision depends on
     it.
   - When I ask for more explanation, explain once with a concrete example, then go back to short.
-- Any reply longer than ~200 words MUST END with a final line `**tldr:** <1–2 sentences>`, after any
-  `proof`. I skim the end of long replies too.
+- Any reply longer than ~200 words, including a report on finished work, MUST END with a final line
+  `**tldr:** <1–2 sentences>`, after any `proof`. I skim the end of long replies too.
 - Use a table for comparisons, numbers, and mappings. Explain how something works in plain sentences
   with a real example (actual inputs and outputs), and define any term you introduce. For
   architecture, data flow, or multi-step workflows, add a diagram with concrete values.
@@ -65,9 +65,11 @@ follow that.
   write a plan, and get my agreement before changing my working tree.
 - Don't commit or push unless I ask. Once I ask you to commit or push to a specific branch or PR,
   follow-up fixes in this conversation may go to that same branch; report each SHA. Creating
-  branches or PRs, or pushing anywhere else, needs its own request.
+  branches or PRs, or pushing anywhere else, needs its own request. Don't mention that you didn't
+  commit.
 - Tools, credentials, and env vars come from mise: check `mise.toml` here and in parent directories
-  and use `mise exec --`. Look for access yourself before telling me it's missing.
+  and use `mise exec --`. Look for access yourself before telling me it's missing. If something only
+  worked after `mise trust`, tell me to run it.
 - When delegating, use Opus 5.5 for implementation and fixes and Fable for reviews unless I say
   otherwise.
 
