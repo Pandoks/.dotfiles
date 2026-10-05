@@ -2202,10 +2202,25 @@ class Engine:
             before = [i for i in range(start, k) if i not in fillers]
             told = lead_of(before, start) if before else []
             greeting = {"hi", "hey", "hello", "thanks", "thank", "congrats", "congratulations"}
-            greeting |= {"dear", "welcome", "happy", "good", "great", "nice", "cheers"}
-            if not told or not (
-                told[0].split("'")[0] in cls.SUBJECTS | {"it", "there"}
-                or told[0] in cls.DETERMINERS | names | greeting
+            greeting |= {"dear", "welcome", "happy", "good", "great", "nice", "cheers", "done"}
+            # past an aside that opens it: "Sadly Mike got it", "Turns out it went to Mike", "Way
+            # to go Mike!" (not the order "Apply it for Mike"), or one set off: "Unfortunately,
+            # the job went to Mike", "Long story short, Mike got it"
+            orders = {"apply", "reply", "supply", "multiply", "comply", "rely", "fly", "rally"}
+            while told[:1] and told[0].endswith("ly") and told[0] not in orders:
+                told = told[1:]
+            asides = (["turns", "out"], ["looks", "like"], ["seems", "like"], ["in", "the", "end"])
+            for aside in (*asides, ["way", "to", "go"]):
+                if told[: len(aside)] == aside:
+                    told = told[len(aside) :]
+            told = told[:1]
+            pause = next((i for i in before if i in paused and i < k - 1), None)
+            if pause is not None and len([i for i in before if i <= pause]) <= 3:
+                told += [raw_words[i] for i in before if i > pause][:1]
+            if not any(
+                w.split("'")[0] in cls.SUBJECTS | {"it", "there"}
+                or w in cls.DETERMINERS | names | greeting
+                for w in told
             ):
                 return False
             end = min((e for e in ends if e >= lead), default=len(raw_words) - 1)
@@ -2400,7 +2415,6 @@ class Engine:
             if (
                 tag != "replace"
                 or c is None
-                or c - i1 > 6
                 or taken_from(c) > i1
                 or not any(counts)
                 or not all(
@@ -2439,7 +2453,14 @@ class Engine:
             # coffees"
             run = list(itertools.takewhile(cls.numbers, raw_words[start:]))
             thing = raw_words[start + len(run) : start + len(run) + 1]
-            named = inflected and thing in ([raw_words[i2 - 1]], [out_words[j2 - 1]])
+            named = any(
+                thing in ([raw_words[k]], [out_words[j]])
+                for k, j in ({i2 - 1: j2 - 1} if inflected else grown).items()
+            )
+            # near its cue, or far when said again with it: "a ride to the train station tomorrow,
+            # sorry, two rides"
+            if c - i1 > 6 and not named:
+                continue
             # (a multiple is no count: "one double room, sorry, two" -> "two double rooms"), nor
             # past an "a" counting one more thing listed, nearer: "a sandwich and a cookie, sorry,
             # two" is not "two sandwiches and a cookie" ("a ticket for a friend" counts tickets)
@@ -2526,12 +2547,21 @@ class Engine:
             if said is None or any(cls.numbers(raw_words[k]) for k in range(said + 1, c)):
                 continue
             kept = cls.DISPOSABLE | cls.MARKERS | {"please"}  # "a coffee please, sorry, two"
+            # nor what is listed before it: "a coffee and a croissant, sorry, two croissants" keeps
+            # the coffee (not a range: "two or three chairs, sorry, four chairs")
+            joined = max(
+                (p for p in range(reach(c) + 1, said) if raw_words[p] in ("and", "or", "plus")),
+                default=None,
+            )
+            listed = (
+                range(reach(c), joined) if joined and not cls.numbers(raw_words[joined - 1]) else ()
+            )
             if any(
                 k not in as_said
                 and k not in fillers
                 and k not in cues
                 and content([raw_words[k]]) - kept
-                for k in range(said + 1, c)
+                for k in (*listed, *range(said + 1, c))
             ):
                 return True
         # A cue written as "and" or "or" keeps both as a list: "Invite Tom, sorry, Jerry" is not
@@ -3222,11 +3252,12 @@ class Engine:
         unsaid = fillers - {
             k for tag, i1, i2, _, _ in edits if tag == "equal" for k in range(i1, i2)
         }
-        heard = [
-            w
-            for k, w in enumerate(raw_words)
+        heard_at = [
+            k
+            for k in range(len(raw_words))
             if k not in corrected | unsaid | restarted and not nobody(raw_words, k)
         ]
+        heard = [raw_words[k] for k in heard_at]
         # Nor one added: "Send the report" is not "Send her the report".
         written = [w for k, w in enumerate(out_words) if not nobody(out_words, k)]
 
@@ -3275,7 +3306,16 @@ class Engine:
                 for k, w in enumerate(tokens)
             )
 
-        if obliged(heard) != obliged(out_words):
+        # Its "to" as said, past fillers: "I need a ride to the station, sorry, two rides" says no
+        # "need to" ("I need, uh, to go" does).
+        def said_after(k):
+            return next((raw_words[j] for j in range(k + 1, len(raw_words)) if j not in unsaid), "")
+
+        if sum(
+            raw_words[k] in ("gotta", "hafta")
+            or (raw_words[k] in cls.OBLIGING and said_after(k) == "to")
+            for k in heard_at
+        ) != obliged(out_words):
             return True
 
         # As many of each auxiliary by verb and tense, contractions read through, wherever they
@@ -3556,8 +3596,10 @@ class Engine:
             whole = (i1 == 0 or i1 - 1 in ends) and (i2 == len(raw_words) or i2 - 1 in ends)
             related = any(a.startswith(b) or b.startswith(a) for a in said for b in wrote)
             gone_words = set(uncorrected(i1, i2, cues)) - cls.MARKERS  # "No, wait." is no sentence
-            # nor one whose thing a recount wrote: "Get a cab to the airport. Sorry, two cabs."
+            # nor one whose thing a recount wrote, or a name written in place: "Get a cab to the
+            # airport. Sorry, two cabs.", "Text Sarah Monday. Sorry, Emily."
             gone_words -= {out_words[j] for j in recounted}
+            gone_words -= {w for name in renamed.values() for w in name.split()}
             if whole and gone_words and (tag == "delete" or (tag == "replace" and not related)):
                 return True
             if tag != "equal" and any(k in meant and k not in corrected for k in range(i1, i2)):

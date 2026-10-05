@@ -681,6 +681,7 @@ check(
             ),
             ("Run kill -9 1234, sorry, 4321.", "Run kill -9 4321."),
             ("Call extensions 21, 22, sorry, 23.", "Call extensions 21, 23."),
+            ("We gotta ship it today.", "We gotta ship it today."),
             ("Send it to Mike, sorry, John, thank you.", "Send it to John, thank you."),
             ("Forward it to Mike, sorry, John, if you can.", "Forward it to John, if you can."),
             ("Email Sarah, sorry, Emily. Thank you.", "Email Emily. Thank you."),
@@ -704,6 +705,32 @@ check(
             ("Is it sync or a sync, no wait, async?", "Is it async?"),
             ("Do you want coffee or, or, or tea?", "Do you want coffee or tea?"),
             ("Call Mike Friday, sorry, John.", "Call John Friday."),
+            ("Text Sarah Monday. Sorry, Emily.", "Text Emily Monday."),
+            ("I need a ticket to Paris, sorry, two tickets.", "I need two tickets to Paris."),
+            ("I need one ticket to Paris, sorry, two.", "I need two tickets to Paris."),
+            ("I need, uh, to go.", "I need to go."),
+            (
+                "Reserve a parking spot for the conference next week, sorry, two spots.",
+                "Reserve two parking spots for the conference next week.",
+            ),
+            (
+                "I need a ride to the train station tomorrow, sorry, two rides.",
+                "I need two rides to the train station tomorrow.",
+            ),
+            (
+                "Order a coffee and a croissant, sorry, two croissants.",
+                "Order a coffee and two croissants.",
+            ),
+            ("Bring two or three chairs, sorry, four chairs.", "Bring four chairs."),
+            (
+                "Apply the patch for Mike, sorry, John, you asked for it.",
+                "Apply the patch for John, you asked for it.",
+            ),
+            (
+                "Please forward the whole thread, the attachments too, to Mike, sorry, John, "
+                "you're on point.",
+                "Please forward the whole thread, the attachments too, to John, you're on point.",
+            ),
             ("Book a room for Friday, sorry, two rooms.", "Book two rooms for Friday."),
             ("Get a cab to the airport. Sorry, two cabs.", "Get two cabs to the airport."),
             (
@@ -1403,6 +1430,33 @@ check(
             ("Send it to Sarah and Mike, sorry, Emily.", "Send it to Emily and Mike."),
             ("Text Sarah Monday, sorry, Emily.", "Text Emily."),
             ("Congrats Mike! Sorry, John, you were close.", "Congrats John! You were close."),
+            ("Order a coffee and a croissant, sorry, two croissants.", "Order two croissants."),
+            (
+                "Unfortunately, the promotion went to Mike, sorry, John, you'll get the next one.",
+                "Unfortunately, the promotion went to John, you'll get the next one.",
+            ),
+            (
+                "Sadly Mike got the job, sorry, John, you were close.",
+                "Sadly John got the job, you were close.",
+            ),
+            (
+                "Turns out the promotion went to Mike. Sorry, John, you'll get the next one.",
+                "Turns out the promotion went to John. You'll get the next one.",
+            ),
+            ("Well done Mike! Sorry, John, you were close.", "Well done John! You were close."),
+            ("Way to go Mike! Sorry, John, you were close.", "Way to go John! You were close."),
+            (
+                "Long story short, Mike got the part. Sorry, John, you were great.",
+                "Long story short, John got the part. You were great.",
+            ),
+            (
+                "In the end the job went to Mike. Sorry, John, you'll get the next one.",
+                "In the end the job went to John. You'll get the next one.",
+            ),
+            (
+                "I'll head out and grab a croissant, sorry, two croissants.",
+                "I'll grab two croissants.",
+            ),
             (
                 "Ask Sarah to send the new slides to the whole team, sorry, Emily.",
                 "Ask Emily to send the new slides to the whole team.",
