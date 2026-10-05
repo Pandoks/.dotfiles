@@ -67,11 +67,12 @@ follow that.
   follow-up fixes in this conversation may go to that same branch; report each SHA. Creating
   branches or PRs, or pushing anywhere else, needs its own request. Don't mention that you didn't
   commit.
-- Tools, credentials, and env vars come from mise: check `mise.toml` here and in parent directories
-  and use `mise exec --`. Look for access yourself before telling me it's missing. If something only
-  worked after `mise trust`, tell me to run it.
-- When delegating, use Opus 5.5 for implementation and fixes and Fable for reviews unless I say
-  otherwise.
+- Tools, credentials, and env vars come from mise: run `mise config ls` to find the config files
+  that apply, including parent directories, and use `mise exec --`. If a config isn't trusted, trust
+  it for that command only (`MISE_TRUSTED_CONFIG_PATHS=<file> mise exec -- …`), finish the task,
+  then tell me to run `mise trust`. Look for access yourself before telling me it's missing.
+- When you can choose a delegate's model, use Opus 5.5 for implementation and fixes and Fable for
+  reviews unless I say otherwise.
 
 ## Investigation
 
