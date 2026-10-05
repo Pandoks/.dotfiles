@@ -736,6 +736,39 @@ check(
                 "I need two tickets to Paris. Sorry. Three tickets.",
                 "I need three tickets to Paris.",
             ),
+            # a name or a multiple said again with its thing, or a number of its own passed
+            (
+                "Schedule a Zoom call for Monday, sorry, two Zoom calls.",
+                "Schedule two Zoom calls for Monday.",
+            ),
+            (
+                "Book two Ubers to the airport, sorry, three Ubers.",
+                "Book three Ubers to the airport.",
+            ),
+            (
+                "Order a double espresso, sorry, two double espressos.",
+                "Order two double espressos.",
+            ),
+            ("I'll take one espresso, sorry, double.", "I'll take a double espresso."),
+            (
+                "Book a first class ticket, sorry, two first class tickets.",
+                "Book two first class tickets.",
+            ),
+            ("Get a pizza for six people, sorry, two pizzas.", "Get two pizzas for six people."),
+            (
+                "Book a table for twenty five people at seven, sorry, two tables.",
+                "Book two tables for twenty five people at seven.",
+            ),
+            ("Meet at three fifteen, sorry, two point three.", "Meet at two point three."),
+            ("Book my hotel room, sorry, two hotel rooms.", "Book two hotel rooms."),
+            (
+                "Book two hotel rooms for Friday, sorry, one hotel room.",
+                "Book one hotel room for Friday.",
+            ),
+            (
+                "Book a room for Friday, sorry, two double rooms.",
+                "Book two double rooms for Friday.",
+            ),
             (
                 "Reserve a parking spot for the conference next week, sorry, two spots.",
                 "Reserve two parking spots for the conference next week.",
@@ -1471,6 +1504,13 @@ check(
             ("Congrats Mike! Sorry, John, you were close.", "Congrats John! You were close."),
             ("Order a coffee and a croissant, sorry, two croissants.", "Order two croissants."),
             ("Book a flight and a hotel room, sorry, two hotel rooms.", "Book two hotel rooms."),
+            ("Get a pizza for six people, sorry, two pizzas.", "Get two pizzas."),
+            ("Book a table for four, sorry, two tables.", "Book a table for two tables."),
+            ("Book a room for two, sorry, three.", "Book three rooms for two."),
+            (
+                "Schedule a Zoom call for Monday, sorry, two Zoom calls.",
+                "Schedule two Teams calls for Monday.",
+            ),
             ("Get a movie ticket for tonight. Sorry. Two movie tickets.", "Get two movie tickets."),
             (
                 "Book a hotel room for Friday, sorry, two hotel rooms.",

@@ -1791,9 +1791,24 @@ class Engine:
         led = {k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])}
         phrases = {("no", "wait"), ("i", "mean"), ("scratch", "that")}
 
+        def count_before(j):  # said after a count: "a", "an", or a number
+            said = next((raw_words[i] for i in reversed(range(j)) if i not in fillers), "")
+            return said in ("a", "an") or bool(cls.numbers(said))
+
+        # A count's words, not a multiple after them: "two double rooms" counts two double rooms.
+        def count_run(tokens):
+            run = list(itertools.takewhile(cls.numbers, tokens))
+            while len(run) > 1 and all(
+                f.startswith("#") for n, _ in cls.numbers(run[-1]) for f in n
+            ):
+                run.pop()
+            return run
+
         # A count said again with its thing of two or three words is no anchor: "a hotel room for
         # Friday, sorry, two hotel rooms" -> "two hotel rooms for Friday" lines up the first saying,
-        # as "a room for Friday, sorry, two rooms" does, when the match took the second one.
+        # as "a room for Friday, sorry, two rooms" does, when the match took the second one. Only
+        # one count, not "two first class tickets" or "two 4K monitors", and the first saying a
+        # count's too: not "my hotel room, sorry, two hotel rooms".
         def realigned():
             kept = {i for tag, i1, i2, _, _ in edits if tag == "equal" for i in range(i1, i2)}
             apart = list(raw_words)
@@ -1803,10 +1818,12 @@ class Engine:
                 start = next(
                     (j for j in range(k + 1, len(raw_words)) if j not in fillers), len(raw_words)
                 )
-                first = start + len(list(itertools.takewhile(cls.numbers, raw_words[start:])))
+                run = list(itertools.takewhile(cls.numbers, raw_words[start:]))
+                first = start + len(run)
                 stop = min((j for j in paused if j >= first), default=len(raw_words) - 1)
                 thing = raw_words[first : stop + 1]
-                if first == start or not 1 <= len(thing) <= 3:
+                counts = cls.numbers(" ".join(count_run(run)))
+                if [p for _, p in counts] != [1] or not 1 <= len(thing) <= 3:
                     continue
                 n = len(thing)
                 if any(
@@ -1816,6 +1833,7 @@ class Engine:
                         for x, y in ((raw_words[p], thing[-1]), (thing[-1], raw_words[p]))
                     )
                     and not set(range(p - n + 1, p + 1)) & kept
+                    and count_before(p - n + 1)
                     for p in range(n, k)
                 ):
                     apart[start : stop + 1] = [f"\0{j}" for j in range(start, stop + 1)]
@@ -2426,6 +2444,7 @@ class Engine:
         recounted, recued, counted_at = set(), set(), set()  # counted_at: a recounted "a" or "an"
         regrown = {}  # (start, end) in raw of a recounted thing -> its number as written
         rethings = set()  # the words a recounted thing of a few words is said again with
+        resaid = set()  # where a recount says its thing again: one name, multiple for two sayings
         recounts = {}  # the numbers a recount says, by where they are written: before the count
         written_at = list(re.finditer(word, out))
 
@@ -2437,6 +2456,11 @@ class Engine:
                 and (not numbered or bool(cls.numbers(out_words[j - 1])))
                 and not out[written_at[j - 1].end() : written_at[j].start()].strip()
             )
+
+        def own(k):  # a number of its own, for or at what it counts: "a pizza for six people"
+            while k > 0 and cls.numbers(raw_words[k - 1]):
+                k -= 1
+            return raw_words[k - 1 : k] in (["for"], ["at"])
 
         for tag, i1, i2, j1, j2 in edits:
             c = min((c for c in cues if c >= i2), default=None)
@@ -2488,7 +2512,7 @@ class Engine:
             )
             # the thing it counts said again with its number: "a coffee and a bagel, sorry, two
             # coffees"
-            run = list(itertools.takewhile(cls.numbers, raw_words[start:]))
+            run = count_run(raw_words[start:])
             thing = raw_words[start + len(run) : start + len(run) + 1]
             # or of a few words, all said again: "a hotel room ..., sorry, two hotel rooms"
             last = min((p for p in paused if p >= start + len(run)), default=len(raw_words) - 1)
@@ -2510,12 +2534,18 @@ class Engine:
             # sorry, two rides"
             if c - i1 > 6 and not named:
                 continue
-            # (a multiple is no count: "one double room, sorry, two" -> "two double rooms"), nor
+            # (a multiple is no count: "one double room, sorry, two" -> "two double rooms"; nor one
+            # of its own, unless its thing is said again: "a table for six, sorry, two tables"), nor
             # past an "a" counting one more thing listed, nearer: "a sandwich and a cookie, sorry,
             # two" is not "two sandwiches and a cookie" ("a ticket for a friend" counts tickets)
             if not all(
                 (j in as_said or j in fillers or j in grown)
-                and not any(not f.startswith("#") for n, _ in cls.numbers(raw_words[j]) for f in n)
+                and (
+                    (named and own(j))
+                    or not any(
+                        not f.startswith("#") for n, _ in cls.numbers(raw_words[j]) for f in n
+                    )
+                )
                 and not (
                     raw_words[j] in ("a", "an")
                     and raw_words[j - 1] in ("and", "or", "plus")
@@ -2527,6 +2557,8 @@ class Engine:
                 continue
             told = cls.numbers(" ".join(run))
             wrote = cls.numbers(" ".join(out_words[j1 : j2 - inflected]))
+            if len(wrote) > len(told) and all(f.startswith("#") for f in wrote[-1][0]):
+                wrote.pop()  # a multiple written with it: "a room, sorry, two double rooms"
             if (
                 told
                 and len(told) == len(wrote)
@@ -2543,6 +2575,10 @@ class Engine:
                 # Three tickets."
                 rethings.update(things if named and not inflected and not grown else ())
                 rethings.update(things[:-1] if compound else ())
+                # its name or multiple said again with it: "a Zoom call ..., sorry, two Zoom calls",
+                # "two Ubers ..., sorry, three Ubers", "a double room, sorry, two double rooms"
+                twice = len(things) if compound else int(named and not inflected and not grown)
+                resaid.update(range(start + len(run), start + len(run) + twice))
                 said_at = len(cls.numbers(raw[: spans[start].start()]))
                 recounts.update(
                     dict.fromkeys(
@@ -2598,8 +2634,13 @@ class Engine:
                 ),
                 default=None,
             )
-            # no other number since: not "two years six, sorry, three years"
-            if said is None or any(cls.numbers(raw_words[k]) for k in range(said + 1, c)):
+            # no other number since, but one of its own: not "two years six, sorry, three years"
+            # ("a pizza for six people, sorry, two pizzas" keeps the six people), nor a number's
+            # ("at three fifteen, sorry, two point three")
+            if said is None or any(
+                cls.numbers(raw_words[k]) and (cls.numbers(raw_words[said]) or not own(k))
+                for k in range(said + 1, c)
+            ):
                 continue
             kept = cls.DISPOSABLE | cls.MARKERS | {"please"}  # "a coffee please, sorry, two"
             # nor what is listed before it: "a coffee and a croissant, sorry, two croissants" keeps
@@ -2900,6 +2941,9 @@ class Engine:
         # "3" again, not "30". One taken back before its cue is known by where it was said, not by
         # its value: "two eggs, one cup of milk, and two, sorry, three cups" keeps the first "two".
         before_cue, taken = {}, []
+        resaid_numbers = {
+            len(cls.numbers(raw[: spans[k].start()])) for k in resaid if cls.numbers(raw_words[k])
+        }
         for _, group in itertools.groupby(enumerate(sorted(back_at)), lambda e: e[1] - e[0]):
             ks = [k for _, k in group]
             heard_at = {
@@ -2921,6 +2965,8 @@ class Engine:
         said_numbers.sort(key=lambda e: (recounts.get(e[0], e[0]), e[0] not in recounts))
         for p, (n, parts) in said_numbers:
             if before_cue.get(p) == n:  # taken back before its cue: its correction is still written
+                continue
+            if p in resaid_numbers:  # a recount's thing said again: "two double rooms"
                 continue
             k = next((k for k in range(at, len(written)) if written[k] & n), None)
             back = next((t for t in taken if t & n), None)
@@ -3545,7 +3591,9 @@ class Engine:
         # Each occurrence counts ("Alice emailed Alice" is not "Alice emailed"); "SHA" may live on
         # in "SHA256".
         said_names = collections.Counter(
-            w for k, w in enumerate(raw_words) if w in names and k not in corrected | restarted
+            w
+            for k, w in enumerate(raw_words)
+            if w in names and k not in corrected | restarted | resaid
         )
         # One output word stands for one name, longest names first: "JavaScript" is not "Java" too.
         left, gone = collections.Counter(out_words), 0
