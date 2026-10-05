@@ -709,6 +709,7 @@ check(
             ("I need a ticket to Paris, sorry, two tickets.", "I need two tickets to Paris."),
             ("I need one ticket to Paris, sorry, two.", "I need two tickets to Paris."),
             ("I need, uh, to go.", "I need to go."),
+            ("I need, um, a ticket to Paris, sorry, two tickets.", "I need two tickets to Paris."),
             (
                 "Reserve a parking spot for the conference next week, sorry, two spots.",
                 "Reserve two parking spots for the conference next week.",
@@ -722,6 +723,18 @@ check(
                 "Order a coffee and two croissants.",
             ),
             ("Bring two or three chairs, sorry, four chairs.", "Bring four chairs."),
+            (
+                "Please send the reprot and a summary, sorry, two summaries.",
+                "Please send the report and two summaries.",
+            ),
+            (
+                "Can you send the e-mail and a reminder, sorry, two reminders.",
+                "Can you send the email and a reminder, sorry, two reminders.",
+            ),
+            (
+                "Get a coffee for the e-mail team, sorry, two coffees.",
+                "Get a coffee for the email team, sorry, two coffees.",
+            ),
             (
                 "Apply the patch for Mike, sorry, John, you asked for it.",
                 "Apply the patch for John, you asked for it.",
@@ -1431,6 +1444,7 @@ check(
             ("Text Sarah Monday, sorry, Emily.", "Text Emily."),
             ("Congrats Mike! Sorry, John, you were close.", "Congrats John! You were close."),
             ("Order a coffee and a croissant, sorry, two croissants.", "Order two croissants."),
+            ("Order a coffee and a croissant, sorry, two croissants.", "Order the two croissants."),
             (
                 "Unfortunately, the promotion went to Mike, sorry, John, you'll get the next one.",
                 "Unfortunately, the promotion went to John, you'll get the next one.",
@@ -1452,6 +1466,22 @@ check(
             (
                 "In the end the job went to Mike. Sorry, John, you'll get the next one.",
                 "In the end the job went to John. You'll get the next one.",
+            ),
+            (
+                "Looks like Mike got the job. Sorry, John, I know you wanted it.",
+                "Looks like John got the job. I know you wanted it.",
+            ),
+            (
+                "Seems like Mike got the job, sorry, John, you were close.",
+                "Seems like John got the job, you were close.",
+            ),
+            (
+                "Emily got the promotion, sorry, John, you'll get the next one.",
+                "John got the promotion, you'll get the next one.",
+            ),
+            (
+                "Sadly Emily got the job, sorry, John, you were close.",
+                "Sadly John got the job, you were close.",
             ),
             (
                 "I'll head out and grab a croissant, sorry, two croissants.",

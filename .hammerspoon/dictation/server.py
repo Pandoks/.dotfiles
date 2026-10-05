@@ -2204,17 +2204,17 @@ class Engine:
             greeting = {"hi", "hey", "hello", "thanks", "thank", "congrats", "congratulations"}
             greeting |= {"dear", "welcome", "happy", "good", "great", "nice", "cheers", "done"}
             # past an aside that opens it: "Sadly Mike got it", "Turns out it went to Mike", "Way
-            # to go Mike!" (not the order "Apply it for Mike"), or one set off: "Unfortunately,
-            # the job went to Mike", "Long story short, Mike got it"
+            # to go Mike!" (not the order "Apply it for Mike", nor a name: "Emily got it"), or one
+            # set off: "Unfortunately, the job went to Mike", "Long story short, Mike got it"
             orders = {"apply", "reply", "supply", "multiply", "comply", "rely", "fly", "rally"}
-            while told[:1] and told[0].endswith("ly") and told[0] not in orders:
+            while told[:1] and told[0].endswith("ly") and told[0] not in orders | names:
                 told = told[1:]
             asides = (["turns", "out"], ["looks", "like"], ["seems", "like"], ["in", "the", "end"])
             for aside in (*asides, ["way", "to", "go"]):
                 if told[: len(aside)] == aside:
                     told = told[len(aside) :]
             told = told[:1]
-            pause = next((i for i in before if i in paused and i < k - 1), None)
+            pause = next((i for i in before if i in paused), None)
             if pause is not None and len([i for i in before if i <= pause]) <= 3:
                 told += [raw_words[i] for i in before if i > pause][:1]
             if not any(
@@ -2418,8 +2418,10 @@ class Engine:
                 or taken_from(c) > i1
                 or not any(counts)
                 or not all(
-                    n or w in ("or", "to")
-                    for n, w in zip(counts, raw_words[i1 : i2 - inflected], strict=True)
+                    n or w in ("or", "to") or k in fillers  # "I need, um, a ticket to Paris"
+                    for k, (n, w) in enumerate(
+                        zip(counts, raw_words[i1 : i2 - inflected], strict=True), i1
+                    )
                 )
             ):  # a count or a range of them: "three or four"
                 continue
@@ -2548,7 +2550,8 @@ class Engine:
                 continue
             kept = cls.DISPOSABLE | cls.MARKERS | {"please"}  # "a coffee please, sorry, two"
             # nor what is listed before it: "a coffee and a croissant, sorry, two croissants" keeps
-            # the coffee (not a range: "two or three chairs, sorry, four chairs")
+            # the coffee (not a range: "two or three chairs, sorry, four chairs"); only what it
+            # took back: a word kept may be fixed ("a tea for the e-mail team, sorry, two teas")
             joined = max(
                 (p for p in range(reach(c) + 1, said) if raw_words[p] in ("and", "or", "plus")),
                 default=None,
@@ -2557,7 +2560,8 @@ class Engine:
                 range(reach(c), joined) if joined and not cls.numbers(raw_words[joined - 1]) else ()
             )
             if any(
-                k not in as_said
+                k in corrected
+                and k not in as_said
                 and k not in fillers
                 and k not in cues
                 and content([raw_words[k]]) - kept
