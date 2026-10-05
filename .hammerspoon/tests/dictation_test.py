@@ -685,12 +685,35 @@ check(
             ("Forward it to Mike, sorry, John, if you can.", "Forward it to John, if you can."),
             ("Email Sarah, sorry, Emily. Thank you.", "Email Emily. Thank you."),
             ("Invite Mike, sorry, John, you know him.", "Invite John, you know him."),
+            (
+                "We hired Mike, sorry, John, I posted the news. Did you see it?",
+                "We hired John, I posted the news. Did you see it?",
+            ),
+            (
+                "Send it to Mike, sorry, John, I'll copy you on it.",
+                "Send it to John, I'll copy you on it.",
+            ),
+            (
+                "We hired Mike, sorry, John, you'll meet him Monday.",
+                "We hired John, you'll meet him Monday.",
+            ),
             ("Text Sarah Monday, sorry, Emily, and tell her.", "Text Emily Monday and tell her."),
             ("Meet Mike, sorry, Monday with Sarah.", "Meet Monday with Sarah."),
             ("Meet Monday, sorry, Sarah on Tuesday.", "Meet Sarah on Tuesday."),
             ("Meet Monday, sorry, Sarah on Tuesday", "Meet Sarah on Tuesday"),
             ("Is it sync or a sync, no wait, async?", "Is it async?"),
+            ("Do you want coffee or, or, or tea?", "Do you want coffee or tea?"),
             ("Call Mike Friday, sorry, John.", "Call John Friday."),
+            ("Book a room for Friday, sorry, two rooms.", "Book two rooms for Friday."),
+            ("Get a cab to the airport. Sorry, two cabs.", "Get two cabs to the airport."),
+            (
+                "I need one large pizza for Bob, sorry, two pizzas.",
+                "I need two large pizzas for Bob.",
+            ),
+            ("Get a coffee please, sorry, two coffees.", "Get two coffees."),
+            ("We're at 80 percent, no wait, 90 percent.", "We're at 90 percent."),
+            ("The lease is two years six, sorry, three years.", "The lease is three years."),
+            ("Order a coffee and a bagel, sorry, two coffees.", "Order two coffees and a bagel."),
             ("Call Mike, sorry, John, and tell him the plan.", "Call John and tell him the plan."),
             ("This is a major, major problem.", "This is a major problem."),
             ('She said "hello world".', 'She said "Hello world."'),
@@ -1290,6 +1313,10 @@ check(
             ("I'm meeting Sarah Monday, I'm sorry, Tuesday.", "I'm meeting Tuesday."),
             ("I have two kids, one dog, and two, sorry, three cats.", "I have three cats."),
             (
+                "Sarah is leading it, sorry, Emily, I know you wanted to.",
+                "Emily is leading it, I know you wanted to.",
+            ),
+            (
                 "I sent the draft to Sarah, sorry, Emily, I meant to CC you.",
                 "I sent the draft to Emily, I meant to CC you.",
             ),
@@ -1358,6 +1385,8 @@ check(
             ("Delete two old backups, sorry, one.", "Delete one backup."),
             ("I need one ticket for my son, sorry, two.", "I need two tickets for my sons."),
             ("Grab a sandwich and a cookie, sorry, two.", "Grab two sandwiches and a cookie."),
+            ("Order a coffee and a bagel, sorry, two coffees.", "Order two coffees."),
+            ("Buy a ticket to Paris, sorry, two tickets.", "Buy two tickets."),
             (
                 "I need one large pizza for my son, sorry, two.",
                 "I need two large pizzas for my sons.",
@@ -1373,6 +1402,12 @@ check(
             ("Meet Monday, sorry, Sarah.", "Meet Sarah."),
             ("Send it to Sarah and Mike, sorry, Emily.", "Send it to Emily and Mike."),
             ("Text Sarah Monday, sorry, Emily.", "Text Emily."),
+            ("Congrats Mike! Sorry, John, you were close.", "Congrats John! You were close."),
+            (
+                "Ask Sarah to send the new slides to the whole team, sorry, Emily.",
+                "Ask Emily to send the new slides to the whole team.",
+            ),
+            ("Call Sarah. The deck is ready, sorry, Emily.", "Call Emily. The deck is ready."),
             (
                 "Please do not send it to John, I'm sorry, Jane.",
                 "Please do not send it to Jane. I'm sorry.",

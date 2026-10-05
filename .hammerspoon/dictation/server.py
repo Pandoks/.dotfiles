@@ -2193,11 +2193,30 @@ class Engine:
             )
             if lead is None or raw_words[lead].split("'")[0] not in ("i", "you", "we"):
                 return False
+            # after a clause with its own subject or a greeting, not an order, which it corrects:
+            # "Forward it to Mike, sorry, John, you have his email" ("Congrats Mike! Sorry, John,
+            # you were close" apologizes)
+            start = opening(k)
+            if all(i in fillers or raw_words[i] in cls.MARKERS for i in range(start, k)):
+                start = opening(start - 1) if start else start  # "... to Mike. Sorry, John."
+            before = [i for i in range(start, k) if i not in fillers]
+            told = lead_of(before, start) if before else []
+            greeting = {"hi", "hey", "hello", "thanks", "thank", "congrats", "congratulations"}
+            greeting |= {"dear", "welcome", "happy", "good", "great", "nice", "cheers"}
+            if not told or not (
+                told[0].split("'")[0] in cls.SUBJECTS | {"it", "there"}
+                or told[0] in cls.DETERMINERS | names | greeting
+            ):
+                return False
             end = min((e for e in ends if e >= lead), default=len(raw_words) - 1)
-            return any(
-                w.split("'")[0] in ("you", "your", "yours", "yourself")
-                for w in raw_words[lead : end + 1]
-            )
+            spoken = {w.split("'")[0] for w in raw_words[lead : end + 1]}
+            # to "you", not of one named in its clause: "We hired Mike, sorry, John, you'll meet him
+            # Monday" ("..., you'll get the next one, she had more experience" is an apology)
+            stop = min((p for p in paused if p >= lead), default=end)
+            third = {"he", "him", "his", "himself", "she", "her", "hers", "herself"}
+            return bool(spoken & {"you", "your", "yours", "yourself"}) and not third & {
+                w.split("'")[0] for w in raw_words[lead : stop + 1]
+            }
 
         cues = [
             k
@@ -2337,7 +2356,8 @@ class Engine:
             for tag, i1, i2, j1, j2 in edits:
                 if (
                     tag == "replace"
-                    and i2 <= c
+                    and reach(c) <= i1 < i2 <= c  # in its sentence: not "Call Sarah. The deck is
+                    # ready, sorry, Emily." -> "Call Emily. The deck is ready."
                     and c - i1 <= 6
                     and set(raw_words[i1:i2]) <= names - cls.CALENDAR
                     and out_words[j1:j2] == told
@@ -2355,6 +2375,7 @@ class Engine:
         # The word it counts may be written in the new number: "one ticket for Bob, sorry, two" ->
         # "two tickets for Bob" (recounted: its written index).
         recounted, recued, counted_at = set(), set(), set()  # counted_at: a recounted "a" or "an"
+        regrown = {}  # (start, end) in raw of a recounted thing -> its number as written
         recounts = {}  # the numbers a recount says, by where they are written: before the count
         written_at = list(re.finditer(word, out))
 
@@ -2410,6 +2431,15 @@ class Engine:
                 if not inflected
                 else {}
             )
+            start = next(
+                (j for j in range(c + 1, len(raw_words)) if j not in cues and j not in fillers),
+                len(raw_words),
+            )
+            # the thing it counts said again with its number: "a coffee and a bagel, sorry, two
+            # coffees"
+            run = list(itertools.takewhile(cls.numbers, raw_words[start:]))
+            thing = raw_words[start + len(run) : start + len(run) + 1]
+            named = inflected and thing in ([raw_words[i2 - 1]], [out_words[j2 - 1]])
             # (a multiple is no count: "one double room, sorry, two" -> "two double rooms"), nor
             # past an "a" counting one more thing listed, nearer: "a sandwich and a cookie, sorry,
             # two" is not "two sandwiches and a cookie" ("a ticket for a friend" counts tickets)
@@ -2420,15 +2450,12 @@ class Engine:
                     raw_words[j] in ("a", "an")
                     and raw_words[j - 1] in ("and", "or", "plus")
                     and set(raw_words[i1 : i2 - inflected]) <= {"a", "an"}
+                    and not named
                 )
                 for j in range(i2, c)
             ):
                 continue
-            start = next(
-                (j for j in range(c + 1, len(raw_words)) if j not in cues and j not in fillers),
-                len(raw_words),
-            )
-            told = cls.numbers(" ".join(itertools.takewhile(cls.numbers, raw_words[start:])))
+            told = cls.numbers(" ".join(run))
             wrote = cls.numbers(" ".join(out_words[j1 : j2 - inflected]))
             if (
                 told
@@ -2439,6 +2466,8 @@ class Engine:
                 counted_at |= {k for k in range(i1, i2) if raw_words[k] in ("a", "an")}
                 recounted |= {j2 - 1} if inflected else set()
                 recounted |= set(grown.values())
+                for k, j in ({i2 - 1: j2 - 1} if inflected else grown).items():
+                    regrown[spans[k].start(), spans[k].end()] = out_words[j]
                 recued.add(c)  # its "no" took it back: "two tickets, no, three"
                 said_at = len(cls.numbers(raw[: spans[start].start()]))
                 recounts.update(
@@ -2469,6 +2498,42 @@ class Engine:
                 and counting(as_said[end] + 1, raw_words[k])
             ):
                 recounted.add(as_said[end] + 1)
+        # A count said again with its thing takes back only that count: "a coffee and a bagel,
+        # sorry, two coffees" and "a room for Friday, sorry, two rooms" keep the bagel and Friday.
+        for c in cues:
+            start = next(
+                (j for j in range(c + 1, len(raw_words)) if j not in cues and j not in fillers),
+                len(raw_words),
+            )
+            thing = start + len(list(itertools.takewhile(cls.numbers, raw_words[start:])))
+            # the correction ends at its thing: not "a room for Friday, sorry, two rooms for Monday"
+            if (
+                thing == start
+                or thing >= len(raw_words)
+                or thing != min((k for k in paused if k >= start), default=len(raw_words) - 1)
+                or not re.fullmatch(r"[a-z]{2,}", raw_words[thing])  # not "4 p.m."
+            ):
+                continue
+            said = max(
+                (
+                    p
+                    for p in range(reach(c) + 1, c)
+                    if raw_words[p] == raw_words[thing] or plural(raw_words[p], raw_words[thing])
+                ),
+                default=None,
+            )
+            # no other number since: not "two years six, sorry, three years"
+            if said is None or any(cls.numbers(raw_words[k]) for k in range(said + 1, c)):
+                continue
+            kept = cls.DISPOSABLE | cls.MARKERS | {"please"}  # "a coffee please, sorry, two"
+            if any(
+                k not in as_said
+                and k not in fillers
+                and k not in cues
+                and content([raw_words[k]]) - kept
+                for k in range(said + 1, c)
+            ):
+                return True
         # A cue written as "and" or "or" keeps both as a list: "Invite Tom, sorry, Jerry" is not
         # "Invite Tom and Jerry", nor "at ten, I'm sorry, eleven" "at ten or eleven".
         for tag, i1, i2, j1, j2 in edits:
@@ -3130,13 +3195,13 @@ class Engine:
                 beside, repeated = again(i1, i2), repeats(i1, i2)
                 restarted |= {k for k in range(i1, i2) if repeated or stem(raw_words[k]) in beside}
         # Two sayings of a word joined by "or" offer a choice, not a restart: "Is it sync or a
-        # sync?" (an "async" heard apart) is not "Is it sync?".
+        # sync?" (an "async" heard apart) is not "Is it sync?" ("coffee or, or, or tea" stutters).
         for tag, i1, i2, _, _ in edits:
             if tag != "equal" and any(
                 raw_words[k] == "or"
                 and k not in corrected
                 and (j := k + 1 + (raw_words[k + 1 : k + 2] in (["a"], ["an"], ["the"]))) < i2
-                and raw_words[j] == raw_words[k - 1]
+                and raw_words[j] == raw_words[k - 1] != "or"
                 for k in range(max(i1, 1), i2)
             ):
                 return True
@@ -3491,6 +3556,8 @@ class Engine:
             whole = (i1 == 0 or i1 - 1 in ends) and (i2 == len(raw_words) or i2 - 1 in ends)
             related = any(a.startswith(b) or b.startswith(a) for a in said for b in wrote)
             gone_words = set(uncorrected(i1, i2, cues)) - cls.MARKERS  # "No, wait." is no sentence
+            # nor one whose thing a recount wrote: "Get a cab to the airport. Sorry, two cabs."
+            gone_words -= {out_words[j] for j in recounted}
             if whole and gone_words and (tag == "delete" or (tag == "replace" and not related)):
                 return True
             if tag != "equal" and any(k in meant and k not in corrected for k in range(i1, i2)):
@@ -3512,8 +3579,9 @@ class Engine:
             return [t for k, t in enumerate(marks) if t != "#" or marks[k - 1 : k] != ["#"]]
 
         # a recounted "a" counts where it was said: "an iced latte, sorry, two" -> "two iced lattes"
+        # (its thing as written: "a room for Friday, sorry, two rooms" -> "two rooms for Friday")
         said_text = raw
-        swaps = {(spans[k].start(), spans[k].end()): "one" for k in counted_at} | renamed
+        swaps = {(spans[k].start(), spans[k].end()): "one" for k in counted_at} | renamed | regrown
         for (begin, end), said_word in sorted(swaps.items(), reverse=True):  # a renamed one too
             said_text = said_text[:begin] + said_word + said_text[end:]
         rest = iter(ordered(words(said_text.replace("&", " and "))))  # an "&" may be written "and"
