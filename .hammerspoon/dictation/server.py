@@ -1791,6 +1791,40 @@ class Engine:
         led = {k for k, m in enumerate(spans) if re.search(r"[,.;:!?…—]\s*$", raw[: m.start()])}
         phrases = {("no", "wait"), ("i", "mean"), ("scratch", "that")}
 
+        # A count said again with its thing of two or three words is no anchor: "a hotel room for
+        # Friday, sorry, two hotel rooms" -> "two hotel rooms for Friday" lines up the first saying,
+        # as "a room for Friday, sorry, two rooms" does, when the match took the second one.
+        def realigned():
+            kept = {i for tag, i1, i2, _, _ in edits if tag == "equal" for i in range(i1, i2)}
+            apart = list(raw_words)
+            for k, w in enumerate(raw_words):
+                if w not in cls.CORRECTIONS:
+                    continue
+                start = next(
+                    (j for j in range(k + 1, len(raw_words)) if j not in fillers), len(raw_words)
+                )
+                first = start + len(list(itertools.takewhile(cls.numbers, raw_words[start:])))
+                stop = min((j for j in paused if j >= first), default=len(raw_words) - 1)
+                thing = raw_words[first : stop + 1]
+                if first == start or not 1 <= len(thing) <= 3:
+                    continue
+                n = len(thing)
+                if any(
+                    raw_words[p - n + 1 : p] == thing[:-1]
+                    and any(
+                        y in (x + "s", x + "es", x[:-1] + "ies")
+                        for x, y in ((raw_words[p], thing[-1]), (thing[-1], raw_words[p]))
+                    )
+                    and not set(range(p - n + 1, p + 1)) & kept
+                    for p in range(n, k)
+                ):
+                    apart[start : stop + 1] = [f"\0{j}" for j in range(start, stop + 1)]
+            if apart == raw_words:
+                return edits
+            return difflib.SequenceMatcher(None, apart, out_words, autojunk=False).get_opcodes()
+
+        edits = realigned()
+
         # Taken back: up to 6 words cut with a later cue ("mug, actually, the small one"). Besides
         # "no", a cue is set off or a cue phrase: not "please wait for" or "it actually works".
         def content(tokens):  # the words that say what: not "the", "I'm", or "that's"
@@ -2391,6 +2425,7 @@ class Engine:
         # "two tickets for Bob" (recounted: its written index).
         recounted, recued, counted_at = set(), set(), set()  # counted_at: a recounted "a" or "an"
         regrown = {}  # (start, end) in raw of a recounted thing -> its number as written
+        rethings = set()  # the words a recounted thing of a few words is said again with
         recounts = {}  # the numbers a recount says, by where they are written: before the count
         written_at = list(re.finditer(word, out))
 
@@ -2455,9 +2490,21 @@ class Engine:
             # coffees"
             run = list(itertools.takewhile(cls.numbers, raw_words[start:]))
             thing = raw_words[start + len(run) : start + len(run) + 1]
-            named = any(
-                thing in ([raw_words[k]], [out_words[j]])
-                for k, j in ({i2 - 1: j2 - 1} if inflected else grown).items()
+            # or of a few words, all said again: "a hotel room ..., sorry, two hotel rooms"
+            last = min((p for p in paused if p >= start + len(run)), default=len(raw_words) - 1)
+            things = raw_words[start + len(run) : last + 1]
+            # the thing as written: grown in the new number, or as said ("two tickets to the game
+            # on Saturday, sorry, three tickets")
+            counted = ({i2 - 1: j2 - 1} if inflected else grown) or {
+                k: as_said[k] for k in range(i2, min(i2 + len(things), c)) if k in as_said
+            }
+            compound = 1 < len(things) <= 3 and any(
+                raw_words[k - len(things) + 1 : k] == things[:-1]
+                and things[-1] in (raw_words[k], out_words[j])
+                for k, j in counted.items()
+            )
+            named = compound or any(
+                thing in ([raw_words[k]], [out_words[j]]) for k, j in counted.items()
             )
             # near its cue, or far when said again with it: "a ride to the train station tomorrow,
             # sorry, two rides"
@@ -2492,6 +2539,10 @@ class Engine:
                 for k, j in ({i2 - 1: j2 - 1} if inflected else grown).items():
                     regrown[spans[k].start(), spans[k].end()] = out_words[j]
                 recued.add(c)  # its "no" took it back: "two tickets, no, three"
+                # "hotel" of "two hotel rooms", or a thing written as said: "two tickets ... Sorry.
+                # Three tickets."
+                rethings.update(things if named and not inflected and not grown else ())
+                rethings.update(things[:-1] if compound else ())
                 said_at = len(cls.numbers(raw[: spans[start].start()]))
                 recounts.update(
                     dict.fromkeys(
@@ -2528,14 +2579,16 @@ class Engine:
                 (j for j in range(c + 1, len(raw_words)) if j not in cues and j not in fillers),
                 len(raw_words),
             )
-            thing = start + len(list(itertools.takewhile(cls.numbers, raw_words[start:])))
-            # the correction ends at its thing: not "a room for Friday, sorry, two rooms for Monday"
+            first = start + len(list(itertools.takewhile(cls.numbers, raw_words[start:])))
+            # the correction ends at its thing, of up to three words ("two hotel rooms"): not "a
+            # room for Friday, sorry, two rooms for Monday"
+            thing = min((k for k in paused if k >= start), default=len(raw_words) - 1)
             if (
-                thing == start
-                or thing >= len(raw_words)
-                or thing != min((k for k in paused if k >= start), default=len(raw_words) - 1)
-                or not re.fullmatch(r"[a-z]{2,}", raw_words[thing])  # not "4 p.m."
-            ):
+                first == start
+                or first >= len(raw_words)
+                or not first <= thing < first + 3
+                or not all(re.fullmatch(r"[a-z]{2,}", w) for w in raw_words[first : thing + 1])
+            ):  # not "4 p.m."
                 continue
             said = max(
                 (
@@ -3602,7 +3655,7 @@ class Engine:
             gone_words = set(uncorrected(i1, i2, cues)) - cls.MARKERS  # "No, wait." is no sentence
             # nor one whose thing a recount wrote, or a name written in place: "Get a cab to the
             # airport. Sorry, two cabs.", "Text Sarah Monday. Sorry, Emily."
-            gone_words -= {out_words[j] for j in recounted}
+            gone_words -= {out_words[j] for j in recounted} | rethings
             gone_words -= {w for name in renamed.values() for w in name.split()}
             if whole and gone_words and (tag == "delete" or (tag == "replace" and not related)):
                 return True

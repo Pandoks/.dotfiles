@@ -681,6 +681,11 @@ check(
             ),
             ("Run kill -9 1234, sorry, 4321.", "Run kill -9 4321."),
             ("Call extensions 21, 22, sorry, 23.", "Call extensions 21, 23."),
+            (
+                "I need a hotel room for Friday no two hotel rooms.",
+                "I need two hotel rooms for Friday.",
+            ),
+            ("Reserve a table photonite. Sorry. Two tables.", "Reserve two tables photonite."),
             ("We gotta ship it today.", "We gotta ship it today."),
             ("Send it to Mike, sorry, John, thank you.", "Send it to John, thank you."),
             ("Forward it to Mike, sorry, John, if you can.", "Forward it to John, if you can."),
@@ -710,6 +715,27 @@ check(
             ("I need one ticket to Paris, sorry, two.", "I need two tickets to Paris."),
             ("I need, uh, to go.", "I need to go."),
             ("I need, um, a ticket to Paris, sorry, two tickets.", "I need two tickets to Paris."),
+            (
+                "Book a hotel room for Friday, sorry, two hotel rooms.",
+                "Book two hotel rooms for Friday.",
+            ),
+            ("Buy a gift card for Sarah. Sorry. Two gift cards.", "Buy two gift cards for Sarah."),
+            (
+                "I need a hotel room in Chicago next week, sorry, two hotel rooms.",
+                "I need two hotel rooms in Chicago next week.",
+            ),
+            (
+                "Book a flight and a hotel room, sorry, two hotel rooms.",
+                "Book a flight and two hotel rooms.",
+            ),
+            (
+                "I need two tickets to the game on Saturday, sorry, three tickets.",
+                "I need three tickets to the game on Saturday.",
+            ),
+            (
+                "I need two tickets to Paris. Sorry. Three tickets.",
+                "I need three tickets to Paris.",
+            ),
             (
                 "Reserve a parking spot for the conference next week, sorry, two spots.",
                 "Reserve two parking spots for the conference next week.",
@@ -1444,6 +1470,12 @@ check(
             ("Text Sarah Monday, sorry, Emily.", "Text Emily."),
             ("Congrats Mike! Sorry, John, you were close.", "Congrats John! You were close."),
             ("Order a coffee and a croissant, sorry, two croissants.", "Order two croissants."),
+            ("Book a flight and a hotel room, sorry, two hotel rooms.", "Book two hotel rooms."),
+            ("Get a movie ticket for tonight. Sorry. Two movie tickets.", "Get two movie tickets."),
+            (
+                "Book a hotel room for Friday, sorry, two hotel rooms.",
+                "Book a hotel room for Friday, two hotel rooms.",
+            ),
             ("Order a coffee and a croissant, sorry, two croissants.", "Order the two croissants."),
             (
                 "Unfortunately, the promotion went to Mike, sorry, John, you'll get the next one.",
