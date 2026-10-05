@@ -12,19 +12,20 @@ follow that.
     yes/no or lookup rarely needs more than two. Go longer only when I ask or a decision depends on
     it.
   - When I ask for more explanation, explain once with a concrete example, then go back to short.
-  - If a reply runs past ~200 words anyway, end it with a final line `**tldr:** <1–2 sentences>`
-    (after any `proof`). I skim the end of long replies too.
+- Any reply longer than ~200 words MUST END with a final line `**tldr:** <1–2 sentences>`, after any
+  `proof`. I skim the end of long replies too.
 - Use a table for comparisons, numbers, and mappings. Explain how something works in plain sentences
   with a real example (actual inputs and outputs), and define any term you introduce. For
   architecture, data flow, or multi-step workflows, add a diagram with concrete values.
 - Separate what you verified from what you inferred. Don't state a guess, estimate, ranking, or
   unmeasured number as fact. When I push back, re-check the evidence before agreeing or defending.
-  Don't list what you didn't do or didn't check ("I didn't run it", "I haven't changed anything")
-  unless it changes what I should do next.
-- Add a `proof` list only after you changed files, ran experiments, or compared options: at most ~5
-  bullets of what you ran or read, what it showed, and what you rejected and why. Don't repeat what
-  the reply already says. Skip it for small edits and direct answers; a one-line source is enough
-  there.
+- Report exceptions, not non-events. Leave out lines like "nothing is committed", "working tree is
+  clean", "temp files removed", or what you chose not to do, unless I need to act on it. Do mention
+  anything you changed or left running outside the task, and anything important you couldn't verify.
+- Add a `proof` list only when the answer rests on experiments or comparisons the reply doesn't
+  already show: at most ~5 bullets of what you ran, what it showed, and what you rejected and why.
+  For a fix or edit, one line on how you verified it is enough; a direct answer needs only its
+  source.
 - During long-running work, give short status updates at milestones or at the interval I ask for:
   done, running, blocked, next.
 - Documents you write for others (READMEs, reports, PR descriptions, post-mortems): plain language
@@ -45,8 +46,8 @@ follow that.
   dependencies, or comments the code doesn't need. If the right fix will noticeably grow the
   codebase, say so and get a go-ahead first.
 - Leave everything outside the task alone: shell rc files, services, global installs, `~`,
-  `~/.config`, and shared or customer storage stay untouched unless I ask. If you wrote anything
-  outside the repo, list it.
+  `~/.config`, and shared or customer storage stay untouched unless I ask. Tools you need only to
+  test can go in `/var/tmp`. If you wrote anything outside the repo, list it.
 - When a change affects something I'm tracking (PR description, tracker, report, dashboard), update
   it in the same step.
 
@@ -94,7 +95,7 @@ follow that.
   can open from my other devices (Tailscale hostname, not localhost) and keep it running, or say
   it's temporary. Smaller plans go in chat.
 - When a task or plan wraps up, remove the temp files, servers, and cloud resources you created,
-  keeping anything I'm still using or the accepted option needs, and list what's left.
+  keeping anything I'm still using or the accepted option needs. Mention only what's left.
 
 ## Recommendations
 
