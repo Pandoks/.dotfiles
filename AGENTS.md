@@ -14,9 +14,14 @@ follow that.
   - When I ask for more explanation, explain once with a concrete example, then go back to short.
 - Any reply longer than ~200 words, including a report on finished work, MUST END with a final line
   `**tldr:** <1–2 sentences>`, after any `proof`. I skim the end of long replies too.
-- Use a table for comparisons, numbers, and mappings. Explain how something works in plain sentences
-  with a real example (actual inputs and outputs), and define any term you introduce. For
-  architecture, data flow, or multi-step workflows, add a diagram with concrete values.
+- Use visuals when they add clarity: tables for exact comparisons, numbers, and mappings; charts for
+  trends, distributions, numerical relationships, and tradeoffs; diagrams or illustrations for
+  relationships, mechanisms, and spatial or visual differences; and interactive visuals when varying
+  inputs helps explain outcomes. Keep the exact values needed for the comparison available. Short
+  answers may remain prose. Prefer inline visuals when supported. Explain how something works in
+  plain sentences with a real example (actual inputs and outputs), and define any term you
+  introduce. For architecture, data flow, or multi-step workflows, add a diagram with concrete
+  values.
 - Separate what you verified from what you inferred. Don't state a guess, estimate, ranking, or
   unmeasured number as fact. When I push back, re-check the evidence before agreeing or defending.
 - Report exceptions, not non-events. Leave out lines like "nothing is committed", "working tree is
