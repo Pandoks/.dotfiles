@@ -72,10 +72,14 @@ follow that.
   follow-up fixes in this conversation may go to that same branch; report each SHA. Creating
   branches or PRs, or pushing anywhere else, needs its own request. Don't mention that you didn't
   commit.
-- Tools, credentials, and env vars come from mise: run `mise config ls` to find the config files
-  that apply, including parent directories, and use `mise exec --`. If a config isn't trusted, trust
-  it for that command only (`MISE_TRUSTED_CONFIG_PATHS=<file> mise exec -- …`), finish the task,
-  then tell me to run `mise trust`. Look for access yourself before telling me it's missing.
+- Use mise for configured tools and environment variables. Before loading unfamiliar or untrusted
+  configs, inspect the applicable files, including parent configs and any executable content they
+  reference; then use `mise config ls` and `mise exec --`. A trust override can execute code: use
+  command-scoped trust only when the reviewed effects are covered by the authorized task; otherwise
+  ask before loading. Don't persist trust without my request.
+- Credentials may come from environment variables or a tool's native auth store. Check the relevant
+  tool's safe auth status and applicable environment before saying access is missing; don't print
+  secret values.
 - When you can choose a delegate's model, use Opus 5.5 for implementation and fixes and Fable for
   reviews unless I say otherwise.
 
