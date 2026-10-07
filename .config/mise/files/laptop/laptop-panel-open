@@ -1,2 +1,0 @@
-event=^button/lid [^ ]+ open$
-action=b=$LAPTOP_BACKLIGHT_DEVICE;s=$S/$b;i=$($LID_QUERY)&&i=$(printf %%s "$i"|grep -oE '"Block(Weak)?Inhibited" s "[^"]*"')||exit;case $i in *[:\"]handle-lid-switch[:\"]*)rm -f "$s";exit;;esac;[ ! -s "$s" ]||{ $BCTL "$b" -rn0 set +0&&rm -f "$s"; }

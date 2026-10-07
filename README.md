@@ -151,40 +151,46 @@ and battery actions, so a docked laptop can stay awake on battery. Later
 drop-ins and lid-switch inhibitors can take precedence. Bootstrap applies the
 policy with HUP, without restarting logind.
 
-Mise installs `acpid` and `brightnessctl`, writes two event rules and a service
-drop-in, and enables the packaged acpid service. On a close event, the rules
-save the internal panel's brightness once and request zero; on open, they
-restore it. The single `Environment=LAPTOP_BACKLIGHT_DEVICE=intel_backlight`
+Mise installs `acpid` and `brightnessctl`, the
+[`laptop-panel`](.config/mise/scripts/laptop-panel.linux.sh) helper at
+`/usr/local/libexec/laptop-panel`, two event rules that run it, and a service
+drop-in, and enables the packaged acpid service. On close, the helper saves
+the internal panel's brightness once and requests zero; on open, it restores
+it. The single `Environment=LAPTOP_BACKLIGHT_DEVICE=intel_backlight`
 assignment in `config.laptop.toml` selects the T470's interface. For another
 laptop, verify its internal backlight interface and edit that assignment.
 Exact backlight selection excludes keyboard LEDs and other devices. Firmware
 may map zero to a lit panel, so verify physical darkness.
 
-Before changing brightness, each rule queries logind's public inhibitor
+Before changing brightness, the helper queries logind's public inhibitor
 properties. If a `handle-lid-switch` block or weak-block inhibitor is observed,
-the rule leaves brightness to its owner and discards only its own device's
-saved level. This avoids restoring an old headless brightness level after
-observing a desktop power manager take over. Ownership is checked only on lid
-events; changes between events or after the query can still race with an
-action. A graphical power manager that does not hold a lid-switch inhibitor
-needs the panel rules disabled: open the lid, replace `source` with
-`state = "absent"` in both panel-rule declarations, retain
-`notify = ["acpid"]`, and reapply. The logind policy can remain.
+it leaves brightness to its owner and discards only its own device's saved
+level. This avoids restoring an old headless brightness level after observing
+a desktop power manager take over. Ownership is checked only on lid events;
+changes between events or after the query can still race with an action. A
+graphical power manager that does not hold a lid-switch inhibitor needs the
+panel rules disabled: open the lid, replace `content` and `mode` with
+`state = "absent"` in both `/etc/acpi/events/laptop-panel-*` declarations,
+retain `notify = ["acpid"]`, and reapply. The logind policy can remain.
 
 Brightness state lives under the private `/run/acpid-lid-backlight` directory
 and survives acpid restarts, but not reboot. Failed save/restore writes retain
-state for a later event. If the logind query fails, including failure of an
-unrelated property getter, the rules leave brightness and saved state alone;
+state for a later event and exit nonzero; a skip for an inhibitor owner exits
+zero. If the logind query fails, including failure of an unrelated property
+getter, the helper exits nonzero and leaves brightness and saved state alone;
 a failed open query can leave the panel dark until a later successful open
 event. There is no startup reconciliation, stop-time restore, resume hook, or
 retry loop. Open and close the lid once if it starts closed. Check actual lid
 events, panel darkness, battery suspend/resume, and reboot on the laptop.
 Other existing acpid rules also run and may need adjustment.
 
-The event actions are compact because released acpid limits an action to 255
-bytes. Preserve their literal `%%s` escape: acpid expands it to `%s` before
-running the shell. The service's command-prefix and state-path variables keep
-the actions within that limit.
+To run the helper by hand with acpid's state and device, for example to
+restore a panel left dark:
+
+```sh
+sudo env XDG_RUNTIME_DIR=/run/acpid-lid-backlight \
+  LAPTOP_BACKLIGHT_DEVICE=intel_backlight /usr/local/libexec/laptop-panel open
+```
 
 If an earlier version of this PR was applied, bootstrap stops/disables its old
 service while its restore helper still exists, then removes the old unit and

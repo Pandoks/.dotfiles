@@ -22,17 +22,35 @@ mode = "0755"
 [bootstrap.directories."/etc/systemd/system/acpid.service.d"]
 mode = "0755"
 
+[bootstrap.directories."/usr/local/libexec"]
+mode = "0755"
+
 [bootstrap.files."/etc/systemd/logind.conf.d/60-mise-laptop-power.conf"]
-source = "./files/laptop/logind.conf"
+content = '''
+[Login]
+HandleLidSwitch=suspend
+HandleLidSwitchExternalPower=ignore
+'''
 mode = "0644"
 
+[bootstrap.files."/usr/local/libexec/laptop-panel"]
+source = "./scripts/laptop-panel.linux.sh"
+mode = "0755"
+notify = ["acpid"]
+
 [bootstrap.files."/etc/acpi/events/laptop-panel-close"]
-source = "./files/laptop/laptop-panel-close"
+content = '''
+event=^button/lid [^ ]+ close$
+action=/usr/local/libexec/laptop-panel close
+'''
 mode = "0644"
 notify = ["acpid"]
 
 [bootstrap.files."/etc/acpi/events/laptop-panel-open"]
-source = "./files/laptop/laptop-panel-open"
+content = '''
+event=^button/lid [^ ]+ open$
+action=/usr/local/libexec/laptop-panel open
+'''
 mode = "0644"
 notify = ["acpid"]
 
@@ -41,9 +59,6 @@ content = '''
 [Service]
 Environment=XDG_RUNTIME_DIR=/run/acpid-lid-backlight
 Environment=LAPTOP_BACKLIGHT_DEVICE=intel_backlight
-Environment="LID_QUERY=/usr/bin/busctl --timeout=2s call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.DBus.Properties GetAll s org.freedesktop.login1.Manager"
-Environment="BCTL=/usr/bin/brightnessctl -qc backlight -d"
-Environment=S=/run/acpid-lid-backlight/brightnessctl/backlight
 RuntimeDirectory=acpid-lid-backlight
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
