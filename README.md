@@ -62,12 +62,56 @@ brew install mise
 
 #### Disable SIP
 
-Some of the features need [SIP] disabled.
+Some features need [SIP] partially disabled.
 
 1. Shut down. Hold power (Apple Silicon) or hold Command-R during startup (Intel).
 2. Apple Silicon: **Options → Continue**. Authenticate when prompted.
-3. **Utilities → Terminal**: `csrutil disable`. Confirm and authenticate.
-4. Restart. Check `csrutil status` reports `disabled`.
+3. **Utilities → Terminal**, then run the command for your Mac and authenticate:
+
+   ```sh
+   # Apple Silicon, macOS 13+
+   csrutil enable --without fs --without debug --without nvram
+
+   # Apple Silicon, macOS 12
+   csrutil disable --with kext --with dtrace --with basesystem
+
+   # Intel, macOS 11+
+   csrutil disable --with kext --with dtrace --with nvram --with basesystem
+   ```
+
+4. Restart into **normal macOS**. **Apple Silicon only:** open the regular
+   **Terminal** app and check existing boot arguments:
+
+   ```sh
+   nvram boot-args
+   ```
+
+   **Flag already present:** if the output includes `-arm64e_preview_abi`,
+   skip to step 5.
+
+   **No existing arguments:** if the value is empty or the command reports
+   `data was not found`, run:
+
+   ```sh
+   sudo nvram boot-args=-arm64e_preview_abi
+   ```
+
+   **Existing arguments, flag missing:** keep every existing argument inside
+   the quotes and add `-arm64e_preview_abi`. For example, if the current value
+   is exactly `debug=0x100`, run:
+
+   ```sh
+   sudo nvram boot-args="debug=0x100 -arm64e_preview_abi"
+   ```
+
+   For any other read error, stop and resolve it first.
+   **Restart again after changing boot arguments.**
+
+5. Check `csrutil status`. It may report `unknown (Custom Configuration)`;
+   that is expected. Filesystem Protections and Debugging Restrictions
+   should be disabled (plus NVRAM Protections on Apple Silicon), while Kext
+   Signing and DTrace Restrictions stay enabled. On Apple Silicon,
+   `nvram boot-args` should include `-arm64e_preview_abi`.
 
 ## Bootstrap
 
