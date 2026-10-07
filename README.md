@@ -74,18 +74,28 @@ Some of the features need [SIP] disabled.
 ```sh
 git clone https://github.com/Pandoks/.dotfiles.git "$HOME/.dotfiles"
 cd "$HOME/.dotfiles"
+export MISE_GLOBAL_CONFIG_FILE="$PWD/.config/mise/config.toml"
 sudo -v && mise bootstrap --yes
 ```
 
 Bootstrap is idempotent and refuses to overwrite conflicting files. Start a
 new login shell when it finishes.
 
+### Update
+
+```sh
+cd "$HOME/.dotfiles"
+git pull --ff-only
+export MISE_GLOBAL_CONFIG_FILE="$PWD/.config/mise/config.toml"
+sudo -v && mise bootstrap --yes
+```
+
 ### Existing files
 
 Preview migration before replacing any existing dotfiles:
 
 ```sh
-cd /path/to/.dotfiles
+cd "$HOME/.dotfiles"
 export MISE_GLOBAL_CONFIG_FILE="$PWD/.config/mise/config.toml"
 mise bootstrap --yes --only dotfiles --dry-run --verbose
 ```
@@ -114,40 +124,85 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
+Linux also installs [fwupd] to check and update supported device firmware.
+Firmware checks and updates are manual; bootstrap only installs the tool.
+Optionally discover available updates after bootstrap:
+
+```sh
+sudo fwupdmgr refresh
+fwupdmgr get-updates
+```
+
+Device support varies. Sleep/resume reliability depends on the kernel,
+drivers, and firmware.
+
 ### Linux laptops
 
-The Linux final bootstrap hook configures physical systemd laptops. Closing the
+The Linux final bootstrap hook applies `config.laptop.toml` on physical systemd
+laptops. Desktops, servers, VMs, containers, and non-systemd systems skip its
+packages, files, services, and privilege requests. Existing Linux setup still
+applies normally. This setup works with mise 2026.8.3 and 2026.10.3.
+
+The policy is `/etc/systemd/logind.conf.d/60-mise-laptop-power.conf`. Closing the
 lid on AC keeps SSH and services running; on battery, logind requests suspend.
-Desktops, servers, VMs, containers, and non-systemd systems skip this setup before
-any new sudo request. Existing package and linger setup still applies normally.
-
-On laptops exposing a backlight interface, `mise-lid-backlight.service` watches
-logind without an extra package. In headless sessions it saves internal panel
-brightness and power, requests backlight off while closed, and restores the
-previous values on opening. It defers to graphical sessions and lid-switch
-inhibitors; external display backlights are excluded. Firmware may ignore power
-off or brightness zero, so verify actual panel darkness on the laptop.
-
-The managed policy is `/etc/systemd/logind.conf.d/60-mise-laptop-power.conf`.
-`HandleLidSwitchDocked` retains the existing setting (systemd defaults to
+`HandleLidSwitchDocked` keeps the existing setting (systemd defaults to
 `ignore`): docking or multiple attached displays takes precedence over the AC
 and battery actions, so a docked laptop can stay awake on battery. Later
-drop-ins can override the policy, and desktop lid inhibitors can take over
-handling. Bootstrap applies it with HUP, without restarting logind.
+drop-ins and lid-switch inhibitors can take precedence. Bootstrap applies the
+policy with HUP, without restarting logind.
 
-Unmapped backlights are skipped. After verifying an interface controls the
-internal panel, add its exact name to `/etc/mise-lid-backlight.devices` (one
-name per line). Saved values persist in `/var/lib/mise-lid-backlight` across
-service restarts; physical blackout and reboot behavior still need laptop
-verification.
+Mise installs `acpid` and `brightnessctl`, writes two event rules and a service
+drop-in, and enables the packaged acpid service. On a close event, the rules
+save the internal panel's brightness once and request zero; on open, they
+restore it. The single `Environment=LAPTOP_BACKLIGHT_DEVICE=intel_backlight`
+assignment in `config.laptop.toml` selects the T470's interface. For another
+laptop, verify its internal backlight interface and edit that assignment.
+Exact backlight selection excludes keyboard LEDs and other devices. Firmware
+may map zero to a lit panel, so verify physical darkness.
+
+Before changing brightness, each rule queries logind's public inhibitor
+properties. If a `handle-lid-switch` block or weak-block inhibitor is observed,
+the rule leaves brightness to its owner and discards only its own device's
+saved level. This avoids restoring an old headless brightness level after
+observing a desktop power manager take over. Ownership is checked only on lid
+events; changes between events or after the query can still race with an
+action. A graphical power manager that does not hold a lid-switch inhibitor
+needs the panel rules disabled: open the lid, replace `source` with
+`state = "absent"` in both panel-rule declarations, retain
+`notify = ["acpid"]`, and reapply. The logind policy can remain.
+
+Brightness state lives under the private `/run/acpid-lid-backlight` directory
+and survives acpid restarts, but not reboot. Failed save/restore writes retain
+state for a later event. If the logind query fails, including failure of an
+unrelated property getter, the rules leave brightness and saved state alone;
+a failed open query can leave the panel dark until a later successful open
+event. There is no startup reconciliation, stop-time restore, resume hook, or
+retry loop. Open and close the lid once if it starts closed. Check actual lid
+events, panel darkness, battery suspend/resume, and reboot on the laptop.
+Other existing acpid rules also run and may need adjustment.
+
+The event actions are compact because released acpid limits an action to 255
+bytes. Preserve their literal `%%s` escape: acpid expands it to `%s` before
+running the shell. The service's command-prefix and state-path variables keep
+the actions within that limit.
+
+If an earlier version of this PR was applied, bootstrap stops/disables its old
+service while its restore helper still exists, then removes the old unit and
+two helpers. Unrestored old state and an optional device allowlist remain
+inert; they are not imported into brightnessctl's state.
 
 To preview or reapply only this setup from the repository:
 
 ```sh
+cd "$HOME/.dotfiles"
 export MISE_GLOBAL_CONFIG_FILE="$PWD/.config/mise/config.toml"
 mise bootstrap --yes --only final-hook --dry-run
 mise bootstrap --yes --only final-hook
 ```
+
+The dry run prints the hook without executing its hardware guard or nested
+bootstrap. From an unrelated directory after installation, select the global
+Linux config explicitly: `mise -E linux bootstrap --yes --only final-hook`.
 
 ## CLIProxyAPI
 
@@ -181,3 +236,4 @@ mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
+[fwupd]: https://github.com/fwupd/fwupd/blob/main/src/fwupdmgr.md

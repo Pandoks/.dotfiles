@@ -22,17 +22,37 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 
 [bootstrap.hooks.final]
 run = '''
-script="$HOME/.config/mise/scripts/setup-laptop-power.linux.sh"
-
-if [ ! -f "$script" ]; then
-  script="$PWD/.config/mise/scripts/setup-laptop-power.linux.sh"
-fi
-
-if [ ! -f "$script" ] && [ -n "${MISE_GLOBAL_CONFIG_FILE:-}" ]; then
-  script="$(dirname "$MISE_GLOBAL_CONFIG_FILE")/scripts/setup-laptop-power.linux.sh"
-fi
-
-sh "$script"
+set -eu
+[ -d /run/systemd/system ] || exit 0
+[ "$(systemd-detect-virt 2>/dev/null || :)" = none ] || exit 0
+case "$(hostnamectl chassis 2>/dev/null || :)" in
+  laptop|convertible) ;;
+  desktop|server|vm|container|tablet|handset|watch|embedded) exit 0 ;;
+  *)
+    case "$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || :)" in
+      8|9|10|14|31|32) ;;
+      ''|0|1|2)
+        { grep -q . /proc/acpi/button/lid/*/state 2>/dev/null ||
+          grep -Eq '[13579bBdDfF]$' /sys/class/input/input*/capabilities/sw 2>/dev/null; } || exit 0
+        battery=false
+        for supply in /sys/class/power_supply/*; do
+          [ "$(cat "$supply/type" 2>/dev/null || :)" = Battery ] || continue
+          [ "$(cat "$supply/scope" 2>/dev/null || :)" != Device ] || continue
+          battery=true
+        done
+        [ "$battery" = true ] || exit 0
+        ;;
+      *) exit 0 ;;
+    esac
+    ;;
+esac
+systemctl is-active --quiet systemd-logind.service || exit 0
+config="${MISE_GLOBAL_CONFIG_FILE:-$HOME/.config/mise/config.toml}"
+config="$(dirname "$config")/config.laptop.toml"
+[ -f "$config" ] || config="$PWD/.config/mise/config.laptop.toml"
+case "$config" in /*) ;; *) config="$PWD/$config";; esac
+MISE_GLOBAL_CONFIG_FILE="$config" \
+  mise --cd / bootstrap --yes --only packages,files,services,final-hook
 '''
 
 [bootstrap.packages]
@@ -42,6 +62,7 @@ sh "$script"
 "apt:extrepo" = "latest"
 "apt:ca-certificates" = "latest"
 "apt:tree" = "latest"
+"apt:fwupd" = "latest"
 "apt:docker-ce" = "latest"
 "apt:docker-ce-cli" = "latest"
 "apt:containerd.io" = "latest"
@@ -53,6 +74,7 @@ sh "$script"
 "pacman:git" = "latest"
 "pacman:ca-certificates" = "latest"
 "pacman:tree" = "latest"
+"pacman:fwupd" = "latest"
 "pacman:ghostty" = "latest"
 "pacman:ttf-hack-nerd" = "latest"
 "pacman:docker" = "latest"
