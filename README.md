@@ -60,7 +60,8 @@ fi
 brew install mise
 ```
 
-#### Disable SIP
+<details>
+<summary>Disable SIP</summary>
 
 Some features need [SIP] partially disabled.
 
@@ -112,6 +113,8 @@ Some features need [SIP] partially disabled.
    should be disabled (plus NVRAM Protections on Apple Silicon), while Kext
    Signing and DTrace Restrictions stay enabled. On Apple Silicon,
    `nvram boot-args` should include `-arm64e_preview_abi`.
+
+</details>
 
 ## Bootstrap
 
