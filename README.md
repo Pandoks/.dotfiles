@@ -124,91 +124,25 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
-Linux also installs [fwupd] to check and update supported device firmware.
-Firmware checks and updates are manual; bootstrap only installs the tool.
-Optionally discover available updates after bootstrap:
+Linux also installs [fwupd]; firmware checks and updates are manual:
 
 ```sh
 sudo fwupdmgr refresh
 fwupdmgr get-updates
 ```
 
-Device support varies. Sleep/resume reliability depends on the kernel,
-drivers, and firmware.
-
 ### Linux laptops
 
-The Linux final bootstrap hook applies `config.laptop.toml` on physical systemd
-laptops. Desktops, servers, VMs, containers, and non-systemd systems skip its
-packages, files, services, and privilege requests. Existing Linux setup still
-applies normally. This setup works with mise 2026.8.3 and 2026.10.3.
+Physical systemd laptops keep running with the lid closed on AC and request
+suspend on battery. Dock settings and lid inhibitors take precedence.
 
-The policy is `/etc/systemd/logind.conf.d/60-mise-laptop-power.conf`. Closing the
-lid on AC keeps SSH and services running; on battery, logind requests suspend.
-`HandleLidSwitchDocked` keeps the existing setting (systemd defaults to
-`ignore`): docking or multiple attached displays takes precedence over the AC
-and battery actions, so a docked laptop can stay awake on battery. Later
-drop-ins and lid-switch inhibitors can take precedence. Bootstrap applies the
-policy with HUP, without restarting logind.
-
-Mise installs `acpid` and `brightnessctl`, the
-[`laptop-panel`](.config/mise/scripts/laptop-panel.linux.sh) helper at
-`/usr/local/libexec/laptop-panel`, two event rules that run it, and a service
-drop-in, and enables the packaged acpid service. On close, the helper saves
-the internal panel's brightness once and requests zero; on open, it restores
-it. The single `Environment=LAPTOP_BACKLIGHT_DEVICE=intel_backlight`
-assignment in `config.laptop.toml` selects the T470's interface. For another
-laptop, verify its internal backlight interface and edit that assignment.
-Exact backlight selection excludes keyboard LEDs and other devices. Firmware
-may map zero to a lit panel, so verify physical darkness.
-
-Before changing brightness, the helper queries logind's public inhibitor
-properties. If a `handle-lid-switch` block or weak-block inhibitor is observed,
-it leaves brightness to its owner and discards only its own device's saved
-level. This avoids restoring an old headless brightness level after observing
-a desktop power manager take over. Ownership is checked only on lid events;
-changes between events or after the query can still race with an action. A
-graphical power manager that does not hold a lid-switch inhibitor needs the
-panel rules disabled: open the lid, replace `content` and `mode` with
-`state = "absent"` in both `/etc/acpi/events/laptop-panel-*` declarations,
-retain `notify = ["acpid"]`, and reapply. The logind policy can remain.
-
-Brightness state lives under the private `/run/acpid-lid-backlight` directory
-and survives acpid restarts, but not reboot. Failed save/restore writes retain
-state for a later event and exit nonzero; a skip for an inhibitor owner exits
-zero. If the logind query fails, including failure of an unrelated property
-getter, the helper exits nonzero and leaves brightness and saved state alone;
-a failed open query can leave the panel dark until a later successful open
-event. There is no startup reconciliation, stop-time restore, resume hook, or
-retry loop. Open and close the lid once if it starts closed. Check actual lid
-events, panel darkness, battery suspend/resume, and reboot on the laptop.
-Other existing acpid rules also run and may need adjustment.
-
-To run the helper by hand with acpid's state and device, for example to
-restore a panel left dark:
-
-```sh
-sudo env XDG_RUNTIME_DIR=/run/acpid-lid-backlight \
-  LAPTOP_BACKLIGHT_DEVICE=intel_backlight /usr/local/libexec/laptop-panel open
-```
-
-If an earlier version of this PR was applied, bootstrap stops/disables its old
-service while its restore helper still exists, then removes the old unit and
-two helpers. Unrestored old state and an optional device allowlist remain
-inert; they are not imported into brightnessctl's state.
-
-To preview or reapply only this setup from the repository:
-
-```sh
-cd "$HOME/.dotfiles"
-export MISE_GLOBAL_CONFIG_FILE="$PWD/.config/mise/config.toml"
-mise bootstrap --yes --only final-hook --dry-run
-mise bootstrap --yes --only final-hook
-```
-
-The dry run prints the hook without executing its hardware guard or nested
-bootstrap. From an unrelated directory after installation, select the global
-Linux config explicitly: `mise -E linux bootstrap --yes --only final-hook`.
+The [panel helper](.config/mise/scripts/laptop-panel.linux.sh) saves brightness
+on close, requests zero, and restores it on open. This doesn't request panel
+power-off; zero can still leave a panel lit. The backlight device is
+`intel_backlight` (T470). For other laptops, set `LAPTOP_BACKLIGHT_DEVICE` in
+[`config.laptop.toml`](.config/mise/config.laptop.toml) to the verified internal
+backlight device. The helper defers to desktop lid inhibitors; disable the
+acpid panel rules if your desktop manages brightness without one.
 
 ## CLIProxyAPI
 

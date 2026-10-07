@@ -1,6 +1,7 @@
 [bootstrap.packages]
 "apt:acpid" = "latest"
 "apt:brightnessctl" = "latest"
+
 "pacman:acpid" = "latest"
 "pacman:brightnessctl" = "latest"
 

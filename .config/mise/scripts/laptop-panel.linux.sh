@@ -1,16 +1,11 @@
 #!/bin/sh
 
-# Dims the internal panel while the lid is closed: laptop-panel close|open.
-# acpid's laptop-panel drop-in sets LAPTOP_BACKLIGHT_DEVICE and the private
-# XDG_RUNTIME_DIR where brightnessctl saves the level to restore.
-
 set -u
 
 backlight() {
   /usr/bin/brightnessctl -qc backlight -d "$device" "$@"
 }
 
-# Prints logind's lid-switch block and weak-block inhibitor lists
 lid_inhibitors() {
   manager_properties="$(/usr/bin/busctl --timeout=2s call \
     org.freedesktop.login1 /org/freedesktop/login1 \
@@ -20,10 +15,7 @@ lid_inhibitors() {
     | grep -oE '"Block(Weak)?Inhibited" s "[^"]*"'
 }
 
-# Exits without touching brightness if the panel isn't ours to change. A
-# failed logind query exits nonzero and keeps the saved level; an observed
-# lid-switch inhibitor (a desktop power manager) owns the panel, so this
-# helper's saved level is stale and is dropped.
+# A lid inhibitor makes our saved brightness stale.
 exit_unless_panel_is_ours() {
   inhibitors="$(lid_inhibitors)" || exit
   case "$inhibitors" in
@@ -34,15 +26,13 @@ exit_unless_panel_is_ours() {
   esac
 }
 
-# Saves only the first level so a repeated close never saves zero
 panel_close() {
   exit_unless_panel_is_ours
   [ -s "$saved_level" ] || backlight -s > /dev/null
   [ -s "$saved_level" ] && backlight set 0
 }
 
-# -r loads the saved level and set +0 writes it, reporting write failures;
-# the saved level is kept for a later open unless the write succeeds
+# +0 forces the restore write to report failures.
 panel_open() {
   exit_unless_panel_is_ours
   [ -s "$saved_level" ] || return 0
