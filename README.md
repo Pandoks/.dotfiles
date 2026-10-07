@@ -62,12 +62,32 @@ brew install mise
 
 #### Disable SIP
 
-Some of the features need [SIP] disabled.
+The [yabai scripting addition] needs [SIP] partially disabled. Follow the
+[yabai wiki][yabai SIP] for details.
 
 1. Shut down. Hold power (Apple Silicon) or hold Command-R during startup (Intel).
 2. Apple Silicon: **Options → Continue**. Authenticate when prompted.
-3. **Utilities → Terminal**: `csrutil disable`. Confirm and authenticate.
-4. Restart. Check `csrutil status` reports `disabled`.
+3. **Utilities → Terminal**, then run the command for your Mac and authenticate:
+
+   ```sh
+   # Apple Silicon, macOS 13+
+   csrutil enable --without fs --without debug --without nvram
+
+   # Intel, macOS 11+
+   csrutil disable --with kext --with dtrace --with nvram --with basesystem
+   ```
+
+4. Restart. Apple Silicon only: enable the arm64e ABI, then restart again:
+
+   ```sh
+   sudo nvram boot-args=-arm64e_preview_abi
+   ```
+
+5. Check `csrutil status`. It may report `unknown (Custom Configuration)`;
+   that is expected. Filesystem Protections and Debugging Restrictions
+   should be disabled (plus NVRAM Protections on Apple Silicon), while Kext
+   Signing and DTrace Restrictions stay enabled. On Apple Silicon,
+   `nvram boot-args` should include `-arm64e_preview_abi`.
 
 ## Bootstrap
 
@@ -143,6 +163,8 @@ mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
 ```
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
+[yabai scripting addition]: https://github.com/asmvik/yabai/wiki/Installing-yabai-(latest-release)#configure-scripting-addition
+[yabai SIP]: https://github.com/asmvik/yabai/wiki/Disabling-System-Integrity-Protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
