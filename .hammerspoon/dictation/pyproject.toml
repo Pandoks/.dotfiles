@@ -1,0 +1,23 @@
+# Backend deps; setup.sh runs `uv sync --locked` (refresh: `uv lock --upgrade`).
+[project]
+name = "dictation"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+  "parakeet-mlx==0.5.2", # server.py copies its TDT greedy decoder
+  "mlx",
+  "mlx-audio",
+  "mlx-whisper",
+  "mlx-lm",
+  "huggingface-hub",
+  "numpy",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+exclude-dependencies = ["torch"] # mlx-whisper needs it only to convert checkpoints
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

@@ -24,6 +24,7 @@ lazydocker = "latest"
 k9s = "latest"
 yazi = "latest"
 ffmpeg = "latest"
+uv = "latest"
 go = "latest"
 
 [settings]

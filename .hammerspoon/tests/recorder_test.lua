@@ -1,0 +1,122 @@
+local root, frameworks, scratch = assert(arg[1], "pass the dictation directory"), arg[2], arg[3]
+---@type hs.fs
+local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
+local passed, args, gone = 0, nil, false
+
+local function test(name, callback)
+  local ok, failure = pcall(callback)
+  assert(ok, name .. ": " .. tostring(failure))
+  passed = passed + 1
+  print("PASS " .. name)
+end
+
+-- recorder.lua with ffmpeg found at a fake path and its capture task's arguments kept.
+local recorder = assert(loadfile(
+  root .. "/recorder.lua",
+  "t",
+  setmetatable({
+    require = function(name)
+      return name == "dictation.spectrum" and { new = function() end } or require(name)
+    end,
+    hs = {
+      fs = setmetatable({
+        pathToAbsolute = function() end,
+        attributes = function(path, ...)
+          if path:find("/ffmpeg$") then
+            return not gone and "file" or nil
+          end
+          return fs.attributes(path, ...)
+        end,
+        temporaryDirectory = function()
+          return scratch .. "/"
+        end,
+      }, { __index = fs }),
+      execute = function()
+        return ""
+      end,
+      host = {
+        uuid = function()
+          return "take"
+        end,
+      },
+      task = {
+        new = function(_, _, _, arguments)
+          args = arguments
+        end,
+      },
+    },
+  }, { __index = _G })
+))()
+
+test("ffmpeg removed since load is reported, not run", function()
+  gone = true
+  local recording, message = recorder.start(8, function() end)
+  gone = false
+  assert(not recording and message:find("is gone; reload Hammerspoon", 1, true), tostring(message))
+end)
+
+test("the capture shell writes recordings owner-only", function()
+  recorder.start(8, function() end)
+  local watchdog = assert(args and args[2], "no capture task")
+  local file = scratch .. "/written.wav"
+  -- The capture's own shell, running touch in place of ffmpeg; stdin stays open until it is done.
+  -- Started under a umask that lets others read, as Hammerspoon's may.
+  local command = ("umask 022; sleep 1 | /bin/sh -c '%s' /usr/bin/touch %q"):format(watchdog, file)
+  assert(os.execute(command))
+  local mode = fs.attributes(file, "permissions")
+  assert(mode == "rw-------", tostring(mode))
+end)
+
+test("a crash's recordings with audio are found; their PCM and empty ones are deleted", function()
+  local function write(name, bytes)
+    local file = assert(io.open(scratch .. "/" .. name, "w"))
+    file:write(("\0"):rep(bytes))
+    file:close()
+  end
+  write("dictation-0a1b-2c3d.wav", 8192)
+  write("dictation-0a1b-2c3d.pcm", 4096)
+  write("dictation-4e5f-6a7b.wav", 78) -- ffmpeg's header and no audio
+  write("notes.wav", 4096)
+  local found = recorder.leftovers()
+  local wav = scratch .. "/dictation-0a1b-2c3d.wav"
+  assert(#found == 1 and found[1].wav == wav, tostring(found[1] and found[1].wav))
+  assert(not fs.attributes(scratch .. "/dictation-0a1b-2c3d.pcm"), "kept its PCM")
+  assert(not fs.attributes(scratch .. "/dictation-4e5f-6a7b.wav"), "kept an empty one")
+  assert(fs.attributes(scratch .. "/notes.wav"), "deleted a file not its own")
+end)
+
+test("ffmpeg is resolved by mise itself, not by running a shim that is no link", function()
+  local loaded = assert(loadfile(
+    root .. "/recorder.lua",
+    "t",
+    setmetatable({
+      require = function()
+        return { new = function() end }
+      end,
+      hs = {
+        fs = setmetatable({
+          pathToAbsolute = function(path)
+            return path -- a file shim, not a link to mise
+          end,
+          attributes = function(path, ...)
+            local found = path == "/opt/homebrew/bin/mise" or path:find("^/opt/mise/")
+            return found and "file" or fs.attributes(path, ...)
+          end,
+          temporaryDirectory = function()
+            return scratch .. "/"
+          end,
+        }, { __index = fs }),
+        -- Only mise prints where ffmpeg is; the shim would run ffmpeg itself, printing nothing.
+        execute = function(command)
+          local mise = command:find("/opt/homebrew/bin/mise", 1, true)
+          return mise and "/opt/mise/installs/ffmpeg/9.0/bin/ffmpeg\n" or ""
+        end,
+        host = {},
+        task = {},
+      },
+    }, { __index = _G })
+  ))()
+  assert(loaded.ffmpeg == "/opt/mise/installs/ffmpeg/9.0/bin/ffmpeg", tostring(loaded.ffmpeg))
+end)
+
+print(passed .. " recorder tests passed")
