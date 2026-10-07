@@ -79,19 +79,33 @@ Some features need [SIP] partially disabled.
    csrutil disable --with kext --with dtrace --with nvram --with basesystem
    ```
 
-4. Restart. Apple Silicon only: add `-arm64e_preview_abi` to the boot args
-   without dropping existing ones, then restart again. Check the current value:
+4. Restart into **normal macOS**. **Apple Silicon only:** open the regular
+   **Terminal** app and check existing boot arguments:
 
    ```sh
    nvram boot-args
    ```
 
-   - Empty value or `data was not found`: run
-     `sudo nvram boot-args=-arm64e_preview_abi`.
-   - Already includes `-arm64e_preview_abi`: nothing to do.
-   - Other arguments: set them all plus the flag, e.g. for `debug=0x100` run
-     `sudo nvram boot-args="debug=0x100 -arm64e_preview_abi"`.
-   - Any other error: stop and resolve it first.
+   **Flag already present:** if the output includes `-arm64e_preview_abi`,
+   skip to step 5.
+
+   **No existing arguments:** if the value is empty or the command reports
+   `data was not found`, run:
+
+   ```sh
+   sudo nvram boot-args=-arm64e_preview_abi
+   ```
+
+   **Existing arguments, flag missing:** keep every existing argument inside
+   the quotes and add `-arm64e_preview_abi`. For example, if the current value
+   is exactly `debug=0x100`, run:
+
+   ```sh
+   sudo nvram boot-args="debug=0x100 -arm64e_preview_abi"
+   ```
+
+   For any other read error, stop and resolve it first.
+   **Restart again after changing boot arguments.**
 
 5. Check `csrutil status`. It may report `unknown (Custom Configuration)`;
    that is expected. Filesystem Protections and Debugging Restrictions
