@@ -65,5 +65,5 @@ test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoo
 "~/.hammerspoon/applications.lua" = "../../.hammerspoon/applications.lua"
 "~/.hammerspoon/ghostty.lua" = "../../.hammerspoon/ghostty.lua"
 "~/.hammerspoon/init.lua" = "../../.hammerspoon/init.lua"
-"~/.hammerspoon/window_profiles.lua" = "../../.hammerspoon/window_profiles.lua"
+"~/.hammerspoon/windows.lua" = "../../.hammerspoon/windows.lua"
 "~/.rtorrent.rc" = "../../.rtorrent.rc"
