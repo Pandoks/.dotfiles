@@ -114,6 +114,41 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
+### Linux laptops
+
+The Linux final bootstrap hook configures physical systemd laptops. Closing the
+lid on AC keeps SSH and services running; on battery, logind requests suspend.
+Desktops, servers, VMs, containers, and non-systemd systems skip this setup before
+any new sudo request. Existing package and linger setup still applies normally.
+
+On laptops exposing a backlight interface, `mise-lid-backlight.service` watches
+logind without an extra package. In headless sessions it saves internal panel
+brightness and power, requests backlight off while closed, and restores the
+previous values on opening. It defers to graphical sessions and lid-switch
+inhibitors; external display backlights are excluded. Firmware may ignore power
+off or brightness zero, so verify actual panel darkness on the laptop.
+
+The managed policy is `/etc/systemd/logind.conf.d/60-mise-laptop-power.conf`.
+`HandleLidSwitchDocked` retains the existing setting (systemd defaults to
+`ignore`): docking or multiple attached displays takes precedence over the AC
+and battery actions, so a docked laptop can stay awake on battery. Later
+drop-ins can override the policy, and desktop lid inhibitors can take over
+handling. Bootstrap applies it with HUP, without restarting logind.
+
+Unmapped backlights are skipped. After verifying an interface controls the
+internal panel, add its exact name to `/etc/mise-lid-backlight.devices` (one
+name per line). Saved values persist in `/var/lib/mise-lid-backlight` across
+service restarts; physical blackout and reboot behavior still need laptop
+verification.
+
+To preview or reapply only this setup from the repository:
+
+```sh
+export MISE_GLOBAL_CONFIG_FILE="$PWD/.config/mise/config.toml"
+mise bootstrap --yes --only final-hook --dry-run
+mise bootstrap --yes --only final-hook
+```
+
 ## CLIProxyAPI
 
 Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.

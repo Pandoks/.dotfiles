@@ -20,6 +20,21 @@ user=$(id -un)
 loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
 '''
 
+[bootstrap.hooks.final]
+run = '''
+script="$HOME/.config/mise/scripts/setup-laptop-power.linux.sh"
+
+if [ ! -f "$script" ]; then
+  script="$PWD/.config/mise/scripts/setup-laptop-power.linux.sh"
+fi
+
+if [ ! -f "$script" ] && [ -n "${MISE_GLOBAL_CONFIG_FILE:-}" ]; then
+  script="$(dirname "$MISE_GLOBAL_CONFIG_FILE")/scripts/setup-laptop-power.linux.sh"
+fi
+
+sh "$script"
+'''
+
 [bootstrap.packages]
 "apt:zsh" = "latest"
 "apt:curl" = "latest"

@@ -1,0 +1,14 @@
+[Unit]
+Description=Restore laptop panel backlights on lid opening
+Wants=systemd-logind.service
+After=systemd-logind.service dbus.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/mise-lid-backlight-watch
+ExecStopPost=/usr/local/libexec/mise-lid-backlight restore
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
