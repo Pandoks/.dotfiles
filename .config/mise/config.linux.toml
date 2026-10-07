@@ -23,35 +23,42 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 [bootstrap.hooks.final]
 run = '''
 set -eu
+
+is_laptop() {
+  [ "$(systemd-detect-virt 2>/dev/null || :)" = none ] || return 1
+  case "$(hostnamectl chassis 2>/dev/null || :)" in
+    laptop|convertible) return 0 ;;
+    desktop|server|vm|container|tablet|handset|watch|embedded) return 1 ;;
+  esac
+
+  # Unknown chassis: fall back to the firmware's DMI chassis type
+  case "$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || :)" in
+    8|9|10|14|31|32) return 0 ;;
+    ''|0|1|2) ;;
+    *) return 1 ;;
+  esac
+
+  # Unknown firmware: require a lid switch and a system (not peripheral) battery
+  grep -q . /proc/acpi/button/lid/*/state 2>/dev/null ||
+    grep -Eq '[13579bBdDfF]$' /sys/class/input/input*/capabilities/sw 2>/dev/null ||
+    return 1
+  for supply in /sys/class/power_supply/*; do
+    [ "$(cat "$supply/type" 2>/dev/null || :)" = Battery ] || continue
+    [ "$(cat "$supply/scope" 2>/dev/null || :)" = Device ] || return 0
+  done
+  return 1
+}
+
 [ -d /run/systemd/system ] || exit 0
-[ "$(systemd-detect-virt 2>/dev/null || :)" = none ] || exit 0
-case "$(hostnamectl chassis 2>/dev/null || :)" in
-  laptop|convertible) ;;
-  desktop|server|vm|container|tablet|handset|watch|embedded) exit 0 ;;
-  *)
-    case "$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || :)" in
-      8|9|10|14|31|32) ;;
-      ''|0|1|2)
-        { grep -q . /proc/acpi/button/lid/*/state 2>/dev/null ||
-          grep -Eq '[13579bBdDfF]$' /sys/class/input/input*/capabilities/sw 2>/dev/null; } || exit 0
-        battery=false
-        for supply in /sys/class/power_supply/*; do
-          [ "$(cat "$supply/type" 2>/dev/null || :)" = Battery ] || continue
-          [ "$(cat "$supply/scope" 2>/dev/null || :)" != Device ] || continue
-          battery=true
-        done
-        [ "$battery" = true ] || exit 0
-        ;;
-      *) exit 0 ;;
-    esac
-    ;;
-esac
+is_laptop || exit 0
 systemctl is-active --quiet systemd-logind.service || exit 0
-config="${MISE_GLOBAL_CONFIG_FILE:-$HOME/.config/mise/config.toml}"
-config="$(dirname "$config")/config.laptop.toml"
-[ -f "$config" ] || config="$PWD/.config/mise/config.laptop.toml"
-case "$config" in /*) ;; *) config="$PWD/$config";; esac
-MISE_GLOBAL_CONFIG_FILE="$config" \
+
+# Use the companion beside the global config, else the repo checkout copy
+laptop_config="$(dirname "${MISE_GLOBAL_CONFIG_FILE:-$HOME/.config/mise/config.toml}")/config.laptop.toml"
+[ -f "$laptop_config" ] || laptop_config="$PWD/.config/mise/config.laptop.toml"
+# mise --cd / would resolve a relative path from /, so anchor it here
+case "$laptop_config" in /*) ;; *) laptop_config="$PWD/$laptop_config" ;; esac
+MISE_GLOBAL_CONFIG_FILE="$laptop_config" \
   mise --cd / bootstrap --yes --only packages,files,services,final-hook
 '''
 
