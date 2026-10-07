@@ -62,8 +62,7 @@ brew install mise
 
 #### Disable SIP
 
-The [yabai scripting addition] needs [SIP] partially disabled. Follow the
-[yabai wiki][yabai SIP] for details.
+Some features need [SIP] partially disabled.
 
 1. Shut down. Hold power (Apple Silicon) or hold Command-R during startup (Intel).
 2. Apple Silicon: **Options → Continue**. Authenticate when prompted.
@@ -163,8 +162,6 @@ mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
 ```
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
-[yabai scripting addition]: https://github.com/asmvik/yabai/wiki/Installing-yabai-(latest-release)#configure-scripting-addition
-[yabai SIP]: https://github.com/asmvik/yabai/wiki/Disabling-System-Integrity-Protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
