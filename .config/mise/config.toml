@@ -61,7 +61,6 @@ login_shell = "/bin/zsh"
 "~/.config/yazi" = "../yazi"
 
 "~/.ssh/config" = "../../.ssh/config"
-"~/.ssh/authorized_keys" = "../../.ssh/authorized_keys"
 
 "~/.claude/settings.json" = "../../.claude/settings.json"
 "~/.claude/statusline.sh" = "../../.claude/statusline.sh"

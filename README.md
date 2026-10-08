@@ -147,14 +147,7 @@ Authenticate services locally; credentials are not stored in this repository:
 ```sh
 gh auth login
 aws sso login --profile PROFILE_NAME
-```
-
-SSH configuration and `authorized_keys` are managed, but SSH private keys are
-not. Ensure the managed SSH files have the required permissions:
-
-```sh
 chmod 700 "$HOME/.ssh"
-chmod 600 "$HOME/.ssh/authorized_keys"
 ```
 
 The source of truth is
