@@ -1,5 +1,8 @@
 .env
 .hammerspoon/secrets.lua
 .hammerspoon/Spoons/
+.claude/artifacts/
+.hammerspoon/dictation/.venv/
+.hammerspoon/dictation/__pycache__/
 .cli-proxy-api/*
 !.cli-proxy-api/config.yaml
