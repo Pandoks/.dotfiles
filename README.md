@@ -161,16 +161,8 @@ sudo fwupdmgr refresh
 fwupdmgr get-updates
 ```
 
-### Linux laptops
-
-Physical systemd laptops keep running with the lid closed on AC and request
-suspend on battery. Dock settings and lid inhibitors take precedence.
-
-The [panel helper](.config/mise/scripts/laptop-panel.linux.sh) requests display
-power-off on close and power-on on open, except while a graphical session owns
-the seat or a lid inhibitor is set. Close also skips when another output on the
-panel's GPU may be in use, since power-off covers all of them. An unconfirmed
-power-on is reported and retried at the next open.
+Bootstrap automatically configures physical Linux laptops with systemd to keep
+running on AC and suspend on battery when the lid closes.
 
 ## CLIProxyAPI
 
