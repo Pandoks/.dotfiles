@@ -4,6 +4,7 @@
 "brew:btop" = "latest"
 "brew:mas" = "latest"
 "brew:rtorrent" = "latest"
+"brew:ykman" = "latest"
 
 "mas:937984704" = "latest" # Amphetamine
 "mas:497799835" = "latest" # Xcode
@@ -28,6 +29,8 @@
 "brew-cask:vlc" = "latest"
 "brew-cask:yubico-authenticator" = "latest"
 "brew-cask:libreoffice" = "latest"
+"brew-cask:android-studio" = "latest"
+"brew-cask:balenaetcher" = "latest"
 
 [bootstrap.macos.dock]
 autohide = true
@@ -60,10 +63,6 @@ test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoo
 
 [dotfiles]
 "~/.zprofile" = "../../.zprofile"
-"~/.hammerspoon/.luarc.json" = "../../.hammerspoon/.luarc.json"
-"~/.hammerspoon/.stylua.toml" = "../../.hammerspoon/.stylua.toml"
-"~/.hammerspoon/applications.lua" = "../../.hammerspoon/applications.lua"
-"~/.hammerspoon/ghostty.lua" = "../../.hammerspoon/ghostty.lua"
-"~/.hammerspoon/init.lua" = "../../.hammerspoon/init.lua"
-"~/.hammerspoon/window_profiles.lua" = "../../.hammerspoon/window_profiles.lua"
+"~/.hammerspoon" = "../../.hammerspoon"
+"~/.config/yabai/yabairc" = "../yabai/yabairc"
 "~/.rtorrent.rc" = "../../.rtorrent.rc"
