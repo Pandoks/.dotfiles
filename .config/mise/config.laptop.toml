@@ -1,9 +1,7 @@
 [bootstrap.packages]
 "apt:acpid" = "latest"
-"apt:brightnessctl" = "latest"
 
 "pacman:acpid" = "latest"
-"pacman:brightnessctl" = "latest"
 
 [bootstrap.hooks.pre-packages]
 run = '''
@@ -59,7 +57,6 @@ notify = ["acpid"]
 content = '''
 [Service]
 Environment=XDG_RUNTIME_DIR=/run/acpid-lid-backlight
-Environment=LAPTOP_BACKLIGHT_DEVICE=intel_backlight
 RuntimeDirectory=acpid-lid-backlight
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes

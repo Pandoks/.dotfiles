@@ -136,13 +136,11 @@ fwupdmgr get-updates
 Physical systemd laptops keep running with the lid closed on AC and request
 suspend on battery. Dock settings and lid inhibitors take precedence.
 
-The [panel helper](.config/mise/scripts/laptop-panel.linux.sh) saves brightness
-on close, requests zero, and restores it on open. This doesn't request panel
-power-off; zero can still leave a panel lit. The backlight device is
-`intel_backlight` (T470). For other laptops, set `LAPTOP_BACKLIGHT_DEVICE` in
-[`config.laptop.toml`](.config/mise/config.laptop.toml) to the verified internal
-backlight device. The helper defers to desktop lid inhibitors; disable the
-acpid panel rules if your desktop manages brightness without one.
+The [panel helper](.config/mise/scripts/laptop-panel.linux.sh) requests display
+power-off on close and power-on on open, except while a graphical session owns
+the seat or a lid inhibitor is set. Close also skips when another output on the
+panel's GPU may be in use, since power-off covers all of them. An unconfirmed
+power-on is reported and retried at the next open.
 
 ## CLIProxyAPI
 
