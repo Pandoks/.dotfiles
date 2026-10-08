@@ -45,9 +45,22 @@ three_finger_drag = false
 [bootstrap.macos.keyboard]
 press_and_hold = false
 
+[bootstrap.hooks.pre-packages]
+run = '''
+script="$PWD/.config/mise/scripts/pre-packages.macos.sh"
+[ -f "$script" ] || script="$HOME/.config/mise/scripts/pre-packages.macos.sh"
+sh "$script"
+'''
+
 # Installs that mise can't handle itself
 [bootstrap.hooks.post-packages]
 run = '''
+set -eu
+
+script="$PWD/.config/mise/scripts/setup-tailscale.macos.sh"
+[ -f "$script" ] || script="$HOME/.config/mise/scripts/setup-tailscale.macos.sh"
+sh "$script"
+
 brew list --formula yabai &>/dev/null || brew install asmvik/formulae/yabai
 
 for cask in logi-options+ raycast; do

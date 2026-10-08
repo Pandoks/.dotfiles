@@ -149,12 +149,11 @@ gh auth login
 aws sso login --profile PROFILE_NAME
 ```
 
-SSH configuration and `authorized_keys` are managed, but SSH private keys are
-not. Ensure the managed SSH files have the required permissions:
+SSH configuration is managed, but SSH private keys are not. Ensure the SSH
+directory has the required permissions:
 
 ```sh
 chmod 700 "$HOME/.ssh"
-chmod 600 "$HOME/.ssh/authorized_keys"
 ```
 
 The source of truth is
