@@ -61,8 +61,6 @@ These defaults yield to a project's AGENTS.md or my chat message.
   authorized task, otherwise ask before loading; never persist trust unasked.
 - Before saying access is missing, check the tool's safe auth status (native auth store included)
   and applicable env vars; never print secrets.
-- When you can choose a delegate's model, use Opus 5.5 for implementation and fixes, Fable for
-  reviews.
 
 ## Investigation and evidence
 
