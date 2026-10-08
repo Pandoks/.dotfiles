@@ -161,6 +161,27 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
+### Tailscale on macOS
+
+Bootstrap installs the CLI daemon and [tsui]. Before switching from a
+Homebrew-installed desktop app, run `brew uninstall --cask tailscale-app`.
+[Delete any remaining `Tailscale.app`, empty the Trash, and reboot][Tailscale variants].
+Then bootstrap and start the daemon at boot:
+
+```sh
+sudo brew services start tailscale
+sudo tailscale up
+sudo tailscale set --ssh --operator="$USER"
+tsui
+```
+
+Follow the login link from `tailscale up`. `--operator` lets your account
+manage Tailscale through tsui without sudo; [Tailscale SSH] also needs
+network access and an SSH rule in your tailnet policy.
+
+The [CLI daemon][tailscaled macOS] needs `100.100.100.100` configured as your
+macOS DNS server for MagicDNS. It [cannot use exit nodes][Tailscale variants].
+
 ## CLIProxyAPI
 
 Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
@@ -193,3 +214,7 @@ mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
+[tailscaled macOS]: https://github.com/tailscale/tailscale/wiki/Tailscaled-on-macOS
+[Tailscale variants]: https://tailscale.com/docs/concepts/macos-variants
+[Tailscale SSH]: https://tailscale.com/docs/features/tailscale-ssh
+[tsui]: https://github.com/neuralink/tsui
