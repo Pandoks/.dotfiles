@@ -1,14 +1,18 @@
 #!/usr/bin/env sh
 # shellcheck shell=sh
 
-yabai -m config layout bsp                       # bsp|stack|float
+# Scripting addition: needs SIP partially disabled and the sudoers rule (see README).
+yabai -m signal --add event=dock_did_restart action='sudo yabai --load-sa'
+sudo yabai --load-sa
+
+yabai -m config layout bsp                      # bsp|stack|float
 yabai -m config window_insertion_point last      # focused|first|last
-yabai -m config skip_window_focus_animation off  # keep Cmd-Tab and Dock switching native
 
 yabai -m rule --add app!="^(Helium|Ghostty|Slack|Notion Calendar|T3 Code \(Nightly\))$" manage=off
+yabai -m rule --add app='.*' sub-layer=normal
 
 pip_title='^[Pp]icture[- ][Ii]n[- ][Pp]icture$'
-yabai -m rule --add label=pip title="$pip_title" manage=off mouse_follows_focus=off
+yabai -m rule --add label=pip title="$pip_title" manage=off mouse_follows_focus=off sub-layer=above
 yabai -m signal --add event=window_title_changed title="$pip_title" action='yabai -m rule --apply pip'
 
 yabai -m rule --apply
