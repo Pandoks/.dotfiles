@@ -154,16 +154,6 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
-Linux also installs [fwupd]; firmware checks and updates are manual:
-
-```sh
-sudo fwupdmgr refresh
-fwupdmgr get-updates
-```
-
-Bootstrap automatically configures physical Linux laptops with systemd to keep
-running on AC and suspend on battery when the lid closes.
-
 ## CLIProxyAPI
 
 Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
@@ -196,4 +186,3 @@ mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
-[fwupd]: https://github.com/fwupd/fwupd/blob/main/src/fwupdmgr.md
