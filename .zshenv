@@ -1,2 +1,2 @@
-# Make mise tools available to non-interactive shells, including SSH commands.
+# Make mise tools available to non-interactive shells
 export PATH="$HOME/.local/share/mise/shims:$PATH"
