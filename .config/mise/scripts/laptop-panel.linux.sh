@@ -83,21 +83,7 @@ panel_close() {
 
 panel_open() {
   exit_unless_panel_is_ours
-  rc=0
-  [ ! -s "$saved" ] || (restore) || rc=1
-  # Recover a brightness zeroed by the previous helper unless it changed since.
-  for level in "$XDG_RUNTIME_DIR"/brightnessctl/backlight/*; do
-    [ -f "$level" ] || continue
-    brightness="/sys/class/backlight/${level##*/}/brightness"
-    if ! current="$(cat "$brightness")"; then
-      rc=1
-    elif [ "$current" != 0 ] || cat "$level" > "$brightness"; then
-      rm -f "$level"
-    else
-      rc=1
-    fi
-  done
-  return "$rc"
+  [ ! -s "$saved" ] || restore
 }
 
 case "${1-}:$#" in

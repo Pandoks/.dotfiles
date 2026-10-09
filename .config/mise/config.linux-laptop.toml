@@ -3,18 +3,6 @@
 
 "pacman:acpid" = "latest"
 
-[bootstrap.hooks.pre-packages]
-run = '''
-set -eu
-if [ -f /etc/systemd/system/mise-lid-backlight.service ]; then
-  if [ "$(id -u)" -eq 0 ]; then
-    systemctl disable --now mise-lid-backlight.service
-  else
-    sudo systemctl disable --now mise-lid-backlight.service
-  fi
-fi
-'''
-
 [bootstrap.directories."/etc/systemd/logind.conf.d"]
 mode = "0755"
 
@@ -67,15 +55,6 @@ notify = ["acpid"]
 [bootstrap.services.acpid]
 enabled = true
 on_change = "restart"
-
-[bootstrap.files."/etc/systemd/system/mise-lid-backlight.service"]
-state = "absent"
-
-[bootstrap.files."/usr/local/libexec/mise-lid-backlight"]
-state = "absent"
-
-[bootstrap.files."/usr/local/libexec/mise-lid-backlight-watch"]
-state = "absent"
 
 [bootstrap.hooks.final]
 run = '''
