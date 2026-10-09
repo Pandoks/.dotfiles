@@ -4,13 +4,8 @@
 "pacman:acpid" = "latest"
 
 [bootstrap.directories."/etc/systemd/logind.conf.d"]
-mode = "0755"
-
 [bootstrap.directories."/etc/systemd/system/acpid.service.d"]
-mode = "0755"
-
 [bootstrap.directories."/usr/local/libexec"]
-mode = "0755"
 
 [bootstrap.files."/etc/systemd/logind.conf.d/60-mise-laptop-power.conf"]
 content = '''
@@ -18,7 +13,6 @@ content = '''
 HandleLidSwitch=suspend
 HandleLidSwitchExternalPower=ignore
 '''
-mode = "0644"
 
 [bootstrap.files."/usr/local/libexec/laptop-panel"]
 source = "./scripts/laptop-panel.linux.sh"
@@ -30,7 +24,6 @@ content = '''
 event=^button/lid [^ ]+ close$
 action=/usr/local/libexec/laptop-panel close
 '''
-mode = "0644"
 notify = ["acpid"]
 
 [bootstrap.files."/etc/acpi/events/laptop-panel-open"]
@@ -38,7 +31,6 @@ content = '''
 event=^button/lid [^ ]+ open$
 action=/usr/local/libexec/laptop-panel open
 '''
-mode = "0644"
 notify = ["acpid"]
 
 [bootstrap.files."/etc/systemd/system/acpid.service.d/laptop-panel.conf"]
@@ -49,11 +41,9 @@ RuntimeDirectory=acpid-lid-backlight
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
 '''
-mode = "0644"
 notify = ["acpid"]
 
 [bootstrap.services.acpid]
-enabled = true
 on_change = "restart"
 
 [bootstrap.hooks.final]
