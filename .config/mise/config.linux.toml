@@ -57,9 +57,13 @@ systemctl is-active --quiet systemd-logind.service || exit 0
 laptop_config="$(dirname "${MISE_GLOBAL_CONFIG_FILE:-$HOME/.config/mise/config.toml}")/config.linux-laptop.toml"
 [ -f "$laptop_config" ] || laptop_config="$PWD/.config/mise/config.linux-laptop.toml"
 # mise --cd / would resolve a relative path from /, so anchor it here
-case "$laptop_config" in /*) ;; *) laptop_config="$PWD/$laptop_config" ;; esac
-MISE_GLOBAL_CONFIG_FILE="$laptop_config" \
-  mise --cd / bootstrap --yes --only packages,files,services,final-hook
+case "$laptop_config" in
+  /*) ;;
+  *)
+    laptop_config="$PWD/$laptop_config"
+    ;;
+esac
+MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 '''
 
 [bootstrap.packages]
