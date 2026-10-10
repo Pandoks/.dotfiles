@@ -1,0 +1,56 @@
+[bootstrap.packages]
+"apt:acpid" = "latest"
+
+"pacman:acpid" = "latest"
+
+[bootstrap.directories."/etc/systemd/logind.conf.d"]
+[bootstrap.directories."/etc/systemd/system/acpid.service.d"]
+[bootstrap.directories."/usr/local/libexec"]
+
+[bootstrap.files."/etc/systemd/logind.conf.d/60-mise-laptop-power.conf"]
+content = '''
+[Login]
+HandleLidSwitch=suspend
+HandleLidSwitchExternalPower=ignore
+'''
+
+[bootstrap.files."/usr/local/libexec/laptop-panel"]
+source = "./scripts/laptop-panel.linux.sh"
+mode = "0755"
+notify = ["acpid"]
+
+[bootstrap.files."/etc/acpi/events/laptop-panel-close"]
+content = '''
+event=^button/lid [^ ]+ close$
+action=/usr/local/libexec/laptop-panel close
+'''
+notify = ["acpid"]
+
+[bootstrap.files."/etc/acpi/events/laptop-panel-open"]
+content = '''
+event=^button/lid [^ ]+ open$
+action=/usr/local/libexec/laptop-panel open
+'''
+notify = ["acpid"]
+
+[bootstrap.files."/etc/systemd/system/acpid.service.d/laptop-panel.conf"]
+content = '''
+[Service]
+Environment=XDG_RUNTIME_DIR=/run/acpid-lid-backlight
+RuntimeDirectory=acpid-lid-backlight
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+'''
+notify = ["acpid"]
+
+[bootstrap.services.acpid]
+on_change = "restart"
+
+[bootstrap.hooks.final]
+run = '''
+if [ "$(id -u)" -eq 0 ]; then
+  systemctl kill --kill-who=main --signal=HUP systemd-logind.service
+else
+  sudo systemctl kill --kill-who=main --signal=HUP systemd-logind.service
+fi
+'''

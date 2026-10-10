@@ -186,7 +186,7 @@ client:
 # Per-plugin enabled only controls plugins.configs.<pluginID>.enabled and does not implicitly change global plugins.enabled.
 plugins:
     enabled: false
-    dir: "plugins"
+    dir: "~/.cli-proxy-api/plugins"
 # Additional plugin store registries. The built-in official registry is always included.
 # store-sources:
 #   - "https://example.com/cliproxy-plugins/registry.json"
