@@ -160,11 +160,6 @@ Claude Code, Codex, and Grok Build route through the [CLIProxyAPI] service on th
 Keep Tailscale connected, run `/login` once in Claude Code for claude.ai
 connectors, and don't set `ANTHROPIC_AUTH_TOKEN`.
 
-Grok Build discovers models from the proxy and defaults to `grok-4.7`. Run
-`grok login` once after linking its config; this stores a non-secret proxy
-placeholder separately from your xAI login. Its config is
-[`.grok/config.toml`](.grok/config.toml).
-
 ### Host
 
 On the machine tagged `tag:cliproxyapi`:
