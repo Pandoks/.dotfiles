@@ -1,0 +1,27 @@
+[endpoints]
+models_base_url = "https://cliproxyapi.tailb2c81d.ts.net/v1"
+xai_api_base_url = "https://cliproxyapi.tailb2c81d.ts.net/v1"
+
+[auth]
+# The tailnet proxy has no client API keys; use a non-secret placeholder.
+auth_provider_command = """printf '%s' '{"access_token":"cliproxyapi","issuer":"https://cliproxyapi.tailb2c81d.ts.net"}'"""
+auth_provider_label = "CLIProxyAPI"
+
+# Keep proxy authentication separate from the existing xAI login.
+[auth.oauth2]
+issuer = "https://cliproxyapi.tailb2c81d.ts.net"
+client_id = "cliproxyapi"
+
+[models]
+default = "grok-4.7"
+web_search = "grok-4.7"
+image_description = "grok-4.7"
+session_summary = "grok-4.7"
+
+[marketplace]
+default_skills_installs_purged = true
+official_marketplace_auto_installed = true
+
+[[marketplace.sources]]
+name = "xAI Official"
+git = "https://github.com/xai-org/plugin-marketplace.git"
