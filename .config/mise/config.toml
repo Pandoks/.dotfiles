@@ -73,6 +73,5 @@ login_shell = "/bin/zsh"
 "~/.kimi-code/AGENTS.md" = "../../AGENTS.md"
 
 "~/.grok/AGENTS.md" = "../../AGENTS.md"
-"~/.grok/config.toml" = "../../.grok/config.toml"
 
 "~/.config/opencode/AGENTS.md" = "../../AGENTS.md"

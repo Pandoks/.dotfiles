@@ -156,7 +156,7 @@ packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 ## CLIProxyAPI
 
-Claude Code, Codex, and Grok Build route through the [CLIProxyAPI] service on the tailnet.
+Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
 Keep Tailscale connected, run `/login` once in Claude Code for claude.ai
 connectors, and don't set `ANTHROPIC_AUTH_TOKEN`.
 
