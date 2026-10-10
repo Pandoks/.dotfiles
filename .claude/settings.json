@@ -1,5 +1,10 @@
 {
-  "effortLevel": "high",
+  "model": "claude-opus-5-5",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    }
+  },
   "plansDirectory": ".claude/plans",
   "tui": "fullscreen",
   "showThinkingSummaries": true,
