@@ -30,6 +30,7 @@ Install Git and [mise] first.
 sudo apt update
 sudo apt install -y git extrepo
 sudo extrepo enable mise
+sudo extrepo enable tailscale
 sudo apt update
 sudo apt install -y mise
 ```
@@ -148,6 +149,14 @@ Authenticate services locally; credentials are not stored in this repository:
 gh auth login
 aws sso login --profile PROFILE_NAME
 chmod 700 "$HOME/.ssh"
+```
+
+Start Tailscale and join the tailnet:
+
+```sh
+sudo systemctl enable --now tailscaled  # Linux
+sudo brew services start tailscale      # macOS
+sudo tailscale up
 ```
 
 The source of truth is
