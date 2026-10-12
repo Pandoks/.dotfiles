@@ -20,13 +20,6 @@ user=$(id -un)
 loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
 '''
 
-# Arch leaves packaged services disabled, so start tailscaled when systemd runs
-[bootstrap.hooks.post-packages]
-run = '''
-[ -d /run/systemd/system ] || exit 0
-systemctl is-enabled --quiet tailscaled && systemctl is-active --quiet tailscaled || sudo systemctl enable --now tailscaled
-'''
-
 [bootstrap.hooks.final]
 run = '''
 # Fix a misdetected laptop with: hostnamectl chassis laptop

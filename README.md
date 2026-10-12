@@ -30,6 +30,7 @@ Install Git and [mise] first.
 sudo apt update
 sudo apt install -y git extrepo
 sudo extrepo enable mise
+sudo extrepo enable tailscale
 sudo apt update
 sudo apt install -y mise
 ```
@@ -150,7 +151,12 @@ aws sso login --profile PROFILE_NAME
 chmod 700 "$HOME/.ssh"
 ```
 
-On Linux, also join the tailnet with `sudo tailscale up`.
+On Linux, also start Tailscale and join the tailnet:
+
+```sh
+sudo systemctl enable --now tailscaled
+sudo tailscale up
+```
 
 The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
