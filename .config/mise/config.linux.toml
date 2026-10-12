@@ -20,6 +20,20 @@ user=$(id -un)
 loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
 '''
 
+[bootstrap.hooks.final]
+run = '''
+# Fix a misdetected laptop with: hostnamectl chassis laptop
+case "$(hostnamectl chassis 2>/dev/null)" in
+  laptop|convertible) ;;
+  *) exit 0 ;;
+esac
+
+# Use the laptop config from the repo being bootstrapped, else ~/.config/mise
+laptop_config="$PWD/.config/mise/config.linux-laptop.toml"
+[ -f "$laptop_config" ] || laptop_config="$HOME/.config/mise/config.linux-laptop.toml"
+MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
+'''
+
 [bootstrap.packages]
 "apt:zsh" = "latest"
 "apt:curl" = "latest"
@@ -27,6 +41,7 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 "apt:extrepo" = "latest"
 "apt:ca-certificates" = "latest"
 "apt:tree" = "latest"
+"apt:fwupd" = "latest"
 "apt:docker-ce" = "latest"
 "apt:docker-ce-cli" = "latest"
 "apt:containerd.io" = "latest"
@@ -38,6 +53,7 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 "pacman:git" = "latest"
 "pacman:ca-certificates" = "latest"
 "pacman:tree" = "latest"
+"pacman:fwupd" = "latest"
 "pacman:ghostty" = "latest"
 "pacman:ttf-hack-nerd" = "latest"
 "pacman:docker" = "latest"
