@@ -7,8 +7,7 @@ fail() {
   exit 1
 }
 
-# fbcon takes over the console at its first output, and while we hold the
-# display it couldn't set its colors, so make that happen first
+# Make fbcon take over the console now, since it can't while the display is held
 fbcon_takeover() {
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     grep -qs 'frame buffer device' /sys/class/vtconsole/vtcon*/name && return
@@ -19,9 +18,8 @@ fbcon_takeover() {
 }
 
 panel_close() {
-  # A display manager couldn't take a display that we hold
+  # Leave desktops with a display manager alone
   [ -e /etc/systemd/system/display-manager.service ] && exit 0
-  # The hold from an earlier close still keeps the panel off
   systemctl --quiet is-active laptop-panel-hold.service && exit 0
 
   panel=''
@@ -29,7 +27,7 @@ panel_close() {
     case "${connector##*/}:$(cat "$connector/status" 2> /dev/null)" in
       *-Writeback-*:* | *:disconnected) ;;
       *-eDP-*:connected | *-LVDS-*:connected | *-DSI-*:connected) panel="$connector" ;;
-      # Another display may be in use, and blanking powers down every output
+      # Blanking would also turn off any other display
       *) exit 0 ;;
     esac
   done
@@ -38,9 +36,7 @@ panel_close() {
   card="${panel%/*}"
 
   fbcon_takeover
-  # Hold the display open like a compositor, so console redraws, hotplug, and
-  # the last GPU client exiting can't light the panel again. Something can
-  # still light it before the hold opens, so check and retry once.
+  # Holding DRM master stops relights; retry once if one slips in before the hold
   for _ in 1 2; do
     echo 4 > "$fb/blank" || exit
     systemd-run --quiet --collect --unit=laptop-panel-hold \
@@ -59,7 +55,7 @@ panel_open() {
   done
 }
 
-# acpid only reports lid changes, so match the panel to the lid when it starts
+# Match the panel to the lid when acpid starts
 panel_sync() {
   lid="$(busctl --timeout=2s get-property org.freedesktop.login1 \
     /org/freedesktop/login1 org.freedesktop.login1.Manager LidClosed)" || exit
