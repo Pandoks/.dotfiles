@@ -151,10 +151,11 @@ aws sso login --profile PROFILE_NAME
 chmod 700 "$HOME/.ssh"
 ```
 
-On Linux, also start Tailscale and join the tailnet:
+Start Tailscale and join the tailnet:
 
 ```sh
-sudo systemctl enable --now tailscaled
+sudo systemctl enable --now tailscaled  # Linux
+sudo brew services start tailscale      # macOS
 sudo tailscale up
 ```
 
