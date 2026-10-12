@@ -3734,16 +3734,37 @@ class Engine:
         rest = iter(ordered(words(said_text.replace("&", " and "))))  # an "&" may be written "and"
         return not all(w in rest for w in ordered(out_words) if w in raw_set or w == "#")
 
+    def named_only(self, plain, boosted, request):
+        """`boosted`, spelled, where it spells a vocabulary word `plain` lacks; elsewhere `plain`.
+
+        The boost pushes a word toward a vocabulary word letter by letter and can stop partway:
+        "the older" -> "the old hammers" (Hammerspoon), "the mist" -> "the mis" (mise)."""
+        names = {w.lower() for w in self.glossary(request) if _letters(w) == w.lower()}
+        plain, boosted = (
+            self.apply_vocabulary(self.apply_dictionary(text), request).split()
+            for text in (plain, boosted)
+        )
+        matcher = difflib.SequenceMatcher(
+            None, [_letters(w) for w in plain], [_letters(w) for w in boosted], autojunk=False
+        )
+        out = []
+        for op, i1, i2, j1, j2 in matcher.get_opcodes():
+            gained = {_letters(w) for w in boosted[j1:j2]} - {_letters(w) for w in plain[i1:i2]}
+            out += boosted[j1:j2] if op != "equal" and gained & names else plain[i1:i2]
+        return " ".join(out)
+
     def process(self, wav, request):
         """One take: speech, spellings, guarded cleanup, stalls, spellings, '?', end policy,
         numbers as digits."""
-        heard = self.speech.transcribe(wav, self.glossary(request))
+        names = self.glossary(request)
+        heard = self.speech.transcribe(wav, names)
+        if isinstance(self.speech, ParakeetSpeech) and self.speech.boost and names:
+            heard = self.named_only(self.speech.transcribe(wav, []), heard, request)
         self.heard = heard  # what was said, kept if a later step fails
         # No letters or digits in any script: nothing was said, and the cleaner would invent text.
         if not re.search(r"[^\W_]", heard):
             return ""
         raw = self.apply_vocabulary(self.apply_dictionary(heard), request)
-        names = self.glossary(request)
         if not self.cleaner:
             return self.write_numbers(raw, names)  # cleanup off: the speech model's text
         # Stalls first: the vocabulary restores a spelling their removal capitalized ("yabai").

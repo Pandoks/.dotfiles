@@ -2201,3 +2201,61 @@ check(
     ],
     lambda case: speak(*case),
 )
+# Unboosted and boosted Parakeet decodes of TTS takes (`say -v Albert`, `-v Daniel`, ...).
+check(
+    "a boosted word is kept only where it spells a vocabulary word",
+    [
+        (
+            (
+                "Test testing, what do you think of the older?",
+                "Test testing, what do you think of the old hammers?",
+            ),
+            "Test testing, what do you think of the older?",
+        ),
+        (
+            ("The morning mist was thick.", "The morning mis was thick."),
+            "The morning mist was thick.",
+        ),
+        (
+            ("The Union vote is destroyed.", "The uni uni vote is destroyed."),
+            "The Union vote is destroyed.",
+        ),
+        (
+            ("Okie said she would come later.", "Oki said she would come later."),
+            "Oki said she would come later.",
+        ),
+        (
+            ("Ghost T renders the fonts really well.", "GhostT renders the fonts really well."),
+            "Ghostty renders the fonts really well.",
+        ),
+        (
+            (
+                "Test. Testing what do you think of NeoVim?",
+                "Test. Testing what do you think of neovim?",
+            ),
+            "Test. Testing what do you think of Neovim?",
+        ),
+        (("", "Oki."), "Oki."),
+        (("", "Hammers."), ""),
+    ],
+    lambda case: engine.named_only(*case, {}),
+)
+# Boosting decodes the take twice, once with no vocabulary to boost.
+boosting = server.ParakeetSpeech("stub", "0" * 40, 4.5)
+boosting.model = SimpleNamespace(
+    transcribe=lambda wav, chunk_duration: SimpleNamespace(
+        text=wav[bool(boosting.model.__dict__.get("decode_greedy"))]
+    )
+)
+engine.speech, engine.cleaner = boosting, None
+check(
+    "boosting keeps the unboosted decode unless a vocabulary word is gained",
+    [
+        (
+            ("What do you think of the older?", "What do you think of the old hammers?"),
+            "What do you think of the older?",
+        ),
+        (("Ask okay if it works.", "Ask Oki if it works."), "Ask Oki if it works."),
+    ],
+    lambda wav: engine.process(wav, {}),
+)
