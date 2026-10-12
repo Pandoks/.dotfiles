@@ -22,61 +22,17 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 
 [bootstrap.hooks.final]
 run = '''
-set -eu
-
-is_laptop() {
-  [ "$(systemd-detect-virt 2>/dev/null || :)" = none ] || return 1
-  case "$(hostnamectl chassis 2>/dev/null || :)" in
-    laptop|convertible) return 0 ;;
-    desktop|server|vm|container|tablet|handset|watch|embedded) return 1 ;;
-  esac
-
-  # Unknown chassis: fall back to the firmware's DMI chassis type
-  case "$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || :)" in
-    8|9|10|14|31|32) return 0 ;;
-    ''|0|1|2) ;;
-    *) return 1 ;;
-  esac
-
-  # Unknown firmware: require a lid switch and a system (not peripheral) battery
-  grep -q . /proc/acpi/button/lid/*/state 2>/dev/null ||
-    grep -Eq '[13579bBdDfF]$' /sys/class/input/input*/capabilities/sw 2>/dev/null ||
-    return 1
-  for supply in /sys/class/power_supply/*; do
-    [ "$(cat "$supply/type" 2>/dev/null || :)" = Battery ] || continue
-    [ "$(cat "$supply/scope" 2>/dev/null || :)" = Device ] || return 0
-  done
-  return 1
-}
-
-[ -d /run/systemd/system ] || exit 0
-is_laptop || exit 0
-systemctl is-active --quiet systemd-logind.service || exit 0
-
-# Use the checkout being bootstrapped, else the companion beside the global config
-laptop_config="$PWD/.config/mise/config.linux-laptop.toml"
-[ -f "$laptop_config" ] ||
-  laptop_config="$(dirname "${MISE_GLOBAL_CONFIG_FILE:-$HOME/.config/mise/config.toml}")/config.linux-laptop.toml"
-# mise --cd / would resolve a relative path from /, so anchor it here
-case "$laptop_config" in
-  /*) ;;
-  *)
-    laptop_config="$PWD/$laptop_config"
-    ;;
+# hostnamectl reports VMs and containers as such; a misdetected laptop can be
+# marked with: hostnamectl chassis laptop
+case "$(hostnamectl chassis 2>/dev/null)" in
+  laptop|convertible) ;;
+  *) exit 0 ;;
 esac
-if [ ! -f "$laptop_config" ]; then
-  echo "laptop config not found: $laptop_config" >&2
-  exit 1
-fi
 
-# Rerun the outer command's arguments (--yes, --only, --skip, ...), minus any
-# -C/--cd that would override --cd / and load this hook again
-set -f
-IFS='
-'
-MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / \
-  $(tr '\0' '\n' < "/proc/$PPID/cmdline" \
-    | sed -e 1d -e '/^\(-C\|--cd\)$/{N;d;}' -e '/^\(-C\|--cd=\)./d')
+# Prefer the checkout being bootstrapped over the installed copy
+laptop_config="$PWD/.config/mise/config.linux-laptop.toml"
+[ -f "$laptop_config" ] || laptop_config="$HOME/.config/mise/config.linux-laptop.toml"
+MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 '''
 
 [bootstrap.packages]

@@ -38,9 +38,6 @@ content = '''
 After=systemd-logind.service plymouth-quit-wait.service
 
 [Service]
-RuntimeDirectory=laptop-panel
-RuntimeDirectoryMode=0700
-RuntimeDirectoryPreserve=yes
 ExecStartPost=-/usr/bin/systemd-cat -t laptop-panel /usr/local/libexec/laptop-panel sync
 '''
 notify = ["acpid"]
@@ -49,10 +46,4 @@ notify = ["acpid"]
 on_change = "restart"
 
 [bootstrap.hooks.final]
-run = '''
-if [ "$(id -u)" -eq 0 ]; then
-  systemctl kill --kill-who=main --signal=HUP systemd-logind.service
-else
-  sudo systemctl kill --kill-who=main --signal=HUP systemd-logind.service
-fi
-'''
+run = "sudo systemctl reload systemd-logind"
