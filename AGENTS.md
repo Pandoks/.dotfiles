@@ -62,6 +62,24 @@ These defaults yield to a project's AGENTS.md or my chat message.
 - Before saying access is missing, check the tool's safe auth status (native auth store included)
   and applicable env vars; never print secrets.
 
+## Models
+
+- Give any agent you start (subagent, delegate, workflow or thread agent) only models from your own
+  provider, picking the model and effort from the table below. Set both explicitly wherever the tool
+  allows; defaults differ between tools.
+- Easy to verify: clearly specified work with a checkable result, such as lookups, simple edits,
+  brute-force searches, and carrying out an agreed plan. If it fails its check, redo it as Complex
+  rather than retrying.
+- Complex: open-ended problems, difficult implementation, and anything needing more judgment.
+- Hard to verify: code review and other results you can't check directly, where a missed mistake
+  goes unnoticed.
+
+| Work           | Claude                    | OpenAI              | Grok             |
+| -------------- | ------------------------- | ------------------- | ---------------- |
+| Easy to verify | `claude-haiku-5-5` medium | `gpt-6.1-sol` low   | `grok-4.7` low   |
+| Complex        | `claude-opus-5-5` high    | `gpt-6.1-sol` high  | `grok-4.7` high  |
+| Hard to verify | `claude-opus-5-5` xhigh   | `gpt-6.1-sol` xhigh | `grok-4.7` xhigh |
+
 ## Investigation and evidence
 
 - Verify claims that matter against primary sources or by running them in `/var/tmp`; re-verify
