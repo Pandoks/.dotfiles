@@ -20,6 +20,13 @@ user=$(id -un)
 loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo loginctl enable-linger "$user"
 '''
 
+# Arch leaves packaged services disabled, so start tailscaled when systemd runs
+[bootstrap.hooks.post-packages]
+run = '''
+[ -d /run/systemd/system ] || exit 0
+systemctl is-enabled --quiet tailscaled && systemctl is-active --quiet tailscaled || sudo systemctl enable --now tailscaled
+'''
+
 [bootstrap.hooks.final]
 run = '''
 # Fix a misdetected laptop with: hostnamectl chassis laptop
@@ -42,6 +49,7 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "apt:ca-certificates" = "latest"
 "apt:tree" = "latest"
 "apt:fwupd" = "latest"
+"apt:tailscale" = "latest"
 "apt:docker-ce" = "latest"
 "apt:docker-ce-cli" = "latest"
 "apt:containerd.io" = "latest"
@@ -54,6 +62,7 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:ca-certificates" = "latest"
 "pacman:tree" = "latest"
 "pacman:fwupd" = "latest"
+"pacman:tailscale" = "latest"
 "pacman:ghostty" = "latest"
 "pacman:ttf-hack-nerd" = "latest"
 "pacman:docker" = "latest"

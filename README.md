@@ -150,6 +150,8 @@ aws sso login --profile PROFILE_NAME
 chmod 700 "$HOME/.ssh"
 ```
 
+On Linux, also join the tailnet with `sudo tailscale up`.
+
 The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
