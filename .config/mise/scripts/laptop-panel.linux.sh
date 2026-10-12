@@ -9,12 +9,10 @@ fail() {
 
 # Make fbcon take over the console now, since it can't while the display is held
 fbcon_takeover() {
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    grep -qs 'frame buffer device' /sys/class/vtconsole/vtcon*/name && return
-    printf '.\b \b' > /dev/tty0
-    sleep 0.2
-  done
-  echo "fbcon has not taken over the console" >&2
+  grep -qs 'frame buffer device' /sys/class/vtconsole/vtcon*/name && return
+  printf '.\b \b' > /dev/tty0
+  udevadm wait --timeout=2 --initialized=no /sys/class/vtconsole/vtcon1 \
+    || echo "fbcon has not taken over the console" >&2
 }
 
 panel_close() {
