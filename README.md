@@ -148,6 +148,7 @@ Authenticate services locally; credentials are not stored in this repository:
 ```sh
 gh auth login
 aws sso login --profile PROFILE_NAME
+pass-cli login
 chmod 700 "$HOME/.ssh"
 ```
 
