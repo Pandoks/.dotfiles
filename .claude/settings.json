@@ -18,7 +18,8 @@
   "cleanupPeriodDays": 90,
   "env": {
     "ANTHROPIC_BASE_URL": "https://cliproxyapi.tailb2c81d.ts.net",
-    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
+    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
+    "ENABLE_TOOL_SEARCH": "true"
   },
   "permissions": {
     "allow": [
