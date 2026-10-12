@@ -64,13 +64,25 @@ These defaults yield to a project's AGENTS.md or my chat message.
 
 ## Models
 
-- When you can set the model or effort of an agent you start, follow these and stay within your own
-  provider.
-- Effort: `low` for clearly defined, easy-to-check work (such as lookups, brute force, or following
-  a plan), `xhigh` for work whose result can't be checked directly (such as code review), and `high`
-  for everything else. If easy-to-check work fails its check, treat it as everything else.
-- Model: the one you're running on. Claude agents instead use Haiku 5.5 at `medium` for
-  easy-to-check work and Opus 5.5 for all other work.
+- When you can set the model or effort of an agent you start, choose them with these guidelines and
+  stay within your own provider. The examples show the reasoning; they aren't a complete list.
+- Raise effort as the work gets harder, longer, or less likely to have its mistakes caught:
+  - `low`: quick, mechanical steps, such as searching code, reading docs, collecting logs, or
+    renaming across files.
+  - `medium`: routine multistep work with a clear spec, such as carrying out an agreed plan, writing
+    tests for defined behavior, or brute-forcing until a check passes.
+  - `high`: difficult, long, or loosely specified work, such as debugging an unknown cause,
+    refactoring across many modules, or weighing designs.
+  - `xhigh`: work whose result will be trusted rather than checked, such as code review, security
+    audits, research conclusions, or plans others will carry out.
+  - Use the nearest level your model supports, and skip `max` unless `xhigh` has fallen short.
+- Model: the one you're running on. Claude agents instead choose between:
+  - Haiku 5.5 when the task is spelled out and its result gets checked (by tests, a script, your
+    review, or a known answer), even if it's long or tedious, at `low` to `high` by the scale above.
+  - Opus 5.5 when the agent must decide what to do, the work is difficult, or its result won't be
+    checked, and whenever you're unsure.
+- If a result fails its check, redo it one step up (higher effort, or Opus 5.5) rather than at the
+  same level.
 
 ## Investigation and evidence
 
