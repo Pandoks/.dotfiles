@@ -17,29 +17,31 @@ HandleLidSwitchExternalPower=ignore
 [bootstrap.files."/usr/local/libexec/laptop-panel"]
 source = "./scripts/laptop-panel.linux.sh"
 mode = "0755"
-notify = ["acpid"]
 
 [bootstrap.files."/etc/acpi/events/laptop-panel-close"]
 content = '''
 event=^button/lid [^ ]+ close$
-action=/usr/local/libexec/laptop-panel close
+action=/usr/bin/systemd-cat -t laptop-panel /usr/local/libexec/laptop-panel close
 '''
 notify = ["acpid"]
 
 [bootstrap.files."/etc/acpi/events/laptop-panel-open"]
 content = '''
 event=^button/lid [^ ]+ open$
-action=/usr/local/libexec/laptop-panel open
+action=/usr/bin/systemd-cat -t laptop-panel /usr/local/libexec/laptop-panel open
 '''
 notify = ["acpid"]
 
 [bootstrap.files."/etc/systemd/system/acpid.service.d/laptop-panel.conf"]
 content = '''
+[Unit]
+After=systemd-logind.service plymouth-quit-wait.service
+
 [Service]
-Environment=XDG_RUNTIME_DIR=/run/acpid-lid-backlight
-RuntimeDirectory=acpid-lid-backlight
+RuntimeDirectory=laptop-panel
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
+ExecStartPost=-/usr/bin/systemd-cat -t laptop-panel /usr/local/libexec/laptop-panel sync
 '''
 notify = ["acpid"]
 
