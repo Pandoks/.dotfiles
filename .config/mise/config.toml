@@ -1,5 +1,5 @@
 [tools]
-claude-code = "latest"
+claude-code = "2.1.287"
 gh = "latest"
 neovim = "0.12.4"
 codex = "latest"

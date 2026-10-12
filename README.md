@@ -170,6 +170,14 @@ Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
 Keep Tailscale connected, run `/login` once in Claude Code for claude.ai
 connectors, and don't set `ANTHROPIC_AUTH_TOKEN`.
 
+Claude Code is pinned to stable 2.1.287, which gives `claude-opus-5-5` its
+native 1M context. Tool search loads connector definitions on demand instead
+of sending every schema up front. After pulling dotfiles, install the pin:
+
+```sh
+mise install claude-code
+```
+
 ### Host
 
 On the machine tagged `tag:cliproxyapi`:
