@@ -1,6 +1,3 @@
-# First mise release whose aqua registry has protonpass/pass-cli
-min_version = "2026.8.1"
-
 [tools]
 claude-code = "latest"
 gh = "latest"
