@@ -64,21 +64,12 @@ These defaults yield to a project's AGENTS.md or my chat message.
 
 ## Models
 
-- Give any agent you start (subagent, delegate, workflow or thread agent) only models from your own
-  provider, picking the model and effort from the table below. Set both explicitly wherever the tool
-  allows; defaults differ between tools.
-- Easy to verify: clearly specified work with a checkable result, such as lookups, simple edits,
-  brute-force searches, and carrying out an agreed plan. If it fails its check, redo it as Complex
-  rather than retrying.
-- Complex: open-ended problems, difficult implementation, and anything needing more judgment.
-- Hard to verify: code review and other results you can't check directly, where a missed mistake
-  goes unnoticed.
-
-| Work           | Claude                    | OpenAI              | Grok             |
-| -------------- | ------------------------- | ------------------- | ---------------- |
-| Easy to verify | `claude-haiku-5-5` medium | `gpt-6.1-sol` low   | `grok-4.7` low   |
-| Complex        | `claude-opus-5-5` high    | `gpt-6.1-sol` high  | `grok-4.7` high  |
-| Hard to verify | `claude-opus-5-5` xhigh   | `gpt-6.1-sol` xhigh | `grok-4.7` xhigh |
+- Agents you start use only your provider's models, with model and effort set explicitly.
+- Clearly defined work that's easy to check (such as lookups, brute force, or following a plan):
+  Haiku 5.5 `medium`, GPT 6.1 Sol `low`, Grok 4.7 `low`. Redo failures at the default.
+- Work whose result can't be checked directly (such as code review): Opus 5.5 `xhigh`, GPT 6.1 Sol
+  `xhigh`, Grok 4.7 `xhigh`.
+- Default, for everything else: Opus 5.5 `high`, GPT 6.1 Sol `high`, Grok 4.7 `high`.
 
 ## Investigation and evidence
 
