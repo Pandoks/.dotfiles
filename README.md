@@ -152,6 +152,11 @@ pass-cli login
 chmod 700 "$HOME/.ssh"
 ```
 
+On Linux, `pass-cli` keeps its key in the kernel keyring, so log in again
+after each reboot. To keep the login, set `PROTON_PASS_LINUX_KEYRING=dbus` on
+a desktop with an unlocked Secret Service such as GNOME Keyring, or
+`PROTON_PASS_KEY_PROVIDER=fs` to store the key unencrypted on disk.
+
 Start Tailscale and join the tailnet:
 
 ```sh
