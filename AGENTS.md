@@ -64,12 +64,13 @@ These defaults yield to a project's AGENTS.md or my chat message.
 
 ## Models
 
-- Agents you start use only your provider's models, with model and effort set explicitly.
-- Clearly defined work that's easy to check (such as lookups, brute force, or following a plan):
-  Haiku 5.5 `medium`, GPT 6.1 Sol `low`, Grok 4.7 `low`. Redo failures at the default.
-- Work whose result can't be checked directly (such as code review): Opus 5.5 `xhigh`, GPT 6.1 Sol
-  `xhigh`, Grok 4.7 `xhigh`.
-- Default, for everything else: Opus 5.5 `high`, GPT 6.1 Sol `high`, Grok 4.7 `high`.
+- When you can set the model or effort of an agent you start, follow these and stay within your own
+  provider.
+- Effort: `low` for clearly defined, easy-to-check work (such as lookups, brute force, or following
+  a plan), `xhigh` for work whose result can't be checked directly (such as code review), and `high`
+  for everything else. If easy-to-check work fails its check, treat it as everything else.
+- Model: the one you're running on. Claude agents instead use Haiku 5.5 at `medium` for
+  easy-to-check work and Opus 5.5 for all other work.
 
 ## Investigation and evidence
 
