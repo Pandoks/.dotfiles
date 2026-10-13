@@ -77,11 +77,10 @@ These defaults yield to a project's AGENTS.md or my chat message.
   - `xhigh`: work whose result will be trusted rather than checked, such as code review, security
     audits, research conclusions, or plans others will carry out.
 - Model: the one you're running on. Claude agents instead choose between:
-  - Haiku 5.5 for simple tasks, and for spelled-out work whose result gets checked (by tests, a
-    script, your review, or a known answer) even if it's long or tedious, at `low` to `high` by the
-    scale above.
-  - Opus 5.5 for everything else, such as deciding what to do, difficult work, or results that won't
-    be checked, and whenever you're unsure.
+  - Haiku 5.5, at the effort the scale above gives (`xhigh` included), when the work has a right
+    answer that careful work can reach, even if it's long, hard, or trusted without checking.
+  - Opus 5.5 for judgment calls without a right answer, for finding every instance in large amounts
+    of messy human writing, and whenever you're unsure.
 
 ## Investigation and evidence
 
