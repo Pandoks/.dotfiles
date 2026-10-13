@@ -12,11 +12,11 @@ Zsh, and links application config.
 
 ## Supported systems
 
-| System | Package manager |
-| --- | --- |
-| macOS on Apple Silicon or Intel | Homebrew |
-| Debian / Ubuntu | apt |
-| Arch Linux | pacman |
+| System                          | Package manager |
+| ------------------------------- | --------------- |
+| macOS on Apple Silicon or Intel | Homebrew        |
+| Debian / Ubuntu                 | apt             |
+| Arch Linux                      | pacman          |
 
 Other platforms are not configured.
 
@@ -186,10 +186,8 @@ accounts and enable WebSockets on Codex ones at
 `https://cliproxyapi.<tailnet>.ts.net/management.html`. The config links into
 this public repo, so never commit `secret-key` or API keys.
 
-Upgrade:
-
 ```sh
-mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
+mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
 ```
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
