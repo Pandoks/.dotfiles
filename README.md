@@ -186,7 +186,13 @@ accounts and enable WebSockets on Codex ones at
 `https://cliproxyapi.<tailnet>.ts.net/management.html`. The config links into
 this public repo, so never commit `secret-key` or API keys.
 
-Upgrade:
+Install [Paced Affinity] through [CPA's plugin store][Paced Affinity store]. Its
+source and routing configuration are already in the linked config. With
+`shadow: true` it only logs picks; `shadow: false` lets it route.
+
+Manage plugin updates in CPA's plugin store. mise installs the newest
+CLIProxyAPI release that is at least 24 hours old. Check the plugin's
+[compatibility][Paced Affinity compatibility] before upgrading CLIProxyAPI:
 
 ```sh
 mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
@@ -194,5 +200,8 @@ mise -E cliproxyapi up && systemctl --user restart dev.mise.cli-proxy-api
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
+[Paced Affinity]: https://github.com/Pandoks/cpa-plugin-paced-affinity
+[Paced Affinity store]: https://github.com/Pandoks/cpa-plugin-paced-affinity#plugin-store
+[Paced Affinity compatibility]: https://github.com/Pandoks/cpa-plugin-paced-affinity#compatibility
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
