@@ -1,5 +1,5 @@
 [tools]
-"github:router-for-me/CLIProxyAPI" = { version = "latest", minimum_release_age = "0" }
+"github:router-for-me/CLIProxyAPI" = "latest"
 
 [dotfiles]
 "~/.cli-proxy-api/config.yaml" = "../../.cli-proxy-api/config.yaml"
