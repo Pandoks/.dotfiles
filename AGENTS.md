@@ -79,8 +79,9 @@ These defaults yield to a project's AGENTS.md or my chat message.
 - Model: the one you're running on. Claude agents instead choose between:
   - Haiku 5.5, at the effort the scale above gives (`xhigh` included), when the work has a right
     answer that careful work can reach, even if it's long, hard, or trusted without checking.
-  - Opus 5.5 for judgment calls without a right answer, for finding every instance in large amounts
-    of messy human writing, and whenever you're unsure.
+  - Opus 5.5 for judgment calls without a right answer (writing people will rely on included), for
+    finding every instance in large amounts of messy human writing or every subtle bug in a review,
+    and whenever you're unsure.
 
 ## Investigation and evidence
 
