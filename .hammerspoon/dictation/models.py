@@ -204,8 +204,7 @@ class MlxLm(Cleaner):
         prompt = self.tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, enable_thinking=False
         )
-        # At least 400 tokens, and twice the dictation: an echo is never cut, a runaway fails the
-        # rewrite guard. Greedy: mlx-lm's default sampler is the argmax.
+        # Room to echo the dictation; a runaway fails the guard. Greedy: mlx-lm's default sampler.
         limit = max(400, 2 * len(self.tokenizer.encode(raw)))  # pyright: ignore
         out = generate(self.llm, self.tokenizer, prompt, max_tokens=limit)
         # Past the last "</think>": the template opens and closes an empty one, the model may again.

@@ -16,6 +16,16 @@ Every setting lives in `config.lua`, typed, with hover docs from lua-language-se
 If Raycast also uses Option+Space, Hammerspoon wins; rebind one. The macOS dictation (mic)
 key cannot be used: macOS 26 always handles it itself.
 
+## How it works
+
+`init.lua` drives a take: `recorder.lua` records the default input with ffmpeg and feeds the
+pill's equalizer (`overlay.lua`); at stop, `engine.lua` sends the wav to `server.py`, a resident
+Python process (JSON lines on stdin and stdout) that transcribes, fixes spellings, cleans up, and
+writes numbers as digits. Its guard aligns the cleaned words with what was heard: if the cleanup
+added, reworded, or dropped more than stalls, fillers, repeats, and self-corrections, the take
+types nothing, alerts, and keeps what was heard in `history.directory`. Otherwise `history.lua`
+saves the text and `init.lua` types it into the focused field, spaced by `spacing.lua`.
+
 ## Speech models
 
 Set `speech.backend`, `speech.model`, and `speech.revision`
@@ -38,10 +48,6 @@ The default cleanup model is the simplewords v3 LoRA on Qwen3.5-2B (1.7 GB + 67 
 its own prompt, so `style` and per-app `style` apply only to a plain instruct model
 (`cleanup.adapter = nil`). Pin only repos you trust: mlx-lm runs Python a model repo names in
 its config.
-
-A guard aligns the words about to be typed with what was heard. If the cleanup added, reworded,
-or dropped more than stalls, fillers, repeats, and self-corrections, the take types nothing,
-alerts, and keeps what was heard in `history.directory`.
 
 ## Limitations
 

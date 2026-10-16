@@ -60,6 +60,9 @@ local hs = {
       return stub({ fire = callback })
     end,
   },
+  audiodevice = {
+    defaultInputDevice = function() end,
+  },
   microphoneState = function()
     return true
   end,
@@ -90,6 +93,10 @@ local hs = {
     end,
     writeAllData = function(data)
       clipboard, changes = data, changes + 1
+      return true
+    end,
+    setContents = function(text)
+      clipboard, changes = { ["public.utf8-plain-text"] = text }, changes + 1
       return true
     end,
     changeCount = function()
@@ -276,10 +283,10 @@ end)
 test("a reply to a cancelled take is saved; the next take still gets its own", function()
   for _, reply in ipairs({
     function(id)
-      handlers.onFinal({ id = id, text = "late" })
+      handlers.onFinal({ id = id, text = "late " .. id })
     end,
     function(id)
-      handlers.onError("cleanup failed", id, "late")
+      handlers.onError("cleanup failed", id, "late " .. id)
     end,
   }) do
     local element = field("Hi")
@@ -288,7 +295,7 @@ test("a reply to a cancelled take is saved; the next take still gets its own", f
     local waiting = dictate(element)
     reply(cancelled)
     handlers.onFinal({ id = waiting, text = "now" })
-    assert(element.value == "Hi now" and saved("late"), element.value)
+    assert(element.value == "Hi now" and saved("late " .. cancelled), element.value)
   end
 end)
 
@@ -342,6 +349,16 @@ test("a take recording when the backend dies goes on, and is kept", function()
   assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
 end)
 
+test("a take too short or too quiet is never sent, and is deleted", function()
+  for _, setting in ipairs({ "minDuration", "minLevel" }) do
+    local count = serial
+    config[setting] = 2
+    dictate(field("Hi"))
+    config[setting] = 0
+    assert(serial == count and not fs.attributes(recorded), setting)
+  end
+end)
+
 test("a take where nothing was heard deletes its recording", function()
   local count = wavs()
   handlers.onFinal({ id = dictate(field("Hi")), text = "" })
@@ -360,6 +377,16 @@ test("a log line raising as Escape is bound or unbound leaves no take half done"
   dead = false
   handlers.onFinal({ id = dictate(element), text = "two" })
   assert(element.value == "Hi one two", element.value)
+end)
+
+test("clipboard mode copies the text and inserts nothing", function()
+  local element = field("Hi")
+  config.insert = "clipboard"
+  handlers.onFinal({ id = dictate(element), text = "copied" })
+  config.insert = "direct"
+  assert(not element.written and #strokes == 0, "inserted")
+  assert(clipboard["public.utf8-plain-text"] == "copied", clipboard["public.utf8-plain-text"])
+  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
 test("Escape while recording deletes the take", function()

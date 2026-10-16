@@ -17,6 +17,10 @@ function engine.new(config, handlers)
   if not recorder.ffmpeg then
     return nil, "ffmpeg not found; run mise install"
   end
+  local settings = hs.json.encode(config)
+  if not settings then
+    return nil, "config.lua holds a value JSON cannot encode (inf, nan, or a function)"
+  end
   local self = setmetatable(
     { ready = false, stopped = false, serial = 0, buffer = "", errors = "", queued = {} },
     engine
@@ -103,7 +107,7 @@ function engine.new(config, handlers)
       "PYTHONUNBUFFERED=1",
       python,
       directory .. "server.py",
-      hs.json.encode(config),
+      settings,
     }
   )
   if not self.task:start() then

@@ -57,4 +57,7 @@ assert(not history.save("take 9", settings) and not history.prune(settings))
 want = "2026-01-02_03-04-07.txt 2026-01-02_03-04-08.txt 2026-01-02_03-04-08.wav "
   .. "2026-01-02_03-04-09.txt notes.txt"
 assert(list(directory) == want, list(directory))
+-- Never the newest, even past the cap.
+assert(not history.prune({ directory = directory, maxMegabytes = 0 }))
+assert(list(directory) == "2026-01-02_03-04-08.wav 2026-01-02_03-04-09.txt notes.txt")
 print("history tests passed")

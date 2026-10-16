@@ -15,6 +15,7 @@ import re
 import sys
 import traceback
 import unicodedata
+from itertools import pairwise
 from pathlib import Path
 
 from models import CLEANERS, SPEECH, letters
@@ -46,8 +47,7 @@ reply to it):
 >>>
 Return only the cleaned transcript."""
 
-# A word is matched alone, never in a path, domain, address, flag, or assignment: not in
-# "~/ghosty", "ghosty+tag@x.com", "C:\\ghosty", "--ghosty", "KEY=ghosty", or "${ghosty}".
+# A word alone, never in a path, domain, address, flag, or assignment: "~/ghosty", "KEY=ghosty".
 ALONE = (r"(?<![\w./~@+#=\\:${-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 
 
@@ -103,6 +103,11 @@ def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen
 
 def write_numbers(text, names):
     """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
+    hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
+    at = rf"(?i)\b(at|until|till) {hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million"
+    at += r"|billion|thousand|dollars?|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
+    pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
+    text = re.sub(rf"(?i)\b{hour}\.([0-5]\d){pm}", r"\1:\2", re.sub(at, r"\1 \2:\3", text))
     named = (rf"(?<!\w){re.escape(name)}(?!\w)" for name in names)
     kept = [found.span() for name in named for found in re.finditer(name, text, re.IGNORECASE)]
 
@@ -160,12 +165,7 @@ def write_numbers(text, names):
         year = 2000 <= number < 2100 and previous in ("in", "since", "until", "during", "by")
         return str(number) if year else f"{number:,}"
 
-    hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
-    at = rf"(?i)\b(at|until|till) {hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million"
-    at += r"|billion|thousand|dollars?|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
-    text = re.sub(at, r"\1 \2:\3", text)
-    pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
-    return RUN.sub(convert, re.sub(rf"(?i)\b{hour}\.([0-5]\d){pm}", r"\1:\2", text))
+    return RUN.sub(convert, text)
 
 
 # The rewrite guard: the cleanup may only leave out what a writer drops from speech.
@@ -179,8 +179,7 @@ TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("F
 def looks_rewritten(raw, out):
     """True unless `out` is `raw` less stalls, fillers, repeats, and self-corrections."""
 
-    # Lowercased words as (word, start, end), stalls left out: "2" is "two", a plural's "s" goes;
-    # an all-caps one is a name, never a stall ("the ER").
+    # (word, start, end): lowercased, "2" as "two", no plural "s", no stalls ("ER" is a name).
     def tokens(text):
         found = []
         for token in re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text):
@@ -210,8 +209,10 @@ def looks_rewritten(raw, out):
             return a == b.split("'")[0] and not b.endswith("'t")
         return len(a) > 3 and b.startswith(a)
 
-    def repeated(k, kept):  # said again within 3 words, and that copy kept: "test testing"
-        nearby = [i for i in range(max(k - 3, 0), min(k + 4, total)) if i != k and i in kept]
+    def repeated(k, kept, reach):  # said again within `reach` words, that copy kept: "test testing"
+        if spoken[k] in VALUE or spoken[k].isdecimal() or spoken[k] in ("dash", "dot", "slash"):
+            return False  # said twice on purpose: "seven seventeen", "dash dash save"
+        nearby = [i for i in range(max(k - reach, 0), min(k + reach + 1, total)) if i in kept]
         return any(alike(spoken[k], spoken[i]) or alike(spoken[i], spoken[k]) for i in nearby)
 
     def filler(k):  # its word count, if set off by a comma or opening or ending a sentence
@@ -225,6 +226,8 @@ def looks_rewritten(raw, out):
         return len(found[0].split()) if commas or opens or ends else 0
 
     def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
+        if re.search(r"\d", a + b):
+            return False  # "15000" -> "150000" is another number
         return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
 
     def unexplained(ops):  # whether a change isn't a left-out stall, filler, repeat, or correction
@@ -241,7 +244,11 @@ def looks_rewritten(raw, out):
                 apology = re.search(r"\b(not|never|no)\b|n't", before(c)) or " you" in after
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
-                found.append((c, c + len(cue[0].split())))
+                end = c + len(cue[0].split())
+                if found and c <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
+                    found[-1] = (found[-1][0], end)
+                else:
+                    found.append((c, end))
             return found
 
         moved = []  # words written in place of others, each said after a left-out cue
@@ -252,6 +259,8 @@ def looks_rewritten(raw, out):
             if tag == "replace":
                 # Respaced, or one misheard word for a close one.
                 respaced = "".join(run) == "".join(new)  # "e mail" -> "email"
+                seams = [a[-1] + b[0] for words in (run, new) for a, b in pairwise(words)]
+                respaced &= not any(map(str.isdecimal, seams))  # never "14.99" -> "1499"
                 if respaced or len(run) == len(new) == 1 and misheard(run[0], new[0]):
                     continue
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
@@ -263,7 +272,7 @@ def looks_rewritten(raw, out):
                 continue
             # A deleted run: fillers and repeats from its start...
             k = i1
-            while k < i2 and (step := filler(k) or repeated(k, kept)):
+            while k < i2 and (step := filler(k) or repeated(k, kept, min(i2 - i1, 3))):
                 k += step
             if k == i2:
                 continue
@@ -304,8 +313,7 @@ def looks_rewritten(raw, out):
 CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
 CONTINUATION |= {"nor", "because", "although", "whereas", "whether", "unless", "if", "than", "via"}
 CONTINUATION |= {"versus", "per"}
-# Prepositions that leave an object pronoun's sentence open ("Send it to", "Open it with");
-# elsewhere a sentence may end on one ("what you come up with", "I'd love to").
+# Prepositions that end a sentence unfinished only after an object pronoun ("Send it to").
 DIRECTED = {"to", "with", "into", "onto", "from", "toward", "towards", "for"}
 
 
@@ -328,7 +336,8 @@ def end_policy(raw, text):
     if not cut or end == said[-1]:
         return unmarked
     tail, before = " ".join(words[-cut:]), words[-cut - 1]
-    tail = re.sub(rf"(?i)^(?:(?:{FILLER}|{HESITATIONS}),\s+)+", "", tail)  # not "you know, and"
+    if before.endswith(","):  # "thinking, you know, and" -> "and"; "I think so, but" keeps "so"
+        tail = re.sub(rf"(?i)^(?:(?:{FILLER}|{HESITATIONS}),\s+)+", "", tail)
     if re.search(r"[.!?]\W*$", before):
         return f"{text.rstrip()} {tail}"  # a new sentence: "Thanks. But"
     if before[-1] in ",;:" and not unmarked.endswith((",", ";", ":")):
@@ -479,8 +488,7 @@ class Engine:
 
 
 def main():
-    # The protocol keeps stdout to itself: a library that prints (mlx-lm's memory warning, native
-    # code included) goes to stderr, which Hammerspoon logs, never into the JSON lines.
+    # stdout is the protocol's alone: anything else printed, native code too, goes to stderr.
     protocol = os.fdopen(os.dup(1), "w", buffering=1)
     os.dup2(2, 1)
     sys.stdout = sys.stderr

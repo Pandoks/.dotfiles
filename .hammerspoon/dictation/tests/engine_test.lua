@@ -62,17 +62,17 @@ test("a handler's error is reported and later results are still read", function(
         error("disk full")
       end
     end,
-    onError = function(_, id)
-      failed[#failed + 1] = id
+    onError = function(_, id, heard)
+      failed[#failed + 1] = id .. heard
       error("no window")
     end,
   }))
   assert(backend and output, "no backend task")
   local lines = '{"event":"ready"}\n{"event":"final","id":1,"text":"a"}\n'
-    .. '{"event":"error","id":2,"msg":"no speech"}\n'
+    .. '{"event":"error","id":2,"msg":"no speech","heard":"um"}\n'
   assert(output(nil, lines, "") == true, "stopped reading")
   assert(output(nil, '{"event":"final","id":3,"text":"b"}\n', "") == true, "stopped reading")
-  assert(#finals == 2 and finals[2] == 3 and failed[1] == 2, "a later result was lost")
+  assert(#finals == 2 and finals[2] == 3 and failed[1] == "2um", "a later result was lost")
   assert(alerts[1] and alerts[1]:find("disk full", 1, true), tostring(alerts[1]))
   assert(alerts[2] and alerts[2]:find("no window", 1, true), tostring(alerts[2]))
 end)
@@ -143,6 +143,11 @@ test("a backend that fails, dies, or says something unknown fails once and says 
     assert(#failures == 1 and tostring(failures[1]):find(why, 1, true), tostring(failures[1]))
     assert(not backend:transcribe("/tmp/x.wav"), "a dead backend took a take")
   end
+end)
+
+test("a config JSON cannot encode starts no backend and says why", function()
+  local backend, problem = engine.new({ minLevel = 0 / 0 }, {})
+  assert(not backend and tostring(problem):find("JSON", 1, true), tostring(problem))
 end)
 
 print(passed .. " engine tests passed")

@@ -102,7 +102,8 @@ function recorder.start(bands, onError)
   local task = hs.task.new("/bin/sh", function(code, _, errors)
     recording.task = nil -- frees the task, which holds these callbacks
     failure(errors or "")
-    if not recording.stopping or (code ~= 0 and code ~= 255) then
+    -- Stopping, SIGINT exits ffmpeg 255, or 2 if it came before ffmpeg set its handler.
+    if not recording.stopping or (code ~= 0 and code ~= 255 and code ~= 2) then
       failure("capture exited (code " .. tostring(code) .. ")")
     end
     -- The last chunk arrives after the final tick: count it in the duration and peak.
@@ -200,8 +201,7 @@ function recorder.poll(recording)
   for i = 1, size do
     real[i], imaginary[i] = real[i] * window[i], 0
   end
-  -- Room noise sets the floor, so only sound above it moves the bars; it starts at most at a room's
-  -- level (~-38 dBFS), as a take may open on speech after a Bluetooth mic's digital silence.
+  -- Bars move only above the room's floor, which starts at most ~-38 dBFS: speech may open a take.
   if energy > 0 then
     recording.floor = math.min(level, recording.floor and recording.floor + 0.002 or 0.3)
   end

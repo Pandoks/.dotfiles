@@ -11,8 +11,7 @@ end
 local openers = set("([{“‘</")
 -- A straight quote or backtick opens after the start, a space, or an opener, and before a word.
 local quotes = set("\"'`")
--- A part of a name, address, or path stays joined: "foo.[local].bar", "foo-|bar", "user+[tag]@x",
--- "KEY=[old]", "image:[latest]", and before one: "foo|.bar", "user|@host"; "Note:|" still spaces.
+-- Parts of a name, address, or path stay joined ("foo.|bar", "user|@host"); "Note:|" still spaces.
 local joiners = set(".-_@+=:")
 local slashes = set("/\\") -- "/usr/|bin", "/usr|/bin", "C:\[old]\file"
 -- Punctuation blocks and Latin-1 marks, not letters: "—", "？".

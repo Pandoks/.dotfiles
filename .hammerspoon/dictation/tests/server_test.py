@@ -57,7 +57,7 @@ tokenizer_files = {
 }
 try:
     cleanup = snapshot_download(**tokenizer_files, local_files_only=True)
-except LocalEntryNotFoundError:  # a fresh checkout: a few MB, not the model
+except LocalEntryNotFoundError:  # a fresh checkout: about 26 MB, not the model
     cleanup = snapshot_download(**tokenizer_files)
 tokenizer = load_tokenizer(Path(cleanup))
 stub = {"model": "stub", "revision": "0" * 40}
@@ -407,6 +407,7 @@ check(
         (("Send it to", "Send it."), "Send it to"),
         (("We can ship it unless", "We can ship it."), "We can ship it unless"),
         (("So I was thinking, you know, and", "So I was thinking."), "So I was thinking, and"),
+        (("I think so, but", "I think."), "I think so, but"),
         (("I want one like the", "I want one."), "I want one like the"),
         (("You're coming?", "You're coming."), "You're coming?"),
         (("Like, you're coming?", "You're coming."), "You're coming?"),
@@ -463,7 +464,7 @@ check(
     lambda pair: dictate(*pair),
 )
 check(
-    "the guard accepts left-out stalls, fillers, repeats, and self-corrections, and nothing else",
+    "the guard accepts these cleanups and rejects these rewrites",
     [
         ((raw, out), False)
         for raw, out in [
@@ -494,6 +495,9 @@ check(
             ("Is that right? So we ship it.", "Is that right? We ship it."),
             ("Show 10² rows, not ①.", "Show 10² rows, not ①."),
             ("Meet İbrahim Monday, sorry, Tuesday.", "Meet İbrahim Tuesday."),
+            ("I don't know weather to go.", "I don't know whether to go."),
+            ("Send me an e mail.", "Send me an email."),
+            ("Call me at 1.30pm.", "Call me at 1:30 pm."),
         ]
     ]
     + [
@@ -506,10 +510,16 @@ check(
             ("Include the tests.", "Exclude the tests."),
             ("I can, I can't come tonight.", "I can come tonight."),
             ("You shouldn't deploy on Friday.", "You should deploy on Friday."),
-            ("Let's meet Tuesday.", "Let's meet Thursday."),
-            ("We start in March.", "We start in match."),
+            ("We raised a billion dollars.", "We raised a million dollars."),
+            ("Don't lose it.", "Don't loose it."),
             ("Send 15 dollars.", "Send 50 dollars."),
+            ("Send 15000 dollars.", "Send 150000 dollars."),
+            ("It costs 14.99.", "It costs 1499."),
             ("Turn the volume up, sorry, down.", "Turn the volume up."),
+            ("Turn the volume up, no wait, down.", "Turn the volume up, down."),
+            ("npm install dash dash save dev", "npm install dash save dev"),
+            ("Meet at seven seventeen.", "Meet at seven."),
+            ("I think he knows you know.", "I think he knows you."),
             ("Send it tomorrow, I'm sorry, tonight.", "Send it tonight tomorrow."),
             ("We're full, sorry, thank you.", "We're full, thank you."),
             ("I broke it, sorry, my mistake.", "I broke it, sorry."),
@@ -539,8 +549,7 @@ check(
     ],
     dictate,
 )
-# An empty cleanup (no coherent speech, as the prompt asks) types nothing, and the result carries
-# what was heard so Hammerspoon keeps it.
+# An empty cleanup types nothing; the result carries what was heard so Hammerspoon keeps it.
 engine.speech = SimpleNamespace(transcribe=lambda wav, hint: "Mmm wha blah", boost=0)
 engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
     prompt="prompt", complete=lambda messages, raw: ""
@@ -572,8 +581,7 @@ events, stderr = serve("", [], config='{"speech": {"backend": "nope"}}')
 assert [e["event"] for e in events] == ["error"] and "id" not in events[0], events
 assert "nope" in events[0]["msg"] and "Traceback" in stderr, (events, stderr)
 print("PASS a failed load reports an error and never ready")
-# A rewritten take fails with what was heard and no traceback; a take whose speech fails reports
-# nothing heard, not the last take's: Hammerspoon would keep that text as this take's.
+# A rewritten take fails with what was heard, no traceback; a failed transcription heard nothing.
 takes = """
 from types import SimpleNamespace
 heard = iter(["Send fifteen dollars.", "Send it."])
@@ -599,8 +607,7 @@ assert events[3]["heard"] is None and "speech model failed" in events[3]["msg"],
 assert stderr.count("Traceback") == 1, stderr
 print("PASS a failed take reports what was heard, and only a bug's traceback")
 
-# The prompt opens and closes an empty think block; the model may close it again, and only what
-# follows is the reply.
+# The model may close the template's think block again; only what follows is the reply.
 cleaner = models.MlxLm(stub)
 cleaner.llm, cleaner.tokenizer = None, tokenizer  # pyright: ignore[reportAttributeAccessIssue]
 with mock.patch("mlx_lm.generate", return_value="Fix the bug.</think>\n\nFix the bug."):

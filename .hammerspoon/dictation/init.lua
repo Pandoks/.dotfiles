@@ -20,8 +20,9 @@ end
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
-local overlay, recording, animation, inflight
-local target, targetError
+local overlay, recording, animation
+-- The request whose text gets typed, and the field focused when its take stopped.
+local inflight, target, targetError
 -- Wavs the backend has yet to answer, by request id.
 local wavs = {}
 -- The clipboard to put back after the last paste.
@@ -207,13 +208,14 @@ end
 -- Each reply settles its take; only the one still waiting is delivered.
 local engine, problem = Engine.new(config, {
   onFinal = function(result)
+    local text = result.text ~= "" and result.text or nil
     -- With nothing to type, what the speech model heard is saved.
-    local saved = settle(result.id, result.text ~= "" and result.text or result.heard or "")
+    local saved = settle(result.id, text or result.heard or "")
     if inflight == result.id then
-      if result.text == "" then
+      if not text then
         fail("no speech recognized" .. (saved and " (what was heard is in history)" or ""))
       end
-      finish(result.text ~= "" and result.text or nil)
+      finish(text)
     end
     -- After delivery: past the cap it lists the folder.
     local unpruned = saved and history.prune(config.history)
