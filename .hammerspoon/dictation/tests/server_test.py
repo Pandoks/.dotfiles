@@ -480,6 +480,10 @@ check(
             ("Don't merge it, scratch that, merge it.", "Merge it."),
             ("I'll take the blue one actually.", "I'll take the blue one."),
             (
+                "Set the timeout to 30 seconds actually. Make it 60 seconds.",
+                "Set the timeout to 60 seconds.",
+            ),
+            (
                 "Please print ten copies of the report, sorry, twelve.",
                 "Please print twelve copies of the report.",
             ),
@@ -487,10 +491,16 @@ check(
                 "Schedule it for next Tuesday at ten, no wait, Wednesday.",
                 "Schedule it for Wednesday at ten.",
             ),
-            ("Book two double rooms, no wait, a suite.", "Book a suite."),
+            ("Email Lisa Tuesday, actually, Karen.", "Email Karen Tuesday."),
             ("The review is Thursday. Uh, sorry, Friday.", "The review is Friday."),
-            ("Run npm install, no wait, run npm ci.", "Run npm ci."),
+            ("We need five chairs, I mean six.", "We need six chairs."),
             ("Is that right? So we ship it.", "Is that right? We ship it."),
+            (
+                "Couldn't we do Monday, sorry, Tuesday after lunch?",
+                "Couldn't we do Tuesday after lunch?",
+            ),
+            ("Fine by me yeah.", "Fine by me."),
+            ("That's the one that you know, I told you about.", "That's the one I told you about."),
             ("Show 10² rows, not ①.", "Show 10² rows, not ①."),
             ("Meet İbrahim Monday, sorry, Tuesday.", "Meet İbrahim Tuesday."),
             ("I don't know weather to go.", "I don't know whether to go."),
@@ -524,6 +534,7 @@ check(
             ("Should I bring a jacket? Probably not, no.", "Should I bring a jacket?"),
             ("Call 555 555 1234.", "Call 555 1234."),
             ("Ship 4 units to Denver and 6, sorry, 8 to Austin.", "Ship 8 to Austin."),
+            ("Ship 4 units to Denver and 6, sorry, 8 to Austin.", "Ship 8 units to Austin."),
             (
                 "Order a pepperoni pizza and a salad for the table, sorry, two salads.",
                 "Order two salads for the table.",

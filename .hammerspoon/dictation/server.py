@@ -170,7 +170,7 @@ def write_numbers(text, names):
 # The rewrite guard: the cleanup may only leave out what a writer drops from speech.
 HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, oh
 CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
-CUE += r"(?:,? make (?:it|that))?"  # "sorry, make it 30"
+CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
 FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
 

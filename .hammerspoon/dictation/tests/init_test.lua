@@ -302,7 +302,12 @@ end)
 test("with nothing to type, what was heard is saved in place of the recording", function()
   handlers.onFinal({ id = dictate(field("Hi")), text = "", heard = "mumble" })
   assert(saved("mumble") and not fs.attributes(recorded), "not saved, or the recording left")
-  handlers.onError("cleanup failed", dictate(field("Hi")), "heard it")
+  local rewrote = "the cleanup rewrote what was said, so nothing was typed"
+  handlers.onError(rewrote, dictate(field("Hi")), "heard it")
+  assert(
+    alerts[1] == "Dictation: backend: " .. rewrote .. " (what was heard is in history)",
+    tostring(alerts[1])
+  )
   assert(saved("heard it") and not fs.attributes(recorded), "not saved, or the recording left")
   assert(wavs() == 0, "a recording kept")
 end)
@@ -356,12 +361,16 @@ test("a take too short or too quiet is never sent, and is deleted", function()
     dictate(field("Hi"))
     config[setting] = 0
     assert(serial == count and not fs.attributes(recorded), setting)
+    if setting == "minLevel" then
+      assert(#alerts > 0, "too quiet alerted nothing")
+    end
   end
 end)
 
 test("a take where nothing was heard deletes its recording", function()
   local count = wavs()
   handlers.onFinal({ id = dictate(field("Hi")), text = "" })
+  assert(alerts[1] == "Dictation: no speech recognized", tostring(alerts[1]))
   assert(wavs() == count and not fs.attributes(recorded) and not saved(""), "kept a silent take")
 end)
 
