@@ -1,12 +1,12 @@
-local Spectrum = require("dictation.spectrum")
-
 ---@class DictationRecording
----@field wav string output wav path
----@field pcm string raw PCM path read by poll()
----@field offset integer bytes of pcm consumed so far
----@field tail string most recent PCM bytes (one analysis window)
----@field spectrum DictationSpectrum
----@field peak number highest level (0..1) seen so far
+---@field wav string
+---@field pcm string raw copy read by poll()
+---@field offset integer bytes of pcm read so far
+---@field tail string the latest analysis window
+---@field peak number loudest window so far (0..1)
+---@field peaks number[] per-band slow-decaying maximum, for auto-gain
+---@field floor? number room loudness (0..1): falls instantly, rises slowly
+---@field bins integer[] band edges in FFT bins, 0..bands
 ---@field task? hs.task nil once ffmpeg exits
 ---@field stopping? boolean
 ---@field discarded? boolean
@@ -16,67 +16,75 @@ local Spectrum = require("dictation.spectrum")
 local recorder = {}
 
 local rate = 16000
-local size = 1024
+local size = 1024 -- FFT window, in samples
 
--- First ffmpeg on mise (the one its shim runs, wherever MISE_DATA_DIR puts it), Homebrew, or
--- PATH; the backend also needs it on its PATH. The shim is resolved once here: run on every take,
--- it would add ~15 ms before the mic opens.
-local home = os.getenv("HOME") --[[@as string]]
-local mise = os.getenv("MISE_DATA_DIR") or home .. "/.local/share/mise"
--- mise itself, not its shim: a shim runs ffmpeg, which would take "which" as its own argument. A
--- symlinked shim leads to mise; otherwise it is where its installers put it.
-local shim = hs.fs.pathToAbsolute(mise .. "/shims/ffmpeg")
-local binary = shim and shim:match("/mise$") and shim
-for _, candidate in ipairs({
-  "/opt/homebrew/bin/mise",
-  home .. "/.local/bin/mise",
-  "/usr/local/bin/mise",
-}) do
-  binary = binary or (hs.fs.attributes(candidate, "mode") == "file" and candidate) or nil
+-- Hann window.
+local window = {}
+for i = 1, size do
+  window[i] = 0.5 - 0.5 * math.cos(2 * math.pi * (i - 1) / (size - 1))
 end
-local which = binary and hs.execute(("cd / && '%s' which ffmpeg"):format(binary)) or ""
-local path = table.concat({
-  which:match("^(/.*)/ffmpeg%s*$") or mise .. "/installs/ffmpeg/latest/.mise-bins",
-  "/opt/homebrew/bin",
-  "/usr/local/bin",
-  os.getenv("PATH"),
-}, ":")
-local ffmpeg
-for directory in path:gmatch("[^:]+") do
-  if hs.fs.attributes(directory .. "/ffmpeg", "mode") == "file" then
-    ffmpeg = directory .. "/ffmpeg"
-    break
-  end
-end
-recorder.ffmpeg = ffmpeg
+
+-- mise's own binary, through its ffmpeg shim (a symlink): resolved once, as the shim adds ~15 ms.
+local mise = hs.fs.pathToAbsolute(os.getenv("HOME") .. "/.local/share/mise/shims/ffmpeg")
+local which = mise and hs.execute(("cd / && '%s' which ffmpeg"):format(mise)) --[[@as string?]]
+recorder.ffmpeg = which and which:match("^(/.*/ffmpeg)%s*$")
 
 -- Per-user 0700 temp dir, not the shared /tmp.
 local temporary = hs.fs.temporaryDirectory()
 
--- Recordings a crash left behind (reload and quit see to their own): each wav with more than a
--- moment of audio past its header. Their raw PCM copies and the rest are deleted.
----@return DictationRecording[]
-function recorder.leftovers()
-  local found = {}
-  for entry in hs.fs.dir(temporary) do
-    local base, extension = entry:match("^(dictation%-[%x%-]+)%.(%a+)$")
-    local file = temporary .. entry
-    if extension == "wav" and (hs.fs.attributes(file, "size") or 0) > 4096 then
-      found[#found + 1] = { wav = file, pcm = temporary .. base .. ".pcm" }
-    elseif extension == "wav" or extension == "pcm" then
-      os.remove(file)
+-- In-place iterative radix-2 FFT.
+---@param re number[]
+---@param im number[]
+local function fft(re, im)
+  local n = #re
+  local j = 1
+  for i = 1, n - 1 do
+    if i < j then
+      re[i], re[j] = re[j], re[i]
+      im[i], im[j] = im[j], im[i]
     end
+    local m = n // 2
+    while m >= 1 and j > m do
+      j = j - m
+      m = m // 2
+    end
+    j = j + m
   end
-  return found
+  local len = 2
+  while len <= n do
+    local angle = -2 * math.pi / len
+    local wr, wi = math.cos(angle), math.sin(angle)
+    for start = 1, n, len do
+      local cr, ci = 1, 0
+      for k = 0, len // 2 - 1 do
+        local a, b = start + k, start + k + len // 2
+        local tr = re[b] * cr - im[b] * ci
+        local ti = re[b] * ci + im[b] * cr
+        re[b], im[b] = re[a] - tr, im[a] - ti
+        re[a], im[a] = re[a] + tr, im[a] + ti
+        cr, ci = cr * wr - ci * wi, cr * wi + ci * wr
+      end
+    end
+    len = len * 2
+  end
+end
+
+-- Samples (-1..1) of the window starting at byte `from`, and its loudness 0..1 (-50..-10 dBFS).
+---@param pcm string s16le mono
+---@param from integer
+local function samples(pcm, from)
+  local values, energy = {}, 0
+  for i = 1, size do
+    local value = string.unpack("<i2", pcm, from + 2 * i - 2) / 32768
+    values[i], energy = value, energy + value * value
+  end
+  local rms = math.sqrt(energy / size) + 1e-9
+  return values, math.max(0, math.min(1, (20 * math.log(rms, 10) + 50) / 40)), energy
 end
 
 ---@param bands integer equalizer bands
 ---@param onError fun(message: string)
 function recorder.start(bands, onError)
-  -- Resolved at load: a mise upgrade can remove it.
-  if not (ffmpeg and hs.fs.attributes(ffmpeg, "mode")) then
-    return nil, tostring(ffmpeg) .. " is gone; reload Hammerspoon to find ffmpeg again"
-  end
   local base = temporary .. "dictation-" .. hs.host.uuid()
   local wav, pcm = base .. ".wav", base .. ".pcm"
   -- High-pass only: denoise and silence trimming erase quiet speakers.
@@ -91,8 +99,7 @@ function recorder.start(bands, onError)
     recording.error, recording.done = message, nil
     onError(message)
   end
-  -- sh execs ffmpeg in its place; its child SIGINTs ffmpeg when stdin closes (Hammerspoon exited).
-  -- The recordings are owner-only from the start.
+  -- sh execs ffmpeg; its child SIGINTs ffmpeg when stdin closes (Hammerspoon exited). Owner-only.
   local watchdog =
     'umask 077; exec 3<&0; (read _ <&3; kill -INT $$) >/dev/null 2>&1 & exec "$0" "$@" 3<&-'
   local task = hs.task.new("/bin/sh", function(code, _, errors)
@@ -118,7 +125,7 @@ function recorder.start(bands, onError)
   end, {
     "-c",
     watchdog,
-    ffmpeg,
+    recorder.ffmpeg,
     "-hide_banner",
     "-loglevel",
     "error",
@@ -153,13 +160,20 @@ function recorder.start(bands, onError)
   if not task then
     return nil, "could not create capture task"
   end
+  -- Log-spaced bands from 80 Hz to just under Nyquist.
+  local bins, nyquist = {}, rate / 2
+  for i = 0, bands do
+    local hz = 80 * (nyquist * 0.98 / 80) ^ (i / bands)
+    bins[i] = math.max(1, math.min(size // 2, math.floor(hz / nyquist * (size // 2))))
+  end
   recording = {
     wav = wav,
     pcm = pcm,
     offset = 0,
     tail = "",
-    spectrum = Spectrum.new(rate, bands, size),
     peak = 0,
+    peaks = {},
+    bins = bins,
     task = task,
   }
   if not task:start() then
@@ -168,10 +182,11 @@ function recorder.start(bands, onError)
   return recording
 end
 
--- Read any new PCM and analyze the latest window. Call on the animation tick.
+-- Read new PCM and analyze the latest window; nil until a full window exists. Called per frame.
 ---@param recording DictationRecording
----@return number[]? bands nil until a full window of audio exists
+---@return number[]? bands each 0..1: auto-gained shape times loudness over the room
 function recorder.poll(recording)
+  -- A file, not hs.task's stream: it drops output that is not UTF-8.
   local file = io.open(recording.pcm, "rb")
   if not file then
     return nil
@@ -179,25 +194,49 @@ function recorder.poll(recording)
   file:seek("set", recording.offset)
   local new = file:read("a") or ""
   file:close()
-  if #new == 0 then
-    return nil
-  end
   recording.offset = recording.offset + #new
   local data = recording.tail .. new
   recording.tail = data:sub(-size * 2)
-  if #recording.tail < size * 2 then
+  if #new == 0 or #recording.tail < size * 2 then
     return nil
   end
-  -- Every window since the last tick counts toward the peak, not only the one shown: a busy
-  -- main thread can leave several.
+  -- Every window since the last frame counts toward the peak: a busy main thread can leave several.
   for last = #data, size * 2, -size * 2 do
-    local level = recording.spectrum:loudness(data, last - size * 2 + 1)
+    local _, level = samples(data, last - size * 2 + 1)
     recording.peak = math.max(recording.peak, level)
   end
-  return (recording.spectrum:analyze(recording.tail))
+  local re, level, energy = samples(recording.tail, 1)
+  local im = {}
+  for i = 1, size do
+    re[i], im[i] = re[i] * window[i], 0
+  end
+  -- Room noise sets the floor, so only sound above it moves the bars; it starts at most at a room's
+  -- level (~-38 dBFS), as a take may open on speech after a Bluetooth mic's digital silence.
+  if energy > 0 then
+    recording.floor = math.min(level, recording.floor and recording.floor + 0.002 or 0.3)
+  end
+  -- Full at ~11 dB over the room.
+  local gain = math.max(0, math.min(1, (level - (recording.floor or level) - 0.08) / 0.2))
+  fft(re, im)
+  local bands, top, bins, peaks = {}, 0, recording.bins, recording.peaks
+  for b = 1, #bins do
+    local lo, hi = bins[b - 1], math.max(bins[b - 1] + 1, bins[b])
+    local sum = 0
+    for k = lo, hi - 1 do
+      sum = sum + math.sqrt(re[k + 1] ^ 2 + im[k + 1] ^ 2)
+    end
+    bands[b] = math.sqrt(sum / (hi - lo)) -- perceptual compression
+    peaks[b] = math.max((peaks[b] or 1e-4) * 0.999, bands[b])
+    top = math.max(top, peaks[b])
+  end
+  -- Peaks floored at 0.4 of the loudest, or the first word after silence fills every band.
+  for b = 1, #bins do
+    bands[b] = gain * math.min(1, bands[b] / (math.max(peaks[b], top * 0.4) + 1e-6)) ^ 0.5
+  end
+  return bands
 end
 
--- SIGINT lets ffmpeg finalize the wav; `done` gets it and the seconds polled (failures: onError).
+-- SIGINT lets ffmpeg finalize the wav; `done` gets it and the seconds read (failures: onError).
 ---@param recording DictationRecording
 ---@param done fun(wav: string, peak: number, duration: number)
 function recorder.stop(recording, done)
@@ -214,7 +253,7 @@ function recorder.cleanup(recording)
   if recording.task then
     recording.task:terminate()
   end
-  -- Remove now; a reload skips the exit callback (unlinking is safe while ffmpeg writes).
+  -- Now: a reload skips the exit callback (unlinking is safe while ffmpeg writes).
   os.remove(recording.wav)
   os.remove(recording.pcm)
 end

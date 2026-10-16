@@ -1,14 +1,5 @@
 local recorder = require("dictation.recorder")
 
----@class DictationTranscribeRequest
----@field wav string
----@field app? string
----@field title? string
----@field url? string
----@field selected? string
----@field cmd? string
----@field id? integer
-
 ---@class DictationEngine
 ---@field task hs.task
 ---@field sending? integer the request the backend has, answered before the next is sent
@@ -88,22 +79,15 @@ function engine.new(config, handlers)
           self.ready, self.errors = true, ""
           print("Dictation: backend ready")
         elseif event.event == "final" then
-          if type(event.id) ~= "number" or type(event.text) ~= "string" then
-            failure("invalid transcription response")
-            return true
-          end
           answered(event.id)
           call(handlers.onFinal, event)
         elseif event.event == "error" then
           if event.id then
             answered(event.id)
-            local heard = type(event.heard) == "string" and event.heard or nil
-            call(handlers.onError, event.msg or "unknown error", event.id, heard)
+            call(handlers.onError, event.msg or "unknown error", event.id, event.heard)
           else
             failure(event.msg or "unknown error")
           end
-        elseif event.event == "log" then
-          print("Dictation backend: " .. (event.msg or ""))
         else
           -- Not one this client knows: a take waiting on it would never end.
           failure("unknown backend event: " .. line)
@@ -151,15 +135,16 @@ function engine.new(config, handlers)
   return self
 end
 
----@param request DictationTranscribeRequest
+-- Queue `wav`, recorded with app `app` in front; its id, or nil and why not.
+---@param wav string
+---@param app string?
 ---@return integer?, string?
-function engine:transcribe(request)
+function engine:transcribe(wav, app)
   if not self.ready or self.stopped or not self.task:isRunning() then
     return nil, "backend is not ready"
   end
   self.serial = self.serial + 1
-  request.cmd, request.id = "transcribe", self.serial
-  local line = hs.json.encode(request) .. "\n"
+  local line = hs.json.encode({ id = self.serial, wav = wav, app = app }) .. "\n"
   if self.sending then
     self.queued[#self.queued + 1] = { id = self.serial, line = line }
   else

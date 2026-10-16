@@ -98,10 +98,17 @@ test("a take waits for the one before it, never written over it", function()
   local feed = assert(output, "no backend task")
   feed(nil, '{"event":"ready"}\n', "")
   inputs = {}
-  local first = assert(backend:transcribe({ wav = "/tmp/a.wav" }))
-  local second = assert(backend:transcribe({ wav = "/tmp/b.wav" }))
-  local third = assert(backend:transcribe({ wav = "/tmp/c.wav" }))
+  local first = assert(backend:transcribe("/tmp/a.wav", "com.apple.Notes"))
+  local second = assert(backend:transcribe("/tmp/b.wav"))
+  local third = assert(backend:transcribe("/tmp/c.wav"))
   assert(#inputs == 1 and inputs[1].id == first, "a second request written before an answer")
+  local keys = {}
+  for key in pairs(inputs[1]) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys)
+  assert(table.concat(keys, " ") == "app id wav", "the request is not {id, wav, app}")
+  assert(inputs[1].wav == "/tmp/a.wav" and inputs[1].app == "com.apple.Notes", "wrong request")
   feed(nil, '{"event":"error","id":99,"msg":"stray"}\n', "")
   assert(#inputs == 1, "an answer to another request sent the next")
   feed(nil, '{"event":"final","id":' .. first .. ',"text":"a"}\n', "")
@@ -110,7 +117,7 @@ test("a take waits for the one before it, never written over it", function()
   assert(#inputs == 3 and inputs[3].id == third and inputs[3].wav == "/tmp/c.wav", "lost a take")
   feed(nil, '{"event":"final","id":' .. third .. ',"text":"c"}\n', "")
   assert(#inputs == 3, "a request sent twice")
-  assert(backend:transcribe({ wav = "/tmp/d.wav" }) and #inputs == 4, "idle backend kept waiting")
+  assert(backend:transcribe("/tmp/d.wav") and #inputs == 4, "idle backend kept waiting")
 end)
 
 print(passed .. " engine tests passed")
