@@ -46,11 +46,9 @@
 ---@field minLevel number 0..1 peak loudness required, else the take is treated as silence. Raise to demand a closer, louder voice.
 ---@field minDuration number Minimum recording length in seconds; shorter takes are ignored.
 ---@field overlayHeight number Pill height in points.
----@field bands integer Number of frequency bands (>= 2); the pill mirrors them into 2n - 1 bars.
 
 ---@type DictationConfig
 local config = {
-  -- Option+Space: press to start, again to stop. Escape aborts.
   hotkey = { mods = { "alt" }, key = "space" },
 
   -- English-only: v3 sometimes transcribes English as another language.
@@ -90,7 +88,6 @@ local config = {
     "Uniqlo",
   },
 
-  -- Real-word mishearings ("ghosty") go here: `vocabulary` never fuzzy-matches a real word.
   dictionary = {
     Raycast = { "ray cast", "re cast", "ray cost" },
     yabai = { "yabe", "ya bye", "yah bye" },
@@ -128,7 +125,6 @@ local config = {
   minDuration = 0.35,
 
   overlayHeight = 44,
-  bands = 15,
 }
 
 return config

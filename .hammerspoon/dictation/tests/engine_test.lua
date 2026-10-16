@@ -107,7 +107,8 @@ test("a take waits for the one before it, never written over it", function()
   assert(inputs[1].wav == "/tmp/a.wav" and inputs[1].app == "com.apple.Notes", "wrong request")
   feed(nil, '{"event":"error","id":99,"msg":"stray"}\n', "")
   assert(#inputs == 1, "an answer to another request sent the next")
-  feed(nil, '{"event":"final","id":' .. first .. ',"text":"a"}\n', "")
+  feed(nil, '{"event":"final","id":' .. first .. ',"te', "") -- a line split across reads
+  feed(nil, 'xt":"a"}\n', "")
   assert(#inputs == 2 and inputs[2].id == second, "the next request not sent once answered")
   feed(nil, '{"event":"error","id":' .. second .. ',"msg":"no speech"}\n', "")
   assert(#inputs == 3 and inputs[3].id == third and inputs[3].wav == "/tmp/c.wav", "lost a take")
@@ -138,6 +139,7 @@ test("a backend that fails, dies, or says something unknown fails once and says 
     else
       feed(nil, said, "KeyError: 'speech'\n")
     end
+    die(1, "", "") -- it exits after failing
     assert(#failures == 1 and tostring(failures[1]):find(why, 1, true), tostring(failures[1]))
     assert(not backend:transcribe("/tmp/x.wav"), "a dead backend took a take")
   end

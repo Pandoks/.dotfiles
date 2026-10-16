@@ -26,7 +26,6 @@ end
 -- A free <timestamp>.<extension> path in the folder.
 ---@param settings DictationHistoryConfig
 ---@param extension string
----@return string?, string?
 local function slot(settings, extension)
   local directory = folder(settings)
   -- A second take in the same second gets a suffix.
@@ -44,10 +43,7 @@ end
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.save(text, settings)
-  local path, failure = slot(settings, "txt")
-  if not path then
-    return failure
-  end
+  local path = slot(settings, "txt")
   -- A full disk surfaces only at close.
   local file = io.open(path, "w")
   if not (file and file:write(text, "\n") and file:close()) then
@@ -62,11 +58,7 @@ end
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.keep(wav, settings)
-  local path, failure = slot(settings, "wav")
-  if not path then
-    return failure
-  end
-  local _, problem = os.rename(wav, path)
+  local _, problem = os.rename(wav, slot(settings, "wav"))
   return problem
 end
 

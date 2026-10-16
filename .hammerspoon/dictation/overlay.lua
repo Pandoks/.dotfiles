@@ -1,6 +1,7 @@
----@class DictationOverlay
 local overlay = {}
 overlay.__index = overlay
+-- Equalizer bands, mirrored into 2n - 1 bars; the spacing below is tuned for 15.
+overlay.bands = 15
 
 local aspect = 3.32
 local stroke = 1
@@ -9,13 +10,11 @@ local spread = 0.80 -- fraction of width the bars occupy
 local peak = 0.34 -- tallest bar as a fraction of height
 local fade = 12 -- frames (~0.4 s at 30 fps) from the ripple intro to the live equalizer
 
--- A pill shown near the bottom of the screen with the focused window, `bands` mirrored into bars.
+-- A pill shown near the bottom of the screen with the focused window.
 ---@param height number
----@param bands integer
-function overlay.new(height, bands)
+function overlay.new(height)
   local width, barWidth = height * aspect, height * thickness
   local canvas = hs.canvas.new({ x = 0, y = 0, w = width, h = height }) --[[@as hs.canvas]]
-  ---@class DictationOverlay
   local self = setmetatable({
     canvas = canvas,
     height = height,
@@ -27,6 +26,7 @@ function overlay.new(height, bands)
     warmth = 1, -- 1 = ripple intro, fading to 0 = live equalizer
     phase = 0, -- the intro blooms from the center at 0
   }, overlay)
+  local bands = overlay.bands
   for i = 1, 2 * bands - 1 do
     self.baseline[i] = math.max(0, 1 - math.abs(i - bands) / (bands - 1)) ^ 2.4
     self.bars[i] = 0
@@ -64,20 +64,20 @@ function overlay.new(height, bands)
       y = frame.y + frame.h - height - math.floor(frame.h * 0.10),
     })
   end
-  self:_layout()
+  self:layout()
   canvas:show()
   return self
 end
 
 -- Recompute every bar's frame from the current state.
-function overlay:_layout()
+function overlay:layout()
   local height, width, barWidth = self.height, self.width, self.barWidth
-  local bars = #self.bars
+  local count = #self.bars
   local span = width * spread
-  local pitch = span / (bars - 1)
+  local pitch = span / (count - 1)
   local warmth = self.warmth * self.warmth * (3 - 2 * self.warmth) -- smoothstep
-  local center = (bars + 1) / 2
-  for i = 1, bars do
+  local center = (count + 1) / 2
+  for i = 1, count do
     local amplitude, glow
     if self.thinking then
       -- A shimmer travels along the bars, brightness with it.
@@ -107,8 +107,7 @@ function overlay:_layout()
   end
 end
 
--- One frame, 30 a second while shown: the ripple or shimmer moves on, and live `bands` (0..1, low
--- to high) mirror around the center, lowest in the middle.
+-- One frame: the ripple or shimmer moves on; live `bands` (low to high) mirror out from the center.
 ---@param bands? number[]|false
 function overlay:update(bands)
   self.phase = self.phase + 0.35
@@ -123,7 +122,7 @@ function overlay:update(bands)
     end
   end
   if bands or self.thinking or self.warmth > 0 then
-    self:_layout()
+    self:layout()
   end
 end
 

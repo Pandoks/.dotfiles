@@ -3,7 +3,7 @@
 stdin:  {"id": 1, "wav": "/path.wav", "app": "com.tinyspeck.slackmacgap"}
 stdout: {"event": "ready"}                                       once the models are loaded
         {"event": "error", "msg": "..."}                         the load failed; it exits
-        {"event": "final", "id": 1, "text": "...", "heard": ...}  result; what the speech model heard
+        {"event": "final", "id": 1, "text": "...", "heard": ...}  result; what was heard
         {"event": "error", "id": 1, "msg": "...", "heard": ...}   the take failed
 Diagnostics and tracebacks go to stderr.
 """
@@ -190,7 +190,8 @@ def looks_rewritten(raw, out):
                 found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end()))
         return found
 
-    raw, out = (text.replace("’", "'") for text in (raw, out))
+    # "İ" lowercases to two characters, which would shift every later word's position.
+    raw, out = (text.replace("’", "'").replace("İ", "I") for text in (raw, out))
     spans = tokens(raw)
     spoken, typed = [w for w, _, _ in spans], [w for w, _, _ in tokens(out)]
     raw, total = raw.lower(), len(spoken)  # cues and fillers said in any case
@@ -203,7 +204,11 @@ def looks_rewritten(raw, out):
         return re.sub(rf"\b(?:{HESITATIONS})\b", "", sentence).strip()
 
     def alike(a, b):  # the same word, its contraction ("it's"), or a longer form ("testing")
-        return a in (b, b.split("'")[0]) or len(a) > 3 and "'" not in b and b.startswith(a)
+        if a == b:
+            return True
+        if "'" in b:  # "can't" says the opposite of "can"
+            return a == b.split("'")[0] and not b.endswith("'t")
+        return len(a) > 3 and b.startswith(a)
 
     def repeated(k, kept):  # said again within 3 words, and that copy kept: "test testing"
         nearby = [i for i in range(max(k - 3, 0), min(k + 4, total)) if i != k and i in kept]
@@ -219,8 +224,8 @@ def looks_rewritten(raw, out):
         ends = found[0] in TAGS and re.match(r"\s*([.!?]|$)", rest)  # "Fine, yeah."
         return len(found[0].split()) if commas or opens or ends else 0
 
-    def misheard(a, b):  # same first letter, 5+ letters, and close
-        return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.8)
+    def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
+        return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
 
     def unexplained(ops):  # whether a change isn't a left-out stall, filler, repeat, or correction
         kept = {i for tag, i1, i2, _, _ in ops if tag == "equal" for i in range(i1, i2)}
@@ -285,7 +290,7 @@ def looks_rewritten(raw, out):
             return True
         return False
 
-    # Aligned from the start and from the end, so either copy of a repeated word may be the kept one.
+    # Aligned from both ends, so either copy of a repeated word may be the kept one.
     forward = difflib.SequenceMatcher(None, spoken, typed, autojunk=False).get_opcodes()
     reverse = difflib.SequenceMatcher(None, spoken[::-1], typed[::-1], autojunk=False).get_opcodes()
     size = len(typed)
@@ -293,6 +298,70 @@ def looks_rewritten(raw, out):
         (tag, total - i2, total - i1, size - j2, size - j1) for tag, i1, i2, j1, j2 in reverse[::-1]
     ]
     return unexplained(forward) and unexplained(backward)
+
+
+# Words no finished sentence ends on; enforced here since the model adds a period anyway.
+CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
+CONTINUATION |= {"nor", "because", "although", "whereas", "whether", "unless", "if", "than", "via"}
+CONTINUATION |= {"versus", "per"}
+# Prepositions that leave an object pronoun's sentence open ("Send it to", "Open it with");
+# elsewhere a sentence may end on one ("what you come up with", "I'd love to").
+DIRECTED = {"to", "with", "into", "onto", "from", "toward", "towards", "for"}
+
+
+def end_policy(raw, text):
+    """No end mark on a dictation that stops mid-thought ("I want to go to the")."""
+    words = re.sub(r"[.!?,;:…—–\"”’')\]]+$", "", raw.strip()).split()
+    if not words or re.search(r"[?!]\W*$", raw):
+        return text  # "What if?" and "Oh my!" are complete
+    last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
+    if last in DIRECTED and previous:
+        if previous not in ("it", "this", "that", "them", "these", "those"):
+            return text
+    elif last not in CONTINUATION or (previous and words[-1].isupper()):
+        return text  # an all-caps one after others is a name: "plan A", "the OR"
+    unmarked = re.sub(r"\s*[.!?…—]+(?=[\"”’')\]]*$)", "", text.rstrip())
+    # Words the cleanup cut come back ("go to the" -> "go."), after the mark said before them.
+    said = [fold(w) for w in words]
+    end = fold((unmarked.split() or [""])[-1])
+    cut = next((n for n in (1, 2, 3) if n < len(said) and said[-n - 1] == end), 0)
+    if not cut or end == said[-1]:
+        return unmarked
+    tail, before = " ".join(words[-cut:]), words[-cut - 1]
+    tail = re.sub(rf"(?i)^(?:(?:{FILLER}|{HESITATIONS}),\s+)+", "", tail)  # not "you know, and"
+    if re.search(r"[.!?]\W*$", before):
+        return f"{text.rstrip()} {tail}"  # a new sentence: "Thanks. But"
+    if before[-1] in ",;:" and not unmarked.endswith((",", ";", ":")):
+        unmarked += before[-1]  # "Send it to John, and"
+    return f"{unmarked} {tail}"
+
+
+def ensure_question(raw, text):
+    """The speech model's closing '?' survives the cleanup's end mark, unless it moved."""
+    if not re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) or "?" in text:
+        return text
+    return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
+
+
+# Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
+STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+)(?![\w/@-]|\.\w)"
+# Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
+START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
+# A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
+LEAD_STALL_RE = re.compile(rf"(?:{START})([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
+# Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
+STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
+
+
+def strip_stalls(text):
+    # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
+    out = LEAD_STALL_RE.sub(
+        lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
+        text,
+    )
+    out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", out))  # blank lines stay
+    out = re.sub(r"[^\S\n]+\n", "\n", out).strip()  # no space left before a line break
+    return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
 
 class Engine:
@@ -355,71 +424,7 @@ class Engine:
         # Plain words: not in a path or address, nor part of a contraction; "'s" stays.
         return re.sub(rf"{ALONE[0]}(?<!['’])[^\W_]+{ALONE[1]}(?!['’](?![sS]\b)\w)", respell, text)
 
-    # Words no finished sentence ends on; enforced here since the model adds a period anyway.
-    CONTINUATION = frozenset(
-        ["the", "a", "an", "my", "your", "our", "their", "its", "every"]
-        + ["and", "but", "or", "nor", "because", "although", "whereas", "whether", "unless", "if"]
-        + ["than", "via", "versus", "per"]
-    )
-    # Prepositions that leave an object pronoun's sentence open ("Send it to", "Open it with");
-    # elsewhere a sentence may end on one ("what you come up with", "I'd love to").
-    DIRECTED = frozenset(["to", "with", "into", "onto", "from", "toward", "towards", "for"])
-
-    @classmethod
-    def end_policy(cls, raw, text):
-        """No end mark on a dictation that stops mid-thought ("I want to go to the")."""
-        words = re.sub(r"[.!?,;:…—–\"”’')\]]+$", "", raw.strip()).split()
-        if not words or re.search(r"[?!]\W*$", raw):
-            return text  # "What if?" and "Oh my!" are complete
-        last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
-        if last in cls.DIRECTED and previous:
-            if previous not in ("it", "this", "that", "them", "these", "those"):
-                return text
-        elif last not in cls.CONTINUATION or (previous and words[-1].isupper()):
-            return text  # an all-caps one after others is a name: "plan A", "the OR"
-        open_text = re.sub(r"\s*[.!?…—]+(?=[\"”’')\]]*$)", "", text.rstrip())
-        # Words the cleanup cut come back ("go to the" -> "go."), after the mark said before them.
-        said = [fold(w) for w in words]
-        end = fold((open_text.split() or [""])[-1])
-        cut = next((n for n in (1, 2, 3) if n < len(said) and said[-n - 1] == end), 0)
-        if not cut or end == said[-1]:
-            return open_text
-        tail, before = " ".join(words[-cut:]), words[-cut - 1]
-        if re.search(r"[.!?]\W*$", before):
-            return f"{text.rstrip()} {tail}"  # a new sentence: "Thanks. But"
-        if before[-1] in ",;:" and not open_text.endswith((",", ";", ":")):
-            open_text += before[-1]  # "Send it to John, and"
-        return f"{open_text} {tail}"
-
-    @staticmethod
-    def ensure_question(raw, text):
-        """The speech model's closing '?' survives the cleanup's end mark, unless it moved."""
-        if not re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) or "?" in text:
-            return text
-        return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
-
-    # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
-    STALL_WORD = r"[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+"
-    STALL = rf"(?<![\w./~@'-])(?:{STALL_WORD})(?![\w/@-]|\.\w)"
-    # Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
-    START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
-    # A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
-    LEAD_STALL_RE = re.compile(rf"(?:{START})([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
-    # Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
-    STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
-
-    @classmethod
-    def strip_stalls(cls, text):
-        # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
-        out = cls.LEAD_STALL_RE.sub(
-            lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
-            text,
-        )
-        out = re.sub(r"[^\S\n]{2,}", " ", cls.STALL_RE.sub("", out))  # blank lines stay
-        out = re.sub(r"[^\S\n]+\n", "\n", out).strip()  # no space left before a line break
-        return re.sub(r"^[,;:](?:\s+|$)", "", out)
-
-    def named_only(self, plain, boosted, request):
+    def merge(self, plain, boosted, request):
         """`boosted`, spelled, where it spells a vocabulary word `plain` lacks; elsewhere `plain`.
 
         The boost pushes a word toward a vocabulary word letter by letter and can stop partway:
@@ -438,8 +443,8 @@ class Engine:
         guard, numbers as digits."""
         names = self.glossary(request)
         heard = self.speech.transcribe(wav, names)
-        if self.speech.boost and names:  # decoded again unboosted: see named_only
-            heard = self.named_only(self.speech.transcribe(wav, []), heard, request)
+        if self.speech.boost and names:  # decoded again unboosted: see merge
+            heard = self.merge(self.speech.transcribe(wav, []), heard, request)
         # No letters or digits in any script: nothing was said, and the cleaner would invent text.
         if not re.search(r"[^\W_]", heard):
             return ""
@@ -461,12 +466,12 @@ class Engine:
                 {"role": "user", "content": FRAME.format(raw)},
             ]
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
-        text = self.spell(self.strip_stalls(self.cleaner.complete(messages, raw)), request)
+        text = self.spell(strip_stalls(self.cleaner.complete(messages, raw)), request)
         if not text:
             return ""  # no coherent speech: nothing typed
         # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
-        said = self.strip_stalls(raw)
-        text = self.end_policy(said, self.ensure_question(said, text))
+        said = strip_stalls(raw)
+        text = end_policy(said, ensure_question(said, text))
         # What would be typed: an answer, paraphrase, or rewrite fails the take.
         if looks_rewritten(raw, text):
             raise Rewritten("the cleanup rewrote what was said, so nothing was typed")

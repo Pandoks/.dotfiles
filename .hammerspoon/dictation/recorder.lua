@@ -28,19 +28,16 @@ local mise = hs.fs.pathToAbsolute(os.getenv("HOME") .. "/.local/share/mise/shims
 local which = mise and hs.execute(("cd / && '%s' which ffmpeg"):format(mise)) --[[@as string?]]
 recorder.ffmpeg = which and which:match("^(/.*/ffmpeg)%s*$")
 
--- Per-user 0700 temp dir, not the shared /tmp.
-local temporary = hs.fs.temporaryDirectory()
-
 -- In-place iterative radix-2 FFT.
----@param re number[]
----@param im number[]
-local function fft(re, im)
-  local n = #re
+---@param real number[]
+---@param imaginary number[]
+local function fft(real, imaginary)
+  local n = #real
   local j = 1
   for i = 1, n - 1 do
     if i < j then
-      re[i], re[j] = re[j], re[i]
-      im[i], im[j] = im[j], im[i]
+      real[i], real[j] = real[j], real[i]
+      imaginary[i], imaginary[j] = imaginary[j], imaginary[i]
     end
     local m = n // 2
     while m >= 1 and j > m do
@@ -49,22 +46,22 @@ local function fft(re, im)
     end
     j = j + m
   end
-  local len = 2
-  while len <= n do
-    local angle = -2 * math.pi / len
+  local span = 2
+  while span <= n do
+    local angle = -2 * math.pi / span
     local wr, wi = math.cos(angle), math.sin(angle)
-    for start = 1, n, len do
+    for start = 1, n, span do
       local cr, ci = 1, 0
-      for k = 0, len // 2 - 1 do
-        local a, b = start + k, start + k + len // 2
-        local tr = re[b] * cr - im[b] * ci
-        local ti = re[b] * ci + im[b] * cr
-        re[b], im[b] = re[a] - tr, im[a] - ti
-        re[a], im[a] = re[a] + tr, im[a] + ti
+      for k = 0, span // 2 - 1 do
+        local a, b = start + k, start + k + span // 2
+        local tr = real[b] * cr - imaginary[b] * ci
+        local ti = real[b] * ci + imaginary[b] * cr
+        real[b], imaginary[b] = real[a] - tr, imaginary[a] - ti
+        real[a], imaginary[a] = real[a] + tr, imaginary[a] + ti
         cr, ci = cr * wr - ci * wi, cr * wi + ci * wr
       end
     end
-    len = len * 2
+    span = span * 2
   end
 end
 
@@ -84,7 +81,8 @@ end
 ---@param bands integer equalizer bands
 ---@param onError fun(message: string)
 function recorder.start(bands, onError)
-  local base = temporary .. "dictation-" .. hs.host.uuid()
+  -- Per-user 0700 temp dir, not the shared /tmp.
+  local base = hs.fs.temporaryDirectory() .. "dictation-" .. hs.host.uuid()
   local wav, pcm = base .. ".wav", base .. ".pcm"
   -- High-pass only: denoise and silence trimming erase quiet speakers.
   local highpass = "highpass=f=90"
@@ -152,9 +150,6 @@ function recorder.start(bands, onError)
     "1",
     pcm,
   })
-  if not task then
-    return nil, "could not create capture task"
-  end
   -- Log-spaced bands from 80 Hz to just under Nyquist.
   local bins, nyquist = {}, rate / 2
   for i = 0, bands do
@@ -200,10 +195,10 @@ function recorder.poll(recording)
     local _, level = samples(data, last - size * 2 + 1)
     recording.peak = math.max(recording.peak, level)
   end
-  local re, level, energy = samples(recording.tail, 1)
-  local im = {}
+  local real, level, energy = samples(recording.tail, 1)
+  local imaginary = {}
   for i = 1, size do
-    re[i], im[i] = re[i] * window[i], 0
+    real[i], imaginary[i] = real[i] * window[i], 0
   end
   -- Room noise sets the floor, so only sound above it moves the bars; it starts at most at a room's
   -- level (~-38 dBFS), as a take may open on speech after a Bluetooth mic's digital silence.
@@ -212,21 +207,21 @@ function recorder.poll(recording)
   end
   -- Full at ~11 dB over the room.
   local gain = math.max(0, math.min(1, (level - (recording.floor or level) - 0.08) / 0.2))
-  fft(re, im)
+  fft(real, imaginary)
   local bands, top, bins, peaks = {}, 0, recording.bins, recording.peaks
-  for b = 1, #bins do
-    local lo, hi = bins[b - 1], math.max(bins[b - 1] + 1, bins[b])
+  for band = 1, #bins do
+    local low, high = bins[band - 1], math.max(bins[band - 1] + 1, bins[band])
     local sum = 0
-    for k = lo, hi - 1 do
-      sum = sum + math.sqrt(re[k + 1] ^ 2 + im[k + 1] ^ 2)
+    for bin = low, high - 1 do
+      sum = sum + math.sqrt(real[bin + 1] ^ 2 + imaginary[bin + 1] ^ 2)
     end
-    bands[b] = math.sqrt(sum / (hi - lo)) -- perceptual compression
-    peaks[b] = math.max((peaks[b] or 1e-4) * 0.999, bands[b])
-    top = math.max(top, peaks[b])
+    bands[band] = math.sqrt(sum / (high - low)) -- perceptual compression
+    peaks[band] = math.max((peaks[band] or 1e-4) * 0.999, bands[band])
+    top = math.max(top, peaks[band])
   end
   -- Peaks floored at 0.4 of the loudest, or the first word after silence fills every band.
-  for b = 1, #bins do
-    bands[b] = gain * math.min(1, bands[b] / (math.max(peaks[b], top * 0.4) + 1e-6)) ^ 0.5
+  for band = 1, #bins do
+    bands[band] = gain * math.min(1, bands[band] / (math.max(peaks[band], top * 0.4) + 1e-6)) ^ 0.5
   end
   return bands
 end

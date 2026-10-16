@@ -61,9 +61,9 @@ except LocalEntryNotFoundError:  # a fresh checkout: a few MB, not the model
     cleanup = snapshot_download(**tokenizer_files)
 tokenizer = load_tokenizer(Path(cleanup))
 stub = {"model": "stub", "revision": "0" * 40}
+engine.speech, engine.cleaner = SimpleNamespace(repo="stub", load=lambda: None), models.MlxLm(stub)
 with mock.patch("mlx_lm.load", lambda *_, **__: (None, tokenizer)):
-    (loaded := models.MlxLm(stub)).load()
-engine.words |= loaded.words
+    engine.load()
 
 
 def check(name, cases, function):
@@ -360,7 +360,7 @@ check(
         ('("Um, maybe.")', '("Maybe.")'),
         ('["Um, maybe."]', '["Maybe."]'),
     ],
-    server.Engine.strip_stalls,
+    server.strip_stalls,
 )
 check(
     "end punctuation",
@@ -406,6 +406,8 @@ check(
         (("I want to go to the", "I want to go."), "I want to go to the"),
         (("Send it to", "Send it."), "Send it to"),
         (("We can ship it unless", "We can ship it."), "We can ship it unless"),
+        (("So I was thinking, you know, and", "So I was thinking."), "So I was thinking, and"),
+        (("I want one like the", "I want one."), "I want one like the"),
         (("You're coming?", "You're coming."), "You're coming?"),
         (("Like, you're coming?", "You're coming."), "You're coming?"),
         (("What time is it?", "What time is it."), "What time is it?"),
@@ -491,6 +493,7 @@ check(
             ("Run npm install, no wait, run npm ci.", "Run npm ci."),
             ("Is that right? So we ship it.", "Is that right? We ship it."),
             ("Show 10² rows, not ①.", "Show 10² rows, not ①."),
+            ("Meet İbrahim Monday, sorry, Tuesday.", "Meet İbrahim Tuesday."),
         ]
     ]
     + [
@@ -501,6 +504,10 @@ check(
             ("I ordered the blue one, not the red one.", "I ordered the blue one."),
             ("Delete all files except logs.", "Delete all files."),
             ("Include the tests.", "Exclude the tests."),
+            ("I can, I can't come tonight.", "I can come tonight."),
+            ("You shouldn't deploy on Friday.", "You should deploy on Friday."),
+            ("Let's meet Tuesday.", "Let's meet Thursday."),
+            ("We start in March.", "We start in match."),
             ("Send 15 dollars.", "Send 50 dollars."),
             ("Turn the volume up, sorry, down.", "Turn the volume up."),
             ("Send it tomorrow, I'm sorry, tonight.", "Send it tonight tomorrow."),
@@ -578,7 +585,8 @@ class Stub(server.Engine):
     def __init__(self, config):
         self.config, self.heard = config, None
         self.speech = SimpleNamespace(transcribe=transcribe, boost=0)
-        self.cleaner = SimpleNamespace(prompt="p", complete=lambda m, raw: raw.replace("fifteen", "50"))
+        self.cleaner = SimpleNamespace(prompt="p")
+        self.cleaner.complete = lambda m, raw: raw.replace("fifteen", "50")
     def load(self):
         pass
 server.Engine = Stub
@@ -768,7 +776,7 @@ check(
         (("", "Oki."), "Oki."),
         (("", "Hammers."), ""),
     ],
-    lambda case: engine.named_only(case[0], case[1], {}),
+    lambda case: engine.merge(case[0], case[1], {}),
 )
 # Boosting decodes the take twice, once with no vocabulary to boost.
 boosting = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})

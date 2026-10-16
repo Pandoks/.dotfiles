@@ -1,9 +1,5 @@
 local recorder = require("dictation.recorder")
 
----@class DictationEngine
----@field task hs.task
----@field sending? integer the request the backend has, answered before the next is sent
----@field queued { id: integer, line: string }[]
 local engine = {}
 engine.__index = engine
 local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
@@ -32,8 +28,7 @@ function engine.new(config, handlers)
     self:stop()
     handlers.onError(message)
   end
-  -- A handler's error is reported, never raised: an error here would stop hs.task reading the
-  -- backend's output, leaving every later take waiting.
+  -- Reported, not raised: an error here would stop hs.task reading every later reply.
   local function call(handler, ...)
     local ok, problem = pcall(handler, ...)
     if not ok then
@@ -41,8 +36,7 @@ function engine.new(config, handlers)
       hs.alert.show("Dictation: " .. tostring(problem):match("^[^\n]*"), 5)
     end
   end
-  -- The next request goes once the last is answered: hs.task:setInput discards what it has not
-  -- written yet when called again, and a busy backend leaves it unwritten in a full pipe.
+  -- One request at a time: a second setInput drops what the full pipe has not taken yet.
   local function answered(id)
     if id ~= self.sending then
       return
@@ -65,68 +59,54 @@ function engine.new(config, handlers)
     self.errors = (self.errors .. stderr):sub(-4000)
     local buffer = self.buffer .. (stdout or "")
     self.buffer = buffer:match("[^\n]*$") -- a partial line waits for the next chunk
-    for line in buffer:gmatch("(.-)\n") do
-      if line ~= "" then
-        local event = hs.json.decode(line)
-        if type(event) ~= "table" then
-          failure("invalid backend response: " .. line)
-          return true
-        elseif event.event == "ready" then
-          -- Load chatter (HF warnings, progress bars) is no crash reason.
-          self.ready, self.errors = true, ""
-          print("Dictation: backend ready")
-        elseif event.event == "final" then
+    for line in buffer:gmatch("([^\n]+)\n") do
+      local event = hs.json.decode(line)
+      if type(event) ~= "table" then
+        failure("invalid backend response: " .. line)
+        return true
+      elseif event.event == "ready" then
+        -- Load chatter (HF warnings, progress bars) is no crash reason.
+        self.ready, self.errors = true, ""
+        print("Dictation: backend ready")
+      elseif event.event == "final" then
+        answered(event.id)
+        call(handlers.onFinal, event)
+      elseif event.event == "error" then
+        if event.id then
           answered(event.id)
-          call(handlers.onFinal, event)
-        elseif event.event == "error" then
-          if event.id then
-            answered(event.id)
-            call(handlers.onError, event.msg or "unknown error", event.id, event.heard)
-          else
-            -- A failed load: its traceback is in what it printed.
-            failure((event.msg or "unknown error") .. "\n" .. self.errors)
-          end
+          call(handlers.onError, event.msg or "unknown error", event.id, event.heard)
         else
-          -- Not one this client knows: a take waiting on it would never end.
-          failure("unknown backend event: " .. line)
-          return true
+          -- A failed load: its traceback is in what it printed.
+          failure((event.msg or "unknown error") .. "\n" .. self.errors)
         end
+      else
+        -- Not one this client knows: a take waiting on it would never end.
+        failure("unknown backend event: " .. line)
+        return true
       end
     end
     return true
   end
-  local task = hs.task.new(
+  self.task = hs.task.new(
     "/usr/bin/env",
     function(code, stdout, stderr)
       output(nil, stdout, stderr)
-      if not self.stopped then
-        -- The last stderr line goes in the popup: an exception's, or whatever was printed last.
-        local reason = self.errors:match("([^\n]*%S)%s*$")
-        local exit = "backend exited (code " .. tostring(code) .. ")"
-        failure(reason and exit .. "; last output: " .. reason .. "\n" .. self.errors or exit)
-      end
+      -- The last stderr line goes in the popup: an exception's, or whatever was printed last.
+      local reason = self.errors:match("([^\n]*%S)%s*$")
+      local exit = "backend exited (code " .. tostring(code) .. ")"
+      failure(reason and exit .. "; last output: " .. reason .. "\n" .. self.errors or exit)
     end,
     output,
     {
+      -- mlx-whisper reads the wav with the ffmpeg CLI.
       "PATH=" .. recorder.ffmpeg:match("^(.*)/") .. ":" .. os.getenv("PATH"),
       "PYTHONUNBUFFERED=1",
       python,
       directory .. "server.py",
-      hs.json.encode({
-        speech = config.speech,
-        cleanup = config.cleanup,
-        style = config.style,
-        vocabulary = config.vocabulary,
-        dictionary = config.dictionary,
-        apps = config.apps,
-      }),
+      hs.json.encode(config),
     }
   )
-  if not task then
-    return nil, "failed to create backend task"
-  end
-  self.task = task
-  if not task:start() then
+  if not self.task:start() then
     return nil, "failed to start backend"
   end
   return self
@@ -135,9 +115,8 @@ end
 -- Queue `wav`, recorded with app `app` in front; its id, or nil and why not.
 ---@param wav string
 ---@param app string?
----@return integer?, string?
 function engine:transcribe(wav, app)
-  if not self.ready or self.stopped or not self.task:isRunning() then
+  if not self.ready or not self.task:isRunning() then
     return nil, "backend is not ready"
   end
   self.serial = self.serial + 1

@@ -1,7 +1,7 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 local passed, alerts, strokes, timers, changes, takes, serial = 0, {}, {}, {}, 0, 0, 0
-local toggle, escape, handlers, done, focus, front, refused, recorded, sent
+local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
 local directory = scratch .. "/init-history"
@@ -41,9 +41,14 @@ local hs = {
       toggle = callback
       return stub()
     end,
+    -- hs.hotkey logs on enable/disable; hs.ipc's print raises while a dead `hs` CLI is registered.
     new = function(_, _, callback)
       escape = callback
-      return stub()
+      local function log()
+        assert(not dead, "ipc port is no longer valid")
+        return true
+      end
+      return { enable = log, disable = log }
     end,
   },
   timer = {
@@ -268,12 +273,23 @@ test("focus moved while transcribing writes nothing, says so, and saves the text
   assert(saved("moved"), "not saved")
 end)
 
-test("a result after Escape is saved, not inserted", function()
-  local element = field("Hi")
-  local id = dictate(element)
-  escape()
-  handlers.onFinal({ id = id, text = "late" })
-  assert(not element.written and #strokes == 0 and saved("late"), "inserted, or not saved")
+test("a reply to a cancelled take is saved; the next take still gets its own", function()
+  for _, reply in ipairs({
+    function(id)
+      handlers.onFinal({ id = id, text = "late" })
+    end,
+    function(id)
+      handlers.onError("cleanup failed", id, "late")
+    end,
+  }) do
+    local element = field("Hi")
+    local cancelled = dictate(element)
+    escape()
+    local waiting = dictate(element)
+    reply(cancelled)
+    handlers.onFinal({ id = waiting, text = "now" })
+    assert(element.value == "Hi now" and saved("late"), element.value)
+  end
 end)
 
 test("with nothing to type, what was heard is saved in place of the recording", function()
@@ -314,10 +330,36 @@ test("a take with no transcript keeps its recording in history", function()
   end
 end)
 
+test("a take recording when the backend dies goes on, and is kept", function()
+  local count = wavs()
+  focus = field("Hi")
+  toggle()
+  handlers.onError("backend exited (code 1)")
+  refused = true
+  toggle()
+  done()
+  refused = nil
+  assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
+end)
+
 test("a take where nothing was heard deletes its recording", function()
   local count = wavs()
   handlers.onFinal({ id = dictate(field("Hi")), text = "" })
-  assert(wavs() == count and not fs.attributes(recorded), "kept a silent take")
+  assert(wavs() == count and not fs.attributes(recorded) and not saved(""), "kept a silent take")
+end)
+
+test("a log line raising as Escape is bound or unbound leaves no take half done", function()
+  local element = field("Hi")
+  focus, dead = element, true
+  pcall(toggle)
+  dead = false
+  toggle()
+  done()
+  dead = true
+  pcall(handlers.onFinal, { id = serial, text = "one" })
+  dead = false
+  handlers.onFinal({ id = dictate(element), text = "two" })
+  assert(element.value == "Hi one two", element.value)
 end)
 
 test("Escape while recording deletes the take", function()

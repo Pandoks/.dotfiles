@@ -45,19 +45,18 @@ alerts, and keeps what was heard in `history.directory`.
 
 ## Limitations
 
-- Electron/Chromium fields, terminals, Messages, and Mail get the text by ⌘V; the clipboard
-  is restored 1 s later (first item only, with an alert).
-- Firefox and other Gecko apps get the text by ⌘V too: they apply accessibility writes late.
+- Electron/Chromium and Gecko (Firefox) fields, terminals, Messages, and Mail get the text by ⌘V;
+  the clipboard is restored 1 s later (first item only, with an alert).
 - A read-only text view looks like a terminal, so the ⌘V silently does nothing; every take
   is still saved to `history.directory`. A take the backend fails before hearing anything, or
   never answers (it died, or Hammerspoon reloaded), keeps its recording there as a `.wav`.
 
 ## Adding a runtime
 
-In `models.py`, subclass `Speech` (`load`, `transcribe(wav, hint)`) or `Cleaner` (`load`,
-`complete(messages, raw)`) and register it in `SPEECH` or `CLEANERS` under the name
-`speech.backend` or `cleanup.backend` (default `mlx-lm`) selects. Add a speech one to the
-`DictationBackend` alias in `config.lua`.
+In `models.py`, subclass `Speech` (`load`, `transcribe(wav, hint)`) and register it in `SPEECH`,
+or subclass `Cleaner` (`load`, `complete(messages, raw)`) and register it in `CLEANERS`, under
+the name `speech.backend` or `cleanup.backend` (default `mlx-lm`) selects. Then add that name in
+`config.lua`: to the `DictationBackend` alias, or to `cleanup.backend`'s type (`"mlx-lm"`).
 
 ## Tests
 

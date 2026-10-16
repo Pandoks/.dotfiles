@@ -20,12 +20,12 @@ end
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
----@type DictationOverlay?, DictationRecording?, hs.timer?, integer?
 local overlay, recording, animation, inflight
----@type hs.axuielement?, string?
 local target, targetError
 -- Wavs the backend has yet to answer, by request id.
 local wavs = {}
+-- The clipboard to put back after the last paste.
+local restore
 
 -- Gecko apps apply accessibility writes late, after the read-back that would then paste it again.
 local gecko = {
@@ -40,7 +40,6 @@ local gecko = {
 }
 local transient = "org.nspasteboard.TransientType" -- clipboard managers skip it
 
----@return hs.axuielement?, string?
 local function focused()
   return (hs.axuielement.systemWideElement() --[[@as hs.axuielement]]):attributeValue(
     "AXFocusedUIElement"
@@ -51,25 +50,24 @@ end
 ---@param text string
 local function paste(text)
   -- A paste before the last one's restore keeps the clipboard from before that one.
-  local pending = dictation.restore
-  local held = pending and hs.pasteboard.changeCount() == pending.count
-  local previous = held and pending.previous or hs.pasteboard.readAllData() or {}
-  local items = held and pending.items or #hs.pasteboard.allContentTypes()
+  local held = restore and hs.pasteboard.changeCount() == restore.count
+  local previous = held and restore.previous or hs.pasteboard.readAllData() or {}
+  local items = held and restore.items or #hs.pasteboard.allContentTypes()
   if not hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = text, [transient] = "" }) then
     error("could not write clipboard", 0)
   end
-  if pending then
-    pending.timer:stop()
+  if restore then
+    restore.timer:stop()
   end
   local count = hs.pasteboard.changeCount()
   hs.eventtap.keyStroke({ "cmd" }, "v", 0)
   -- 1 s lets a busy app (Slack, VS Code) read it; any later write cancels the restore.
-  dictation.restore = {
+  restore = {
     count = count,
     previous = previous,
     items = items,
     timer = hs.timer.doAfter(1, function()
-      dictation.restore = nil
+      restore = nil
       if hs.pasteboard.changeCount() ~= count then
         return
       elseif next(previous) == nil then
@@ -170,8 +168,8 @@ local function finish(text)
   end
   recorder.cleanup(recording)
   overlay, recording, animation, inflight, target, targetError = nil, nil, nil, nil, nil, nil
-  dictation.cancel:disable()
   state = "idle"
+  dictation.cancel:disable()
 end
 
 -- Move a recording into history: with no transcript, it is the only copy of what was said.
@@ -210,7 +208,7 @@ end
 local engine, problem = Engine.new(config, {
   onFinal = function(result)
     -- With nothing to type, what the speech model heard is saved.
-    local saved = settle(result.id, #result.text > 0 and result.text or result.heard or "")
+    local saved = settle(result.id, result.text ~= "" and result.text or result.heard or "")
     if inflight == result.id then
       if result.text == "" then
         fail("no speech recognized" .. (saved and " (what was heard is in history)" or ""))
@@ -268,12 +266,9 @@ local function toggle()
       return
     end
     -- New each take: a reused one can drop off the spaces it joined.
-    local pill = Overlay.new(config.overlayHeight, config.bands)
+    local pill = Overlay.new(config.overlayHeight)
     overlay, state = pill, "recording"
-    if not dictation.cancel:enable() then
-      fail("could not bind Escape to cancel")
-    end
-    local capture, failure = recorder.start(config.bands, function(message)
+    local capture, failure = recorder.start(Overlay.bands, function(message)
       fail("recorder: " .. message)
       finish()
     end)
@@ -286,14 +281,16 @@ local function toggle()
     animation = hs.timer.doEvery(1 / 30, function()
       pill:update(state == "recording" and recorder.poll(capture))
     end)
+    if not dictation.cancel:enable() then
+      fail("could not bind Escape to cancel")
+    end
   elseif state == "recording" then
     state = "thinking"
-    local capture = recording --[[@as DictationRecording]]
-    local pill = overlay --[[@as DictationOverlay]]
+    local pill = overlay
     -- The app at stop, for its per-app style and vocabulary.
     local app = hs.application.frontmostApplication()
     local bundle = app and app:bundleID()
-    recorder.stop(capture, function(wav, peak, duration)
+    recorder.stop(recording, function(wav, peak, duration)
       -- Too short is an accidental tap; too quiet is a mic problem worth showing.
       if duration < config.minDuration then
         print(("Dictation: discarded (%.2fs < %.2fs)"):format(duration, config.minDuration))
@@ -336,8 +333,8 @@ dictation.cancel = hs.hotkey.new({}, "escape", finish)
 local shutdown = hs.shutdownCallback
 hs.shutdownCallback = function()
   -- A reload must not leave the dictation on the clipboard.
-  if dictation.restore then
-    dictation.restore.timer:fire()
+  if restore then
+    restore.timer:fire()
   end
   finish()
   engine:stop()
