@@ -134,7 +134,7 @@ function overlay:tick()
   end
 end
 
--- Show centered horizontally, near the bottom of the screen with the mouse.
+-- Show centered horizontally, near the bottom of the screen with the focused window.
 function overlay:show()
   self.thinking = false
   self.warmth = 1
@@ -143,7 +143,7 @@ function overlay:show()
     self.bars[i] = 0
   end
   local canvas = self.canvas
-  local screen = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
+  local screen = hs.screen.mainScreen()
   if screen then
     local frame = screen:frame()
     canvas:topLeft({
