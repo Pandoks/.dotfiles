@@ -26,6 +26,7 @@ yazi = "latest"
 ffmpeg = "latest"
 uv = "latest"
 go = "latest"
+"aqua:protonpass/pass-cli" = "latest"
 
 [settings]
 minimum_release_age_excludes = ["http:t3", "claude-code", "codex", "npm:@moonshot-ai/kimi-code", "opencode", "grok"]
@@ -43,6 +44,7 @@ login_shell = "/bin/zsh"
 "~/.config/mise" = "." # mise directory
 "~/.miserc.toml" = "../../.miserc.toml"
 
+"~/.zshenv" = "../../.zshenv"
 "~/.zshrc" = "../../.zshrc"
 "~/.fzf.zsh" = "../../.fzf.zsh"
 "~/.p10k.zsh" = "../../.p10k.zsh"
@@ -62,7 +64,6 @@ login_shell = "/bin/zsh"
 "~/.config/yazi" = "../yazi"
 
 "~/.ssh/config" = "../../.ssh/config"
-"~/.ssh/authorized_keys" = "../../.ssh/authorized_keys"
 
 "~/.claude/settings.json" = "../../.claude/settings.json"
 "~/.claude/statusline.sh" = "../../.claude/statusline.sh"
