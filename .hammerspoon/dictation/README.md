@@ -53,9 +53,9 @@ the alias in `config.lua`.
 
 ## Tests
 
-From the dotfiles checkout (the tests are not deployed to `~/.hammerspoon`):
+From the dotfiles checkout:
 
 ```sh
-.hammerspoon/dictation/.venv/bin/python .hammerspoon/tests/dictation_test.py  # server.py
-sh .hammerspoon/tests/dictation_test.sh  # init.lua, history.lua, engine.lua, recorder.lua
+.hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/server_test.py  # server.py
+sh .hammerspoon/dictation/tests/run.sh  # init.lua, history.lua, engine.lua, recorder.lua
 ```

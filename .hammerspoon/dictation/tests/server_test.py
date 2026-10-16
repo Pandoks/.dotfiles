@@ -1,6 +1,6 @@
 """Pin the dictation backend's text pipeline and boosted decoder with stub models.
 
-Run: .hammerspoon/dictation/.venv/bin/python .hammerspoon/tests/dictation_test.py
+Run: .hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/server_test.py
 No model load, microphone, or Hammerspoon; only the cleanup tokenizer's small files are fetched,
 once, when they are not cached yet.
 """
@@ -18,7 +18,7 @@ from unittest import mock
 
 sys.dont_write_bytecode = True
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "dictation"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mlx.core as mx
 import server  # pyright: ignore[reportMissingImports]
