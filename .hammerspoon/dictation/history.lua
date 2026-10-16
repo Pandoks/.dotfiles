@@ -1,7 +1,7 @@
 local history = {}
 
 -- Transcripts are <timestamp>.txt; the folder's other files are never counted or deleted.
-local take = "^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d.*%.txt$"
+local take = "^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d_?%d*%.txt$"
 -- Bytes of transcripts once prune() has counted them: it lists the folder again only past the cap.
 local total
 

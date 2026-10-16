@@ -132,7 +132,7 @@ local modules = {
       capture.done = callback
       done = function()
         if capture.done then
-          capture.done(capture.wav, 1, 1)
+          capture.done(capture.wav, 0.5, 1)
         end
       end
     end,
@@ -350,9 +350,9 @@ test("a take recording when the backend dies goes on, and is kept", function()
 end)
 
 test("a take too short or too quiet is never sent, and is deleted", function()
-  for _, setting in ipairs({ "minDuration", "minLevel" }) do
+  for setting, value in pairs({ minDuration = 2, minLevel = 0.75 }) do
     local count = serial
-    config[setting] = 2
+    config[setting] = value
     dictate(field("Hi"))
     config[setting] = 0
     assert(serial == count and not fs.attributes(recorded), setting)

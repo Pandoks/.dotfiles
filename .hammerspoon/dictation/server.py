@@ -15,7 +15,6 @@ import re
 import sys
 import traceback
 import unicodedata
-from itertools import pairwise
 from pathlib import Path
 
 from models import CLEANERS, SPEECH, letters
@@ -170,7 +169,7 @@ def write_numbers(text, names):
 
 # The rewrite guard: the cleanup may only leave out what a writer drops from speech.
 HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, oh
-CUE = r"(?:(?:i'm |i am |well,? )?sorry|no,? wait|wait|no|actually|i mean|scratch that|or rather)"
+CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
 CUE += r"(?:,? make (?:it|that))?"  # "sorry, make it 30"
 FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
@@ -212,7 +211,7 @@ def looks_rewritten(raw, out):
     def repeated(k, kept, reach):  # said again within `reach` words, that copy kept: "test testing"
         if spoken[k] in VALUE or spoken[k].isdecimal() or spoken[k] in ("dash", "dot", "slash"):
             return False  # said twice on purpose: "seven seventeen", "dash dash save"
-        nearby = [i for i in range(max(k - reach, 0), min(k + reach + 1, total)) if i in kept]
+        nearby = [i for i in range(k - reach, k + reach + 1) if i in kept]
         return any(alike(spoken[k], spoken[i]) or alike(spoken[i], spoken[k]) for i in nearby)
 
     def filler(k):  # its word count, if set off by a comma or opening or ending a sentence
@@ -226,7 +225,7 @@ def looks_rewritten(raw, out):
         return len(found[0].split()) if commas or opens or ends else 0
 
     def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
-        if re.search(r"\d", a + b):
+        if re.search(r"\d", a + b) or a in VALUE:
             return False  # "15000" -> "150000" is another number
         return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
 
@@ -244,11 +243,11 @@ def looks_rewritten(raw, out):
                 apology = re.search(r"\b(not|never|no)\b|n't", before(c)) or " you" in after
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
-                end = c + len(cue[0].split())
+                past = c + len(cue[0].split())
                 if found and c <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
-                    found[-1] = (found[-1][0], end)
+                    found[-1] = (found[-1][0], past)
                 else:
-                    found.append((c, end))
+                    found.append((c, past))
             return found
 
         moved = []  # words written in place of others, each said after a left-out cue
@@ -257,14 +256,14 @@ def looks_rewritten(raw, out):
             if tag == "insert":
                 return True
             if tag == "replace":
-                # Respaced, or one misheard word for a close one.
-                respaced = "".join(run) == "".join(new)  # "e mail" -> "email"
-                seams = [a[-1] + b[0] for words in (run, new) for a, b in pairwise(words)]
-                respaced &= not any(map(str.isdecimal, seams))  # never "14.99" -> "1499"
+                # Respaced ("e mail" -> "email", not "14.99" -> "1499"), or one misheard word.
+                respaced = "".join(run) == "".join(new)
+                respaced &= not any(re.search(r"\d \d", " ".join(words)) for words in (run, new))
                 if respaced or len(run) == len(new) == 1 and misheard(run[0], new[0]):
                     continue
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
-                if not any(set(new) <= set(spoken[e:]) for _, e in cues(i2, total)):
+                listed = re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[i2 - 1][2]])
+                if listed or not any(set(new) <= set(spoken[e:]) for _, e in cues(i2, total)):
                     return True
                 moved += new
                 continue
@@ -272,29 +271,22 @@ def looks_rewritten(raw, out):
                 continue
             # A deleted run: fillers and repeats from its start...
             k = i1
-            while k < i2 and (step := filler(k) or repeated(k, kept, min(i2 - i1, 3))):
+            while k < i2 and (step := filler(k) or repeated(k, kept, i2 - i1)):
                 k += step
             if k == i2:
                 continue
             # ...what a cue takes back, its own words or those before the run, not a list's item:
             # "Monday, sorry, Tuesday" or "four, sorry, four"...
-            taken = [
-                (c, e)
-                for c, e in cues(i1, i2)
-                if c == i1 or not re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[c - 1][2]])
-            ]
             if i2 < total and any(
-                (c > i1 or e < i2) and spoken[e:i2] == spoken[i1 - (i2 - e) : i1] for c, e in taken
+                (c > i1 or e < i2)
+                and spoken[e:i2] == spoken[i1 - (i2 - e) : i1]
+                and not re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[c - 1][2]])
+                for c, e in cues(i1, i2)
             ):
                 continue
             # ...or a cue and its correction, moved up to the words it replaced.
-            first = cues(i1, i1 + 1)
-            if (
-                moved
-                and first
-                and set(spoken[first[0][1] : i2]) <= set(typed)
-                and set(moved) <= set(run)
-            ):
+            first = [cue for cue in cues(i1, i2) if cue[0] == i1]
+            if moved and first and set(spoken[first[0][1] : i2]) <= set(typed):
                 continue
             return True
         return False

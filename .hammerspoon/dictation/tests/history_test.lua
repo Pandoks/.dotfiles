@@ -36,14 +36,17 @@ clock = os.time({ year = 2026, month = 1, day = 2, hour = 3, min = 4, sec = 5 })
 assert(not history.save("one", settings) and not history.save("two", settings))
 assert(list(directory) == "2026-01-02_03-04-05.txt 2026-01-02_03-04-05_2.txt", list(directory))
 
--- Past the cap the oldest takes go; other files stay.
-io.open(directory .. "/notes.txt", "w"):close()
+-- Past the cap the oldest takes go; other files, a Finder copy of a take too, stay.
+for _, name in ipairs({ "notes.txt", "2026-01-02_03-04-05 copy.txt" }) do
+  io.open(directory .. "/" .. name, "w"):close()
+end
 for second = 6, 8 do
   clock = clock + 1
   assert(not history.save(("take %d"):format(second), settings))
   assert(not history.prune(settings))
 end
-local want = "2026-01-02_03-04-06.txt 2026-01-02_03-04-07.txt 2026-01-02_03-04-08.txt notes.txt"
+local want = "2026-01-02_03-04-05 copy.txt 2026-01-02_03-04-06.txt 2026-01-02_03-04-07.txt "
+  .. "2026-01-02_03-04-08.txt notes.txt"
 assert(list(directory) == want, list(directory))
 
 -- A kept recording moves in, and pruning never deletes it.
@@ -54,10 +57,11 @@ file:close()
 assert(not history.keep(wav, settings) and not fs.attributes(wav))
 clock = clock + 1
 assert(not history.save("take 9", settings) and not history.prune(settings))
-want = "2026-01-02_03-04-07.txt 2026-01-02_03-04-08.txt 2026-01-02_03-04-08.wav "
-  .. "2026-01-02_03-04-09.txt notes.txt"
+want = "2026-01-02_03-04-05 copy.txt 2026-01-02_03-04-07.txt 2026-01-02_03-04-08.txt "
+  .. "2026-01-02_03-04-08.wav 2026-01-02_03-04-09.txt notes.txt"
 assert(list(directory) == want, list(directory))
 -- Never the newest, even past the cap.
 assert(not history.prune({ directory = directory, maxMegabytes = 0 }))
-assert(list(directory) == "2026-01-02_03-04-08.wav 2026-01-02_03-04-09.txt notes.txt")
+want = "2026-01-02_03-04-05 copy.txt 2026-01-02_03-04-08.wav 2026-01-02_03-04-09.txt notes.txt"
+assert(list(directory) == want, list(directory))
 print("history tests passed")
