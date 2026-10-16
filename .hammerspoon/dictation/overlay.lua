@@ -160,10 +160,6 @@ function overlay:setThinking()
   self:_layout()
 end
 
-function overlay:hide()
-  self.canvas:hide()
-end
-
 function overlay:delete()
   self.canvas:delete()
 end

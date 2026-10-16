@@ -425,7 +425,8 @@ local function finish(text)
   end
   target, targetError = nil, nil
   if overlay then
-    overlay:hide()
+    overlay:delete()
+    overlay = nil
   end
   if animation then
     animation:stop()
@@ -460,7 +461,8 @@ local function toggle()
       fail("Dictation: allow Accessibility access in System Settings")
       return
     end
-    local pill = overlay or Overlay.new(config.overlayHeight, config.eqBands)
+    -- New each take: a reused one can drop off the spaces it joined and show on none in view.
+    local pill = Overlay.new(config.overlayHeight, config.eqBands)
     overlay = pill
     state = "recording"
     pill:show()
