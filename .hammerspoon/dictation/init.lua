@@ -13,6 +13,11 @@ end
 
 local dictation = {}
 
+local unprepared = history.prepare(config.history)
+if unprepared then
+  fail(unprepared)
+end
+
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
 ---@type DictationOverlay?, DictationRecording?, hs.timer?, integer?
@@ -239,6 +244,10 @@ local engine, problem = Engine.new(config, {
 })
 if not engine then
   fail(tostring(problem))
+  -- The hotkey says why too, rather than doing nothing.
+  dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, function()
+    fail(tostring(problem))
+  end)
   return dictation
 end
 
@@ -259,12 +268,12 @@ local function toggle()
       return
     end
     -- New each take: a reused one can drop off the spaces it joined.
-    local pill = Overlay.new(config.overlayHeight, config.eqBands)
+    local pill = Overlay.new(config.overlayHeight, config.bands)
     overlay, state = pill, "recording"
     if not dictation.cancel:enable() then
       fail("could not bind Escape to cancel")
     end
-    local capture, failure = recorder.start(config.eqBands, function(message)
+    local capture, failure = recorder.start(config.bands, function(message)
       fail("recorder: " .. message)
       finish()
     end)
@@ -275,12 +284,7 @@ local function toggle()
     recording = capture
     -- 30 fps: the ripple intro, the equalizer once the mic opens, then the shimmer.
     animation = hs.timer.doEvery(1 / 30, function()
-      local bands = state == "recording" and recorder.poll(capture)
-      if bands then
-        pill:setBars(bands)
-      else
-        pill:tick()
-      end
+      pill:update(state == "recording" and recorder.poll(capture))
     end)
   elseif state == "recording" then
     state = "thinking"
@@ -314,7 +318,7 @@ local function toggle()
         return finish()
       end
       wavs[id], inflight, recording = wav, id, nil
-      pill:setThinking()
+      pill.thinking = true
     end)
     -- After SIGINT, so a slow app cannot extend the take.
     target, targetError = focused()
@@ -324,6 +328,7 @@ end
 dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, toggle)
 if not dictation.hotkey then
   fail("could not register the hotkey; another app or macOS already uses it")
+  engine:stop()
 end
 -- Enabled only while dictating, so Escape works normally otherwise.
 dictation.cancel = hs.hotkey.new({}, "escape", finish)

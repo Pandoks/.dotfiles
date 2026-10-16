@@ -1,4 +1,4 @@
-"""Resident dictation backend: JSON lines on stdin and stdout, config via --config, stop with SIGTERM.
+"""Resident dictation backend: JSON lines on stdin and stdout, config as argv[1], stop with SIGTERM.
 
 stdin:  {"id": 1, "wav": "/path.wav", "app": "com.tinyspeck.slackmacgap"}
 stdout: {"event": "ready"}                                       once the models are loaded
@@ -8,7 +8,6 @@ stdout: {"event": "ready"}                                       once the models
 Diagnostics and tracebacks go to stderr.
 """
 
-import argparse
 import difflib
 import json
 import os
@@ -57,8 +56,9 @@ def fold(word):  # letters and digits of any script, accents dropped: "José" ->
 
 
 # Number words, written as digits by write_numbers and read as words by the guard.
-UNITS = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen"
-UNITS = (UNITS + " fifteen sixteen seventeen eighteen nineteen").split()
+UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+UNITS += ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen"]
+UNITS += ["eighteen", "nineteen"]
 TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
 SCALES = {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
 VALUE = {w: n for n, w in enumerate(UNITS)} | {w: 20 + 10 * n for n, w in enumerate(TENS)}
@@ -85,42 +85,52 @@ def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen
     out = []  # [total, part under the last scale, last value, last scale]
     for v in (VALUE[w] for w in words):
         last = out[-1][2] if out else 0
-        if not (out and v and (v >= 100 or last >= 100 or (last in range(20, 100, 10) and v < 10))):
+        # Part of the number so far: a hundred or scale, anything after one, or a tens' unit.
+        joins = v and (v >= 100 or last >= 100 or last in range(20, 100, 10) and v < 10)
+        if not (out and joins):
             out.append([0, 0, 0, 0])
         total, part, _, scale = out[-1]
         if v > 100:  # past the last scale it multiplies: "a thousand million"
             total = ((total + part) or 1) * v if v > scale else total + (part or 1) * v
             part, scale = 0, v
-        out[-1] = [total, (part or 1) * 100 if v == 100 else part + v * (v < 100), v, scale]
+        elif v == 100:
+            part = (part or 1) * 100
+        else:
+            part += v
+        out[-1] = [total, part, v, scale]
     return [total + part for total, part, *_ in out]
 
 
 def write_numbers(text, names):
     """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
     named = (rf"(?<!\w){re.escape(name)}(?!\w)" for name in names)
-    kept = [m.span() for name in named for m in re.finditer(name, text, re.IGNORECASE)]
+    kept = [found.span() for name in named for found in re.finditer(name, text, re.IGNORECASE)]
 
-    def convert(m):
-        group, before, after = m[0], text[: m.start()].lower(), text[m.end() :]
-        prev = (re.findall(r"[\w']+", before) or [""])[-1]
+    def convert(match):
+        group, before, after = match[0], text[: match.start()].lower(), text[match.end() :]
+        previous = (re.findall(r"[\w']+", before) or [""])[-1]
         word = (re.findall(r"[\w']+", after) or [""])[0]  # the word after the run
         plural = word.lower() == "people" or re.fullmatch(r"\w{2,}[^s']s", word) is not None
         counted = (plural and word.lower() not in VERBS) or word.lower() in MEASURES
         words = [w for w in re.split(r"[ -]+", group.lower()) if w not in ("and", "a")]
-        n = chunks(w for w in words if w in VALUE)
+        numbers = chunks(w for w in words if w in VALUE)
+        number = numbers[0]
         opens = re.search(r"(?:^|[.!?]\s+)$", before)  # a sentence starts here
         title = group[0].isupper() and (not opens or word[:1].isupper())  # "Ocean's Eleven"
-        if title or any(a < m.end() and m.start() < b for a, b in kept):
+        if title or any(a < match.end() and match.start() < b for a, b in kept):
             return group
         if words[-1] in DECADE:  # "nineteen eighties" -> "1980s"
-            return f"{n[0]}{DECADE[words[-1]]}s" if len(n) == 1 and 10 <= n[0] <= 99 else group
+            if len(numbers) > 1 or not 10 <= number <= 99:
+                return group
+            return f"{number}{DECADE[words[-1]]}s"
         if words[-1] in ORDINAL and "point" not in words:  # "twenty first" -> "21st"
-            n = chunks(words[:-1] + [ORDINAL[words[-1]]])
-            if len(words) == 1 or len(n) > 1 or words[0] == "one" and words[-1][:-2] in SCALES:
+            number, *rest = chunks(words[:-1] + [ORDINAL[words[-1]]])
+            if len(words) == 1 or rest or words[0] == "one" and words[-1][:-2] in SCALES:
                 return group  # "third", "one hundredth"
-            suffix = {1: "st", 2: "nd", 3: "rd"}.get(n[0] % 10 * (n[0] % 100 not in (11, 12, 13)))
-            return f"{n[0]:,}{suffix or 'th'}"
-        timed = prev in ("at", "by", "until", "till") or re.match(r"(?i) ?[ap]\.?m\b", after)
+            teen = number % 100 in (11, 12, 13)  # "11th", not "11st"
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(0 if teen else number % 10, "th")
+            return f"{number:,}{suffix}"
+        timed = previous in ("at", "by", "until", "till") or re.match(r"(?i) ?[ap]\.?m\b", after)
         if "point" in words:  # "one point oh five" -> "1.05", "two point five million"
             *rest, big = words if words[-1] in SCALES else [*words, ""]
             parts = [p.split() for p in " ".join(rest).split("point")]
@@ -130,24 +140,25 @@ def write_numbers(text, names):
             digits = ".".join("".join(map(str, chunks(p))) for p in parts)
             return digits + (f" {big}" if big else "")
         if "oh" in words:  # "four oh four" -> "404", "at eight oh oh" -> "at 8:00"
-            tail = "".join(map(str, n[1:]))
-            clock = timed and n[0] <= 12 and len(tail) == 2  # not "a hundred oh five"
-            return group if n[0] > 99 else f"{n[0]}:{tail}" if clock else f"{n[0]}{tail}"
-        if len(n) == 2:  # a time, a year, or "one eighty two"; not "twenty four seven"
-            if n[0] <= 12 and 10 <= n[1] < 60:
-                return f"{n[0]}:{n[1]}" if timed and not counted else group
-            return f"{n[0]}{n[1]}" if n[0] < 30 and n[1] >= 10 and not counted else group
+            tail = "".join(map(str, numbers[1:]))
+            clock = timed and number <= 12 and len(tail) == 2  # not "a hundred oh five"
+            return group if number > 99 else f"{number}:{tail}" if clock else f"{number}{tail}"
+        if len(numbers) == 2:  # a time, a year, or "one eighty two"; not "twenty four seven"
+            first, second = numbers
+            if first <= 12 and 10 <= second < 60:
+                return f"{first}:{second}" if timed and not counted else group
+            return f"{first}{second}" if first < 30 and second >= 10 and not counted else group
         bare = words[0] in SCALES and (before[-2:-1].isdigit() or not (len(words) > 1 or plural))
-        if len(n) > 1 or bare:
+        if len(numbers) > 1 or bare:
             return group  # "two three four", "2.5 million", "a billion dollar company", "hundreds"
         listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
-        if words == ["one"] and (prev in DETERMINERS or not listed):
+        if words == ["one"] and (previous in DETERMINERS or not listed):
             return group  # "one of them", "no one"
         scale = VALUE[words[-1]]
-        if words[-1] in ("million", "billion") and n[0] % scale == 0 and n[0] < 1000 * scale:
-            return f"{n[0] // scale:,} {words[-1]}"  # "a hundred million" -> "100 million"
-        year = 2000 <= n[0] < 2100 and prev in ("in", "since", "until", "during", "by")
-        return str(n[0]) if year else f"{n[0]:,}"
+        if words[-1] in ("million", "billion") and number % scale == 0 and number < 1000 * scale:
+            return f"{number // scale:,} {words[-1]}"  # "a hundred million" -> "100 million"
+        year = 2000 <= number < 2100 and previous in ("in", "since", "until", "during", "by")
+        return str(number) if year else f"{number:,}"
 
     hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
     at = rf"(?i)\b(at|until|till) {hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million"
@@ -163,39 +174,40 @@ CUE = r"(?:(?:i'm |i am |well,? )?sorry|no,? wait|wait|no|actually|i mean|scratc
 CUE += r"(?:,? make (?:it|that))?"  # "sorry, make it 30"
 FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
-DANGLING = r"\b(?:the|a|an|my|your|our|their|its|every|and|but|or|nor|because|if|than|via|per)$"
 
 
 def looks_rewritten(raw, out):
     """True unless `out` is `raw` less stalls, fillers, repeats, and self-corrections."""
-    raw, out = (text.lower().replace("’", "'") for text in (raw, out))
 
-    # Words as (word, start, end), stalls left out: "2" is "two", a plural's "s" goes.
+    # Lowercased words as (word, start, end), stalls left out: "2" is "two", a plural's "s" goes;
+    # an all-caps one is a name, never a stall ("the ER").
     def tokens(text):
         found = []
-        for match in re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text):
-            word = UNITS[int(match[0])] if match[0].isdigit() and int(match[0]) < 13 else match[0]
-            if not re.fullmatch(HESITATIONS, word):
-                found.append((re.sub(r"(?<=\w{3})s$", "", word), match.start(), match.end()))
+        for token in re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text):
+            word = token[0].lower()
+            word = UNITS[int(word)] if word.isdecimal() and int(word) < 13 else word
+            if token[0].isupper() or not re.fullmatch(HESITATIONS, word):
+                found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end()))
         return found
 
+    raw, out = (text.replace("’", "'") for text in (raw, out))
     spans = tokens(raw)
     spoken, typed = [w for w, _, _ in spans], [w for w, _, _ in tokens(out)]
-    total = len(spoken)
+    raw, total = raw.lower(), len(spoken)  # cues and fillers said in any case
 
     def match(k, pattern):  # `pattern` said from spoken word k on
         return re.compile(rf"(?:{pattern})\b").match(raw, spans[k][1])
 
     def before(k):  # the sentence said before spoken word k, stalls left out
-        sentence = raw[: spans[k][1]].rsplit(".", 1)[-1]
+        sentence = re.split(r"[.!?]", raw[: spans[k][1]])[-1]
         return re.sub(rf"\b(?:{HESITATIONS})\b", "", sentence).strip()
 
     def alike(a, b):  # the same word, its contraction ("it's"), or a longer form ("testing")
-        return a in (b, b.split("'")[0]) or a[3:] and "'" not in b and b.startswith(a)
+        return a in (b, b.split("'")[0]) or len(a) > 3 and "'" not in b and b.startswith(a)
 
-    def repeated(k):  # said again within 3 words: "test testing"
-        word, nearby = spoken[k], spoken[max(k - 3, 0) : k] + spoken[k + 1 : k + 4]
-        return any(alike(word, other) or alike(other, word) for other in nearby)
+    def repeated(k, kept):  # said again within 3 words, and that copy kept: "test testing"
+        nearby = [i for i in range(max(k - 3, 0), min(k + 4, total)) if i != k and i in kept]
+        return any(alike(spoken[k], spoken[i]) or alike(spoken[i], spoken[k]) for i in nearby)
 
     def filler(k):  # its word count, if set off by a comma or opening or ending a sentence
         found = match(k, FILLER)
@@ -246,7 +258,7 @@ def looks_rewritten(raw, out):
                 continue
             # A deleted run: fillers and repeats from its start...
             k = i1
-            while k < i2 and (step := filler(k) or repeated(k)):
+            while k < i2 and (step := filler(k) or repeated(k, kept)):
                 k += step
             if k == i2:
                 continue
@@ -261,7 +273,7 @@ def looks_rewritten(raw, out):
                 (c > i1 or e < i2) and spoken[e:i2] == spoken[i1 - (i2 - e) : i1] for c, e in taken
             ):
                 continue
-            # ...a cue and its correction, moved up to the words it replaced...
+            # ...or a cue and its correction, moved up to the words it replaced.
             first = cues(i1, i1 + 1)
             if (
                 moved
@@ -270,9 +282,7 @@ def looks_rewritten(raw, out):
                 and set(moved) <= set(run)
             ):
                 continue
-            # ...or up to 3 words of an unfinished end, which end_policy puts back.
-            if not (i2 == total and i2 - i1 <= 3 and re.search(DANGLING, raw.rstrip())):
-                return True
+            return True
         return False
 
     # Aligned from the start and from the end, so either copy of a repeated word may be the kept one.
@@ -291,7 +301,7 @@ class Engine:
 
     def __init__(self, config):
         self.config, self.heard = config, None  # the take being processed, as heard
-        self.speech = SPEECH[config["stt"]["backend"]](config["stt"])
+        self.speech = SPEECH[config["speech"]["backend"]](config["speech"])
         cleanup = config["cleanup"]
         backend = cleanup.get("backend", "mlx-lm")
         self.cleaner = CLEANERS[backend](cleanup) if cleanup["enabled"] else None
@@ -361,11 +371,11 @@ class Engine:
         words = re.sub(r"[.!?,;:…—–\"”’')\]]+$", "", raw.strip()).split()
         if not words or re.search(r"[?!]\W*$", raw):
             return text  # "What if?" and "Oh my!" are complete
-        last, before = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
-        if last in cls.DIRECTED and before:
-            if before not in ("it", "this", "that", "them", "these", "those"):
+        last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
+        if last in cls.DIRECTED and previous:
+            if previous not in ("it", "this", "that", "them", "these", "those"):
                 return text
-        elif last not in cls.CONTINUATION or (before and words[-1].isupper()):
+        elif last not in cls.CONTINUATION or (previous and words[-1].isupper()):
             return text  # an all-caps one after others is a name: "plan A", "the OR"
         open_text = re.sub(r"\s*[.!?…—]+(?=[\"”’')\]]*$)", "", text.rstrip())
         # Words the cleanup cut come back ("go to the" -> "go."), after the mark said before them.
@@ -387,27 +397,6 @@ class Engine:
         if not re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) or "?" in text:
             return text
         return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
-
-    def cleanup(self, raw, request):
-        glossary = self.glossary(request)
-        if self.cleaner.prompt:  # cleanup-trained: one user turn, its prompt verbatim
-            messages = [{"role": "user", "content": f"{self.cleaner.prompt}\n\n{raw}"}]
-        else:
-            system = [
-                self.config["style"],
-                self.app(request).get("style"),
-                glossary and f"Domain vocabulary (spell these exactly): {', '.join(glossary)}.",
-                PROMPT,
-            ]
-            messages = [
-                {"role": "system", "content": "\n".join(filter(None, system))},
-                {"role": "user", "content": FRAME.format(raw)},
-            ]
-        out = self.cleaner.complete(messages, raw)
-        # An answer, paraphrase, or rewrite fails the take; empty (no coherent speech) types nothing.
-        if out and looks_rewritten(raw, out):
-            raise Rewritten("the cleanup rewrote what was said, so nothing was typed")
-        return out
 
     # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
     STALL_WORD = r"[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+"
@@ -445,8 +434,8 @@ class Engine:
         return " ".join(out)
 
     def process(self, wav, request):
-        """One take: speech, spellings, guarded cleanup, stalls, spellings, '?', end policy,
-        numbers as digits."""
+        """One take: speech, spellings, cleanup, stalls, spellings, '?', end policy, the rewrite
+        guard, numbers as digits."""
         names = self.glossary(request)
         heard = self.speech.transcribe(wav, names)
         if self.speech.boost and names:  # decoded again unboosted: see named_only
@@ -458,13 +447,30 @@ class Engine:
         raw = self.spell(heard, request)
         if not self.cleaner:
             return write_numbers(raw, names)  # cleanup off: the speech model's text
+        if self.cleaner.prompt:  # cleanup-trained: one user turn, its prompt verbatim
+            messages = [{"role": "user", "content": f"{self.cleaner.prompt}\n\n{raw}"}]
+        else:
+            system = [
+                self.config["style"],
+                self.app(request).get("style"),
+                names and f"Domain vocabulary (spell these exactly): {', '.join(names)}.",
+                PROMPT,
+            ]
+            messages = [
+                {"role": "system", "content": "\n".join(filter(None, system))},
+                {"role": "user", "content": FRAME.format(raw)},
+            ]
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
-        text = self.spell(self.strip_stalls(self.cleanup(raw, request)), request)
-        # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
+        text = self.spell(self.strip_stalls(self.cleaner.complete(messages, raw)), request)
         if not text:
-            return ""
+            return ""  # no coherent speech: nothing typed
+        # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
         said = self.strip_stalls(raw)
-        return write_numbers(self.end_policy(said, self.ensure_question(said, text)), names)
+        text = self.end_policy(said, self.ensure_question(said, text))
+        # What would be typed: an answer, paraphrase, or rewrite fails the take.
+        if looks_rewritten(raw, text):
+            raise Rewritten("the cleanup rewrote what was said, so nothing was typed")
+        return write_numbers(text, names)
 
 
 def main():
@@ -477,13 +483,11 @@ def main():
     def emit(event):
         protocol.write(json.dumps(event) + "\n")
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     try:
         import mlx.core as mx  # every backend runs on MLX
 
-        engine = Engine(json.loads(parser.parse_args().config))
+        engine = Engine(json.loads(sys.argv[1]))
         engine.load()
     except Exception as error:  # noqa: BLE001 - Hammerspoon shows why it failed
         traceback.print_exc()

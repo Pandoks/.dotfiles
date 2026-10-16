@@ -1,6 +1,6 @@
 local root, frameworks = assert(arg[1], "pass the dictation directory"), arg[2]
 local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
-local passed, alerts, output, printed, inputs = 0, {}, nil, {}, {}
+local passed, alerts, output, exit, printed, inputs = 0, {}, nil, nil, {}, {}
 
 local function test(name, callback)
   local ok, failure = pcall(callback)
@@ -33,8 +33,8 @@ local engine = assert(loadfile(
         end,
       },
       task = {
-        new = function(_, _, stream)
-          output = stream
+        new = function(_, onExit, stream)
+          output, exit = stream, onExit
           return {
             start = function(self)
               return self
@@ -55,7 +55,7 @@ local engine = assert(loadfile(
 
 test("a handler's error is reported and later results are still read", function()
   local finals, failed = {}, {}
-  local backend = assert(engine.new({ stt = {}, cleanup = {} }, {
+  local backend = assert(engine.new({}, {
     onFinal = function(result)
       finals[#finals + 1] = result.id
       if result.id == 1 then
@@ -78,9 +78,7 @@ test("a handler's error is reported and later results are still read", function(
 end)
 
 test("what the backend prints once ready reaches the console", function()
-  assert(
-    engine.new({ stt = {}, cleanup = {} }, { onFinal = function() end, onError = function() end })
-  )
+  assert(engine.new({}, { onFinal = function() end, onError = function() end }))
   local feed = assert(output, "no backend task")
   printed = {}
   feed(nil, "", "Downloading: 100%\n") -- load chatter
@@ -92,9 +90,7 @@ test("what the backend prints once ready reaches the console", function()
 end)
 
 test("a take waits for the one before it, never written over it", function()
-  local backend = assert(
-    engine.new({ stt = {}, cleanup = {} }, { onFinal = function() end, onError = function() end })
-  )
+  local backend = assert(engine.new({}, { onFinal = function() end, onError = function() end }))
   local feed = assert(output, "no backend task")
   feed(nil, '{"event":"ready"}\n', "")
   inputs = {}
@@ -118,6 +114,33 @@ test("a take waits for the one before it, never written over it", function()
   feed(nil, '{"event":"final","id":' .. third .. ',"text":"c"}\n', "")
   assert(#inputs == 3, "a request sent twice")
   assert(backend:transcribe("/tmp/d.wav") and #inputs == 4, "idle backend kept waiting")
+end)
+
+test("a backend that fails, dies, or says something unknown fails once and says why", function()
+  for _, case in ipairs({
+    { '{"event":"error","msg":"load failed"}\n', "KeyError" }, -- the traceback printed before it
+    { '{"event":"ready"}\nTraceback\n', "Traceback" },
+    { '{"event":"ready"}\n{"event":"x"}\n', '"x"' },
+    { '{"event":"ready"}\n', "KeyError", 1 }, -- exits with code 1
+  }) do
+    local said, why, code = table.unpack(case)
+    local failures = {}
+    local backend = assert(engine.new({}, {
+      onFinal = function() end,
+      onError = function(message, id)
+        failures[#failures + 1] = id or message
+      end,
+    }))
+    local feed, die = assert(output), assert(exit)
+    if code then
+      feed(nil, said, "")
+      die(code, "", "KeyError: 'speech'\n")
+    else
+      feed(nil, said, "KeyError: 'speech'\n")
+    end
+    assert(#failures == 1 and tostring(failures[1]):find(why, 1, true), tostring(failures[1]))
+    assert(not backend:transcribe("/tmp/x.wav"), "a dead backend took a take")
+  end
 end)
 
 print(passed .. " engine tests passed")

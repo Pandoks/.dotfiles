@@ -29,11 +29,12 @@ end
 local directory = scratch .. "/history"
 local settings = { directory = directory, maxMegabytes = 3 * 4096 / 1024 / 1024 } -- three blocks
 
--- Stamped, suffixed within the second, owner-only.
+-- Owner-only even if it already existed; stamped, suffixed within the second.
+os.execute(("mkdir -m 755 '%s'"):format(directory))
+assert(not history.prepare(settings) and fs.attributes(directory, "permissions") == "rwx------")
 clock = os.time({ year = 2026, month = 1, day = 2, hour = 3, min = 4, sec = 5 })
 assert(not history.save("one", settings) and not history.save("two", settings))
 assert(list(directory) == "2026-01-02_03-04-05.txt 2026-01-02_03-04-05_2.txt", list(directory))
-assert(fs.attributes(directory, "permissions") == "rwx------")
 
 -- Past the cap the oldest takes go; other files stay.
 io.open(directory .. "/notes.txt", "w"):close()

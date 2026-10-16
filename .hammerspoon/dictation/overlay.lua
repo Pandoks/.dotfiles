@@ -107,34 +107,24 @@ function overlay:_layout()
   end
 end
 
--- Mirror the bands (0..1, low to high) around the center: lowest in the middle.
----@param bands number[]
-function overlay:setBars(bands)
-  if self.warmth > 0 then
-    self.warmth = math.max(0, self.warmth - 1 / fade)
-    self.phase = self.phase + 0.35 -- the ripple keeps moving while it fades out
-  end
-  local center = (#self.bars + 1) // 2
-  for i = 1, #self.bars do
-    -- Fast attack, slow release: a natural equalizer bounce.
-    local target = math.max(0, math.min(1, bands[math.abs(i - center) + 1]))
-    local current = self.bars[i]
-    self.bars[i] = current + (target - current) * (target > current and 0.6 or 0.25)
-  end
-  self:_layout()
-end
-
--- Advance the ripple intro or shimmer; 30 times a second while shown.
-function overlay:tick()
+-- One frame, 30 a second while shown: the ripple or shimmer moves on, and live `bands` (0..1, low
+-- to high) mirror around the center, lowest in the middle.
+---@param bands? number[]|false
+function overlay:update(bands)
   self.phase = self.phase + 0.35
-  if self.thinking or self.warmth > 0 then
+  if bands then
+    self.warmth = math.max(0, self.warmth - 1 / fade)
+    local center = (#self.bars + 1) // 2
+    for i = 1, #self.bars do
+      -- Fast attack, slow release: a natural equalizer bounce.
+      local target = math.max(0, math.min(1, bands[math.abs(i - center) + 1]))
+      local current = self.bars[i]
+      self.bars[i] = current + (target - current) * (target > current and 0.6 or 0.25)
+    end
+  end
+  if bands or self.thinking or self.warmth > 0 then
     self:_layout()
   end
-end
-
-function overlay:setThinking()
-  self.thinking = true
-  self:_layout()
 end
 
 return overlay

@@ -16,22 +16,22 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-sys.dont_write_bytecode = True
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mlx.core as mx
-import models  # pyright: ignore[reportMissingImports]
-import server  # pyright: ignore[reportMissingImports]
 from huggingface_hub import snapshot_download
 from huggingface_hub.errors import LocalEntryNotFoundError
 from mlx_lm.utils import load_tokenizer
 from parakeet_mlx import ParakeetTDT
 
-# config.lua's default vocabulary and dictionary.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import models  # pyright: ignore[reportMissingImports]
+import server  # pyright: ignore[reportMissingImports]
+
+# A vocabulary and dictionary like config.lua's defaults.
 engine = server.Engine(
     {
-        "stt": {"backend": "parakeet-mlx", "model": "stub", "revision": "0" * 40},
+        "speech": {"backend": "parakeet-mlx", "model": "stub", "revision": "0" * 40},
         "cleanup": {"enabled": False},
         "vocabulary": ["yabai", "Raycast", "Hammerspoon", "Ghostty", "mise", "Neovim", "rtorrent"]
         + ["macOS", "GitHub", "Slack", "Oki", "Uniqlo"],
@@ -60,7 +60,7 @@ try:
 except LocalEntryNotFoundError:  # a fresh checkout: a few MB, not the model
     cleanup = snapshot_download(**tokenizer_files)
 tokenizer = load_tokenizer(Path(cleanup))
-stub = {"model": "stub", "revision": "0" * 40, "maxTokens": 400}
+stub = {"model": "stub", "revision": "0" * 40}
 with mock.patch("mlx_lm.load", lambda *_, **__: (None, tokenizer)):
     (loaded := models.MlxLm(stub)).load()
 engine.words |= loaded.words
@@ -77,7 +77,7 @@ def dictate(raw, cleaned=None, numbers=False):
     """Engine.process on `raw` as heard; the cleanup returns `cleaned` (default: its input), and
     None means the guard rejected it. Number words stay words unless `numbers`."""
     engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
-    engine.cleaner = SimpleNamespace(
+    engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
         prompt="prompt",
         complete=lambda messages, raw: cleaned or messages[0]["content"].split("\n\n", 1)[1],
     )
@@ -96,7 +96,7 @@ def serve(script, takes, config="{}"):
         [
             sys.executable,
             "-c",
-            f"import sys, server\n{script}\nsys.argv[1:] = ['--config', {config!r}]\nserver.main()",
+            f"import sys, server\n{script}\nsys.argv[1:] = [{config!r}]\nserver.main()",
         ],
         input="".join(json.dumps(take) + "\n" for take in takes),
         capture_output=True,
@@ -185,6 +185,12 @@ check(
         ("The nave of the church.", "The nave of the church."),
     ],
     lambda text: symbols.spell(text, {}),
+)
+apps = server.Engine(dict(engine.config, apps={"com.x": {"vocabulary": ["Zed"]}}))
+check(
+    "an app's vocabulary applies only while it is in front",
+    [({"app": "com.x"}, "Use Zed."), ({}, "Use zed.")],
+    lambda request: apps.spell("Use zed.", request),
 )
 latex = server.Engine(dict(engine.config, dictionary={"\\LaTeX": ["latex"], "\\frac": ["frac"]}))
 check(
@@ -398,6 +404,8 @@ check(
         (("I want to go to the", "I want to go to the!"), "I want to go to the"),
         (("I want to go to the", "I want to go to."), "I want to go to the"),
         (("I want to go to the", "I want to go."), "I want to go to the"),
+        (("Send it to", "Send it."), "Send it to"),
+        (("We can ship it unless", "We can ship it."), "We can ship it unless"),
         (("You're coming?", "You're coming."), "You're coming?"),
         (("Like, you're coming?", "You're coming."), "You're coming?"),
         (("What time is it?", "What time is it."), "What time is it?"),
@@ -481,6 +489,8 @@ check(
             ("Book two double rooms, no wait, a suite.", "Book a suite."),
             ("The review is Thursday. Uh, sorry, Friday.", "The review is Friday."),
             ("Run npm install, no wait, run npm ci.", "Run npm ci."),
+            ("Is that right? So we ship it.", "Is that right? We ship it."),
+            ("Show 10² rows, not ①.", "Show 10² rows, not ①."),
         ]
     ]
     + [
@@ -503,6 +513,10 @@ check(
                 "The meeting is at five.",
             ),
             ("You know what I mean.", "What I mean is..."),
+            ("Don't, don't delete it.", "Delete it."),
+            ("Take him to the ER now.", "Take him to the now."),
+            ("Let's go with plan A", "Let's go with plan."),
+            ("I want to go to the", "I want to."),
         ]
     ],
     lambda pair: server.looks_rewritten(*pair),
@@ -521,7 +535,9 @@ check(
 # An empty cleanup (no coherent speech, as the prompt asks) types nothing, and the result carries
 # what was heard so Hammerspoon keeps it.
 engine.speech = SimpleNamespace(transcribe=lambda wav, hint: "Mmm wha blah", boost=0)
-engine.cleaner = SimpleNamespace(prompt="prompt", complete=lambda messages, raw: "")
+engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
+    prompt="prompt", complete=lambda messages, raw: ""
+)
 assert engine.process("take.wav", {}) == "" and engine.heard == "Mmm wha blah", engine.heard
 print("PASS an empty cleanup types nothing and keeps what was heard")
 
@@ -545,7 +561,7 @@ assert events == [{"event": "ready"}, {"event": "final", "id": 1, "text": "ok", 
 assert "native chatter" in stderr, stderr
 print("PASS a library that prints cannot corrupt the protocol")
 # A failed load reports why before it exits, and is never ready.
-events, stderr = serve("", [], config='{"stt": {"backend": "nope"}}')
+events, stderr = serve("", [], config='{"speech": {"backend": "nope"}}')
 assert [e["event"] for e in events] == ["error"] and "id" not in events[0], events
 assert "nope" in events[0]["msg"] and "Traceback" in stderr, (events, stderr)
 print("PASS a failed load reports an error and never ready")
@@ -578,7 +594,7 @@ print("PASS a failed take reports what was heard, and only a bug's traceback")
 # The prompt opens and closes an empty think block; the model may close it again, and only what
 # follows is the reply.
 cleaner = models.MlxLm(stub)
-cleaner.llm, cleaner.tokenizer = None, tokenizer
+cleaner.llm, cleaner.tokenizer = None, tokenizer  # pyright: ignore[reportAttributeAccessIssue]
 with mock.patch("mlx_lm.generate", return_value="Fix the bug.</think>\n\nFix the bug."):
     reply = cleaner.complete([{"role": "user", "content": "Fix the bug."}], "Fix the bug.")
 assert reply == "Fix the bug.", reply
@@ -612,7 +628,9 @@ check(
     load_adapter,
 )
 parakeet = models.Parakeet({"model": "stub", "revision": "0" * 40})
-parakeet.model = SimpleNamespace(transcribe=lambda wav, chunk_duration: SimpleNamespace(text=wav))
+parakeet.model = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
+    transcribe=lambda wav, chunk_duration: SimpleNamespace(text=wav)
+)
 check(
     "Parakeet drops special pieces and rare symbol runs",
     [
@@ -669,9 +687,9 @@ width, contexts = len(Model.vocabulary) + 1 + len(Model.durations), len(Model.vo
 
 def boosted(prefixes, bonus):
     return lambda model, *args, **kwargs: ParakeetTDT.decode_greedy(
-        models.Boosted(model, prefixes, bonus),
+        models.Boosted(model, prefixes, bonus),  # pyright: ignore[reportArgumentType]
         *args,
-        **kwargs,  # pyright: ignore
+        **kwargs,
     )
 
 
@@ -750,11 +768,11 @@ check(
         (("", "Oki."), "Oki."),
         (("", "Hammers."), ""),
     ],
-    lambda case: engine.named_only(*case, {}),
+    lambda case: engine.named_only(case[0], case[1], {}),
 )
 # Boosting decodes the take twice, once with no vocabulary to boost.
 boosting = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})
-boosting.model = SimpleNamespace(
+boosting.model = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
     transcribe=lambda wav, chunk_duration: SimpleNamespace(
         text=wav[bool(boosting.model.__dict__.get("decode_greedy"))]
     )

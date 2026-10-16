@@ -54,24 +54,21 @@ function engine.new(config, handlers)
     end
   end
   local function output(_, stdout, stderr)
+    stderr = stderr or ""
+    -- Load chatter (progress bars) stays out of the console; later output, even past exit, goes in.
+    if stderr ~= "" and (self.ready or self.stopped) then
+      print("Dictation backend: " .. stderr:gsub("\n$", ""))
+    end
     if self.stopped then
-      -- hs.task may deliver the last stderr after the exit callback; keep it in the log.
-      if stderr and stderr ~= "" then
-        print("Dictation backend: " .. stderr)
-      end
       return true
     end
-    self.errors = (self.errors .. (stderr or "")):sub(-4000)
-    -- Load chatter (progress bars) stays out of the console; what comes later goes in it.
-    if self.ready and stderr and stderr ~= "" then
-      print("Dictation backend: " .. (stderr:sub(-1) == "\n" and stderr:sub(1, -2) or stderr))
-    end
+    self.errors = (self.errors .. stderr):sub(-4000)
     local buffer = self.buffer .. (stdout or "")
     self.buffer = buffer:match("[^\n]*$") -- a partial line waits for the next chunk
     for line in buffer:gmatch("(.-)\n") do
       if line ~= "" then
-        local ok, event = pcall(hs.json.decode, line)
-        if not ok or type(event) ~= "table" then
+        local event = hs.json.decode(line)
+        if type(event) ~= "table" then
           failure("invalid backend response: " .. line)
           return true
         elseif event.event == "ready" then
@@ -86,7 +83,8 @@ function engine.new(config, handlers)
             answered(event.id)
             call(handlers.onError, event.msg or "unknown error", event.id, event.heard)
           else
-            failure(event.msg or "unknown error")
+            -- A failed load: its traceback is in what it printed.
+            failure((event.msg or "unknown error") .. "\n" .. self.errors)
           end
         else
           -- Not one this client knows: a take waiting on it would never end.
@@ -114,9 +112,8 @@ function engine.new(config, handlers)
       "PYTHONUNBUFFERED=1",
       python,
       directory .. "server.py",
-      "--config",
       hs.json.encode({
-        stt = config.stt,
+        speech = config.speech,
         cleanup = config.cleanup,
         style = config.style,
         vocabulary = config.vocabulary,

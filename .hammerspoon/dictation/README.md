@@ -18,9 +18,10 @@ key cannot be used: macOS 26 always handles it itself.
 
 ## Speech models
 
-Set `stt.backend`, `stt.model`, and `stt.revision` (`.venv/bin/hf models info <repo> --expand sha`).
-WER is the Open ASR Leaderboard English average of the upstream model. Only `parakeet-mlx` takes
-`stt.boost`; `mlx-whisper` gets the vocabulary as a prompt; `mlx-audio` ignores it.
+Set `speech.backend`, `speech.model`, and `speech.revision`
+(`.venv/bin/hf models info <repo> --expand sha`). WER is the Open ASR Leaderboard English average
+of the upstream model. Only `parakeet-mlx` takes `speech.boost`; `mlx-whisper` gets the vocabulary
+as a prompt; `mlx-audio` ignores it.
 
 | Model | Backend | Download | License | WER | Notes |
 |---|---|---|---|---|---|
@@ -38,9 +39,9 @@ its own prompt, so `style` and per-app `style` apply only to a plain instruct mo
 (`cleanup.adapter = nil`). Pin only repos you trust: mlx-lm runs Python a model repo names in
 its config.
 
-A guard aligns the cleanup's words with what was heard. If it added, reworded, or dropped more
-than stalls, fillers, repeats, and self-corrections, the take types nothing, alerts, and keeps
-what was heard in `history.directory`.
+A guard aligns the words about to be typed with what was heard. If the cleanup added, reworded,
+or dropped more than stalls, fillers, repeats, and self-corrections, the take types nothing,
+alerts, and keeps what was heard in `history.directory`.
 
 ## Limitations
 
@@ -55,7 +56,7 @@ what was heard in `history.directory`.
 
 In `models.py`, subclass `Speech` (`load`, `transcribe(wav, hint)`) or `Cleaner` (`load`,
 `complete(messages, raw)`) and register it in `SPEECH` or `CLEANERS` under the name
-`stt.backend` or `cleanup.backend` (default `mlx-lm`) selects. Add a speech one to the
+`speech.backend` or `cleanup.backend` (default `mlx-lm`) selects. Add a speech one to the
 `DictationBackend` alias in `config.lua`.
 
 ## Tests

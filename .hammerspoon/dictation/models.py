@@ -74,8 +74,8 @@ class Speech:
 
     boost = 0  # Parakeet TDT: log-prob bonus per matching vocabulary letter
 
-    def __init__(self, stt):
-        self.repo, self.revision = stt["model"], pinned(stt["revision"])
+    def __init__(self, speech):
+        self.repo, self.revision = speech["model"], pinned(speech["revision"])
 
     def load(self):
         raise NotImplementedError
@@ -85,9 +85,9 @@ class Speech:
 
 
 class Parakeet(Speech):
-    def __init__(self, stt):
-        super().__init__(stt)
-        self.boost = float(stt.get("boost") or 0)
+    def __init__(self, speech):
+        super().__init__(speech)
+        self.boost = float(speech.get("boost") or 0)
 
     def load(self):
         import mlx.core as mx
@@ -109,7 +109,7 @@ class Parakeet(Speech):
         self.model = from_pretrained(os.path.dirname(config))
         mx.eval(self.model.parameters())  # lazy: read the weights now, not in the first take
         if self.boost and not isinstance(self.model, ParakeetTDT):
-            raise ValueError(f"stt.boost needs a Parakeet TDT model, not {self.repo}")
+            raise ValueError(f"speech.boost needs a Parakeet TDT model, not {self.repo}")
         parakeet_mlx.parakeet.load_audio = read
 
     def transcribe(self, wav, hint):
@@ -119,7 +119,10 @@ class Parakeet(Speech):
         self.model.__dict__.pop("decode_greedy", None)
         if self.boost and hint:
             boosted = Boosted(self.model, prefixes(hint), self.boost)
-            self.model.decode_greedy = functools.partial(ParakeetTDT.decode_greedy, boosted)
+            self.model.decode_greedy = functools.partial(
+                ParakeetTDT.decode_greedy,
+                boosted,  # pyright: ignore[reportArgumentType]
+            )
         # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
         text = self.model.transcribe(wav, chunk_duration=120).text
         # Short-take garbage: special pieces (<unk>, v3's <|en|>) and rare-symbol runs ("ΨΨΨ").
@@ -168,7 +171,6 @@ class Cleaner:
         self.repo, self.revision = cleanup["model"], pinned(cleanup["revision"])
         self.adapter = cleanup.get("adapter")
         self.adapter_revision = self.adapter and pinned(cleanup["adapterRevision"])
-        self.max_tokens = int(cleanup["maxTokens"])
 
     def load(self):
         raise NotImplementedError
@@ -198,15 +200,14 @@ class MlxLm(Cleaner):
 
     def complete(self, messages, raw):
         from mlx_lm import generate
-        from mlx_lm.sample_utils import make_sampler
 
         prompt = self.tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, enable_thinking=False
         )
-        # Twice the dictation: an echo is never cut, and a runaway fails the rewrite guard.
-        limit = max(self.max_tokens, 2 * len(self.tokenizer.encode(raw)))  # pyright: ignore
-        sampler = make_sampler(temp=0.0)
-        out = generate(self.llm, self.tokenizer, prompt, max_tokens=limit, sampler=sampler)
+        # At least 400 tokens, and twice the dictation: an echo is never cut, a runaway fails the
+        # rewrite guard. Greedy: mlx-lm's default sampler is the argmax.
+        limit = max(400, 2 * len(self.tokenizer.encode(raw)))  # pyright: ignore
+        out = generate(self.llm, self.tokenizer, prompt, max_tokens=limit)
         # Past the last "</think>": the template opens and closes an empty one, the model may again.
         return out.rpartition("</think>")[2].strip()
 

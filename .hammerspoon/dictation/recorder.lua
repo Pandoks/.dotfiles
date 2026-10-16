@@ -9,8 +9,7 @@
 ---@field bins integer[] band edges in FFT bins, 0..bands
 ---@field task? hs.task nil once ffmpeg exits
 ---@field stopping? boolean
----@field discarded? boolean
----@field error? string
+---@field discarded? boolean cancelled or failed: its wav is deleted
 ---@field done? fun(wav: string, peak: number, duration: number)
 
 local recorder = {}
@@ -93,10 +92,10 @@ function recorder.start(bands, onError)
   local recording
   local function failure(message)
     message = message:gsub("%s+$", "")
-    if message == "" or recording.error or recording.discarded then
+    if message == "" or recording.discarded then
       return
     end
-    recording.error, recording.done = message, nil
+    recording.discarded, recording.done = true, nil
     onError(message)
   end
   -- sh execs ffmpeg; its child SIGINTs ffmpeg when stdin closes (Hammerspoon exited). Owner-only.
@@ -113,7 +112,7 @@ function recorder.start(bands, onError)
       recorder.poll(recording)
     end
     os.remove(pcm)
-    if recording.discarded or recording.error then
+    if recording.discarded then
       os.remove(wav)
     end
     if recording.done then
@@ -140,9 +139,6 @@ function recorder.start(bands, onError)
     "1",
     "-ar",
     tostring(rate),
-    "-y",
-    "-f",
-    "wav",
     wav,
     "-filter:a",
     highpass,
@@ -154,7 +150,6 @@ function recorder.start(bands, onError)
     tostring(rate),
     "-flush_packets",
     "1",
-    "-y",
     pcm,
   })
   if not task then

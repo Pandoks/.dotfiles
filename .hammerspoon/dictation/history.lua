@@ -12,18 +12,23 @@ local function folder(settings)
   )
 end
 
--- A free <timestamp>.<extension> path in the owner-only folder.
+-- Create the folder, owner-only even if it already existed; once, at load.
+---@param settings DictationHistoryConfig
+---@return string? failure
+function history.prepare(settings)
+  local directory = folder(settings)
+  local quoted = directory:gsub("'", "'\\''")
+  if not os.execute(("mkdir -p '%s' && chmod 700 '%s'"):format(quoted, quoted)) then
+    return "could not create " .. directory .. " owner-only"
+  end
+end
+
+-- A free <timestamp>.<extension> path in the folder.
 ---@param settings DictationHistoryConfig
 ---@param extension string
 ---@return string?, string?
 local function slot(settings, extension)
   local directory = folder(settings)
-  if
-    not hs.fs.attributes(directory)
-    and not os.execute(("mkdir -p -m 700 '%s'"):format(directory:gsub("'", "'\\''")))
-  then
-    return nil, "could not create " .. directory
-  end
   -- A second take in the same second gets a suffix.
   local stamp = tostring(os.date("%Y-%m-%d_%H-%M-%S"))
   local path, count = ("%s/%s.%s"):format(directory, stamp, extension), 1

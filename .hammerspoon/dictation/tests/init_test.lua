@@ -320,6 +320,21 @@ test("a take where nothing was heard deletes its recording", function()
   assert(wavs() == count and not fs.attributes(recorded), "kept a silent take")
 end)
 
+test("Escape while recording deletes the take", function()
+  focus = field("Hi")
+  toggle()
+  escape()
+  assert(not fs.attributes(recorded), "the recording is left")
+end)
+
+test("a copy made before the clipboard restore is kept", function()
+  handlers.onFinal({ id = dictate(field("Hi", true)), text = "x" })
+  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "copied" })
+  timers[#timers]()
+  assert(clipboard["public.utf8-plain-text"] == "copied", clipboard["public.utf8-plain-text"])
+  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
+end)
+
 -- Last: it tears everything down.
 test("shutdown puts the clipboard back and keeps the take still transcribing", function()
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "x" })
