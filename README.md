@@ -7,7 +7,8 @@
 [![mise](https://img.shields.io/badge/managed_with-mise-2F80ED?style=flat-square)](https://mise.jdx.dev/)
 [![Last commit](https://img.shields.io/github/last-commit/Pandoks/.dotfiles?style=flat-square)](https://github.com/Pandoks/.dotfiles/commits/master)
 
-Installs system packages and developer tools, clones shell plugins, selects
+Installs system packages (including a C toolchain for building Tree-sitter
+parsers) and developer tools, clones shell plugins, selects
 Zsh, and links application config.
 
 ## Supported systems
@@ -183,8 +184,10 @@ Set the dashboard password in `management.secret-key` of
 `~/.cli-proxy-api/config.yaml`, then run
 `systemctl --user restart dev.mise.cli-proxy-api` (it's hashed on start). Add
 accounts and enable WebSockets on Codex ones at
-`https://cliproxyapi.<tailnet>.ts.net/management.html`. The config links into
-this public repo, so never commit `secret-key` or API keys.
+`https://cliproxyapi.<tailnet>.ts.net/management.html`; the Codex client side
+is already set in [`.codex/config.toml`](.codex/config.toml), but the proxy
+only uses WebSockets upstream for accounts with that toggle on. The config
+links into this public repo, so never commit `secret-key` or API keys.
 
 ```sh
 mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
