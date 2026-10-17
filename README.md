@@ -182,9 +182,8 @@ sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 Set the dashboard password in `management.secret-key` of
 `~/.cli-proxy-api/config.yaml`, then run
 `systemctl --user restart dev.mise.cli-proxy-api` (it's hashed on start). Add
-accounts and enable WebSockets on Codex ones at
-`https://cliproxyapi.<tailnet>.ts.net/management.html`. The config links into
-this public repo, so never commit `secret-key` or API keys.
+accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html`. The config
+links into this public repo, so never commit `secret-key` or API keys.
 
 ```sh
 mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
