@@ -185,6 +185,11 @@ Set the dashboard password in `management.secret-key` of
 accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html`. The config
 links into this public repo, so never commit `secret-key` or API keys.
 
+Then enable WebSockets on each Codex account: **Auth Files**, open the account,
+turn on **WebSockets (websockets)**, and save. Codex already connects to the
+proxy over WebSockets, but the proxy only uses them upstream for accounts with
+this toggle on. It's stored in the account's auth file, not in this repo.
+
 ```sh
 mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
 ```
