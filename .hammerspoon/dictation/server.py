@@ -173,6 +173,9 @@ CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch th
 CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
 FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
+# Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
+LEADS = {"is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're", "and"}
+LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
 
 
 def looks_rewritten(raw, out):
@@ -218,11 +221,15 @@ def looks_rewritten(raw, out):
         found = match(k, FILLER)
         if not found:
             return 0
-        rest = raw[found.end() :]
-        commas = re.search(r"[,;]$", before(k)) or re.match(r"\s*[,;]", rest)
-        opens = not before(k) and found[0] not in ("like", "you know", "i mean")  # "So I think"
+        rest, said = raw[found.end() :], before(k)
+        commas = re.search(r"[,;]$", said) or re.match(r"\s*[,;]", rest)
+        opens = not said and found[0] not in ("like", "you know", "i mean")  # "So I think"
         ends = found[0] in TAGS and re.match(r"\s*([.!?]|$)", rest)  # "Fine, yeah."
-        return len(found[0].split()) if commas or opens or ends else 0
+        # A "like" opening a sentence or after a lead, unless it likens: "It's been like that."
+        last = (re.findall(r"[\w']+", said) or [""])[-1]
+        likes = found[0] == "like" and (last in LEADS or not said)
+        likes &= not re.match(r"\s+th(?:at|is)(?: ones?)?\s*(?:[^\w\s]|$)", rest)
+        return len(found[0].split()) if commas or opens or ends or likes else 0
 
     def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
         if re.search(r"\d", a + b) or a in VALUE:

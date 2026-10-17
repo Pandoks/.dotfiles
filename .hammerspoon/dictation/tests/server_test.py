@@ -500,6 +500,9 @@ check(
                 "Couldn't we do Tuesday after lunch?",
             ),
             ("Fine by me yeah.", "Fine by me."),
+            ("Like you're being very vague.", "You're being very vague."),
+            ("Can you make one? Like I forgot its name.", "Can you make one? I forgot its name."),
+            ("It's like so slow.", "It's so slow."),
             ("That's the one that you know, I told you about.", "That's the one I told you about."),
             ("Show 10² rows, not ①.", "Show 10² rows, not ①."),
             ("Meet İbrahim Monday, sorry, Tuesday.", "Meet İbrahim Tuesday."),
@@ -513,6 +516,7 @@ check(
         for raw, out in [
             ("You know the drill.", "The drill."),
             ("It's always been like that.", "It's always been that."),
+            ("He's like my best friend.", "He's my best friend."),
             ("Delete all files except logs.", "Delete all files."),
             ("Include the tests.", "Exclude the tests."),
             ("I can, I can't come tonight.", "I can come tonight."),
