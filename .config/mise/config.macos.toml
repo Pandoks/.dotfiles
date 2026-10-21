@@ -51,8 +51,6 @@ press_and_hold = false
 # Installs that mise can't handle itself
 [bootstrap.hooks.post-packages]
 run = '''
-brew list --formula yabai &>/dev/null || brew install asmvik/formulae/yabai
-
 for cask in logi-options+ raycast; do
   brew list --cask "$cask" &>/dev/null || brew install --cask "$cask"
 done
@@ -68,7 +66,6 @@ test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoo
 [dotfiles]
 "~/.zprofile" = "../../.zprofile"
 "~/.hammerspoon" = "../../.hammerspoon"
-"~/.config/yabai/yabairc" = "../yabai/yabairc"
 "~/.rtorrent.rc" = "../../.rtorrent.rc"
 
 "~/grok/bin/grok-browser" = "../../grok/bin/grok-browser"

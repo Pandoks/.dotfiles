@@ -1,0 +1,30 @@
+name: Hammerspoon
+
+on:
+  pull_request:
+    paths:
+      - ".hammerspoon/**"
+      - ".github/workflows/hammerspoon.yml"
+  push:
+    branches: [master]
+    paths:
+      - ".hammerspoon/**"
+      - ".github/workflows/hammerspoon.yml"
+
+jobs:
+  test:
+    # The tests stub Hammerspoon's APIs; they only need its LuaSkin framework and clang.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: brew install --cask hammerspoon
+      - run: sh .hammerspoon/tests/run.sh
+      - run: sh .hammerspoon/tests/previews_test.sh
+      - name: Build native modules
+        run: |
+          frameworks=/Applications/Hammerspoon.app/Contents/Frameworks
+          for module in .hammerspoon/lib/*/*.m; do
+            clang -O2 -Wall -Wextra -Wshadow -Werror -fobjc-arc -fmodules -bundle \
+              -undefined dynamic_lookup -F"$frameworks" -I"$frameworks/LuaSkin.framework/Headers" \
+              "$module" -o "$RUNNER_TEMP/$(basename "$module" .m).so"
+          done
