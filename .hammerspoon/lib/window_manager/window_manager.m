@@ -9,10 +9,10 @@ static LSRefTable refTable = LUA_NOREF;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *queues;
 static NSMutableDictionary<NSNumber *, NSValue *> *frames;
 
-extern AXError _AXUIElementGetWindow(AXUIElementRef element, CGWindowID *wid);
+extern AXError _AXUIElementGetWindow(AXUIElementRef element, CGWindowID *windowID);
 static AXUIElementRef (*remoteElement)(CFDataRef token);
-static CGError (*setFront)(ProcessSerialNumber *psn, CGWindowID wid, uint32_t mode);
-static CGError (*postRecord)(ProcessSerialNumber *psn, uint8_t *bytes);
+static CGError (*setFront)(ProcessSerialNumber *process, CGWindowID windowID, uint32_t mode);
+static CGError (*postRecord)(ProcessSerialNumber *process, uint8_t *bytes);
 static CFArrayRef (*copySpaces)(int connection, int mask, CFArrayRef windows);
 static int connection;
 
@@ -125,26 +125,37 @@ static CGEventRef withPayload(CGEventRef event) {
   return CGEventCreateFromData(NULL, (__bridge CFDataRef)out);
 }
 
-static void post(CGEventRef event) {
+static BOOL post(CGEventRef event) {
   CGEventRef augmented = withPayload(event);
-  CGEventPost(kCGSessionEventTap, augmented ?: event);
-  if (augmented) CFRelease(augmented);
   CFRelease(event);
+  if (!augmented) return NO;
+  CGEventPost(kCGSessionEventTap, augmented);
+  CFRelease(augmented);
+  return YES;
 }
 
-/// wm.step(right, x, y) switches one Space on the display containing (x, y), without animation.
+/// step(right, x, y) -> ok, error; switches one Space on the display containing (x, y), without animation.
 static int step(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TBOOLEAN, LS_TNUMBER, LS_TNUMBER, LS_TBREAK];
+  const char *error = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27
+    ? "instant Space switching needs macOS 27" : NULL;
   BOOL right = lua_toboolean(state, 1);
   CGPoint point = { lua_tonumber(state, 2), lua_tonumber(state, 3) };
   double sign = right ? -1.0 : 1.0;
   uint32_t mask = right ? 4 : 8;
-  post(swipe(began, mask, 1e-15 * sign, 0, point));
+  if (!error && !post(swipe(began, mask, 1e-15 * sign, 0, point))) error = "could not build the Space swipe";
+  if (error) {
+    lua_pushboolean(state, 0);
+    lua_pushstring(state, error);
+    return 2;
+  }
+  // Built the same way as the swipe that just posted.
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
     post(swipe(ended, mask, 1e-15 * sign, 100.0 * sign, point));
   });
-  return 0;
+  lua_pushboolean(state, 1);
+  return 1;
 }
 
 #pragma mark - Accessibility
@@ -154,7 +165,7 @@ static dispatch_queue_t queueFor(pid_t pid) {
   NSNumber *key = @(pid);
   dispatch_queue_t queue = queues[key];
   if (!queue) {
-    queue = dispatch_queue_create("wm.app", dispatch_queue_attr_make_with_qos_class(
+    queue = dispatch_queue_create("window_manager.app", dispatch_queue_attr_make_with_qos_class(
       DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
     queues[key] = queue;
   }
@@ -187,17 +198,17 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     skipped = absent[@(pid)] ?: (absent[@(pid)] = [NSMutableSet set]);
   }
   NSMutableSet<NSNumber *> *missing = [wanted mutableCopy];
-  for (NSNumber *wid in wanted) {
-    if (cache[wid] || [skipped containsObject:wid]) [missing removeObject:wid];
+  for (NSNumber *windowID in wanted) {
+    if (cache[windowID] || [skipped containsObject:windowID]) [missing removeObject:windowID];
   }
   if (!missing.count) return cache;
 
   AXUIElementRef app = application(pid);
   for (id element in attribute(app, kAXWindowsAttribute) ?: @[]) {
-    CGWindowID wid = 0;
-    if (_AXUIElementGetWindow((__bridge AXUIElementRef)element, &wid) != kAXErrorSuccess) continue;
-    cache[@(wid)] = element;
-    [missing removeObject:@(wid)];
+    CGWindowID windowID = 0;
+    if (_AXUIElementGetWindow((__bridge AXUIElementRef)element, &windowID) != kAXErrorSuccess) continue;
+    cache[@(windowID)] = element;
+    [missing removeObject:@(windowID)];
   }
   CFRelease(app);
   if (!missing.count) return cache;
@@ -212,11 +223,11 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     AXUIElementRef candidate = remoteElement(data);
     CFRelease(data);
     if (!candidate) continue;
-    CGWindowID wid = 0;
-    if (_AXUIElementGetWindow(candidate, &wid) == kAXErrorSuccess && [missing containsObject:@(wid)]) {
+    CGWindowID windowID = 0;
+    if (_AXUIElementGetWindow(candidate, &windowID) == kAXErrorSuccess && [missing containsObject:@(windowID)]) {
       AXUIElementSetMessagingTimeout(candidate, 1.0);
-      cache[@(wid)] = (__bridge id)candidate;
-      [missing removeObject:@(wid)];
+      cache[@(windowID)] = (__bridge id)candidate;
+      [missing removeObject:@(windowID)];
     }
     CFRelease(candidate);
   }
@@ -224,101 +235,91 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
   return cache;
 }
 
-static AXUIElementRef copyWindow(pid_t pid, CGWindowID wid) {
-  id element = resolve(pid, [NSSet setWithObject:@(wid)])[@(wid)];
+static AXUIElementRef copyWindow(pid_t pid, CGWindowID windowID) {
+  id element = resolve(pid, [NSSet setWithObject:@(windowID)])[@(windowID)];
   return element ? (AXUIElementRef)CFBridgingRetain(element) : NULL;
 }
 
 // A destroyed window's element stays cached until its id is looked up again.
-static void forget(pid_t pid, CGWindowID wid) {
+static void forget(pid_t pid, CGWindowID windowID) {
   @synchronized(elements) {
-    [elements[@(pid)] removeObjectForKey:@(wid)];
+    [elements[@(pid)] removeObjectForKey:@(windowID)];
   }
 }
 
 #pragma mark - Lua callbacks
 
-typedef void (^Push)(lua_State *state);
-
-// Runs `work` on the app's queue, then calls the Lua callback with (ok, error) plus `push` values.
-static void schedule(lua_State *state, int callback, pid_t pid, NSString *(^work)(Push *push)) {
+// Runs `work` on the app's queue, then calls the Lua function at `argument` with (ok, error).
+static void schedule(lua_State *state, int argument, pid_t pid, NSString *(^work)(void)) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  int ref = LUA_NOREF;
-  if (callback && lua_isfunction(state, callback)) {
-    lua_pushvalue(state, callback);
-    ref = [skin luaRef:refTable];
+  int callback = LUA_NOREF;
+  if (lua_isfunction(state, argument)) {
+    lua_pushvalue(state, argument);
+    callback = [skin luaRef:refTable];
   }
   LSGCCanary canary = [skin createGCCanary];
   dispatch_async(queueFor(pid), ^{
-    __block Push push = nil;
-    NSString *error = work(&push);
+    NSString *error = work();
     dispatch_async(dispatch_get_main_queue(), ^{
       LuaSkin *main = [LuaSkin sharedWithState:NULL];
       LSGCCanary done = canary;
       if (![main checkGCCanary:canary]) return;
       [main destroyGCCanary:&done];
-      if (ref == LUA_NOREF) return;
-      lua_State *L = main.L;
-      _lua_stackguard_entry(L);
-      [main pushLuaRef:refTable ref:ref];
-      [main luaUnref:refTable ref:ref];
-      lua_pushboolean(L, error == nil);
-      if (error) lua_pushstring(L, error.UTF8String); else lua_pushnil(L);
-      int count = 2;
-      if (push) {
-        push(L);
-        count++;
-      }
-      [main protectedCallAndError:@"wm callback" nargs:count nresults:0];
-      _lua_stackguard_exit(L);
+      if (callback == LUA_NOREF) return;
+      lua_State *lua = main.L;
+      _lua_stackguard_entry(lua);
+      [main pushLuaRef:refTable ref:callback];
+      [main luaUnref:refTable ref:callback];
+      lua_pushboolean(lua, error == nil);
+      if (error) lua_pushstring(lua, error.UTF8String); else lua_pushnil(lua);
+      [main protectedCallAndError:@"window_manager callback" nargs:2 nresults:0];
+      _lua_stackguard_exit(lua);
     });
   });
 }
 
-/// wm.focus(pid, id, done) focuses and raises a window; done(ok, error).
+/// focus(pid, id, done) focuses and raises a window; done(ok, error).
 static int focus(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER, LS_TFUNCTION | LS_TOPTIONAL, LS_TBREAK];
   pid_t pid = (pid_t)lua_tointeger(state, 1);
-  CGWindowID wid = (CGWindowID)lua_tointeger(state, 2);
-  schedule(state, 3, pid, ^NSString *(Push *push) {
-    (void)push;
-    ProcessSerialNumber psn;
-    if (GetProcessForPID(pid, &psn) != noErr) return @"process unavailable";
-    AXUIElementRef window = copyWindow(pid, wid);
+  CGWindowID windowID = (CGWindowID)lua_tointeger(state, 2);
+  schedule(state, 3, pid, ^NSString *{
+    ProcessSerialNumber process;
+    if (GetProcessForPID(pid, &process) != noErr) return @"process unavailable";
+    AXUIElementRef window = copyWindow(pid, windowID);
     if (!window) return @"window unavailable";
 
     // Same sequence as yabai: front process, key-window event records, then raise.
-    setFront(&psn, wid, 0x200);
+    setFront(&process, windowID, 0x200);
     uint8_t record[0xf8] = { [0x04] = 0xf8, [0x3a] = 0x10 };
-    memcpy(record + 0x3c, &wid, sizeof wid);
+    memcpy(record + 0x3c, &windowID, sizeof windowID);
     memset(record + 0x20, 0xFF, 0x10);
     record[0x08] = 0x01;
-    postRecord(&psn, record);
+    postRecord(&process, record);
     record[0x08] = 0x02;
-    postRecord(&psn, record);
+    postRecord(&process, record);
     AXError raised = AXUIElementPerformAction(window, kAXRaiseAction);
     CFRelease(window);
-    if (raised == kAXErrorInvalidUIElement) forget(pid, wid);
+    if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
     return raised == kAXErrorSuccess ? nil : [NSString stringWithFormat:@"raise failed (%d)", raised];
   });
   return 0;
 }
 
-/// wm.frame(pid, id, x, y, w, h, done) moves a window; requests not yet started collapse to the latest.
+/// frame(pid, id, x, y, w, h, done) moves a window; requests not yet started collapse to the latest.
 static int frame(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER, LS_TNUMBER, LS_TNUMBER, LS_TNUMBER,
     LS_TNUMBER, LS_TFUNCTION | LS_TOPTIONAL, LS_TBREAK];
   pid_t pid = (pid_t)lua_tointeger(state, 1);
-  CGWindowID wid = (CGWindowID)lua_tointeger(state, 2);
-  NSNumber *key = @(wid);
+  CGWindowID windowID = (CGWindowID)lua_tointeger(state, 2);
+  NSNumber *key = @(windowID);
   @synchronized(frames) {
     frames[key] = [NSValue valueWithRect:NSMakeRect(lua_tonumber(state, 3), lua_tonumber(state, 4),
       lua_tonumber(state, 5), lua_tonumber(state, 6))];
   }
-  schedule(state, 7, pid, ^NSString *(Push *push) {
-    (void)push;
+  schedule(state, 7, pid, ^NSString *{
     NSValue *value;
     @synchronized(frames) {
       value = frames[key];
@@ -326,7 +327,7 @@ static int frame(lua_State *state) {
     }
     if (!value) return nil;
     NSRect rect = value.rectValue;
-    AXUIElementRef window = copyWindow(pid, wid);
+    AXUIElementRef window = copyWindow(pid, windowID);
     if (!window) return @"window unavailable";
 
     // Chromium and Electron animate frame changes while enhanced UI is on.
@@ -348,7 +349,7 @@ static int frame(lua_State *state) {
     if (enhanced) AXUIElementSetAttributeValue(app, CFSTR("AXEnhancedUserInterface"), kCFBooleanTrue);
     CFRelease(app);
     CFRelease(window);
-    if (moved == kAXErrorInvalidUIElement) forget(pid, wid);
+    if (moved == kAXErrorInvalidUIElement) forget(pid, windowID);
     if (moved != kAXErrorSuccess || resized != kAXErrorSuccess) {
       return [NSString stringWithFormat:@"frame failed (%d, %d)", moved, resized];
     }
@@ -357,27 +358,26 @@ static int frame(lua_State *state) {
   return 0;
 }
 
-/// wm.minimize(pid, id, minimized, done) minimizes or restores a window.
+/// minimize(pid, id, minimized, done) minimizes or restores a window.
 static int minimize(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER, LS_TBOOLEAN, LS_TFUNCTION | LS_TOPTIONAL,
     LS_TBREAK];
   pid_t pid = (pid_t)lua_tointeger(state, 1);
-  CGWindowID wid = (CGWindowID)lua_tointeger(state, 2);
+  CGWindowID windowID = (CGWindowID)lua_tointeger(state, 2);
   CFBooleanRef minimized = lua_toboolean(state, 3) ? kCFBooleanTrue : kCFBooleanFalse;
-  schedule(state, 4, pid, ^NSString *(Push *push) {
-    (void)push;
-    AXUIElementRef window = copyWindow(pid, wid);
+  schedule(state, 4, pid, ^NSString *{
+    AXUIElementRef window = copyWindow(pid, windowID);
     if (!window) return @"window unavailable";
     AXError result = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute, minimized);
     CFRelease(window);
-    if (result == kAXErrorInvalidUIElement) forget(pid, wid);
+    if (result == kAXErrorInvalidUIElement) forget(pid, windowID);
     return result == kAXErrorSuccess ? nil : [NSString stringWithFormat:@"minimize failed (%d)", result];
   });
   return 0;
 }
 
-/// wm.windows(done) lists normal-layer windows on every Space with their Accessibility details;
+/// windows(done) lists normal-layer windows on every Space with their Accessibility details;
 /// done(ok, error, rows) where each row is {id, pid, role, subrole, title, root, minimized}.
 static int windows(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
@@ -402,7 +402,7 @@ static int windows(lua_State *state) {
 
   // Query each app on its own queue, then answer once.
   lua_pushvalue(state, 1);
-  int ref = [skin luaRef:refTable];
+  int callback = [skin luaRef:refTable];
   LSGCCanary canary = [skin createGCCanary];
   dispatch_group_t group = dispatch_group_create();
   NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
@@ -415,16 +415,16 @@ static int windows(lua_State *state) {
       for (NSNumber *key in wanted) {
         AXUIElementRef element = (__bridge AXUIElementRef)cache[key];
         if (!element) continue;
-        CGWindowID wid = key.unsignedIntValue;
+        CGWindowID windowID = key.unsignedIntValue;
         id role = attribute(element, kAXRoleAttribute);
         if (!role) {
-          forget(pid, wid);
+          forget(pid, windowID);
           continue;
         }
         id parent = attribute(element, kAXParentAttribute);
         id parentRole = parent ? attribute((__bridge AXUIElementRef)parent, kAXRoleAttribute) : nil;
         [found addObject:@{
-          @"id": @(wid),
+          @"id": @(windowID),
           @"pid": @(pid),
           @"role": role,
           @"subrole": attribute(element, kAXSubroleAttribute) ?: @"",
@@ -443,20 +443,20 @@ static int windows(lua_State *state) {
     LSGCCanary done = canary;
     if (![main checkGCCanary:canary]) return;
     [main destroyGCCanary:&done];
-    lua_State *L = main.L;
-    _lua_stackguard_entry(L);
-    [main pushLuaRef:refTable ref:ref];
-    [main luaUnref:refTable ref:ref];
-    lua_pushboolean(L, 1);
-    lua_pushnil(L);
+    lua_State *lua = main.L;
+    _lua_stackguard_entry(lua);
+    [main pushLuaRef:refTable ref:callback];
+    [main luaUnref:refTable ref:callback];
+    lua_pushboolean(lua, 1);
+    lua_pushnil(lua);
     [main pushNSObject:rows];
-    [main protectedCallAndError:@"wm windows callback" nargs:3 nresults:0];
-    _lua_stackguard_exit(L);
+    [main protectedCallAndError:@"window_manager windows callback" nargs:3 nresults:0];
+    _lua_stackguard_exit(lua);
   });
   return 0;
 }
 
-/// wm.spaces(ids) -> {[id] = space}, the managed Space id holding each window (absent if none).
+/// spaces(ids) -> {[id] = space}, the managed Space id holding each window (absent if none).
 static int spaces(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TTABLE, LS_TBREAK];
@@ -464,13 +464,13 @@ static int spaces(lua_State *state) {
   lua_Integer count = (lua_Integer)lua_rawlen(state, 1);
   for (lua_Integer index = 1; index <= count; index++) {
     lua_rawgeti(state, 1, index);
-    lua_Integer wid = lua_tointeger(state, -1);
+    lua_Integer windowID = lua_tointeger(state, -1);
     lua_pop(state, 1);
-    CFArrayRef result = copySpaces(connection, 0x7, (__bridge CFArrayRef)@[ @(wid) ]);
+    CFArrayRef result = copySpaces(connection, 0x7, (__bridge CFArrayRef)@[ @(windowID) ]);
     NSArray *found = CFBridgingRelease(result);
     if (found.count) {
       lua_pushinteger(state, [found.firstObject longLongValue]);
-      lua_rawseti(state, -2, wid);
+      lua_rawseti(state, -2, windowID);
     }
   }
   return 1;
@@ -486,19 +486,19 @@ static const luaL_Reg functions[] = {
   { NULL, NULL },
 };
 
-int luaopen_wm(lua_State *state) {
-  if (!keepImageLoaded()) return luaL_error(state, "could not retain wm library");
+int luaopen_window_manager(lua_State *state) {
+  if (!keepImageLoaded()) return luaL_error(state, "could not retain window_manager library");
   if (!copySpaces) {
-    void *sky = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW | RTLD_LOCAL);
-    void *hi = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_NOW);
-    if (!sky || !hi) return luaL_error(state, "SkyLight unavailable");
+    void *skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW | RTLD_LOCAL);
+    void *services = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_NOW);
+    if (!skyLight || !services) return luaL_error(state, "SkyLight unavailable");
     int (*mainConnection)(void) = NULL;
     struct { void *library; const char *name; void *address; size_t size; } symbols[] = {
-      { sky, "SLSMainConnectionID", &mainConnection, sizeof mainConnection },
-      { sky, "_SLPSSetFrontProcessWithOptions", &setFront, sizeof setFront },
-      { sky, "SLPSPostEventRecordTo", &postRecord, sizeof postRecord },
-      { sky, "SLSCopySpacesForWindows", &copySpaces, sizeof copySpaces },
-      { hi, "_AXUIElementCreateWithRemoteToken", &remoteElement, sizeof remoteElement },
+      { skyLight, "SLSMainConnectionID", &mainConnection, sizeof mainConnection },
+      { skyLight, "_SLPSSetFrontProcessWithOptions", &setFront, sizeof setFront },
+      { skyLight, "SLPSPostEventRecordTo", &postRecord, sizeof postRecord },
+      { skyLight, "SLSCopySpacesForWindows", &copySpaces, sizeof copySpaces },
+      { services, "_AXUIElementCreateWithRemoteToken", &remoteElement, sizeof remoteElement },
     };
     for (size_t index = 0; index < sizeof symbols / sizeof *symbols; index++) {
       void *symbol = dlsym(symbols[index].library, symbols[index].name);
@@ -512,6 +512,6 @@ int luaopen_wm(lua_State *state) {
     frames = [NSMutableDictionary dictionary];
   }
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  refTable = [skin registerLibrary:"wm" functions:functions metaFunctions:nil];
+  refTable = [skin registerLibrary:"window_manager" functions:functions metaFunctions:nil];
   return 1;
 }

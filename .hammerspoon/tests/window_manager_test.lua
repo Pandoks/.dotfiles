@@ -7,7 +7,15 @@ local function test(name, fn)
 end
 local function eq(actual, expected, label)
   if actual ~= expected then
-    error(string.format("%s: expected %s, got %s", label or "value", tostring(expected), tostring(actual)), 2)
+    error(
+      string.format(
+        "%s: expected %s, got %s",
+        label or "value",
+        tostring(expected),
+        tostring(actual)
+      ),
+      2
+    )
   end
 end
 
@@ -61,15 +69,16 @@ local function harness()
             step = function(right)
               h.steps = h.steps + 1
               h.inflight[#h.inflight + 1] = right
+              return true
             end,
           }
         end,
       }
     end,
   }, { __index = _G })
-  h.wm = assert(loadfile(root .. "/wm.lua", "t", env))()
+  h.windowManager = assert(loadfile(root .. "/window_manager.lua", "t", env))()
   function h:space(index)
-    self.wm.space(index, function(ok, err)
+    self.windowManager.space(index, function(ok, err)
       self.results[index] = ok and "ok" or err
     end)
   end

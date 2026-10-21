@@ -7,7 +7,15 @@ local function test(name, fn)
 end
 local function eq(actual, expected, label)
   if actual ~= expected then
-    error(string.format("%s: expected %s, got %s", label or "value", tostring(expected), tostring(actual)), 2)
+    error(
+      string.format(
+        "%s: expected %s, got %s",
+        label or "value",
+        tostring(expected),
+        tostring(actual)
+      ),
+      2
+    )
   end
 end
 
@@ -92,7 +100,7 @@ local function harness(rows)
       }
     end,
   }
-  local wm = {
+  local windowManager = {
     native = {
       spaces = function(ids)
         local out = {}
@@ -132,11 +140,13 @@ local function harness(rows)
       },
       screen = {
         find = function(uuid)
-          return uuid == "display" and {
-            frame = function()
-              return rect(0, 0, 1000, 600)
-            end,
-          } or nil
+          return uuid == "display"
+              and {
+                frame = function()
+                  return rect(0, 0, 1000, 600)
+                end,
+              }
+            or nil
         end,
         watcher = watcher,
       },
@@ -165,8 +175,8 @@ local function harness(rows)
     require = function(name)
       if name == "lib.window_filter" then
         return filter
-      elseif name == "lib.wm" then
-        return wm
+      elseif name == "lib.window_manager" then
+        return windowManager
       elseif name == "lib.logger" then
         return {
           error = function(message)
@@ -229,7 +239,8 @@ test("a window renamed to Picture-in-Picture leaves the layout", function()
 end)
 
 test("closing a window gives its tile to its sibling", function()
-  local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" }, { id = 3, app = "Helium" } })
+  local h =
+    harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" }, { id = 3, app = "Helium" } })
   h:remove(2)
   eq(h:frame(1), "0,0 500x600")
   eq(h:frame(3), "500,0 500x600")
@@ -247,7 +258,8 @@ test("focus moves to the neighbor in a direction", function()
 end)
 
 test("swap exchanges tiles; warp splits the neighbor on the side moved toward", function()
-  local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" }, { id = 3, app = "Helium" } })
+  local h =
+    harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" }, { id = 3, app = "Helium" } })
   h.focused = 1
   h.tiling.swap("east")
   eq(h:frame(1), "500,0 500x300", "swap takes the neighbor's tile")

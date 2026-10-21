@@ -1,30 +1,30 @@
 local utils = require("lib.utils")
 
----@alias WMDone fun(ok: boolean, err?: string)
+---@alias WindowManagerDone fun(ok: boolean, err?: string)
 
----@class WMNative
----@field step fun(right: boolean, x: number, y: number)
----@field focus fun(pid: integer, id: integer, done?: WMDone)
----@field frame fun(pid: integer, id: integer, x: number, y: number, w: number, h: number, done?: WMDone)
----@field minimize fun(pid: integer, id: integer, minimized: boolean, done?: WMDone)
+---@class WindowManagerNative
+---@field step fun(right: boolean, x: number, y: number): boolean, string?
+---@field focus fun(pid: integer, id: integer, done?: WindowManagerDone)
+---@field frame fun(pid: integer, id: integer, x: number, y: number, w: number, h: number, done?: WindowManagerDone)
+---@field minimize fun(pid: integer, id: integer, minimized: boolean, done?: WindowManagerDone)
 ---@field windows fun(done: fun(ok: boolean, err?: string, rows: table[]))
 ---@field spaces fun(ids: integer[]): table<integer, integer>
 
-local native = utils.native("wm") --[[@as WMNative]]
+local native = utils.native("window_manager") --[[@as WindowManagerNative]]
 
----@class WM
-local wm = { native = native }
+---@class WindowManager
+local windowManager = { native = native }
 
----@class WMJump
+---@class SpaceJump
 ---@field space integer
----@field index integer
+---@field index number
 ---@field display string
 ---@field from integer Space shown when the swipe in flight was sent
 ---@field point hs.geometry
----@field timer hs.timer
----@field done WMDone
+---@field timer? hs.timer
+---@field done WindowManagerDone
 
----@type WMJump?
+---@type SpaceJump?
 local jump
 
 ---@param ok boolean
@@ -32,11 +32,11 @@ local jump
 local function finish(ok, err)
   local job = assert(jump)
   jump = nil
-  job.timer:stop()
+  assert(job.timer):stop()
   job.done(ok, err)
 end
 
----@param job WMJump
+---@param job SpaceJump
 local function deadline(job)
   if job.timer then
     job.timer:stop()
@@ -48,7 +48,7 @@ local function deadline(job)
   end)
 end
 
--- Each swipe moves one Space, toward wherever the target is from the Space now shown.
+-- Each swipe moves one Space, toward the target from the Space now shown.
 ---@param now integer
 local function advance(now)
   local job = assert(jump)
@@ -57,9 +57,9 @@ local function advance(now)
     return
   end
   local origin
-  for i, space in ipairs(utils.spaces() or {}) do
+  for index, space in ipairs(utils.spaces() or {}) do
     if space.ManagedSpaceID == now then
-      origin = i
+      origin = index
     end
   end
   if not origin then
@@ -67,22 +67,25 @@ local function advance(now)
     return
   end
   job.from = now
-  native.step(job.index > origin, job.point.x, job.point.y)
+  local ok, err = native.step(job.index > origin, job.point.x, job.point.y)
+  if not ok then
+    finish(false, err)
+  end
 end
 
-wm.watcher = hs.spaces.watcher
+local watcher = hs.spaces.watcher
   .new(function()
-    local now = jump and hs.spaces.activeSpaces()[jump.display]
-    if now and now ~= jump.from then
+    local job = jump
+    local now = job and hs.spaces.activeSpaces()[job.display]
+    if job and now and now ~= job.from then
       advance(now)
     end
   end)
-  :start()
+  :start() --[[@as hs.spaces.watcher]]
 
----Shows a Space instantly, by Mission Control index, on its own display.
----@param index integer
----@param done? WMDone
-function wm.space(index, done)
+---@param index number Mission Control index
+---@param done? WindowManagerDone
+function windowManager.space(index, done)
   done = done or function() end
   local spaces, err = utils.spaces()
   if not spaces then
@@ -128,62 +131,48 @@ function wm.space(index, done)
   advance(now)
 end
 
----Mission Control index of a native Space id.
----@param space integer
----@return integer?
-function wm.index(space)
-  for i, row in ipairs(utils.spaces() or {}) do
-    if row.ManagedSpaceID == space then
-      return i
-    end
-  end
-end
-
 ---@param id integer
 ---@return integer? space
-function wm.spaceOf(id)
+function windowManager.spaceOf(id)
   return native.spaces({ id })[id]
 end
 
----Focuses a window, first showing its Space when another one is on screen.
+-- Shows the window's Space first when another one is on screen.
 ---@param pid integer
 ---@param id integer
----@param done? WMDone
-function wm.focus(pid, id, done)
-  local space = wm.spaceOf(id)
+---@param done? WindowManagerDone
+function windowManager.focus(pid, id, done)
+  done = done or function() end
+  local space = windowManager.spaceOf(id)
   local display = space and hs.spaces.spaceDisplay(space)
-  if space and display and hs.spaces.activeSpaces()[display] ~= space then
-    local index = wm.index(space)
-    if not index then
-      if done then
-        done(false, "window Space unavailable")
-      end
-      return
-    end
-    wm.space(index, function(ok, err)
-      if not ok then
-        if done then
-          done(false, err)
-        end
-        return
-      end
-      native.focus(pid, id, done)
-    end)
+  if not space or not display or hs.spaces.activeSpaces()[display] == space then
+    native.focus(pid, id, done)
     return
   end
-  native.focus(pid, id, done)
+  for index, row in ipairs(utils.spaces() or {}) do
+    if row.ManagedSpaceID == space then
+      windowManager.space(index, function(ok, err)
+        if ok then
+          native.focus(pid, id, done)
+        else
+          done(false, err)
+        end
+      end)
+      return
+    end
+  end
+  done(false, "window Space unavailable")
 end
 
-wm.frame = native.frame
-wm.minimize = native.minimize
-wm.windows = native.windows
+windowManager.frame = native.frame
+windowManager.minimize = native.minimize
+windowManager.windows = native.windows
 
-function wm.stop()
-  wm.watcher:stop()
+function windowManager.stop()
+  watcher:stop()
   if jump then
     finish(false, "stopped")
   end
 end
 
----@return WM
-return wm
+return windowManager

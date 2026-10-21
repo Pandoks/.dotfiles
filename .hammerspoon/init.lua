@@ -16,7 +16,7 @@ local previousShutdown = hs.shutdownCallback
 rawset(hs, "shutdownCallback", function()
   require("lib.space_focus").stop()
   require("lib.tiling").stop()
-  require("lib.wm").stop()
+  require("lib.window_manager").stop()
   windowSwitcher.stop()
   require("lib.window_filter").stop()
   require("lib.mission_control").stop()

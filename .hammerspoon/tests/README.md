@@ -14,10 +14,10 @@ The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
 checks the frames it requests: longer-side splits for new windows, the app
 allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that never
-falls back to the opposite edge, balance, zoom, and float. The wm suite checks
+falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
 that a Space jump takes one swipe per Space and that presses during a swipe
 retarget it instead of stacking swipes. Neither touches the real window server;
-the native gesture, focus, and Accessibility calls in `lib/wm/wm.m` were checked
+the native gesture, focus, and Accessibility calls in `lib/window_manager/window_manager.m` were checked
 manually on macOS 27.0.1.
 
 Run `sh .hammerspoon/tests/previews_test.sh` for the native preview worker pool.
@@ -70,7 +70,7 @@ capturing. Events received during the initial window query are merged into its
 reply, so a stale list cannot lose a new window or restore a closed one. Closing
 windows removes their cards and preserves selection on the same surviving window.
 
-The real switcher runs in an isolated model of Hammerspoon, `lib.wm` replies,
+The real switcher runs in an isolated model of Hammerspoon, `lib.window_manager` replies,
 window focus, event notifications, and timers. The suite does not launch
 Hammerspoon, send input, or focus windows.
 
@@ -95,7 +95,7 @@ It runs the production renderer against synthetic windows; native offscreen
 virtual monitors or moving real windows.
 
 The Space-focus suite also checks numbered/Ctrl-arrow shortcuts, Space arrival
-before or after the `wm.space` reply, arrival timeouts, superseded requests, direct Space
+before or after the `window_manager.space` reply, arrival timeouts, superseded requests, direct Space
 notifications, late PiP focus, per-Space window identity, empty desktop fallback,
 explicit mouse intent, superseded replies, shutdown, and idle snapshot activity.
 It also checks PiP activation redirects, display boundaries, repeated presses during
@@ -103,7 +103,7 @@ a pending switch, Mission Control key passthrough and focus suppression, and Doc
 restart detection. Its window model keeps untracked, minimized, hidden, layer-3, and
 other-display windows out of the candidates.
 
-Ctrl-Left/Right use `wm.space` outside Mission Control and stop at the current display's
+Ctrl-Left/Right use `window_manager.space` outside Mission Control and stop at the current display's
 first/last Space. Numbered shortcuts use global Mission Control indices. Shortcuts take
 each Space's display from the same `utils.spaces()` read; only native Space changes
 call `hs.spaces.spaceDisplay`. The mouse-intent tap starts once at load and stops only
@@ -126,7 +126,7 @@ without the switcher), read from `lib.window_filter` without a window-list query
 focus command logs with a popup and is not retried. Space jobs and their transitions
 take priority.
 
-`wm.space` moves one Space per synthetic swipe, without animation, and replies once
+`window_manager.space` moves one Space per synthetic swipe, without animation, and replies once
 the display shows the target, or at once when it already does. Focus can report the
 new Space just after the display does, so the reply, Space notification, or app/window
 focus event that first sees the target Space starts focus restoration. Failed replies
@@ -134,8 +134,8 @@ stop immediately; a Space that never arrives times out after 1.5 s. Each failure
 once with a popup.
 Space shortcuts keep one current job for the switch and focus restoration.
 A new shortcut cancels the old job's timers and ignores its replies, then calls
-`wm.space` immediately without waiting for the previous Space or focus reply;
-`wm.space` reports the older request as superseded.
+`window_manager.space` immediately without waiting for the previous Space or focus reply;
+`window_manager.space` reports the older request as superseded.
 Only the current job can continue after a reply. Focus and desktop-click actions
 yield to the next run-loop turn so a newer shortcut can cancel them before dispatch.
 A swipe already posted or a running native call cannot be recalled.
@@ -194,9 +194,9 @@ focusing the selected window. Immediate completion proceeds directly. Request er
 app exit, and the existing deadline stop the operation and remove its temporary watcher;
 there is no polling or repeated unhide. This avoids treating Hammerspoon's immediate
 hidden-state check as a failed request.
-Cmd-Tab lists windows with `wm.windows`, taking app names, focus, and hidden state
-from `hs.application` and `hs.window`. It focuses the exact window with `wm.focus`,
-which first shows the window's Space through `wm.space` when another Space is on
+Cmd-Tab lists windows with `window_manager.windows`, taking app names, focus, and hidden state
+from `hs.application` and `hs.window`. It focuses the exact window with `window_manager.focus`,
+which first shows the window's Space through `window_manager.space` when another Space is on
 screen. `hs.window.focusedWindow()` confirms focus on the reply or the window-focused
 event, whichever comes first, without another window query.
 The 200 ms menu delay only controls preview visibility; a quick Cmd-Tab release does

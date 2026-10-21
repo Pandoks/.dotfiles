@@ -66,7 +66,7 @@ local process = assert(io.popen("printf %s " .. utils.quote(value)))
 assert(process:read("a") == value)
 assert(process:close())
 print("PASS shell quoting preserves expansions and newlines literally")
-for _, name in ipairs({ "wm", "previews" }) do
+for _, name in ipairs({ "window_manager", "previews" }) do
   local first = utils.native(name)
   local second = utils.native(name)
   assert(first.path == second.path)
@@ -76,7 +76,7 @@ print("PASS both native modules build through one loader and reuse their caches"
 environment.package.loadlib = function()
   return nil, "load failed"
 end
-assert(not pcall(utils.native, "wm"))
+assert(not pcall(utils.native, "window_manager"))
 assert(#alerts == 1 and alerts[1]:find("load failed", 1, true))
 print("PASS native loading errors log, alert, and stop")
 print("RESULT 3 passed, 0 failed")

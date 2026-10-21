@@ -1,7 +1,7 @@
 local filter = require("lib.window_filter")
 -- A window-based Cmd-Tab menu with PiP filtering.
 local previews = require("lib.previews")
-local wm = require("lib.wm")
+local windowManager = require("lib.window_manager")
 local switcher = {}
 local types, keys = hs.eventtap.event.types, hs.keycodes.map
 local properties = hs.eventtap.event.properties
@@ -495,7 +495,7 @@ focus = function(window)
         finish(job)
       end
     end
-    wm.focus(window.pid, window.id, function(focused, failure)
+    windowManager.focus(window.pid, window.id, function(focused, failure)
       if operation ~= job then
         return
       end
@@ -507,7 +507,7 @@ focus = function(window)
     end)
   end
   -- Requery: the window may have moved or closed while the menu was open.
-  wm.windows(function(ok, err, rows)
+  windowManager.windows(function(ok, err, rows)
     if operation ~= job then
       return
     end
@@ -534,7 +534,7 @@ focus = function(window)
         job.watcher = nil
       end
       if row["is-minimized"] then
-        wm.minimize(row.pid, row.id, false, function(restored, reason)
+        windowManager.minimize(row.pid, row.id, false, function(restored, reason)
           if operation ~= job then
             return
           end
@@ -653,7 +653,7 @@ local function step(direction)
       show(current)
     end
   end)
-  wm.windows(function(ok, err, found)
+  windowManager.windows(function(ok, err, found)
     if cycle ~= current then
       return
     end

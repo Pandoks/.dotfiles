@@ -2,7 +2,7 @@ local filter = require("lib.window_filter")
 local logger = require("lib.logger")
 local missionControl = require("lib.mission_control")
 local utils = require("lib.utils")
-local wm = require("lib.wm")
+local windowManager = require("lib.window_manager")
 local module = {}
 local recent, guard = {}, nil
 local stopped = false
@@ -221,7 +221,7 @@ local function check(job)
     job.target = candidate.id
     job.targetPID = candidate.pid
     defer(job, function()
-      wm.native.focus(candidate.pid, candidate.id, function(focusedOK, focusError)
+      windowManager.native.focus(candidate.pid, candidate.id, function(focusedOK, focusError)
         if valid(job) then
           if not focusedOK then
             finish(job, false, focusError or "window focus failed")
@@ -368,7 +368,7 @@ function module.switchSpace(selector, done)
     job.deadlineTimer = hs.timer.doAfter(1.5, function()
       finish(job, false, "timed out waiting for Space " .. index)
     end)
-    wm.space(index, function(ok, message)
+    windowManager.space(index --[[@as number]], function(ok, message)
       if guard ~= job then
         return
       end
@@ -467,7 +467,7 @@ local function leavePiP(id, pid)
   local menu = package.loaded["lib.window_switcher"]
   local target = menu and menu.mostRecent(candidates) or candidates[1]
   if target then
-    wm.native.focus(target.pid, target.id, function(ok, err)
+    windowManager.native.focus(target.pid, target.id, function(ok, err)
       if not ok then
         logger.error("Space focus: PiP redirect: " .. err)
       end

@@ -1,5 +1,5 @@
 -- Run with Lua 5.4: lua test_switcher.lua /path/to/lib
--- The production modules run unchanged in an isolated Hammerspoon/wm model.
+-- The production modules run unchanged in an isolated Hammerspoon/windowManager model.
 local root = assert(arg[1], "pass a lib directory")
 local passed, failed = 0, 0
 local function eq(actual, expected, label)
@@ -154,8 +154,8 @@ local function harness(options)
     end
     return rows
   end
-  -- lib.wm replies on a later run-loop turn; `intercept` can answer instead.
-  local wm = {}
+  -- lib.window_manager replies on a later run-loop turn; `intercept` can answer instead.
+  local windowManager = {}
   local function call(name, id, done, reply)
     h.commands[#h.commands + 1] = id and name .. " " .. id or name
     timer(opts.replyDelay or 0.001, function()
@@ -164,12 +164,12 @@ local function harness(options)
       end
     end)
   end
-  function wm.windows(done)
+  function windowManager.windows(done)
     call("windows", nil, done, function()
       done(true, nil, h:rows())
     end)
   end
-  function wm.focus(pid, id, done)
+  function windowManager.focus(pid, id, done)
     call("focus", id, done, function()
       local w = h.windows[id]
       assert(not w["is-hidden"], "focus attempted before unhide")
@@ -185,7 +185,7 @@ local function harness(options)
       done(true)
     end)
   end
-  function wm.minimize(pid, id, minimized, done)
+  function windowManager.minimize(pid, id, minimized, done)
     call("minimize", id, done, function()
       eq(h.windows[id].pid, pid)
       h.windows[id]["is-minimized"] = minimized
@@ -466,7 +466,7 @@ local function harness(options)
         end
       end,
     },
-    ["lib.wm"] = wm,
+    ["lib.window_manager"] = windowManager,
   }
   env.require = function(name)
     if not modules[name] then
@@ -1859,7 +1859,7 @@ test("the focus reply confirms focus in-process without a notification", functio
   eq(h.menu.status().busy, false)
   eq(#h.alerts, 0)
 end)
-test("a focus event before the wm reply completes the job once", function()
+test("a focus event before the windowManager reply completes the job once", function()
   local reply
   local h = harness({
     intercept = function(model, name, done, id)

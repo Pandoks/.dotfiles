@@ -290,9 +290,9 @@ local function harness(options)
       end,
     }
   end
-  -- lib.wm: the newest Space request supersedes a pending one; each replies once.
-  local wm, pending = { native = {} }, nil
-  function wm.space(index, done)
+  -- lib.window_manager: the newest Space request supersedes a pending one; each replies once.
+  local windowManager, pending = { native = {} }, nil
+  function windowManager.space(index, done)
     h.writes[#h.writes + 1] = { "space", index }
     local id = spaces[index].ManagedSpaceID
     if pending then
@@ -349,7 +349,7 @@ local function harness(options)
       end
     end)
   end
-  function wm.native.focus(pid, id, done)
+  function windowManager.native.focus(pid, id, done)
     h.writes[#h.writes + 1] = { "focus", id, pid }
     timer(0.004, function()
       local r = h:row(id)
@@ -644,8 +644,8 @@ local function harness(options)
             h.alerts[#h.alerts + 1] = message
           end,
         }
-      elseif name == "lib.wm" then
-        return wm
+      elseif name == "lib.window_manager" then
+        return windowManager
       elseif name == "lib.mission_control" then
         return {
           isActive = function()
@@ -1208,10 +1208,10 @@ local function away(mode)
     away = mode,
   })
 end
-test("an empty Space on another display takes focus once wm replies", function()
+test("an empty Space on another display takes focus once windowManager replies", function()
   local h = away(true)
   local result
-  -- The display can show the Space before wm replies; restoration waits for the reply.
+  -- The display can show the Space before windowManager replies; restoration waits for the reply.
   h.beforeReply = function()
     eq(h.lists, 0)
   end
@@ -1552,7 +1552,7 @@ end)
 test("a missing Space times out and a failed reply stops, once and without retrying", function()
   for _, opts in ipairs({ { noArrival = true }, { spaceError = true } }) do
     local h = harness(opts)
-    -- wm replies only once the display shows the Space.
+    -- windowManager replies only once the display shows the Space.
     h.noReply = opts.noArrival
     local result
     h.module.switchSpace(2, function(ok, message)
