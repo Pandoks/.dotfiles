@@ -65,7 +65,13 @@ end
 local watcher = hs.spaces.watcher
   .new(function()
     local job = jump
-    if not job or hs.spaces.activeSpaces()[job.display] ~= job.landing then
+    if not job then
+      return
+    end
+    local active, err = hs.spaces.activeSpaces()
+    if not active then
+      finish(false, err)
+    elseif active[job.display] ~= job.landing then
       return
     elseif job.landing == job.space then
       finish(true)
@@ -91,7 +97,13 @@ function windowManager.space(index, done)
   end
   local display = target.display
   local screen = hs.screen.find(display)
-  local now = hs.spaces.activeSpaces()[display]
+  local active
+  active, err = hs.spaces.activeSpaces()
+  if not active then
+    done(false, err)
+    return
+  end
+  local now = active[display]
   if not screen or not now then
     done(false, "display unavailable")
     return
@@ -148,17 +160,22 @@ function windowManager.focus(pid, id, done)
   done = done or function() end
   local space = windowManager.spaceOf(id)
   local display = space and hs.spaces.spaceDisplay(space)
-  if not space or not display or hs.spaces.activeSpaces()[display] == space then
+  local active, err = hs.spaces.activeSpaces()
+  if not active then
+    done(false, err)
+    return
+  end
+  if not space or not display or active[display] == space then
     native.focus(pid, id, done)
     return
   end
   for index, row in ipairs(utils.spaces() or {}) do
     if row.ManagedSpaceID == space then
-      windowManager.space(index, function(ok, err)
+      windowManager.space(index, function(ok, failure)
         if ok then
           native.focus(pid, id, done)
         else
-          done(false, err)
+          done(false, failure)
         end
       end)
       return

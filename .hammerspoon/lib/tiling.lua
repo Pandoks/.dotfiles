@@ -275,7 +275,12 @@ function tiling.focus(direction)
   local id = window:id() --[[@as integer]]
   local own = windowManager.spaceOf(id)
   local candidates = {}
-  for _, space in pairs(hs.spaces.activeSpaces() or {}) do
+  local active, err = hs.spaces.activeSpaces()
+  if not active then
+    logger.error("Tiling: " .. err)
+    return
+  end
+  for _, space in pairs(active) do
     if space == own then
       for other, frame in pairs(peers(space, id)) do
         candidates[other] = frame
@@ -300,9 +305,9 @@ function tiling.focus(direction)
     return
   end
   local leaf = tiled[target].leaf
-  windowManager.native.focus(leaf.pid, leaf.id, function(ok, err)
+  windowManager.native.focus(leaf.pid, leaf.id, function(ok, failure)
     if not ok then
-      logger.error("Tiling: focus failed: " .. err)
+      logger.error("Tiling: focus failed: " .. failure)
     end
   end)
 end
@@ -479,6 +484,11 @@ end)
 local dragged = {} ---@type table<integer, boolean>
 tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   local entry = tiled[id]
+  -- A tiled window that stopped qualifying (e.g. entering fullscreen) leaves the tree instead.
+  if entry and not manageable(window) then
+    sync()
+    return
+  end
   local tile = entry and not moving[id] and frames(entry.space)[entry.leaf]
   if not tile or window:frame():equals(tile) then
     return

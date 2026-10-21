@@ -66,7 +66,7 @@ local function harness(rows)
         return row.minimized == true
       end,
       isFullScreen = function()
-        return false
+        return row.fullscreen == true
       end,
       frame = function()
         return h.frames[row.id]
@@ -368,6 +368,14 @@ test("a window moved by hand snaps back, after the drag when the mouse is down",
   h.buttons = {}
   h.release()
   eq(h:frame(1), "0,0 500x600", "the release snaps it back")
+end)
+
+test("a tiled window entering fullscreen leaves the layout instead of snapping back", function()
+  local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
+  h:row(1).fullscreen = true
+  h:drag(1, rect(0, 0, 1000, 600))
+  eq(h:frame(1), "0,0 1000x600", "left alone")
+  eq(h:frame(2), "0,0 1000x600", "the other window takes the Space")
 end)
 
 test("focus reaches a zoomed window on the other display", function()

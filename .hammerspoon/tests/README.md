@@ -16,9 +16,9 @@ allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that never
 falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
 that a Space jump posts all its swipes at once and reports once on arrival, and that
-a press during a jump continues from that jump's target. Neither touches the real window server;
-the native gesture, focus, and Accessibility calls in `lib/window_manager/window_manager.m` were checked
-manually on macOS 27.0.1.
+a press during a jump continues from that jump's target. Neither touches the real window
+server; the native gesture, focus, and Accessibility calls in
+`lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
 
 Run `sh .hammerspoon/tests/previews_test.sh` for the native preview worker pool.
 It uses synthetic images and windows, without Screen Recording access or UI changes.
@@ -82,7 +82,10 @@ The suite covers pointer boundaries, gaps, incomplete rows, scrolling and clippi
 keyboard navigation, clicks, focus-first ordering, stale replies, timeouts,
 concurrent requests, and unavailable or reused windows.
 
-Menu layout responds to both dimensions of the active display's usable frame.
+Menu layout responds to both dimensions of the usable frame of the focused Space's display,
+resolved through `hs.spaces.spaceDisplay(hs.spaces.focusedSpace())` because
+`hs.screen.mainScreen()` can stay on another display while a fullscreen app has focus. If
+that display cannot be resolved, Cmd-Tab logs, shows a popup, and opens no menu.
 Width adds columns, height adds visible rows, and cards adapt between 180 and 320
 logical points (smaller only if a tiny display cannot fit one card). Preferred card
 size follows the shorter screen dimension, so ultrawides cannot inflate previews.
@@ -99,8 +102,8 @@ It runs the production renderer against synthetic windows; native offscreen
 virtual monitors or moving real windows.
 
 The Space-focus suite also checks numbered/Ctrl-arrow shortcuts, Space arrival
-before or after the `window_manager.space` reply, arrival timeouts, superseded requests, direct Space
-notifications, late PiP focus, per-Space window identity, empty desktop fallback,
+before or after the `window_manager.space` reply, arrival timeouts, superseded requests,
+direct Space notifications, late PiP focus, per-Space window identity, empty desktop fallback,
 explicit mouse intent, superseded replies, shutdown, and idle snapshot activity.
 It also checks PiP activation redirects, display boundaries, repeated presses during
 a pending switch, Mission Control key passthrough and focus suppression, and Dock
@@ -125,9 +128,10 @@ armed for those 0.5 s, so a PiP that retakes focus after the redirect is redirec
 again. Later PiP focus, e.g. after closing a window, stays on the current Space. The PiP
 title and bounds come from the WindowServer list; an activation asks the app for its
 focused window only when that list shows a PiP it owns. The target is the app's
-tracked, unminimized non-PiP window with the latest switcher recency (lowest window ID
-without the switcher), read from `lib.window_filter` without a window-list query. A failed
-focus command logs with a popup and is not retried. Space jobs and their transitions
+tracked, unminimized non-PiP window with the latest switcher recency (seeded at load from
+the WindowServer's front-to-back on-screen order; lowest window ID for windows on other
+Spaces, minimized, or hidden at load), read from `lib.window_filter` without a window-list
+query. A failed focus command logs with a popup and is not retried. Space jobs and their transitions
 take priority.
 
 `window_manager.space` posts one synthetic swipe per Space at once, so the display goes
@@ -164,9 +168,9 @@ focus use command callbacks and application/window/Space notifications. Our help
 perform no timed recovery queries or action retries. Deadlines only cancel, log, and
 show an alert; they do not inspect state or try again.
 A missing completion notification can therefore report a timeout even if macOS
-has already changed focus. Window subscriptions use `lib.window_filter`, a shared Accessibility observer per
-application, rather than `hs.window.filter`. Missing IDs, observer errors, and
-unsupported notifications stop tracking the affected process or element and log
+has already changed focus. Window subscriptions use `lib.window_filter`, a shared
+Accessibility observer per application, rather than `hs.window.filter`. Missing IDs,
+observer errors, and unsupported notifications stop tracking the affected process or element and log
 the operation that failed. Space notifications first detach exited apps via `isRunning()`,
 even before their termination callbacks arrive, then re-scan only apps with on-screen
 windows; they never list running applications.
@@ -209,6 +213,9 @@ screen. `hs.window.focusedWindow()` confirms focus on the reply or the window-fo
 event, whichever comes first, without another window query.
 The 200 ms menu delay only controls preview visibility; a quick Cmd-Tab release does
 not wait for it.
+Once Cmd is released, keys are no longer intercepted while the window list is pending, so
+typing reaches the app and cannot change the chosen window. A new Cmd-Tab in that interval
+starts a new cycle and drops the released one.
 
 For a live check after reloading Hammerspoon:
 

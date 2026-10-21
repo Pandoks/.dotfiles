@@ -193,7 +193,7 @@ local function harness(options)
     end)
   end
   local types = { mouseMoved = 1, scrollWheel = 2, keyDown = 3, keyUp = 4, flagsChanged = 5 }
-  local keys = { tab = 48, escape = 53, left = 123, right = 124, ["return"] = 36 }
+  local keys = { a = 0, tab = 48, escape = 53, left = 123, right = 124, ["return"] = 36 }
   local props = {
     scrollWheelEventIsContinuous = 1,
     scrollWheelEventPointDeltaAxis1 = 2,
@@ -320,13 +320,35 @@ local function harness(options)
     },
     keycodes = { map = keys },
     canvas = { new = chainObject },
+    -- `screen` is the focused Space's display; `mainScreen` can lag on another one.
     screen = {
       mainScreen = function()
         return {
           frame = function()
-            return copy(opts.screen or { x = 0, y = -1080, w = 1920, h = 1080 })
+            return copy(opts.mainScreen or opts.screen or { x = 0, y = -1080, w = 1920, h = 1080 })
           end,
         }
+      end,
+      find = function(uuid)
+        return uuid == "focused"
+            and {
+              frame = function()
+                return copy(opts.screen or { x = 0, y = -1080, w = 1920, h = 1080 })
+              end,
+            }
+          or nil
+      end,
+    },
+    spaces = {
+      focusedSpace = function()
+        return 1
+      end,
+      spaceDisplay = function(space)
+        eq(space, 1)
+        if h.displayMissing then
+          return nil, "space not found in managed displays"
+        end
+        return "focused"
       end,
     },
     mouse = {
@@ -378,6 +400,9 @@ local function harness(options)
       end,
     },
     window = {
+      _orderedwinids = function()
+        return copy(opts.order or {})
+      end,
       focusedWindow = function()
         for _, row in ipairs(h.windows) do
           if row["has-focus"] then
@@ -1577,13 +1602,33 @@ test("keyboard can reveal offscreen selection after scrolling", function()
   eq(assert(h:current()).scrollOffset, 0)
   eq(h.menu.status().selected, 1)
 end)
-test("negative screen origin and single-window menu", function()
-  local h = harness({ count = 1, screen = { x = -1440, y = -900, w = 1440, h = 900 } })
+test("menu opens on the focused Space's display, including a negative origin", function()
+  local h = harness({
+    count = 1,
+    screen = { x = -1440, y = -900, w = 1440, h = 900 },
+    mainScreen = { x = 0, y = 0, w = 1920, h = 1080 },
+  })
   h:open()
+  local frame = h.menu.canvas:frame()
+  assert(
+    frame.x >= -1440 and frame.x + frame.w <= 0 and frame.y >= -900 and frame.y + frame.h <= 0,
+    "menu should be inside the focused display"
+  )
   h:move(1, 1)
   eq(h.menu.status().selected, 1)
   h:move(-1, -1)
   eq(h.menu.status().selected, 1)
+end)
+test("an unresolved focused display fails once without opening the menu", function()
+  local h = harness()
+  h.displayMissing = true
+  eq(h:key("keyDown", "tab", { cmd = true }), true)
+  h:release()
+  h:advance(1)
+  eq(#h.commands, 0)
+  eq(h.menu.status().visible, false)
+  eq(h.logs[1], "Window switcher: focused display unavailable")
+  eq(#h.alerts, 1)
 end)
 test("exact-window timeout reports once and stops", function()
   local h = harness({ windowNeverFocuses = true })
@@ -1821,14 +1866,30 @@ test("rapid selections serialize and keep the last request", function()
   eq(h.menu.status().busy, false)
   eq(#h.alerts, 0)
 end)
-test("quick Cmd-Tab release before list arrives still focuses once", function()
+test("quick Cmd-Tab release before list arrives focuses once and passes later keys", function()
   local h = harness()
   h:key("keyDown", "tab", { cmd = true })
   h:release()
+  for _, key in ipairs({ "a", "right", "escape" }) do
+    eq(h:key("keyDown", key, {}), false, key)
+    eq(h:key("keyUp", key, {}), false, key)
+  end
   h:advance(1)
   eq(h.windows[2]["has-focus"], true)
   eq(h.menu.status().visible, false)
   eq(h:commandCount("focus"), 1)
+end)
+test("Cmd-Tab before a released list arrives starts a new cycle", function()
+  local h = harness()
+  h:key("keyDown", "tab", { cmd = true })
+  h:release()
+  h:open()
+  eq(h.menu.status().selected, 2)
+  h:release()
+  h:advance(1)
+  eq(h.windows[2]["has-focus"], true)
+  eq(h:commandCount("focus"), 1)
+  eq(#h.alerts, 0)
 end)
 test("focus notification completes without timed rechecks", function()
   local h = harness({ focusEvents = true })
@@ -2315,12 +2376,26 @@ test("creation under a stationary pointer preserves keyboard selection", functio
   eq(h.menu.status().selected, 2)
 end)
 
-test("the focused window leads the menu", function()
-  local h = harness()
+test("the focused window leads the menu, then focus history, then startup order", function()
+  local h = harness({ order = { 1, 5, 3 } })
+  local function order()
+    local ids = {}
+    for index, window in ipairs(h.menu.status().windows) do
+      ids[index] = window.id
+    end
+    return table.concat(ids, " ")
+  end
+  -- Real focus timestamps are far above the startup ranks.
+  h:advance(1000)
   h:setWindowFocus(2)
   h:open()
-  eq(h.menu.status().windows[1].id, 2)
+  eq(order(), "2 1 5 3 4 6 7 8 9")
   eq(h.menu.status().selected, 1)
+  h:release()
+  h:advance(1)
+  eq(h.windows[1]["has-focus"], true)
+  h:open()
+  eq(order(), "1 2 5 3 4 6 7 8 9")
 end)
 
 test(

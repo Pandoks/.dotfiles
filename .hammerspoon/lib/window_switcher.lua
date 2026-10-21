@@ -626,7 +626,8 @@ local function cancel()
 end
 
 local function step(direction)
-  if cycle then
+  -- A released cycle already chose its window; a new press supersedes it.
+  if cycle and not cycle.released then
     cycle.showRequested = true
     cycle.delayTimer:stop()
     if cycle.windows then
@@ -638,13 +639,20 @@ local function step(direction)
     end
     return
   end
+  -- The main screen can stay on another display while a fullscreen app has focus.
+  local display = hs.screen.find(hs.spaces.spaceDisplay(hs.spaces.focusedSpace()))
+  if not display then
+    hs.printf("Window switcher: focused display unavailable")
+    hs.alert.show("Focused display unavailable")
+    return
+  end
   local current = {
     steps = direction,
     images = {},
     prepared = {},
     added = {},
     closed = {},
-    screen = hs.screen.mainScreen():frame(),
+    screen = display:frame(),
   }
   cycle = current
   current.delayTimer = hs.timer.doAfter(menuDelay, function()
@@ -817,7 +825,7 @@ switcher.tap = hs.eventtap
       step(flags.shift and -1 or 1)
       return true
     end
-    if cycle then
+    if cycle and not cycle.released then
       if key == keys.escape then
         swallowed[key] = true
         cancel()
@@ -839,6 +847,11 @@ switcher.tap = hs.eventtap
 
 -- Unfiltered, so title changes into and out of PiP still arrive.
 switcher.windows = filter.new()
+-- Seed recency below any focus timestamp from front-to-back order; other Spaces stay unordered.
+local ordered = (hs.window --[[@as { _orderedwinids: fun(): integer[] }]])._orderedwinids()
+for index, id in ipairs(ordered) do
+  recent[id] = #ordered - index + 1
+end
 switcher.windows:subscribe(filter.windowFocused, function(window)
   local id = assert(window:id())
   recent[id] = hs.timer.secondsSinceEpoch()

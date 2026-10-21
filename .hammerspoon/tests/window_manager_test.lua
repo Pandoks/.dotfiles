@@ -41,6 +41,9 @@ local function harness()
           end,
         },
         activeSpaces = function()
+          if h.unavailable then
+            return nil, "Spaces unavailable"
+          end
           return { d = h.current }
         end,
       },
@@ -115,6 +118,14 @@ test("presses during a jump wait for its swipes to land, then continue from ther
     eq(h.results[2], "superseded")
     eq(h.results[case.second], "ok")
   end
+end)
+
+test("an unreadable Space layout fails at once instead of waiting for the timeout", function()
+  local h = harness()
+  h.unavailable = true
+  h:space(3)
+  eq(h.results[3], "Spaces unavailable")
+  eq(h.steps, 0)
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")
