@@ -11,8 +11,7 @@ local function attach(dock)
   end
 end
 
--- The Dock shows its "mc" element while Mission Control is open. macOS 27 no longer posts the
--- Dock's AXExpose notifications, so read it when asked; a read takes well under a millisecond.
+-- macOS 27 posts no Dock overview notifications, so read the Dock's "mc" element when asked.
 function module.isActive()
   assert(not failure, failure)
   if stopped or not element then

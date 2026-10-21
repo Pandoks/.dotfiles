@@ -215,8 +215,7 @@ local function current(window)
   return entry
 end
 
--- Nearest tiled window whose edge faces `direction`, by gap, then perpendicular center distance,
--- then top-most and left-most.
+-- Nearest tiled window facing `direction`: smallest gap, then closest center, then top-left.
 ---@param from hs.geometry
 ---@param direction string
 ---@param candidates table<integer, hs.geometry>
