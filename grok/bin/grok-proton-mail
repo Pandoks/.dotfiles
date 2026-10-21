@@ -113,9 +113,8 @@ fi
 if [ "$help" = false ] && [ "$command" != 'account list' ]; then
   for port in 1143 $([ "$smtp" = false ] || echo 1025); do
     if ! nc -z -G 2 127.0.0.1 "$port" 2> /dev/null; then
-      echo "grok-proton-mail: Proton Mail Bridge isn't listening on 127.0.0.1:$port." \
-        "Check 'launchctl print gui/$(id -u)/dev.mise.proton-bridge'" \
-        "and ~/grok/logs/proton-bridge.log" >&2
+      echo "grok-proton-mail: Proton Mail Bridge isn't listening on 127.0.0.1:$port;" \
+        "open the Proton Mail Bridge app" >&2
       exit 1
     fi
   done

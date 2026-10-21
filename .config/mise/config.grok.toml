@@ -12,14 +12,6 @@ mode = "0700"
 [bootstrap.directories."~/grok/config/proton-pass/manda"]
 mode = "0700"
 
-[bootstrap.macos.launchd.agents.proton-bridge]
-program = "/Applications/Proton Mail Bridge.app/Contents/MacOS/bridge"
-args = ["--noninteractive"]
-run_at_load = true
-keep_alive = true
-stdout_path = "~/grok/logs/proton-bridge.log"
-stderr_path = "~/grok/logs/proton-bridge.log"
-
 [dotfiles]
 "~/grok/bin/grok-pass" = "../../grok/bin/grok-pass"
 "~/grok/bin/grok-proton-mail" = "../../grok/bin/grok-proton-mail"
