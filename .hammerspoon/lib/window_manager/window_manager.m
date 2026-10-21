@@ -308,7 +308,7 @@ static int focus(lua_State *state) {
     AXUIElementRef window = copyWindow(pid, windowID);
     if (!window) return @"window unavailable";
 
-    // Same sequence as yabai: front process, key-window event records, then raise.
+    // Front process, key-window event records, then raise.
     CGError fronted = setFront(&process, windowID, 0x200);
     uint8_t record[0xf8] = { [0x04] = 0xf8, [0x3a] = 0x10 };
     memcpy(record + 0x3c, &windowID, sizeof windowID);
