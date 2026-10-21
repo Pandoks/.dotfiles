@@ -194,7 +194,92 @@ this toggle on. It's stored in the account's auth file, not in this repo.
 mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
 ```
 
+## Grok
+
+On macOS, the `grok` profile gives Grok agents wrappers in `~/grok/bin` for
+Proton and a browser:
+
+```sh
+mise -E grok bootstrap --yes
+```
+
+### Proton
+
+- `grok-pass` runs `pass-cli` as you, or as Manda with `--manda` first.
+- `grok-proton-mail` reads mail and saves drafts through Proton Mail Bridge;
+  it can't send.
+- `grok-proton-drive` lists, reads and copies files inside the Proton Drive
+  folder only.
+
+Sign in once. Each Pass login opens a browser:
+
+```sh
+PROTON_PASS_SESSION_DIR=~/grok/config/proton-pass/pandoks pass-cli login
+PROTON_PASS_SESSION_DIR=~/grok/config/proton-pass/manda pass-cli login
+```
+
+Bridge runs headless from the `dev.mise.proton-bridge` LaunchAgent and allows
+one instance, so stop it, then run `login` for each account and `info N` for
+its password in Bridge's CLI:
+
+```sh
+launchctl bootout "gui/$(id -u)/dev.mise.proton-bridge"
+"/Applications/Proton Mail Bridge.app/Contents/MacOS/bridge" --cli
+```
+
+Store each password in the Keychain (it prompts), start the agent again, and
+save Bridge's certificate:
+
+```sh
+security add-generic-password -U -s grok-proton-bridge -a pandoks@example.com -w
+security add-generic-password -U -s grok-proton-bridge -a manda@example.com -w
+mise -E grok bootstrap --yes
+until nc -z -G 1 127.0.0.1 1143; do sleep 1; done
+openssl s_client -connect 127.0.0.1:1143 -starttls imap < /dev/null 2> /dev/null \
+  | openssl x509 -out ~/grok/config/himalaya/proton-bridge-cert.pem
+```
+
+Don't open the Bridge app: it would fight the agent for the single instance.
+
+### Browser
+
+`~/grok/bin/grok-browser` lets Grok agents drive [Helium] through
+Playwright. It runs Helium on its own profile,
+`~/grok/config/helium-grokbot-profile`, with DevTools on `127.0.0.1:9333`, and
+never touches Helium windows on your everyday profile.
+
+Sign in once: run `~/grok/bin/grok-browser start`, log into the sites agents
+need in the window that opens, then leave it running or run
+`~/grok/bin/grok-browser stop`. Cookies stay in the grokbot profile.
+
+```sh
+~/grok/bin/grok-browser start | stop | status
+~/grok/bin/grok-browser run script.js  # see below
+~/grok/bin/grok-browser open URL
+~/grok/bin/grok-browser screenshot URL out.png
+~/grok/bin/grok-browser dump URL       # prints the page text
+```
+
+`run` scripts are CommonJS (`import` won't find Playwright):
+
+```js
+const { chromium } = require("playwright-core");
+
+(async () => {
+  const browser = await chromium.connectOverCDP(process.env.GROK_BROWSER_CDP_URL);
+  const page = await browser.contexts()[0].newPage();
+  await page.goto("https://example.com");
+  console.log(await page.title());
+  await browser.close(); // disconnects; Helium keeps running
+})();
+```
+
+Logs go to `~/grok/logs/grok-browser.log`. Helium's built-in content blocking
+(uBlock Origin) can break some sites; turn it off for that site in the grokbot
+window.
+
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
+[Helium]: https://helium.computer/
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/

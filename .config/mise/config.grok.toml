@@ -1,0 +1,32 @@
+# Grok agent access on macOS: Proton Pass, Mail and Drive, and a Helium
+# browser driven by Playwright. Apply with `mise -E grok bootstrap --yes`.
+
+[tools]
+"aqua:pimalaya/himalaya" = "2.2.1"
+"npm:playwright-core" = "latest" # for grok-browser
+
+[bootstrap.packages]
+"brew-cask:proton-mail-bridge" = { version = "latest", adopt = true }
+
+[bootstrap.directories."~/grok/logs"]
+[bootstrap.directories."~/grok/cache/proton-mail"]
+[bootstrap.directories."~/grok/config/proton-pass/pandoks"]
+mode = "0700"
+[bootstrap.directories."~/grok/config/proton-pass/manda"]
+mode = "0700"
+
+# Headless Bridge serving IMAP on 127.0.0.1:1143 for grok-proton-mail
+[bootstrap.macos.launchd.agents.proton-bridge]
+program = "/Applications/Proton Mail Bridge.app/Contents/MacOS/bridge"
+args = ["--noninteractive"]
+run_at_load = true
+keep_alive = true
+stdout_path = "~/grok/logs/proton-bridge.log"
+stderr_path = "~/grok/logs/proton-bridge.log"
+
+[dotfiles]
+"~/grok/bin/grok-pass" = "../../grok/bin/grok-pass"
+"~/grok/bin/grok-proton-mail" = "../../grok/bin/grok-proton-mail"
+"~/grok/bin/grok-proton-drive" = "../../grok/bin/grok-proton-drive"
+"~/grok/bin/grok-browser" = "../../grok/bin/grok-browser"
+"~/grok/config/himalaya/config.toml" = "../../grok/config/himalaya/config.toml"
