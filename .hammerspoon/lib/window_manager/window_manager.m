@@ -215,10 +215,11 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
   }
   NSMutableSet<NSNumber *> *missing = [wanted mutableCopy];
   for (NSNumber *windowID in wanted) {
-    if (cache[windowID] || [skipped containsObject:windowID]) [missing removeObject:windowID];
+    if (cache[windowID]) [missing removeObject:windowID];
   }
   if (!missing.count) return cache;
 
+  // AXWindows is rechecked every time: a window can gain its element after a search missed it.
   AXUIElementRef app = application(pid);
   for (id element in attribute(app, kAXWindowsAttribute) ?: @[]) {
     CGWindowID windowID = 0;
@@ -227,6 +228,7 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     [missing removeObject:@(windowID)];
   }
   CFRelease(app);
+  [missing minusSet:skipped];
   if (!missing.count) return cache;
 
   uint8_t token[0x14] = { 0 };
@@ -307,14 +309,18 @@ static int focus(lua_State *state) {
     if (!window) return @"window unavailable";
 
     // Same sequence as yabai: front process, key-window event records, then raise.
-    setFront(&process, windowID, 0x200);
+    CGError fronted = setFront(&process, windowID, 0x200);
     uint8_t record[0xf8] = { [0x04] = 0xf8, [0x3a] = 0x10 };
     memcpy(record + 0x3c, &windowID, sizeof windowID);
     memset(record + 0x20, 0xFF, 0x10);
     record[0x08] = 0x01;
-    postRecord(&process, record);
+    CGError pressed = fronted ?: postRecord(&process, record);
     record[0x08] = 0x02;
-    postRecord(&process, record);
+    CGError released = pressed ?: postRecord(&process, record);
+    if (released != kCGErrorSuccess) {
+      CFRelease(window);
+      return [NSString stringWithFormat:@"focus failed (%d)", released];
+    }
     AXError raised = AXUIElementPerformAction(window, kAXRaiseAction);
     CFRelease(window);
     if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
@@ -405,7 +411,7 @@ static int windows(lua_State *state) {
   // Background processes own windows too, but never answer for them.
   NSMutableSet<NSNumber *> *apps = [NSMutableSet set];
   for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
-    if (app.activationPolicy != NSApplicationActivationPolicyProhibited) [apps addObject:@(app.processIdentifier)];
+    if (app.activationPolicy == NSApplicationActivationPolicyRegular) [apps addObject:@(app.processIdentifier)];
   }
   [apps removeObject:@(getpid())];
   for (NSDictionary *info in list) {
@@ -426,6 +432,10 @@ static int windows(lua_State *state) {
     NSSet *wanted = [owners[owner] copy];
     pid_t pid = owner.intValue;
     dispatch_group_async(group, queueFor(pid), ^{
+      // Ids that left the window server may come back for new windows; search those again.
+      @synchronized(elements) {
+        [absent[@(pid)] intersectSet:wanted];
+      }
       NSMutableArray *found = [NSMutableArray array];
       NSDictionary<NSNumber *, id> *cache = resolve(pid, wanted);
       for (NSNumber *key in wanted) {
@@ -504,28 +514,29 @@ static const luaL_Reg functions[] = {
 
 int luaopen_window_manager(lua_State *state) {
   if (!keepImageLoaded()) return luaL_error(state, "could not retain window_manager library");
-  if (!copySpaces) {
+  static BOOL loaded;
+  if (!loaded) {
     void *skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW | RTLD_LOCAL);
     void *services = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_NOW);
     if (!skyLight || !services) return luaL_error(state, "SkyLight unavailable");
-    int (*mainConnection)(void) = NULL;
-    struct { void *library; const char *name; void *address; size_t size; } symbols[] = {
-      { skyLight, "SLSMainConnectionID", &mainConnection, sizeof mainConnection },
-      { skyLight, "_SLPSSetFrontProcessWithOptions", &setFront, sizeof setFront },
-      { skyLight, "SLPSPostEventRecordTo", &postRecord, sizeof postRecord },
-      { skyLight, "SLSCopySpacesForWindows", &copySpaces, sizeof copySpaces },
-      { services, "_AXUIElementCreateWithRemoteToken", &remoteElement, sizeof remoteElement },
-    };
-    for (size_t index = 0; index < sizeof symbols / sizeof *symbols; index++) {
-      void *symbol = dlsym(symbols[index].library, symbols[index].name);
-      if (!symbol) return luaL_error(state, "%s unavailable", symbols[index].name);
-      memcpy(symbols[index].address, &symbol, symbols[index].size);
+    const char *names[] = { "SLSMainConnectionID", "_SLPSSetFrontProcessWithOptions", "SLPSPostEventRecordTo",
+      "SLSCopySpacesForWindows", "_AXUIElementCreateWithRemoteToken" };
+    void *found[5];
+    for (size_t index = 0; index < 5; index++) {
+      found[index] = dlsym(index == 4 ? services : skyLight, names[index]);
+      if (!found[index]) return luaL_error(state, "%s unavailable", names[index]);
     }
-    connection = mainConnection();
+    // Published only once every symbol resolved, so a failed load fails again on reload.
+    connection = ((int (*)(void))found[0])();
+    setFront = found[1];
+    postRecord = found[2];
+    copySpaces = found[3];
+    remoteElement = found[4];
     queues = [NSMutableDictionary dictionary];
     elements = [NSMutableDictionary dictionary];
     absent = [NSMutableDictionary dictionary];
     frames = [NSMutableDictionary dictionary];
+    loaded = YES;
   }
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   refTable = [skin registerLibrary:"window_manager" functions:functions metaFunctions:nil];

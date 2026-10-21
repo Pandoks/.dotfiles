@@ -365,7 +365,7 @@ local function harness(options)
             return (owner(pid) or {}).app
           end,
           bundleID = function()
-            return opts.icons and "test.app." .. pid or nil
+            return opts.icons and ((owner(pid) or {}).bundle or ("test.app." .. pid)) or nil
           end,
           isHidden = function()
             return hidden(pid)
@@ -396,7 +396,11 @@ local function harness(options)
             if row and row.subrole == "AXDialog" and not row.minimizable then
               return nil
             end
-            if window and window:application():pid() == pid and self.predicate(window) then
+            if
+              window
+              and window:application():pid() == pid
+              and (not self.predicate or self.predicate(window))
+            then
               return window
             end
           end
@@ -504,12 +508,18 @@ local function harness(options)
         return row["is-minimized"]
       end,
       application = function()
+        if row.exited then
+          return nil
+        end
         return {
           pid = function()
             return row.pid
           end,
           name = function()
             return row.app
+          end,
+          bundleID = function()
+            return opts.icons and (row.bundle or ("test.app." .. row.pid)) or nil
           end,
           isHidden = function()
             return row["is-hidden"]
@@ -533,7 +543,7 @@ local function harness(options)
       (
         not self.hs.window.filter.blacklist[row.subrole]
         or (row.subrole == "AXDialog" and row.minimizable)
-      ) and self.menu.windows.predicate(window)
+      ) and (not self.menu.windows.predicate or self.menu.windows.predicate(window))
     then
       callback(window, row.app, self.hs.window.filter[event], row.id)
     end
@@ -901,6 +911,22 @@ test("reused window IDs cannot reuse another process's cached preview", function
   h:open()
   eq(assert(h:current()).images[1], nil)
   eq(h.draws[#h.draws].images, 8)
+end)
+
+test("reused process IDs show the new application's icon", function()
+  local h = harness({ icons = true })
+  h:open()
+  h:key("keyDown", "escape", {})
+  h.windows[2].app, h.windows[2].bundle = "Other", "test.app.other"
+  h:open()
+  local bundles = {}
+  for _, element in ipairs(h.menu.canvas.elements) do
+    if element.image and element.image.bundle then
+      bundles[element.image.bundle] = true
+    end
+  end
+  eq(bundles["test.app.102"], nil, "exited application's icon")
+  eq(bundles["test.app.other"], true, "new application's icon")
 end)
 
 test("destroyed windows cannot repopulate the preview cache", function()
@@ -2073,10 +2099,11 @@ test("window events do no work while the switcher is idle or stopped", function(
   eq(#h.captures, 0)
 end)
 
-test("ineligible new windows stay excluded", function()
+test("ineligible or vanished new windows stay excluded", function()
   local h = harness()
   h:open()
   for _, changes in ipairs({
+    { exited = true },
     { title = "Picture-in-Picture" },
     { title = "PiP" },
     { subrole = "AXDialog" },
@@ -2116,6 +2143,29 @@ test("closing a window updates the menu and preserves the selected identity", fu
   h:notify("windowDestroyed", h.windows[2])
   h:advance(0)
   eq(h.menu.status().selected, 3)
+end)
+
+test("windows entering Picture-in-Picture leave the menu and rejoin when leaving it", function()
+  local h = harness()
+  h.windows[3].title = "Picture-in-Picture"
+  h:open()
+  eq(#h.menu.status().windows, 8)
+  eq(h.menu.status().selected, 2)
+  h.windows[2].title = "PiP"
+  h:notify("windowTitleChanged", h.windows[2])
+  h.windows[3].title = "Window 3"
+  h:notify("windowTitleChanged", h.windows[3])
+  h:advance(0)
+  local ids = {}
+  for _, window in ipairs(h.menu.status().windows) do
+    ids[#ids + 1] = window.id
+  end
+  eq(table.concat(ids, " "), "1 4 5 6 7 8 9 3")
+  eq(h.menu.status().selected, 4)
+  h:release()
+  h:advance(0.1)
+  eq(h.windows[4]["has-focus"], true)
+  eq(#h.alerts, 0)
 end)
 
 test("closing the final window cancels the menu and pending previews", function()

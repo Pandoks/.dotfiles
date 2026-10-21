@@ -53,6 +53,7 @@ local function describe(rows)
         id = row.id,
         pid = row.pid,
         app = app:name(),
+        bundle = app:bundleID(),
         title = row.title,
         role = row.role,
         subrole = row.subrole,
@@ -66,13 +67,12 @@ local function describe(rows)
   return out
 end
 
+-- Keyed by bundle: macOS can reuse an exited app's PID.
 local function icon(window)
-  if not icons[window.pid] then
-    local app = hs.application.applicationForPID(window.pid)
-    local bundle = app and app:bundleID()
-    icons[window.pid] = bundle and hs.image.imageFromAppBundle(bundle) or nil
+  if window.bundle and not icons[window.bundle] then
+    icons[window.bundle] = hs.image.imageFromAppBundle(window.bundle)
   end
-  return icons[window.pid]
+  return icons[window.bundle]
 end
 
 local function hide()
@@ -837,9 +837,8 @@ switcher.tap = hs.eventtap
   end)
   :start() --[[@as hs.eventtap]]
 
-switcher.windows = filter.new(function(window)
-  return not isPiP(window:title())
-end)
+-- Unfiltered, so title changes into and out of PiP still arrive.
+switcher.windows = filter.new()
 switcher.windows:subscribe(filter.windowFocused, function(window)
   local id = assert(window:id())
   recent[id] = hs.timer.secondsSinceEpoch()
@@ -847,9 +846,9 @@ switcher.windows:subscribe(filter.windowFocused, function(window)
     operation.confirmFocus(true)
   end
 end)
-switcher.windows:subscribe(filter.windowCreated, function(window, name, _, id)
+local function created(window, name, _, id)
   local current = cycle
-  if not current or current.released or name == "Hammerspoon" then
+  if not current or current.released or name == "Hammerspoon" or isPiP(window:title()) then
     return
   end
   for _, row in ipairs(current.windows or {}) do
@@ -861,8 +860,12 @@ switcher.windows:subscribe(filter.windowCreated, function(window, name, _, id)
     return
   end
   -- The Accessibility event can arrive before the window list includes this window.
-  local app = assert(window:application(), "new window application unavailable")
-  local element = assert(hs.axuielement.windowElement(window))
+  local app = window:application()
+  local element = app and hs.axuielement.windowElement(window)
+  if not element then
+    -- Already closed; its destruction event follows.
+    return
+  end
   local parent = element:attributeValue("AXParent")
   if parent and parent:attributeValue("AXRole") ~= "AXApplication" then
     return
@@ -871,6 +874,7 @@ switcher.windows:subscribe(filter.windowCreated, function(window, name, _, id)
     id = id,
     pid = app:pid(),
     app = name,
+    bundle = app:bundleID(),
     title = window:title() or "",
     ["has-focus"] = false,
     ["is-minimized"] = window:isMinimized(),
@@ -886,8 +890,8 @@ switcher.windows:subscribe(filter.windowCreated, function(window, name, _, id)
   if current.showRequested then
     show(current)
   end
-end)
-switcher.windows:subscribe(filter.windowDestroyed, function(_, _, _, id)
+end
+local function destroyed(_, _, _, id)
   if captures[id] then
     captures[id].cancel()
     captures[id] = nil
@@ -915,7 +919,9 @@ switcher.windows:subscribe(filter.windowDestroyed, function(_, _, _, id)
       return
     end
   end
-end)
+end
+switcher.windows:subscribe(filter.windowCreated, created)
+switcher.windows:subscribe(filter.windowDestroyed, destroyed)
 
 switcher.windows:subscribe({
   filter.windowMoved,
@@ -924,7 +930,7 @@ switcher.windows:subscribe({
   filter.windowUnminimized,
   filter.windowHidden,
   filter.windowUnhidden,
-}, function(window, _, event, id)
+}, function(window, name, event, id)
   if stopped then
     return
   end
@@ -932,6 +938,17 @@ switcher.windows:subscribe({
   local capture = event == filter.windowMinimized or event == filter.windowHidden
   if not capture and (not current or current.released) then
     return
+  end
+  -- Windows entering PiP leave like closed ones; windows leaving it join like new ones.
+  local title = window:title() or ""
+  if isPiP(title) then
+    if event == filter.windowTitleChanged then
+      destroyed(window, name, event, id)
+    end
+    return
+  end
+  if event == filter.windowTitleChanged then
+    created(window, name, event, id)
   end
   local app = window:application()
   if not app then
@@ -989,7 +1006,7 @@ switcher.windows:subscribe({
       if pid ~= row.pid then
         return
       end
-      row.title = window:title() or ""
+      row.title = title
       row["is-minimized"] = window:isMinimized()
       row["is-hidden"] = app:isHidden()
       current.prepared[id] = capture and row or nil

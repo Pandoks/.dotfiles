@@ -28,6 +28,7 @@ local tiling = {}
 local trees = {} ---@type table<integer, TileNode>
 local tiled = {} ---@type table<integer, TileWindow>
 local floating = {} ---@type table<integer, boolean>
+local moving = {} ---@type table<integer, integer> frame updates in flight per window
 local stopped = false
 
 local function isPiP(title)
@@ -38,7 +39,9 @@ end
 ---@param space integer
 ---@return hs.geometry?
 local function area(space)
-  local screen = hs.screen.find(hs.spaces.spaceDisplay(space) or "")
+  -- A string hint matches screen names too, so a missing display must not reach `find`.
+  local display = hs.spaces.spaceDisplay(space)
+  local screen = display and hs.screen.find(display)
   return screen and screen:frame()
 end
 
@@ -81,7 +84,9 @@ end
 local function apply(space)
   for leaf, frame in pairs(frames(space)) do
     local id = leaf.id
+    moving[id] = (moving[id] or 0) + 1
     windowManager.frame(leaf.pid, id, frame.x, frame.y, frame.w, frame.h, function(ok, err)
+      moving[id] = moving[id] > 1 and moving[id] - 1 or nil
       if not ok and tiled[id] then
         logger.error(string.format("Tiling: window %d: %s", id, err))
       end
@@ -168,11 +173,13 @@ local function sync()
   for _, window in ipairs(tiling.windows:getWindows()) do
     if manageable(window) then
       ids[#ids + 1] = window:id()
-      windows[window:id()] = window
+      windows[#windows + 1] = window
     end
   end
+  -- Most recently used first, so a reload builds the same layout.
   local spaces = windowManager.native.spaces(ids)
-  for id, window in pairs(windows) do
+  for index, window in ipairs(windows) do
+    local id = ids[index]
     local space = spaces[id]
     local entry = tiled[id]
     if space and area(space) then
@@ -265,12 +272,26 @@ function tiling.focus(direction)
     logger.error("Tiling: no focused window")
     return
   end
+  local id = window:id() --[[@as integer]]
+  local own = windowManager.spaceOf(id)
   local candidates = {}
   for _, space in pairs(hs.spaces.activeSpaces() or {}) do
-    for id, frame in
-      pairs(peers(space, window:id() --[[@as integer]]))
-    do
-      candidates[id] = frame
+    if space == own then
+      for other, frame in pairs(peers(space, id)) do
+        candidates[other] = frame
+      end
+    else
+      -- On another display, a zoomed window is the only one showing.
+      local shown = frames(space)
+      for leaf, frame in pairs(shown) do
+        if leaf.zoom then
+          shown = { [leaf] = frame }
+          break
+        end
+      end
+      for leaf, frame in pairs(shown) do
+        candidates[leaf.id] = frame
+      end
     end
   end
   local target = neighbor(window:frame(), direction, candidates)
@@ -453,6 +474,30 @@ tiling.windows:subscribe({
   end
   sync()
 end)
+
+-- Windows moved or resized by hand snap back to their tile, after the drag when there is one.
+local dragged = {} ---@type table<integer, boolean>
+tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
+  local entry = tiled[id]
+  local tile = entry and not moving[id] and frames(entry.space)[entry.leaf]
+  if not tile or window:frame():equals(tile) then
+    return
+  end
+  if hs.mouse.getButtons()[1] then
+    dragged[entry.space] = true
+  else
+    apply(entry.space)
+  end
+end)
+tiling.release = hs.eventtap
+  .new({ hs.eventtap.event.types.leftMouseUp }, function()
+    for space in pairs(dragged) do
+      apply(space)
+    end
+    dragged = {}
+    return false
+  end)
+  :start() --[[@as hs.eventtap]]
 tiling.spaces = hs.spaces.watcher.new(sync):start() --[[@as hs.spaces.watcher]]
 tiling.screens = hs.screen.watcher
   .new(function()
@@ -483,6 +528,7 @@ end
 
 function tiling.stop()
   stopped = true
+  tiling.release:stop()
   tiling.spaces:stop()
   tiling.screens:stop()
   tiling.windows:delete()

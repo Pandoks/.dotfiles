@@ -69,6 +69,10 @@ reordering existing cards or changing the selection. Only missing visible previe
 capturing. Events received during the initial window query are merged into its
 reply, so a stale list cannot lose a new window or restore a closed one. Closing
 windows removes their cards and preserves selection on the same surviving window.
+A title change into Picture-in-Picture removes the card the same way; a change out of it
+adds the card like a new window. Creation events for windows that vanish before they can
+be read are ignored. App icons are cached by bundle identifier, so a reused process ID
+cannot show another app's icon.
 
 The real switcher runs in an isolated model of Hammerspoon, `lib.window_manager` replies,
 window focus, event notifications, and timers. The suite does not launch
@@ -171,7 +175,8 @@ as normal switcher windows, including Maps while minimized. Dialogs without that
 capability, system dialogs, floating panels, and child windows remain excluded.
 Tracking failures recheck process liveness: an exited app is removed quietly,
 including its cached windows; a running app still logs and shows a popup once, then
-stops the affected observer or window registration. No Accessibility request is retried.
+stops the affected observer or window registration and sends `windowDestroyed` for
+windows it had already published. No Accessibility request is retried.
 Failed registrations are not retried; relaunch the app or reload Hammerspoon
 to try again. Accessory/menu-bar apps, background helpers, and nonstandard windows
 are excluded before registration, except fullscreen `AXUnknown` windows. Borderless
@@ -185,6 +190,8 @@ main windows on inactive Spaces. Later discovery uses creation, foreground focus
 or Space notifications. Activation during an app's launch waits for the launch-complete
 event before accessing Accessibility, so early activation cannot permanently fail
 its observer. Background launches attach at completion without waiting for focus.
+An app seeded by a reload before its launch completed, and whose setup failed, is attached
+once more when its launch-complete event arrives.
 
 Command failures are logged when their callbacks return. Log output goes to the
 Hammerspoon console and, through lib.logger, ~/Library/Logs/Hammerspoon/config.log.

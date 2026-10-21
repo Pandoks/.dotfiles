@@ -354,6 +354,18 @@ test("background Messaging failed errors log, alert, and stop without retries", 
   assert(model.attributeReads == 1 and #model.logs == 1 and #model.alerts == 1)
 end)
 
+test("launch completion replaces an app that failed while seeded mid-launch", function()
+  local options = { unresponsive = true }
+  local model = setup(options)
+  assert(#model.logs == 1 and #model.observers == 0)
+  options.unresponsive = false
+  model.appCallback("Browser", 2, model.app)
+  assert(#model.observers == 0 and model.attributeReads == 1)
+  model.appCallback("Browser", 1, model.app)
+  assert(#model.observers == 1 and model.observers[1].active)
+  assert(#model.filter:getWindows() == 1 and #model.logs == 1)
+end)
+
 test("blacklisted panels are excluded before conversion or registration", function()
   local model = setup()
   local registrations = model.registrations
@@ -579,6 +591,23 @@ test("unsupported window notification stops registration and reports once", func
   assert(model.registrations == registrations and #model.logs == 1)
 end)
 
+test("a published window failing a later subscription is destroyed once", function()
+  local options = {}
+  local model = setup(options)
+  local destroyed = 0
+  model.filter:subscribe(model.module.windowDestroyed, function(_, _, _, id)
+    assert(id == 100)
+    destroyed = destroyed + 1
+  end)
+  options.unsupported = "AXWindowMoved"
+  model.filter:subscribe(model.module.windowMoved, function() end)
+  assert(destroyed == 1 and #model.filter:getWindows() == 0)
+  assert(#model.logs == 1 and #model.alerts == 1)
+  model:emit(model.first, "AXUIElementDestroyed")
+  model.appCallback("Browser", 3, model.app)
+  assert(destroyed == 1)
+end)
+
 test("unsupported application notification stops the observer without retry", function()
   local model = setup({ unsupported = "AXFocusedWindowChanged" })
   assert(not model.observers[1].active and #model.logs == 1 and #model.alerts == 1)
@@ -603,15 +632,20 @@ end)
 test("Space snapshots are event-driven and stop on their first failure", function()
   local model = setup()
   local second = model:window(200)
-  local reads = model.reads
+  local reads, destroyed = model.reads, 0
+  model.filter:subscribe(model.module.windowDestroyed, function()
+    destroyed = destroyed + 1
+  end)
   assert(#model.filter:getWindows() == 1 and model.reads == reads)
   model.spaceCallback()
   assert(#model.filter:getWindows() == 2 and model.reads == reads + 1)
   model.snapshotError = true
   model.spaceCallback()
   assert(#model.logs == 1 and #model.alerts == 1 and not model.observers[1].active)
+  assert(destroyed == 2 and #model.filter:getWindows() == 0)
   model.spaceCallback()
-  assert(model.reads == reads + 2 and #model.logs == 1)
+  model.appCallback("Browser", 3, model.app)
+  assert(model.reads == reads + 2 and #model.logs == 1 and destroyed == 2)
   assert(second.id == 200)
 end)
 

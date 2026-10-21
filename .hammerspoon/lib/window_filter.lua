@@ -119,6 +119,28 @@ local function emit(app, record, event)
   end
 end
 
+-- Stops the observer and retires its published windows once.
+---@param app WindowObserver
+local function retire(app)
+  if app.observer then
+    app.observer:stop()
+  end
+  for _, record in ipairs(app.windows) do
+    if not record.failed then
+      record.failed = true
+      emit(app, record, module.windowDestroyed)
+    end
+  end
+end
+
+---@param app WindowObserver
+---@param message string
+local function disable(app, message)
+  app.failed = true
+  retire(app)
+  failure(app, message)
+end
+
 ---@param app WindowObserver
 ---@param record WindowRecord
 local function unwatch(app, record)
@@ -141,6 +163,7 @@ local function watch(app, record)
       if not ok then
         record.failed = true
         unwatch(app, record)
+        emit(app, record, module.windowDestroyed)
         failure(app, notification .. ": " .. tostring(err))
         return
       end
@@ -296,9 +319,7 @@ local function attach(application)
       end
       local handled, failureMessage = xpcall(changed, debug.traceback, app, window, event)
       if not handled then
-        app.failed = true
-        observer:stop()
-        failure(app, event .. ": " .. tostring(failureMessage))
+        disable(app, event .. ": " .. tostring(failureMessage))
       end
     end)
     -- Subscribe before the snapshot so initialization cannot lose an event.
@@ -314,11 +335,7 @@ local function attach(application)
     focused(app)
   end)
   if not ok then
-    app.failed = true
-    if app.observer then
-      app.observer:stop()
-    end
-    failure(app, "observer setup: " .. tostring(err))
+    disable(app, "observer setup: " .. tostring(err))
   end
 end
 
@@ -329,14 +346,7 @@ detach = function(pid)
     return
   end
   apps[pid] = nil
-  if app.observer then
-    app.observer:stop()
-  end
-  for _, record in ipairs(app.windows) do
-    if not record.failed then
-      emit(app, record, module.windowDestroyed)
-    end
-  end
+  retire(app)
 end
 
 ---@param predicate? string|fun(window: hs.window): boolean?
@@ -373,6 +383,10 @@ function module.new(predicate)
         return
       elseif event == events.launched then
         launching[pid] = nil
+        -- A reload can seed an app before its launch completes.
+        if apps[pid] and apps[pid].failed then
+          apps[pid] = nil
+        end
       end
       if event == events.launched or event == events.activated then
         attach(application)
@@ -384,9 +398,7 @@ function module.new(predicate)
       if event == events.activated then
         local ok, err = pcall(focused, app)
         if not ok then
-          app.failed = true
-          app.observer:stop()
-          failure(app, "focused window: " .. tostring(err))
+          disable(app, "focused window: " .. tostring(err))
         end
       elseif event == events.hidden or event == events.unhidden then
         for _, record in ipairs(app.windows) do
@@ -410,9 +422,7 @@ function module.new(predicate)
         elseif visible[pid] and app.observer and not app.failed then
           local ok, err = pcall(snapshot, app)
           if not ok then
-            app.failed = true
-            app.observer:stop()
-            failure(app, "window snapshot: " .. tostring(err))
+            disable(app, "window snapshot: " .. tostring(err))
           end
         end
       end

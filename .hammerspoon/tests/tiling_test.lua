@@ -24,14 +24,19 @@ local function rect(x, y, w, h)
     __index = function(self, key)
       if key == "center" then
         return { x = self.x + self.w / 2, y = self.y + self.h / 2 }
+      elseif key == "equals" then
+        return function(_, other)
+          return self.x == other.x and self.y == other.y and self.w == other.w and self.h == other.h
+        end
       end
     end,
   })
 end
 
--- One 1000x600 display showing Space 1, with windows given as {id, app, title?}.
+-- A 1000x600 display showing Space 1 and, to its right, one showing Space 2. Windows are
+-- {id, app, title?, space?}; Space 3 has no display.
 local function harness(rows)
-  local h = { frames = {}, focused = nil, logs = {}, focuses = {}, windows = {}, events = nil }
+  local h = { frames = {}, focused = nil, logs = {}, focuses = {}, windows = {}, buttons = {} }
   local function window(row)
     local app = {
       name = function()
@@ -68,6 +73,14 @@ local function harness(rows)
       end,
     }
   end
+  function h:row(id)
+    for _, entry in ipairs(self.windows) do
+      if entry.row.id == id then
+        return entry.row
+      end
+    end
+    return {}
+  end
   function h:add(row)
     self.windows[#self.windows + 1] = { row = row, window = window(row) }
   end
@@ -82,10 +95,15 @@ local function harness(rows)
     windowHidden = "hidden",
     windowUnhidden = "unhidden",
     windowTitleChanged = "title",
+    windowMoved = "moved",
     new = function(predicate)
       return {
-        subscribe = function(_, _, fn)
-          h.events = fn
+        subscribe = function(_, events, fn)
+          if events == "moved" then
+            h.moved = fn
+          else
+            h.events = fn
+          end
         end,
         getWindows = function()
           local out = {}
@@ -105,7 +123,7 @@ local function harness(rows)
       spaces = function(ids)
         local out = {}
         for _, id in ipairs(ids) do
-          out[id] = 1
+          out[id] = h:row(id).space or 1
         end
         return out
       end,
@@ -113,11 +131,12 @@ local function harness(rows)
         h.focuses[#h.focuses + 1] = { pid = pid, id = id }
       end,
     },
-    frame = function(_, id, x, y, w, hgt)
+    frame = function(_, id, x, y, w, hgt, done)
       h.frames[id] = rect(x, y, w, hgt)
+      done(true)
     end,
-    spaceOf = function()
-      return 1
+    spaceOf = function(id)
+      return h:row(id).space or 1
     end,
   }
   local watcher = {
@@ -139,23 +158,41 @@ local function harness(rows)
         end,
       },
       screen = {
-        find = function(uuid)
-          return uuid == "display"
-              and {
-                frame = function()
-                  return rect(0, 0, 1000, 600)
-                end,
-              }
-            or nil
+        -- Like Hammerspoon, a hint that isn't a UUID matches screen names, so "" matches the first.
+        find = function(hint)
+          local x = ({ display = 0, other = 1000, [""] = 0 })[hint]
+          return x
+            and {
+              frame = function()
+                return rect(x, 0, 1000, 600)
+              end,
+            }
         end,
         watcher = watcher,
       },
+      mouse = {
+        getButtons = function()
+          return h.buttons
+        end,
+      },
+      eventtap = {
+        event = { types = { leftMouseUp = "up" } },
+        new = function(_, fn)
+          h.release = fn
+          return {
+            start = function(self)
+              return self
+            end,
+            stop = function() end,
+          }
+        end,
+      },
       spaces = {
-        spaceDisplay = function()
-          return "display"
+        spaceDisplay = function(space)
+          return ({ "display", "other" })[space]
         end,
         activeSpaces = function()
-          return { display = 1 }
+          return { display = 1, other = 2 }
         end,
         focusedSpace = function()
           return 1
@@ -191,6 +228,15 @@ local function harness(rows)
   h.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Nightly)" })
   function h:event(name, id)
     self.events(nil, nil, name, id)
+  end
+  -- The user moves a window to `frame` by hand.
+  function h:drag(id, frame)
+    self.frames[id] = frame
+    for _, entry in ipairs(self.windows) do
+      if entry.row.id == id then
+        self.moved(entry.window, entry.row.app, "moved", id)
+      end
+    end
   end
   function h:remove(id)
     for i, entry in ipairs(self.windows) do
@@ -297,6 +343,45 @@ test("zoom fills the Space and float leaves the layout until toggled back", func
   h.tiling.float()
   eq(h:frame(1), "500,0 500x600", "re-tiled windows are inserted last")
   eq(h:frame(2), "0,0 500x600")
+end)
+
+test("existing windows tile in most-recently-used order", function()
+  local h =
+    harness({ { id = 3, app = "Ghostty" }, { id = 1, app = "Slack" }, { id = 2, app = "Helium" } })
+  eq(h:frame(3), "0,0 500x600", "most recent first")
+  eq(h:frame(1), "500,0 500x300")
+  eq(h:frame(2), "500,300 500x300")
+end)
+
+test("a Space without a display is left alone instead of using another screen", function()
+  local h = harness({ { id = 1, app = "Ghostty", space = 3 } })
+  eq(h:frame(1), "none")
+end)
+
+test("a window moved by hand snaps back, after the drag when the mouse is down", function()
+  local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
+  h:drag(1, rect(100, 100, 300, 300))
+  eq(h:frame(1), "0,0 500x600", "released moves snap back at once")
+  h.buttons = { true }
+  h:drag(1, rect(100, 100, 300, 300))
+  eq(h:frame(1), "100,100 300x300", "a drag in progress is left alone")
+  h.buttons = {}
+  h.release()
+  eq(h:frame(1), "0,0 500x600", "the release snaps it back")
+end)
+
+test("focus reaches a zoomed window on the other display", function()
+  local h = harness({
+    { id = 1, app = "Ghostty" },
+    { id = 2, app = "Slack", space = 2 },
+    { id = 3, app = "Helium", space = 2 },
+  })
+  h.focused = 3
+  h.tiling.zoom()
+  eq(h:frame(3), "1000,0 1000x600")
+  h.focused = 1
+  h.tiling.focus("east")
+  eq(h.focuses[1].id, 3, "the zoomed window is the one showing")
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")
