@@ -188,6 +188,7 @@ local function harness(rows)
     end,
   }, { __index = _G })
   h.tiling = assert(loadfile(root .. "/tiling.lua", "t", env))()
+  h.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Nightly)" })
   function h:event(name, id)
     self.events(nil, nil, name, id)
   end

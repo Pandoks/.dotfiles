@@ -2,6 +2,9 @@ local spaceFocus = require("lib.space_focus")
 local tiling = require("lib.tiling")
 local resizeStep = 20
 
+-- Tiled with BSP; every other window, and any Picture-in-Picture, is left alone.
+tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Nightly)" })
+
 -- Toggle whether the focused window participates in BSP tiling.
 hs.hotkey.bind({ "shift", "alt" }, "f", tiling.float)
 

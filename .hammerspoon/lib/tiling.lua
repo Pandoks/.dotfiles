@@ -2,14 +2,8 @@ local filter = require("lib.window_filter")
 local logger = require("lib.logger")
 local windowManager = require("lib.window_manager")
 
--- Apps tiled with BSP; every other window, and any Picture-in-Picture, is left alone.
-local apps = {
-  ["Helium"] = true,
-  ["Ghostty"] = true,
-  ["Slack"] = true,
-  ["Notion Calendar"] = true,
-  ["T3 Code (Nightly)"] = true,
-}
+-- Tiled apps, set by `tiling.manage`.
+local apps = {} ---@type table<string, boolean>
 
 ---@class TileLeaf
 ---@field parent? TileSplit
@@ -468,6 +462,15 @@ tiling.screens = hs.screen.watcher
   end)
   :start() --[[@as hs.screen.watcher]]
 sync()
+
+---@param names string[] app names to tile
+function tiling.manage(names)
+  apps = {}
+  for _, name in ipairs(names) do
+    apps[name] = true
+  end
+  sync()
+end
 
 -- Exposed for the Hammerspoon console.
 function tiling.status()

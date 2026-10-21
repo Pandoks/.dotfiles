@@ -678,6 +678,8 @@ local function harness(options)
     env.require = function(name)
       if name == "lib.space_focus" then
         return self.module
+      elseif name == "lib.tiling" then
+        return { manage = function() end }
       else
         return prior(name)
       end
