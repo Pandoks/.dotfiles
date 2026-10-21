@@ -11,7 +11,7 @@ native modules etc.
     possible.
 - Use the fastest and lowest latency option possible.
   - You should experiment with different implementations and APIs to find the fastest one.
-  - For example, the native yabai module is faster at certain things than certain native Hammerspoon
+  - For example, the native `window_manager` module is faster at certain things than certain native Hammerspoon
     modules, but it's the other way around for other things.
 - Ensure that the code has minimal yet human-readable variable names.
   - Make sure to abide by the [Lua Style Guide](https://github.com/sumneko/lua-language-server/wiki/EmmyLua-Style-Guide).
