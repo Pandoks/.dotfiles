@@ -22,6 +22,10 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 
 [bootstrap.hooks.final]
 run = '''
+if [ -d /run/systemd/system ]; then
+  sudo systemctl enable --now fwupd-refresh.timer
+fi
+
 # Fix a misdetected laptop with: hostnamectl chassis laptop
 case "$(hostnamectl chassis 2>/dev/null)" in
   laptop|convertible) ;;
@@ -42,6 +46,8 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "apt:extrepo" = "latest"
 "apt:ca-certificates" = "latest"
 "apt:tree" = "latest"
+"apt:build-essential" = "latest"
+"apt:unzip" = "latest"
 "apt:fwupd" = "latest"
 "apt:tailscale" = "latest"
 "apt:docker-ce" = "latest"
@@ -56,6 +62,8 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:openssh" = "latest"
 "pacman:ca-certificates" = "latest"
 "pacman:tree" = "latest"
+"pacman:base-devel" = "latest"
+"pacman:unzip" = "latest"
 "pacman:fwupd" = "latest"
 "pacman:tailscale" = "latest"
 "pacman:ghostty" = "latest"

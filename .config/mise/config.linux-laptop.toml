@@ -5,6 +5,9 @@
 
 [bootstrap.directories."/etc/systemd/logind.conf.d"]
 [bootstrap.directories."/etc/systemd/system/acpid.service.d"]
+[bootstrap.directories."/etc/cmdline.d"]
+[bootstrap.directories."/etc/default/grub.d"]
+[bootstrap.directories."/etc/sysctl.d"]
 [bootstrap.directories."/usr/local/libexec"]
 
 [bootstrap.files."/etc/systemd/logind.conf.d/60-mise-laptop-power.conf"]
@@ -12,6 +15,23 @@ content = '''
 [Login]
 HandleLidSwitch=suspend
 HandleLidSwitchExternalPower=ignore
+'''
+
+[bootstrap.files."/etc/sysctl.d/60-mise-crash.conf"]
+content = '''
+kernel.softlockup_panic = 1
+kernel.hardlockup_panic = 1
+kernel.panic = 10
+'''
+
+[bootstrap.files."/etc/cmdline.d/60-mise-crash.conf"]
+content = '''
+efi_pstore.pstore_disable=0
+'''
+
+[bootstrap.files."/etc/default/grub.d/60-mise-crash.cfg"]
+content = '''
+GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT efi_pstore.pstore_disable=0"
 '''
 
 [bootstrap.files."/usr/local/libexec/laptop-panel"]
@@ -46,4 +66,14 @@ notify = ["acpid"]
 on_change = "restart"
 
 [bootstrap.hooks.final]
-run = "sudo systemctl reload systemd-logind"
+run = '''
+sudo systemctl reload systemd-logind
+sudo sysctl --system >/dev/null
+
+grep -qw efi_pstore.pstore_disable=0 /proc/cmdline && exit 0
+if command -v mkinitcpio >/dev/null; then
+  sudo mkinitcpio -P
+elif command -v update-grub >/dev/null; then
+  sudo update-grub
+fi
+'''
