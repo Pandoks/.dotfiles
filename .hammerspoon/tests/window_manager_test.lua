@@ -84,6 +84,9 @@ local function harness()
               h.focused = id
               done(true)
             end,
+            windows = function()
+              h.listed = (h.listed or 0) + 1
+            end,
           }
         end,
       }
@@ -152,5 +155,9 @@ test(
     eq(h.steps, 0)
   end
 )
+
+test("loading starts one window search, so the first Cmd-Tab is cached", function()
+  eq(harness().listed, 1)
+end)
 
 print("RESULT " .. passed .. " passed, 0 failed")

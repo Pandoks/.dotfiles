@@ -193,6 +193,10 @@ windowManager.frame = native.frame
 windowManager.minimize = native.minimize
 windowManager.windows = native.windows
 
+-- Finding windows on other Spaces is the slow part (about 1.5 s); do it once now, in the
+-- background, so the first Cmd-Tab is already cached. Later windows are found as they appear.
+native.windows(function() end)
+
 function windowManager.stop()
   watcher:stop()
   if jump then
