@@ -24,3 +24,9 @@ rawset(hs, "shutdownCallback", function()
     previousShutdown()
   end
 end)
+
+require("secrets")
+-- template for secrets:
+-- hs.hotkey.bind({ "" }, "", function()
+--  hs.eventtap.keyStrokes("")
+-- end)
