@@ -13,7 +13,7 @@ Accounts: proton (default), manda. Read and draft only:
   envelope list|search            mailbox list
   message read                    attachment list|download
   message compose|reply|forward   prints the message; --save only to drafts
-  message add -m drafts           flag add|set|remove
+  message add -m drafts           flag add|set|remove (not deleted)
   account list|check
 EOF
   exit 2
@@ -85,6 +85,12 @@ for arg; do
       -*m*) deny "$arg" ;;
     esac
   fi
+  # \Deleted is a delete: the next expunge removes the message
+  case "$command:$arg" in
+    'flag add:'*[Dd][Ee][Ll][Ee][Tt][Ee][Dd]* | 'flag set:'*[Dd][Ee][Ll][Ee][Tt][Ee][Dd]*)
+      deny "$command $arg"
+      ;;
+  esac
   previous=$arg
 done
 
