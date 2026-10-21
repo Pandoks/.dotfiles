@@ -1,62 +1,35 @@
 local logger = require("lib.logger")
 local module = {}
-local observer, pid, failure
-local active, stopped = false, false
-local notifications = {
-  AXExposeShowAllWindows = true,
-  AXExposeShowFrontWindows = true,
-  AXExposeShowDesktop = true,
-  AXExposeExit = false,
-}
+local element, pid, failure
+local stopped = false
 
+---@param dock? hs.application
 local function attach(dock)
-  if observer then
-    observer:stop()
-    observer:callback(nil)
-    observer = nil
-  end
-  active, pid, failure = false, nil, nil
-  if not dock then
-    return
-  end
-  local ok, err = pcall(function()
-    pid = dock:pid()
-    local element = assert(hs.axuielement.applicationElement(dock))
-    local current = assert(hs.axuielement.observer.new(pid)) --[[@as hs.axuielement.observer]]
-    observer = current
-    current:callback(function(_, _, event)
-      if not stopped and observer == current then
-        active = notifications[event] == true
-      end
-    end)
-    for notification in pairs(notifications) do
-      current:addWatcher(element, notification)
-    end
-    current:start()
-    -- Seed once; later reads use Dock notifications.
-    local children, message = element:attributeValue("AXChildren")
-    assert(type(children) == "table", message or "Dock children unavailable")
-    for _, child in ipairs(children) do
-      if child:attributeValue("AXIdentifier") == "mc" then
-        active = true
-        break
-      end
-    end
-  end)
-  if not ok then
-    if observer then
-      observer:stop()
-      observer:callback(nil)
-      observer = nil
-    end
-    failure = "Mission Control: " .. tostring(err)
-    logger.error(failure)
+  element, pid, failure = nil, nil, nil
+  if dock then
+    element, pid = hs.axuielement.applicationElement(dock), dock:pid()
   end
 end
 
+-- The Dock shows its "mc" element while Mission Control is open. macOS 27 no longer posts the
+-- Dock's AXExpose notifications, so read it when asked; a read takes well under a millisecond.
 function module.isActive()
   assert(not failure, failure)
-  return active
+  if stopped or not element then
+    return false
+  end
+  local children, message = element:attributeValue("AXChildren")
+  if type(children) ~= "table" then
+    failure = "Mission Control: " .. tostring(message or "Dock children unavailable")
+    logger.error(failure)
+    error(failure, 0)
+  end
+  for _, child in ipairs(children) do
+    if child:attributeValue("AXIdentifier") == "mc" then
+      return true
+    end
+  end
+  return false
 end
 
 module.watcher = hs.application.watcher
