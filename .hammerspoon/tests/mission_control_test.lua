@@ -5,8 +5,9 @@ local function test(name, fn)
   passed = passed + 1
   print("PASS " .. name)
 end
+-- The Dock's children carry the "mc" element only while Mission Control is open.
 local function harness(options)
-  local h = { reads = 0, observers = {}, logs = {} }
+  local h = { reads = 0, logs = {}, open = false, broken = false }
   local o = options or {}
   local function app(pid)
     return {
@@ -42,52 +43,29 @@ local function harness(options)
       },
     },
     axuielement = {
-      applicationElement = function()
+      applicationElement = function(dock)
         return {
           attributeValue = function(_, key)
-            h.reads = h.reads + 1
             assert(key == "AXChildren")
-            if o.seedError then
+            assert(dock == h.dock, "read through a replaced Dock")
+            h.reads = h.reads + 1
+            if h.broken then
               return nil, "unavailable"
             end
-            return {
-              {
+            local identifiers = { "dock", h.open and "mc" or nil }
+            local children = {}
+            for _, identifier in ipairs(identifiers) do
+              children[#children + 1] = {
                 attributeValue = function(_, name)
-                  h.reads = h.reads + 1
                   assert(name == "AXIdentifier")
-                  return o.active and "mc" or "dock"
+                  return identifier
                 end,
-              },
-            }
+              }
+            end
+            return children
           end,
         }
       end,
-      observer = {
-        new = function(pid)
-          local observer = { pid = pid, names = {} }
-          function observer:callback(fn)
-            self.fn = fn
-            self.saved = fn or self.saved
-            return self
-          end
-          function observer:addWatcher(_, name)
-            if o.registrationError then
-              error("registration rejected")
-            end
-            self.names[name] = true
-            return self
-          end
-          function observer:start()
-            self.started = true
-            return self
-          end
-          function observer:stop()
-            self.started = false
-          end
-          h.observers[#h.observers + 1] = observer
-          return observer
-        end,
-      },
     },
     timer = setmetatable({}, {
       __index = function()
@@ -107,11 +85,6 @@ local function harness(options)
     end,
   }, { __index = _G })
   h.module = assert(loadfile(root .. "/mission_control.lua", "t", env))()
-  function h:event(name, index)
-    local observer = self.observers[index or #self.observers]
-    assert(observer.names[name])
-    observer.saved(observer, nil, name)
-  end
   function h:restart()
     watcher.callback(nil, 2, self.dock)
     self.dock = app(20)
@@ -121,74 +94,41 @@ local function harness(options)
   return h
 end
 
-test("ordinary Dock is inactive and repeated reads perform no Accessibility calls", function()
+test("reports Mission Control from the Dock at each call, without notifications", function()
   local h = harness()
-  local reads = h.reads
-  for _ = 1, 100 do
-    assert(h.module.isActive() == false)
-  end
-  assert(h.reads == reads)
+  assert(h.module.isActive() == false)
+  h.open = true
+  assert(h.module.isActive() == true)
+  h.open = false
+  assert(h.module.isActive() == false)
 end)
 
-test("startup seeds an already open Mission Control overview", function()
-  local h = harness({ active = true })
-  assert(h.module.isActive())
-  h:event("AXExposeExit")
-  assert(not h.module.isActive())
-end)
-
-test("Dock notifications update all overview modes without reading Accessibility", function()
-  local h = harness()
-  local reads = h.reads
-  for _, mode in ipairs({
-    "AXExposeShowAllWindows",
-    "AXExposeShowFrontWindows",
-    "AXExposeShowDesktop",
-  }) do
-    h:event(mode)
-    assert(h.module.isActive())
-    h:event("AXExposeExit")
-    assert(not h.module.isActive())
-  end
-  assert(h.reads == reads)
-end)
-
-test("Dock restart replaces subscriptions and ignores old callbacks", function()
-  local h = harness()
-  h:event("AXExposeShowAllWindows")
-  h:restart()
-  assert(not h.module.isActive())
-  assert(not h.observers[1].started and h.observers[2].started)
-  h:event("AXExposeShowAllWindows", 1)
-  assert(not h.module.isActive())
-  h:event("AXExposeShowAllWindows")
-  assert(h.module.isActive())
-end)
-
-test("missing Dock waits for its launch without timers", function()
+test("a missing or restarting Dock reads as inactive and attaches on launch", function()
   local h = harness({ missing = true })
-  assert(not h.module.isActive() and #h.observers == 0)
+  assert(h.module.isActive() == false and h.reads == 0)
   h:restart()
-  h:event("AXExposeShowAllWindows")
-  assert(h.module.isActive() and #h.observers == 1)
+  h.open = true
+  assert(h.module.isActive() == true)
+  h:restart()
+  assert(h.module.isActive() == true, "the relaunched Dock is read, not the old one")
 end)
 
-test("registration and seed failures log once and never retry on reads", function()
-  for _, options in ipairs({ { registrationError = true }, { seedError = true } }) do
-    local h = harness(options)
-    assert(#h.logs == 1)
-    assert(not h.observers[1].started)
-    assert(not pcall(h.module.isActive))
-    assert(not pcall(h.module.isActive))
-    assert(#h.observers == 1 and #h.logs == 1)
-  end
-end)
-
-test("shutdown removes subscriptions and rejects late notifications", function()
+test("a failed read logs once, then fails until the Dock relaunches", function()
   local h = harness()
+  h.broken = true
+  assert(not pcall(h.module.isActive))
+  assert(not pcall(h.module.isActive))
+  assert(#h.logs == 1 and h.reads == 1)
+  h.broken = false
+  h:restart()
+  assert(h.module.isActive() == false and #h.logs == 1)
+end)
+
+test("shutdown stops the watcher and reads nothing afterwards", function()
+  local h = harness()
+  h.open = true
   h.module.stop()
-  assert(not h.watcher.started and not h.observers[1].started)
-  h:event("AXExposeShowAllWindows")
-  assert(not h.module.isActive())
+  assert(not h.watcher.started)
+  assert(h.module.isActive() == false and h.reads == 0)
 end)
 print("RESULT " .. passed .. " passed, 0 failed")
