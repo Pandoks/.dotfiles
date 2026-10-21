@@ -15,8 +15,8 @@ checks the frames it requests: longer-side splits for new windows, the app
 allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that never
 falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
-that a Space jump takes one swipe per Space and that presses during a swipe
-retarget it instead of stacking swipes. Neither touches the real window server;
+that a Space jump posts all its swipes at once and reports once on arrival, and that
+a press during a jump continues from that jump's target. Neither touches the real window server;
 the native gesture, focus, and Accessibility calls in `lib/window_manager/window_manager.m` were checked
 manually on macOS 27.0.1.
 
@@ -126,7 +126,8 @@ without the switcher), read from `lib.window_filter` without a window-list query
 focus command logs with a popup and is not retried. Space jobs and their transitions
 take priority.
 
-`window_manager.space` moves one Space per synthetic swipe, without animation, and replies once
+`window_manager.space` posts one synthetic swipe per Space at once, so the display goes
+straight to the target without showing the Spaces between, and replies once
 the display shows the target, or at once when it already does. Focus can report the
 new Space just after the display does, so the reply, Space notification, or app/window
 focus event that first sees the target Space starts focus restoration. Failed replies

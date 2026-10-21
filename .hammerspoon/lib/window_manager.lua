@@ -3,7 +3,7 @@ local utils = require("lib.utils")
 ---@alias WindowManagerDone fun(ok: boolean, err?: string)
 
 ---@class WindowManagerNative
----@field step fun(right: boolean, x: number, y: number): boolean, string?
+---@field move fun(right: boolean, count: integer, x: number, y: number): boolean, string?
 ---@field focus fun(pid: integer, id: integer, done?: WindowManagerDone)
 ---@field frame fun(pid: integer, id: integer, x: number, y: number, w: number, h: number, done?: WindowManagerDone)
 ---@field minimize fun(pid: integer, id: integer, minimized: boolean, done?: WindowManagerDone)
@@ -18,8 +18,9 @@ local windowManager = { native = native }
 ---@class SpaceJump
 ---@field space integer
 ---@field index number
+---@field landing integer Space the swipes in flight end on
+---@field from number Mission Control index of `landing`
 ---@field display string
----@field from integer Space shown when the swipe in flight was sent
 ---@field point hs.geometry
 ---@field timer? hs.timer
 ---@field done WindowManagerDone
@@ -48,37 +49,28 @@ local function deadline(job)
   end)
 end
 
--- Each swipe moves one Space, toward the target from the Space now shown.
----@param now integer
-local function advance(now)
-  local job = assert(jump)
-  if now == job.space then
-    finish(true)
-    return
-  end
-  local origin
-  for index, space in ipairs(utils.spaces() or {}) do
-    if space.ManagedSpaceID == now then
-      origin = index
-    end
-  end
-  if not origin then
-    finish(false, "current Space unavailable")
-    return
-  end
-  job.from = now
-  local ok, err = native.step(job.index > origin, job.point.x, job.point.y)
+-- Swipes posted together move straight to the target, without showing the Spaces between.
+---@param job SpaceJump
+---@param origin number Mission Control index the swipes start from
+local function send(job, origin)
+  job.landing, job.from = job.space, job.index
+  local ok, err =
+    native.move(job.index > origin, math.abs(job.index - origin), job.point.x, job.point.y)
   if not ok then
     finish(false, err)
   end
 end
 
+-- The Dock mishandles swipes posted while others are in flight, so later presses wait for them.
 local watcher = hs.spaces.watcher
   .new(function()
     local job = jump
-    local now = job and hs.spaces.activeSpaces()[job.display]
-    if job and now and now ~= job.from then
-      advance(now)
+    if not job or hs.spaces.activeSpaces()[job.display] ~= job.landing then
+      return
+    elseif job.landing == job.space then
+      finish(true)
+    else
+      send(job, job.from)
     end
   end)
   :start() --[[@as hs.spaces.watcher]]
@@ -105,7 +97,7 @@ function windowManager.space(index, done)
     return
   end
 
-  -- A swipe in flight on this display still lands; retarget the chain that follows it.
+  -- Swipes in flight on this display still land; the watcher continues from there.
   if jump and jump.display == display then
     local previous = jump.done
     jump.space, jump.index, jump.done = target.ManagedSpaceID, index, done
@@ -119,16 +111,27 @@ function windowManager.space(index, done)
     done(true)
     return
   end
+  local origin
+  for position, space in ipairs(spaces) do
+    if space.ManagedSpaceID == now then
+      origin = position
+    end
+  end
+  if not origin then
+    done(false, "current Space unavailable")
+    return
+  end
   jump = {
     space = target.ManagedSpaceID,
     index = index,
+    landing = now,
+    from = origin,
     display = display,
-    from = now,
     point = screen:frame().center,
     done = done,
   }
   deadline(jump)
-  advance(now)
+  send(jump, origin)
 end
 
 ---@param id integer

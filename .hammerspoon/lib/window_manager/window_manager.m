@@ -28,14 +28,15 @@ static BOOL keepImageLoaded(void) {
 
 #pragma mark - Space switching
 
-// Dock swipe synthesis, ported from rift (src/sys/space_switch.rs, Apache-2.0).
+// Dock swipe synthesis, ported from rift (src/sys/space_switch.rs, Apache-2.0) and
+// InstantSpaceSwitcher (Sources/ISS/ISS.c, MIT).
 enum {
   typeField = 55, hidTypeField = 110, maskField = 115, motionField = 123, progressField = 124,
   positionXField = 125, positionYField = 126, velocityXField = 129, velocityYField = 130,
   phaseField = 132, phaseMirrorField = 134, flavorField = 138, timestampField = 169,
   payloadField = 4205,
 };
-enum { dockControl = 30, dockSwipe = 23, began = 1, ended = 4 };
+enum { gesture = 29, dockControl = 30, dockSwipe = 23, began = 1, changed = 2, ended = 4 };
 
 #pragma pack(push, 1)
 typedef struct { uint64_t timestamp, sender; uint32_t options, attributes, count; } QueueElement;
@@ -51,7 +52,8 @@ static int32_t fixed(double value) {
   return (result == 0 && value != 0) ? (value < 0 ? -1 : 1) : result;
 }
 
-static CGEventRef swipe(int phase, uint32_t mask, double progress, double velocity, CGPoint point) {
+// Near-zero progress leaves nothing to animate; the fling on the ended phase commits the switch.
+static CGEventRef swipe(int phase, uint32_t mask, double sign, CGPoint point) {
   CGEventRef event = CGEventCreate(NULL);
   CGEventSetLocation(event, point);
   CGEventSetIntegerValueField(event, typeField, dockControl);
@@ -60,8 +62,8 @@ static CGEventRef swipe(int phase, uint32_t mask, double progress, double veloci
   CGEventSetIntegerValueField(event, phaseMirrorField, phase);
   CGEventSetIntegerValueField(event, motionField, 1);
   CGEventSetIntegerValueField(event, maskField, mask);
-  CGEventSetDoubleValueField(event, progressField, progress);
-  if (velocity != 0) CGEventSetDoubleValueField(event, velocityXField, velocity);
+  CGEventSetDoubleValueField(event, progressField, sign * 0.000016);
+  if (phase == ended) CGEventSetDoubleValueField(event, velocityXField, sign * 9999.0);
   CGEventSetDoubleValueField(event, flavorField, 3.0);
   CGEventSetDoubleValueField(event, timestampField, (double)mach_absolute_time());
   CGEventSetDoubleValueField(event, positionXField, 0.1);
@@ -125,35 +127,49 @@ static CGEventRef withPayload(CGEventRef event) {
   return CGEventCreateFromData(NULL, (__bridge CFDataRef)out);
 }
 
+// The Dock ignores a swipe without a companion gesture event.
 static BOOL post(CGEventRef event) {
   CGEventRef augmented = withPayload(event);
   CFRelease(event);
   if (!augmented) return NO;
+  CGEventRef companion = CGEventCreate(NULL);
+  CGEventSetIntegerValueField(companion, typeField, gesture);
   CGEventPost(kCGSessionEventTap, augmented);
+  CGEventPost(kCGSessionEventTap, companion);
   CFRelease(augmented);
+  CFRelease(companion);
   return YES;
 }
 
-/// step(right, x, y) -> ok, error; switches one Space on the display containing (x, y), without animation.
-static int step(lua_State *state) {
+/// move(right, count, x, y) -> ok, error; moves `count` Spaces on the display containing (x, y).
+/// Swipes posted together land on the last Space without showing the ones between.
+static int move(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  [skin checkArgs:LS_TBOOLEAN, LS_TNUMBER, LS_TNUMBER, LS_TBREAK];
-  const char *error = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27
-    ? "instant Space switching needs macOS 27" : NULL;
-  BOOL right = lua_toboolean(state, 1);
-  CGPoint point = { lua_tonumber(state, 2), lua_tonumber(state, 3) };
-  double sign = right ? -1.0 : 1.0;
-  uint32_t mask = right ? 4 : 8;
-  if (!error && !post(swipe(began, mask, 1e-15 * sign, 0, point))) error = "could not build the Space swipe";
-  if (error) {
+  [skin checkArgs:LS_TBOOLEAN, LS_TNUMBER | LS_TINTEGER, LS_TNUMBER, LS_TNUMBER, LS_TBREAK];
+  if (NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27) {
     lua_pushboolean(state, 0);
-    lua_pushstring(state, error);
+    lua_pushstring(state, "instant Space switching needs macOS 27");
     return 2;
   }
-  // Built the same way as the swipe that just posted.
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-    post(swipe(ended, mask, 1e-15 * sign, 100.0 * sign, point));
-  });
+  BOOL right = lua_toboolean(state, 1);
+  lua_Integer count = lua_tointeger(state, 2);
+  CGPoint point = { lua_tonumber(state, 3), lua_tonumber(state, 4) };
+
+  // The Dock reads the sign through the natural scrolling preference (on unless set off).
+  CFPreferencesAppSynchronize(kCFPreferencesAnyApplication);
+  Boolean valid = false;
+  Boolean natural = CFPreferencesGetAppBooleanValue(CFSTR("com.apple.swipescrolldirection"),
+    kCFPreferencesAnyApplication, &valid);
+  double sign = (right ? -1.0 : 1.0) * (!valid || natural ? 1.0 : -1.0);
+  uint32_t mask = right ? 4 : 8;
+  for (lua_Integer index = 0; index < count; index++) {
+    if (!post(swipe(began, mask, sign, point)) || !post(swipe(changed, mask, sign, point))
+      || !post(swipe(ended, mask, sign, point))) {
+      lua_pushboolean(state, 0);
+      lua_pushstring(state, "could not build the Space swipe");
+      return 2;
+    }
+  }
   lua_pushboolean(state, 1);
   return 1;
 }
@@ -477,7 +493,7 @@ static int spaces(lua_State *state) {
 }
 
 static const luaL_Reg functions[] = {
-  { "step", step },
+  { "move", move },
   { "focus", focus },
   { "frame", frame },
   { "minimize", minimize },

@@ -19,7 +19,7 @@ local function eq(actual, expected, label)
   end
 end
 
--- Four Spaces on one display; each swipe lands one Space over when delivered, like the Dock.
+-- Four Spaces on one display; the Dock lands each batch of swipes and reports once.
 local function harness()
   local h = { current = 100, steps = 0, inflight = {}, results = {} }
   local spaces = {}
@@ -66,9 +66,9 @@ local function harness()
         end,
         native = function()
           return {
-            step = function(right)
-              h.steps = h.steps + 1
-              h.inflight[#h.inflight + 1] = right
+            move = function(right, count)
+              h.steps = h.steps + count
+              h.inflight[#h.inflight + 1] = (right and 100 or -100) * count
               return true
             end,
           }
@@ -84,27 +84,31 @@ local function harness()
   end
   function h:settle()
     while #self.inflight > 0 do
-      self.current = self.current + (table.remove(self.inflight, 1) and 100 or -100)
+      self.current = self.current + table.remove(self.inflight, 1)
+      h.notifications = (h.notifications or 0) + 1
       watcher()
     end
   end
   return h
 end
 
-test("a jump walks one swipe per Space and reports once it arrives", function()
+test("a jump sends every swipe at once and reports when it arrives", function()
   local h = harness()
   h:space(4)
+  eq(#h.inflight, 1, "one batch")
   h:settle()
   eq(h.current, 400)
   eq(h.steps, 3)
+  eq(h.notifications, 1, "no Space between is shown")
   eq(h.results[4], "ok")
 end)
 
-test("presses during a swipe retarget the jump instead of stacking swipes", function()
+test("presses during a jump wait for its swipes to land, then continue from there", function()
   for _, case in ipairs({ { second = 1, steps = 2 }, { second = 3, steps = 2 } }) do
     local h = harness()
     h:space(2)
     h:space(case.second)
+    eq(#h.inflight, 1, "no swipes posted while others are in flight")
     h:settle()
     eq(h.current, case.second * 100, "lands on the latest press")
     eq(h.steps, case.steps)
