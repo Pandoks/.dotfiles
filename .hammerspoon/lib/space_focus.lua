@@ -91,7 +91,7 @@ local function spaceIndex(id, spaces)
   end
 end
 
-local function finish(job, ok, err, defer)
+local function finish(job, ok, err)
   if guard ~= job then
     return
   end
@@ -108,12 +108,6 @@ local function finish(job, ok, err, defer)
   if err and err ~= "superseded" and err ~= "stopped" then
     transitionSpace, transitionDeadline = nil, nil
     logger.error("Space focus: " .. err)
-  end
-  if defer then
-    return job.done
-  end
-  if job.done then
-    job.done(ok, err)
   end
 end
 
@@ -301,17 +295,14 @@ local function restore(job)
   check(job)
 end
 
-local function protect(space, force, preferred, done)
+local function protect(space, force, preferred)
   if guard then
     finish(guard, false, "superseded")
   end
   if stopped or menuBusy() then
-    if done then
-      done(false, "superseded")
-    end
     return
   end
-  local job = { space = space, force = force, preferred = preferred, done = done }
+  local job = { space = space, force = force, preferred = preferred }
   guard = job
   restore(job)
 end
@@ -330,15 +321,11 @@ local function arrive(space, settled)
   return true
 end
 
-function module.switchSpace(selector, done)
+function module.switchSpace(selector)
   local fromSpace = guard and guard.switching and guard.space or hs.spaces.focusedSpace()
   local spaces, err = utils.spaces()
   if not spaces then
-    if done then
-      done(false, err)
-    else
-      logger.error("Space focus: " .. tostring(err))
-    end
+    logger.error("Space focus: " .. tostring(err))
     return
   end
   local index, from = tonumber(selector), spaceIndex(fromSpace, spaces)
@@ -346,30 +333,26 @@ function module.switchSpace(selector, done)
     index = from and from + (selector == "prev" and -1 or 1)
     local target = index and spaces[index]
     if not target or target.display ~= spaces[from].display then
-      if done then
-        done(false, "No adjacent Space on this display")
-      end
       return
     end
   end
   local target = index and spaces[index]
-  if stopped or not target then
-    if done then
-      done(false, "Space does not exist")
-    elseif not stopped then
-      logger.error("Space focus: Space does not exist")
-    end
+  if stopped then
+    return
+  elseif not target then
+    logger.error("Space focus: Space does not exist")
     return
   end
   local moving = guard and guard.switching
-  local cancelled = guard and finish(guard, false, "superseded", true)
+  if guard then
+    finish(guard, false, "superseded")
+  end
   local job = {
     space = target.ManagedSpaceID,
     display = target.display,
     away = from ~= nil and spaces[from].display ~= target.display,
     preferred = recent[target.ManagedSpaceID],
     force = true,
-    done = done,
     switching = true,
   }
   guard = job
@@ -392,9 +375,6 @@ function module.switchSpace(selector, done)
         finish(job, false, message or "switch failed")
       end
     end)
-  end
-  if cancelled then
-    cancelled(false, "superseded")
   end
 end
 

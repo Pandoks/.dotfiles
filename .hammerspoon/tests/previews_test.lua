@@ -78,11 +78,13 @@ local function errors()
 end
 local function empty()
   fixture.prepare(false)
+  local returned = false
   cancel = previews.capture({}, function(id, image, err)
-    assert(id == nil and image == nil and err == nil)
+    assert(returned and id == nil and image == nil and err == nil)
     print("PASS empty batch completes asynchronously")
     errors()
   end)
+  returned = true
 end
 local function overlap()
   fixture.prepare(true)

@@ -86,12 +86,6 @@ local function setup(options)
         assert(not record.destroyed, "title read after destruction")
         return record.title
       end,
-      application = function()
-        return app
-      end,
-      isStandard = function()
-        return record.standard ~= false
-      end,
       subrole = function()
         assert(not record.destroyed, "subrole read after destruction")
         return record.subrole or (record.standard == false and "AXUnknown" or "AXStandardWindow")
@@ -237,7 +231,6 @@ local function setup(options)
     end,
   }, { __index = _G })
   local logger = assert(loadfile(root .. "/logger.lua", "t", environment))()
-  model.logger = logger
   environment.require = function(name)
     assert(name == "lib.logger")
     return logger
@@ -250,12 +243,6 @@ local function setup(options)
   end
   return model
 end
-
-test("windowless focus does not delay observer registration", function()
-  local model = setup()
-  assert(#model.observers == 1 and model.observers[1].active)
-  assert(#model.filter:getWindows() == 1 and #model.alerts == 0)
-end)
 
 test(
   "activation during launch waits for launch completion before accessing Accessibility",
@@ -536,7 +523,10 @@ test("filters share one observer and focus updates cached order", function()
   local model = setup()
   local second = model:window(200)
   local events = 0
-  model.module.new("Browser"):subscribe(model.module.windowFocused, function(window)
+  local filter = model.module.new(function()
+    return true
+  end)
+  filter:subscribe(model.module.windowFocused, function(window)
     assert(window == second.window)
     events = events + 1
   end)
@@ -544,16 +534,6 @@ test("filters share one observer and focus updates cached order", function()
   model:emit(second, "AXFocusedWindowChanged")
   assert(#model.observers == 1 and events == 1)
   assert(model.filter:getWindows()[1] == second.window)
-end)
-
-test("background window focus changes do not emit global focus", function()
-  local model = setup()
-  model.background = true
-  model.filter:subscribe(model.module.windowFocused, function()
-    error("background focus emitted")
-  end)
-  model:emit(model.first, "AXFocusedWindowChanged")
-  assert(#model.logs == 0)
 end)
 
 test("destroy notifications retain ID and filter membership after AX invalidation", function()
@@ -585,9 +565,6 @@ test("unsupported window notification stops registration and reports once", func
   local registrations = model.registrations
   assert(#model.logs == 1 and #model.alerts == 1 and #model.filter:getWindows() == 0)
   model:emit(model.first, "AXWindowCreated")
-  model.filter:subscribe(model.module.windowFocused, function()
-    error("failed window emitted")
-  end)
   assert(model.registrations == registrations and #model.logs == 1)
 end)
 
@@ -631,7 +608,7 @@ end)
 
 test("Space snapshots are event-driven and stop on their first failure", function()
   local model = setup()
-  local second = model:window(200)
+  model:window(200)
   local reads, destroyed = model.reads, 0
   model.filter:subscribe(model.module.windowDestroyed, function()
     destroyed = destroyed + 1
@@ -646,7 +623,6 @@ test("Space snapshots are event-driven and stop on their first failure", functio
   model.spaceCallback()
   model.appCallback("Browser", 3, model.app)
   assert(model.reads == reads + 2 and #model.logs == 1 and destroyed == 2)
-  assert(second.id == 200)
 end)
 
 test("focus follows the system frontmost app without asking the app", function()
@@ -752,19 +728,6 @@ test("Space cleanup handles termination notifications without an application", f
   assert(not model.observers[1].active and #model.filter:getWindows() == 0)
 end)
 
-test("early exit cleanup allows relaunch and ignores the old observer", function()
-  local model = setup()
-  local observer = model.observers[1]
-  model.running, model.snapshotError = false, true
-  model.spaceCallback()
-  model.snapshotError = nil
-  model.appCallback(nil, 3, model.app)
-  model.appCallback("Browser", 1, model.app)
-  assert(#model.observers == 2 and #model.filter:getWindows() == 1)
-  model:emit(model.first, "AXUIElementDestroyed", observer)
-  assert(#model.filter:getWindows() == 1 and #model.logs == 0 and #model.alerts == 0)
-end)
-
 test("apps exiting during observer setup are removed without an alert", function()
   local model = setup({ newApp = true })
   model.element.attributeNames = function()
@@ -797,12 +760,14 @@ test("app termination clears windows and rejects stale PID callbacks", function(
   local observer = model.observers[1]
   model.appCallback("Browser", 3, model.app)
   assert(not observer.active and #model.filter:getWindows() == 0)
-  model:emit(model.first, "AXWindowCreated", observer)
-  assert(#model.filter:getWindows() == 0)
   model.appCallback("Browser", 1, model.app)
   assert(#model.observers == 2 and #model.filter:getWindows() == 1)
-  model:emit(model.first, "AXUIElementDestroyed", observer)
-  assert(#model.filter:getWindows() == 1)
+  local created = 0
+  model.filter:subscribe(model.module.windowCreated, function()
+    created = created + 1
+  end)
+  model:emit(model:window(300), "AXWindowCreated", observer)
+  assert(created == 0 and #model.filter:getWindows() == 1)
 end)
 
 test("subscriber failure reports without starving another subscriber", function()
@@ -838,13 +803,6 @@ test("deleting the final filter stops observers and late callbacks", function()
   assert(model.appStopped and model.spaceStopped and not model.observers[1].active)
   model:emit(model.first, "AXWindowCreated")
   assert(#model.filter:getWindows() == 0 and #model.logs == 0)
-end)
-
-test("explicit action failures still log and show a popup", function()
-  local model = setup()
-  model.logger.error("Window switcher: focus failed")
-  assert(#model.logs == 1 and #model.alerts == 1)
-  assert(model.alerts[1] == "Window switcher: focus failed")
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")

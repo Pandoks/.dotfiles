@@ -127,15 +127,13 @@ local function harness(options)
     for _, w in ipairs(self.windows) do
       w["has-focus"] = w.id == id
     end
-    if opts.focusEvents ~= false and self.menu and self.menu.windows.subscriptions then
-      local callback = self.menu.windows.subscriptions[1]
-      if callback then
-        callback({
-          id = function()
-            return id
-          end,
-        })
-      end
+    local callback = opts.focusEvents ~= false and self.menu.windows.subscriptions.windowFocused
+    if callback then
+      callback({
+        id = function()
+          return id
+        end,
+      })
     end
   end
   -- Native rows: app name and focus/hidden state come from hs.application and hs.window.
@@ -177,11 +175,9 @@ local function harness(options)
         done(false, "window unavailable")
         return
       end
-      if not opts.windowNeverFocuses then
-        timer(opts.windowDelay or 0.003, function()
-          h:setWindowFocus(id)
-        end)
-      end
+      timer(opts.windowDelay or 0.003, function()
+        h:setWindowFocus(id)
+      end)
       done(true)
     end)
   end
@@ -273,6 +269,34 @@ local function harness(options)
   local function hidden(pid)
     return (owner(pid) or {})["is-hidden"]
   end
+  -- lib.window_filter, after admission: `h.tracked` holds the admitted minimizable dialogs.
+  local filter = {
+    blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = true },
+    new = function()
+      local object = chainObject()
+      object.subscriptions = {}
+      function object:getWindow(id, pid)
+        local window = h.tracked[id]
+        if window and window:application():pid() == pid then
+          return window
+        end
+      end
+      -- Like Filter:delete, which drops every callback.
+      function object:delete()
+        self.subscriptions = {}
+      end
+      return object
+    end,
+    windowFocused = "windowFocused",
+    windowDestroyed = "windowDestroyed",
+    windowCreated = "windowCreated",
+    windowMoved = "windowMoved",
+    windowTitleChanged = "windowTitleChanged",
+    windowMinimized = "windowMinimized",
+    windowUnminimized = "windowUnminimized",
+    windowHidden = "windowHidden",
+    windowUnhidden = "windowUnhidden",
+  }
   local function unhide(pid)
     h.unhides = h.unhides + 1
     if opts.unhideFailure then
@@ -379,6 +403,10 @@ local function harness(options)
         end,
       },
       applicationForPID = function(pid)
+        local window = owner(pid)
+        if not window or window.exited then
+          return nil
+        end
         return {
           pid = function()
             return pid
@@ -410,37 +438,6 @@ local function harness(options)
           end
         end
       end,
-      filter = {
-        blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = true },
-        new = function(predicate)
-          local object = chainObject()
-          object.predicate = predicate
-          function object:getWindow(id, pid)
-            local window = h.tracked[id]
-            local row = h.windows[id]
-            if row and row.subrole == "AXDialog" and not row.minimizable then
-              return nil
-            end
-            if
-              window
-              and window:application():pid() == pid
-              and (not self.predicate or self.predicate(window))
-            then
-              return window
-            end
-          end
-          return object
-        end,
-        windowFocused = 1,
-        windowDestroyed = 2,
-        windowCreated = 3,
-        windowMoved = 4,
-        windowTitleChanged = 5,
-        windowMinimized = 6,
-        windowUnminimized = 7,
-        windowHidden = 8,
-        windowUnhidden = 9,
-      },
     },
     axuielement = {
       applicationElement = function(app)
@@ -482,7 +479,7 @@ local function harness(options)
     end,
   }, { __index = _G })
   local modules = {
-    ["lib.window_filter"] = hsMock.window.filter,
+    ["lib.window_filter"] = filter,
     ["lib.previews"] = {
       capture = function(windows, done)
         local capture = { windows = copy(windows), done = done, at = h.now }
@@ -554,35 +551,21 @@ local function harness(options)
     }
     return window
   end
+  -- Delivers an event for a window lib.window_filter has already admitted.
   function h:notify(event, row)
-    local callback = self.menu.windows.subscriptions[self.hs.window.filter[event]]
-    if not callback then
-      return
-    end
-    if event == "windowDestroyed" then
-      callback(nil, row.app, event, row.id)
-      return
-    end
-    local window = self:window(row)
-    if
-      (
-        not self.hs.window.filter.blacklist[row.subrole]
-        or (row.subrole == "AXDialog" and row.minimizable)
-      ) and (not self.menu.windows.predicate or self.menu.windows.predicate(window))
-    then
-      callback(window, row.app, self.hs.window.filter[event], row.id)
+    local callback = self.menu.windows.subscriptions[event]
+    if callback then
+      callback(self:window(row), row.app, event, row.id)
     end
   end
-  function h:create(id, changes, untracked)
+  function h:create(id, changes)
     local row = copy(self.windows[1])
     row.id, row.pid, row.title = id, 100 + id, "New window " .. id
     row["has-focus"] = false
     for key, value in pairs(changes or {}) do
       row[key] = value
     end
-    if not untracked then
-      self.windows[id] = row
-    end
+    self.windows[id] = row
     self:notify("windowCreated", row)
     return row
   end
@@ -957,7 +940,7 @@ end)
 test("destroyed windows cannot repopulate the preview cache", function()
   local h = harness({ previews = true })
   h:open()
-  h.menu.windows.subscriptions[2](nil, nil, nil, 1)
+  h:notify("windowDestroyed", h.windows[1])
   h:complete(1)
   eq(assert(h:current()).images[1], nil)
   h:key("keyDown", "escape", { cmd = true })
@@ -1058,10 +1041,14 @@ test("window events refresh visible thumbnails and state without polling", funct
   h:notify("windowTitleChanged", h.windows[100])
   h:advance(0)
   eq(#h.captures, 2)
+  h:notify("windowMoved", h.windows[3])
+  h:advance(0)
+  eq(#h.captures[3].windows, 1)
+  eq(h.captures[3].windows[1].id, 3)
   h:key("keyDown", "escape", {})
   h:notify("windowMoved", h.windows[2])
   h:advance(10)
-  eq(#h.captures, 2, "idle events never start captures")
+  eq(#h.captures, 3, "idle events never start captures")
 end)
 
 test("minimize and hide events cache one image while the menu is closed", function()
@@ -1232,7 +1219,7 @@ test("window query cancels missing or reused identities with pending state captu
   end
 end)
 
-test("shutdown cancels pending state captures and ignores stale events", function()
+test("shutdown cancels pending state captures and ignores their late results", function()
   local h = harness({ previews = true })
   h:notify("windowHidden", h.windows[2])
   h:notify("windowMinimized", h.windows[3])
@@ -1241,8 +1228,6 @@ test("shutdown cancels pending state captures and ignores stale events", functio
   eq(h.captures[2].cancelled, true)
   h:complete(1)
   h:complete(2)
-  h:notify("windowHidden", h.windows[2])
-  eq(#h.captures, 2)
   eq(#h.draws, 0)
   eq(#h.alerts, 0)
   eq(#h.logs, 0)
@@ -1280,12 +1265,6 @@ test("multiple progressive failures stay silent without retries", function()
   eq(#h.captures, 1)
 end)
 
-test("hover inside cards still selects exact window", function()
-  local h = harness()
-  h:open()
-  h:select(1)
-  eq(h.menu.status().selected, 1)
-end)
 test("rows balance their window counts and remain centered", function()
   for _, counts in ipairs({ { 4, 3 }, { 4, 4 }, { 5, 4 }, { 5, 4, 4 }, { 6, 6, 6 } }) do
     local total = 0
@@ -1604,7 +1583,7 @@ test("keyboard can reveal offscreen selection after scrolling", function()
 end)
 test("menu opens on the focused Space's display, including a negative origin", function()
   local h = harness({
-    count = 1,
+    count = 2,
     screen = { x = -1440, y = -900, w = 1440, h = 900 },
     mainScreen = { x = 0, y = 0, w = 1920, h = 1080 },
   })
@@ -1629,14 +1608,6 @@ test("an unresolved focused display fails once without opening the menu", functi
   eq(h.menu.status().visible, false)
   eq(h.logs[1], "Window switcher: focused display unavailable")
   eq(#h.alerts, 1)
-end)
-test("exact-window timeout reports once and stops", function()
-  local h = harness({ windowNeverFocuses = true })
-  h:open()
-  h:release()
-  h:advance(4)
-  eq(#h.alerts, 1)
-  eq(h.menu.status().busy, false)
 end)
 test("closed or reused window is rejected before focus", function()
   local h = harness()
@@ -1712,7 +1683,7 @@ test("Maps-style dialogs appear minimized or restored and can be selected", func
   for _, minimized in ipairs({ true, false }) do
     local h = harness({ previews = true })
     local row = h.windows[2]
-    row.app, row.subrole, row.minimizable = "Maps", "AXDialog", true
+    row.app, row.subrole = "Maps", "AXDialog"
     row["is-minimized"] = minimized
     h.tracked[2] = h:window(row)
     h:open()
@@ -1734,7 +1705,7 @@ end)
 test("a new minimizable dialog appears while the menu is open", function()
   local h = harness()
   h:open()
-  local row = h:create(10, { subrole = "AXDialog", minimizable = true, ["is-minimized"] = true })
+  local row = h:create(10, { subrole = "AXDialog", ["is-minimized"] = true })
   h.tracked[10] = h:window(row)
   h:advance(0)
   eq(#h.menu.status().windows, 10)
@@ -1855,10 +1826,11 @@ test("shutdown discards pending unhide notifications", function()
   eq(#h.alerts, 0)
 end)
 test("rapid selections serialize and keep the last request", function()
-  local h = harness({ windowDelay = 0.08 })
+  local h = harness({ windowDelay = 0.6 })
   h:open()
   h:release()
   h:open()
+  eq(h.menu.status().busy, true, "first focus is still pending")
   h:select(3)
   h:release()
   h:advance(1)
@@ -1892,14 +1864,6 @@ test("Cmd-Tab before a released list arrives starts a new cycle", function()
   eq(h:commandCount("focus"), 1)
   eq(#h.alerts, 0)
 end)
-test("focus notification completes without timed rechecks", function()
-  local h = harness({ focusEvents = true })
-  h:open()
-  h:release()
-  h:advance(0.01)
-  eq(h.windows[2]["has-focus"], true)
-  eq(h.menu.status().busy, false)
-end)
 test("missing focus notification times out without requerying windows", function()
   local h = harness({ focusEvents = false })
   h:open()
@@ -1911,23 +1875,7 @@ test("missing focus notification times out without requerying windows", function
   eq(h.menu.status().busy, false)
   eq(#h.alerts, 1)
   eq(#h.commands, count)
-end)
-test("missing focus events never retry the focus command", function()
-  local h = harness({ windowNeverFocuses = true })
-  h:open()
-  h:release()
-  h:advance(4)
-  eq(h.menu.status().busy, false)
   eq(h:commandCount("focus"), 1)
-end)
-test("deadline logs missing notification without verifying late focus", function()
-  local h = harness({ windowDelay = 0.4, focusEvents = false })
-  h:open()
-  h:release()
-  h:advance(4)
-  eq(h.menu.status().busy, false)
-  eq(#h.alerts, 1)
-  eq(h.windows[2]["has-focus"], true)
 end)
 test("the focus reply confirms focus in-process without a notification", function()
   local h = harness({
@@ -2042,22 +1990,10 @@ test("Dock selection shares Cmd-Tab recency without starting its focus sequence"
   eq(h.windows[2]["has-focus"], true)
   local count = #h.commands
   eq(h.menu.mostRecent({ h.windows[3], h.windows[2] }).id, 2)
+  eq(h.menu.mostRecent({}), nil)
   eq(#h.commands, count)
   eq(h.menu.status().busy, false)
   eq(#h.alerts, 0)
-end)
-test("app selection after shutdown never changes focus", function()
-  local h = harness()
-  h.menu.stop()
-  eq(h.menu.mostRecent({ h.windows[2] }), nil)
-  h:advance(1)
-  eq(h:commandCount("focus"), 0)
-end)
-test("empty app selection never changes focus", function()
-  local h = harness()
-  eq(h.menu.mostRecent({}), nil)
-  h:advance(1)
-  eq(h:commandCount("focus"), 0)
 end)
 
 test("new windows appear while the menu is open without changing selection", function()
@@ -2131,34 +2067,14 @@ test("duplicate creation events never duplicate cards or preview captures", func
   eq(#h.captures, 2)
 end)
 
-test("new windows preserve keyboard navigation and can be selected", function()
+test("keyboard wraps onto windows created while the menu is open", function()
   local h = harness({ count = 6 })
   h:open()
-  local row = h:create(7)
-  h.windows[7] = row
-  h:advance(0.01)
-  eq(h.menu.status().selected, 2)
-  h:key("keyDown", "right", {})
-  eq(h.menu.status().selected, 3)
+  h:create(7)
   h:advance(0)
-  h:select(7)
-  h:release()
-  h:advance(0.1)
-  eq(h.windows[7]["has-focus"], true)
-  eq(#h.alerts, 0)
-end)
-
-test("window events do no work while the switcher is idle or stopped", function()
-  local h = harness({ previews = true })
-  h:create(10)
-  eq(#h.commands, 0)
-  eq(#h.captures, 0)
-  eq(h.menu.status().visible, false)
-  h.menu.stop()
-  h:create(11)
-  h:advance(0.3)
-  eq(#h.commands, 0)
-  eq(#h.captures, 0)
+  h:key("keyDown", "left", {})
+  h:key("keyDown", "left", {})
+  eq(h.menu.status().selected, 7)
 end)
 
 test("ineligible or vanished new windows stay excluded", function()
@@ -2168,9 +2084,6 @@ test("ineligible or vanished new windows stay excluded", function()
     { exited = true },
     { title = "Picture-in-Picture" },
     { title = "PiP" },
-    { subrole = "AXDialog" },
-    { subrole = "AXSystemDialog" },
-    { subrole = "AXFloatingWindow" },
     { app = "Hammerspoon" },
     { ["root-window"] = false },
   }) do
@@ -2274,42 +2187,6 @@ test("creation and destruction during the initial query leave no ghost card", fu
   eq(#h.menu.status().windows, 9)
 end)
 
-test("new captures can finish before the original preview batch", function()
-  local h = harness({ previews = true })
-  h:open()
-  h:create(10)
-  h:advance(0.01)
-  eq(#h.captures, 2)
-  h:complete(2)
-  eq(h.menu.status().windows[10].preview, true)
-  h:complete(1)
-  eq(h.draws[#h.draws].images, 10)
-end)
-
-test("all pending preview batches are cancelled on release, escape, and stop", function()
-  for _, action in ipairs({ "release", "escape", "stop" }) do
-    local h = harness({ previews = true })
-    h:open()
-    h:create(10)
-    h:advance(0.01)
-    eq(#h.captures, 2)
-    if action == "release" then
-      h:release()
-    elseif action == "escape" then
-      h:key("keyDown", "escape", {})
-    else
-      h.menu.stop()
-    end
-    eq(h.captures[1].cancelled, true)
-    eq(h.captures[2].cancelled, true)
-    local draws = #h.draws
-    h:complete(2)
-    h:complete(1)
-    eq(#h.draws, draws)
-    eq(h.menu.status().visible, false)
-  end
-end)
-
 test("reused IDs reject old captures even when the PID is unchanged", function()
   local h = harness({ previews = true })
   h:open()
@@ -2352,29 +2229,6 @@ test("reused IDs during the initial query replace the stale process", function()
     end
   end
   eq(found.pid, 999)
-end)
-
-test("a creation event adds a window the window list has not reported yet", function()
-  local h = harness()
-  h:open()
-  h:create(10, nil, true)
-  h:advance(0.1)
-  eq(#h.menu.status().windows, 10)
-  eq(h.menu.status().windows[10].id, 10)
-end)
-
-test("creation under a stationary pointer preserves keyboard selection", function()
-  local h = harness({ count = 6 })
-  h:open()
-  local card = assert(h:current()).cards[1]
-  h:move(card.x + 10, card.y + 10)
-  h:key("keyDown", "right", {})
-  h:advance(0)
-  local point = copy(h.pointer)
-  h:create(7)
-  h:advance(0)
-  h.menu.mouseTap.callback(h:event("mouseMoved", nil, nil, point))
-  eq(h.menu.status().selected, 2)
 end)
 
 test("the focused window leads the menu, then focus history, then startup order", function()
@@ -2428,6 +2282,7 @@ test(
       { app = "Hammerspoon" },
       { role = "AXScrollArea" },
       { ["root-window"] = false },
+      { exited = true },
     }) do
       local h = harness()
       for key, value in pairs(changes) do

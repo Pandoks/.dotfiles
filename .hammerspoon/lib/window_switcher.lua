@@ -589,9 +589,6 @@ end
 
 -- Share window recency without forcing callers to use the Cmd-Tab focus sequence.
 function switcher.mostRecent(windows)
-  if stopped then
-    return
-  end
   local target, timestamp
   for _, window in ipairs(windows) do
     local used = recent[window.id] or 0
@@ -944,9 +941,6 @@ switcher.windows:subscribe({
   filter.windowHidden,
   filter.windowUnhidden,
 }, function(window, name, event, id)
-  if stopped then
-    return
-  end
   local current = cycle
   local capture = event == filter.windowMinimized or event == filter.windowHidden
   if not capture and (not current or current.released) then

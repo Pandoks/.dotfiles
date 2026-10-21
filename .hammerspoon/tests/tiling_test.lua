@@ -36,7 +36,15 @@ end
 -- A 1000x600 display showing Space 1 and, to its right, one showing Space 2. Windows are
 -- {id, app, title?, space?}; Space 3 has no display.
 local function harness(rows)
-  local h = { frames = {}, focused = nil, logs = {}, focuses = {}, windows = {}, buttons = {} }
+  local h = {
+    subscribed = {},
+    frames = {},
+    focused = nil,
+    logs = {},
+    focuses = {},
+    windows = {},
+    buttons = {},
+  }
   local function window(row)
     local app = {
       name = function()
@@ -98,11 +106,10 @@ local function harness(rows)
     windowMoved = "moved",
     new = function(predicate)
       return {
+        -- Like the real filter, only subscribed events are delivered.
         subscribe = function(_, events, fn)
-          if events == "moved" then
-            h.moved = fn
-          else
-            h.events = fn
+          for _, event in ipairs(type(events) == "table" and events or { events }) do
+            h.subscribed[event] = fn
           end
         end,
         getWindows = function()
@@ -227,14 +234,17 @@ local function harness(rows)
   h.tiling = assert(loadfile(root .. "/tiling.lua", "t", env))()
   h.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Nightly)" })
   function h:event(name, id)
-    self.events(nil, nil, name, id)
+    local callback = self.subscribed[name]
+    if callback then
+      callback(nil, nil, name, id)
+    end
   end
   -- The user moves a window to `frame` by hand.
   function h:drag(id, frame)
     self.frames[id] = frame
     for _, entry in ipairs(self.windows) do
       if entry.row.id == id then
-        self.moved(entry.window, entry.row.app, "moved", id)
+        self.subscribed.moved(entry.window, entry.row.app, "moved", id)
       end
     end
   end
@@ -283,6 +293,18 @@ test("a window renamed to Picture-in-Picture leaves the layout", function()
   h.windows[2].row.title = "Picture-in-Picture"
   h:event("title", 2)
   eq(h:frame(1), "0,0 1000x600", "remaining window takes the space back")
+end)
+
+test("minimizing or hiding a window frees its tile until it returns", function()
+  for _, case in ipairs({ { "minimized", "unminimized" }, { "hidden", "unhidden" } }) do
+    local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
+    h:row(1)[case[1]] = true
+    h:event(case[1], 1)
+    eq(h:frame(2), "0,0 1000x600", case[1])
+    h:row(1)[case[1]] = nil
+    h:event(case[2], 1)
+    eq(h:frame(1), "500,0 500x600", case[2])
+  end
 end)
 
 test("closing a window gives its tile to its sibling", function()

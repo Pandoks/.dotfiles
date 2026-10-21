@@ -44,7 +44,6 @@ for _, event in pairs(notifications) do
 end
 module.windowCreated, module.windowFocused = "windowCreated", "windowFocused"
 module.windowHidden, module.windowUnhidden = "windowHidden", "windowUnhidden"
-module.sortByFocusedLast = "focused"
 
 -- The frontmost check from the system, not from the app over Accessibility.
 ---@param app WindowObserver
@@ -349,16 +348,9 @@ detach = function(pid)
   retire(app)
 end
 
----@param predicate? string|fun(window: hs.window): boolean?
+---@param predicate? fun(window: hs.window): boolean?
 ---@return WindowFilter
 function module.new(predicate)
-  if type(predicate) == "string" then
-    local name = predicate
-    predicate = function(window)
-      local app = window:application()
-      return app and app:name() == name and window:isStandard()
-    end
-  end
   local filter = setmetatable({ predicate = predicate, callbacks = {} }, Filter)
   filters[filter] = true
   if not applicationWatcher then

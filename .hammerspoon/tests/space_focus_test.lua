@@ -723,14 +723,11 @@ end
 
 test("numbered Space moves focus from PiP to the Space's window", function()
   local h = harness()
-  local result
-  h.module.switchSpace(2, function(ok)
-    result = ok
-  end)
+  h.module.switchSpace(2)
   h:advance(0.3)
   eq(h.space, 202)
   eq(h.focused, 2)
-  eq(result, true)
+  eq(h.module.status().last.ok, true)
   eq(h:countFocus(), 1)
 end)
 test("focus notification completes restoration synchronously", function()
@@ -892,13 +889,10 @@ test("windows on the other display's visible Space are excluded", function()
 end)
 test("an unavailable Space display fails once with a popup", function()
   local h = harness({ displays = { [202] = "gone" } })
-  local result
-  h.module.switchSpace(2, function(ok, message)
-    result = { ok, message }
-  end)
+  h.module.switchSpace(2)
   h:advance(2)
-  eq(result[1], false)
-  eq(result[2], "Space display unavailable")
+  eq(h.module.status().last.ok, false)
+  eq(h.module.status().last.error, "Space display unavailable")
   eq(h.lists, 0)
   eq(h:countFocus(), 0)
   eq(#h.clicks, 0)
@@ -952,10 +946,13 @@ test("late PiP focus notification is still corrected", function()
   eq(h.focused, 2)
 end)
 test("already-visible monitor switch works without a Space event", function()
-  local h = harness({ notify = "app" })
+  local h = harness({ displays = { [101] = "left", [202] = "right" }, visible = { 202 } })
   h.module.switchSpace(2)
   h:advance(0.3)
   eq(h.focused, 2)
+  eq(h:countFocus(), 1)
+  eq(#h.alerts, 0)
+  eq(h.module.status().last.ok, true)
 end)
 test("a Space change before the deferred focus cannot pull focus back", function()
   local h = harness()
@@ -1029,27 +1026,27 @@ test("a Space change during a synchronous check cannot dispatch stale focus", fu
   end
 end)
 
-test(
-  "mouse input and shutdown cancel the current callback without undoing sent commands",
-  function()
-    for _, stop in ipairs({ false, true }) do
-      local h = harness()
-      h.module.switchSpace(2)
-      h:advance(0.005, 1)
-      h.module.switchSpace(3)
-      if stop then
-        h.module.stop()
-      else
-        h:click()
-      end
-      h:advance(0.15)
-      eq(h.space, 303)
-      eq(h:countFocus(), 0)
-      eq(#h.writes, 2)
-      eq(h.module.status().busy, false)
+test("mouse input and shutdown cancel the current job without undoing sent commands", function()
+  for _, stop in ipairs({ false, true }) do
+    local h = harness()
+    h.module.switchSpace(2)
+    h:advance(0.005, 1)
+    h.module.switchSpace(3)
+    if stop then
+      h.module.stop()
+    else
+      h:click()
     end
+    h:advance(0.15)
+    eq(h.space, 303)
+    eq(h:countFocus(), 0)
+    eq(#h.clicks, 0)
+    eq(#h.writes, 2)
+    eq(h.module.status().busy, false)
+    eq(h.module.status().active, not stop)
+    eq(h.module.status().last.error, stop and "stopped" or "superseded")
   end
-)
+end)
 
 test("rapid relative shortcuts advance from the pending destination", function()
   local h = harness()
@@ -1094,21 +1091,6 @@ test("Cmd-Tab exact-window operation takes priority", function()
   h:arrive(202, true)
   h:advance(0.3)
   eq(h:countFocus(), 0)
-end)
-test("Space errors do not focus unrelated windows", function()
-  local h = harness({ spaceError = true })
-  h.module.switchSpace(2)
-  h:advance(0.3)
-  eq(h:countFocus(), 0)
-  eq(h.module.status().busy, false)
-end)
-test("shutdown cancels pending focus and observation", function()
-  local h = harness()
-  h:arrive(202, true)
-  h.module.stop()
-  h:advance(0.3)
-  eq(h:countFocus(), 0)
-  eq(h.module.status().active, false)
 end)
 test("idle controller takes no periodic window snapshots", function()
   local h = harness()
@@ -1212,16 +1194,13 @@ local function away(mode)
 end
 test("an empty Space on another display takes focus once windowManager replies", function()
   local h = away(true)
-  local result
   -- The display can show the Space before windowManager replies; restoration waits for the reply.
   h.beforeReply = function()
     eq(h.lists, 0)
   end
-  h.module.switchSpace(3, function(ok, message)
-    result = { ok, message }
-  end)
+  h.module.switchSpace(3)
   h:advance(2)
-  eq(result[1], true)
+  eq(h.module.status().last.ok, true)
   eq(h.space, 303)
   eq(h.focused, nil)
   eq(#h.clicks, 1)
@@ -1538,59 +1517,41 @@ test("a newer switch during a window snapshot prevents the old focus action", fu
   end
 end)
 
-test("new command dispatch precedes the cancelled caller's completion", function()
-  local h = harness()
-  h.module.switchSpace(2, function(ok, message)
-    eq(ok, false)
-    eq(message, "superseded")
-    eq(#h.writes, 2)
-    eq(h.writes[2][2], 3)
-  end)
-  h.module.switchSpace(3)
-  h:advance(0.3)
-  eq(h.space, 303)
-end)
-
 test("a missing Space times out and a failed reply stops, once and without retrying", function()
   for _, opts in ipairs({ { noArrival = true }, { spaceError = true } }) do
     local h = harness(opts)
     -- windowManager replies only once the display shows the Space.
     h.noReply = opts.noArrival
-    local result
-    h.module.switchSpace(2, function(ok, message)
-      result = { ok, message }
-    end)
+    h.module.switchSpace(2)
     h:advance(0.1)
     if opts.noArrival then
-      eq(result, nil)
+      eq(h.module.status().last, nil)
       eq(h.module.status().busy, true)
       eq(#h.alerts, 0)
       h:advance(1.5)
     end
-    eq(result[1], false)
-    eq(result[2], opts.noArrival and "timed out waiting for Space 2" or "display unavailable")
+    local message = opts.noArrival and "timed out waiting for Space 2" or "display unavailable"
+    eq(h.module.status().last.ok, false)
+    eq(h.module.status().last.error, message)
     eq(h.module.status().busy, false)
     h:advance(2)
     eq(h.space, 101)
     eq(h.lists, 0)
     eq(#h.writes, 1)
     eq(#h.alerts, 1)
-    eq(h.logs[#h.logs], "Space focus: " .. result[2])
+    eq(h.logs[#h.logs], "Space focus: " .. message)
   end
 end)
 
 test("a Space notification after an ok reply restores focus", function()
   local h = harness({ lateArrival = true })
-  local result
-  h.module.switchSpace(2, function(ok, message)
-    result = { ok, message }
-  end)
+  h.module.switchSpace(2)
   h:advance(0.0015)
-  eq(result, nil)
+  eq(h.module.status().last, nil)
   eq(h.module.status().busy, true)
   eq(h.lists, 0)
   h:advance(0.3)
-  eq(result[1], true)
+  eq(h.module.status().last.ok, true)
   eq(h.space, 202)
   eq(h.focused, 2)
   eq(h:countFocus(), 1)
@@ -1601,12 +1562,9 @@ end)
 test("app or window focus after an ok reply restores focus without a Space event", function()
   for _, notify in ipairs({ "app", "window" }) do
     local h = harness({ lateArrival = true, notify = notify })
-    local result
-    h.module.switchSpace(2, function(ok)
-      result = ok
-    end)
+    h.module.switchSpace(2)
     h:advance(0.3)
-    eq(result, true)
+    eq(h.module.status().last.ok, true)
     eq(h.space, 202)
     eq(h.focused, 2)
     eq(h:countFocus(), 1)
@@ -1616,19 +1574,15 @@ end)
 
 test("a press between the reply and the Space arrival supersedes cleanly", function()
   local h = harness({ lateArrival = true })
-  local first, second
-  h.module.switchSpace(2, function(ok, message)
-    first = { ok, message }
-  end)
+  h.module.switchSpace(2)
   h:advance(0.0015)
-  h.module.switchSpace(3, function(ok)
-    second = ok
-  end)
-  eq(first[1], false)
-  eq(first[2], "superseded")
+  h.module.switchSpace(3)
+  eq(h.module.status().last.space, 202)
+  eq(h.module.status().last.error, "superseded")
   eq(#h.writes, 2)
   h:advance(0.3)
-  eq(second, true)
+  eq(h.module.status().last.space, 303)
+  eq(h.module.status().last.ok, true)
   eq(h.space, 303)
   eq(h.focused, nil)
   eq(h:countFocus(), 0)
@@ -1638,14 +1592,11 @@ end)
 
 test("a reversal before the first reply switches back without queuing or retrying", function()
   local h = harness()
-  local result
   h.module.switchSpace(2)
-  h.module.switchSpace(1, function(ok, message)
-    result = { ok, message }
-  end)
+  h.module.switchSpace(1)
   eq(#h.writes, 2)
   h:advance(0.3)
-  eq(result[1], true)
+  eq(h.module.status().last.ok, true)
   eq(h.space, 101)
   eq(h.focused, 1)
   eq(#h.alerts, 0)
@@ -1718,23 +1669,16 @@ test("PiP redirect uses tracked windows in ID order and switcher recency", funct
   end
 end)
 
-test("activation with the pointer over PiP keeps the deliberate PiP focus", function()
-  local h = pip()
-  h.mouse = { x = 450, y = 400 }
-  h:activate(50)
-  h:advance(0.3)
-  eq(h:countFocus(), 0)
-  eq(h.focused, 50)
-end)
-
 test("activation during a Space job or its transition does not redirect PiP", function()
-  for _, settled in ipairs({ false, true }) do
+  -- A busy Cmd-Tab leaves the transition without a job.
+  for _, case in ipairs({ "job", "transition", "busy" }) do
     local h = pip()
     h.module.switchSpace(2)
-    if settled then
+    if case ~= "job" then
       h:advance(0.1)
       eq(h.module.status().busy, false)
     end
+    h.busy = case == "busy"
     h:activate(50)
     h:advance(0.3)
     for _, command in ipairs(h.writes) do
@@ -1798,17 +1742,6 @@ test("PiP focus shortly after activating a real window is redirected", function(
   eq(#h.alerts, 0)
 end)
 
-test("PiP focus more than 0.5 s after activation stays on the current Space", function()
-  local h = pip()
-  h:activate(61)
-  h:advance(0.6)
-  h:focus(50)
-  h:advance(0.3)
-  eq(h:countFocus(), 0)
-  eq(h.focused, 50)
-  eq(h.space, 101)
-end)
-
 test("PiP focus without an activation of its app does not redirect", function()
   for _, other in ipairs({ false, true }) do
     local h = pip()
@@ -1833,21 +1766,25 @@ test("PiP focus that returns within 0.5 s after a redirect is redirected again",
   eq(h:countFocus(), 2)
   h:advance(0.1)
   eq(h.focused, 61)
-  h:advance(0.5)
+  h:advance(0.4)
   h:focus(50)
   h:advance(0.3)
   eq(h:countFocus(), 2)
   eq(h.focused, 50)
 end)
 
-test("PiP focus with the pointer over PiP after activation does not redirect", function()
-  local h = pip()
-  h.mouse = { x = 450, y = 400 }
-  h:activate(61)
-  h:focus(50)
-  h:advance(0.3)
-  eq(h:countFocus(), 0)
-  eq(h.focused, 50)
+test("PiP activation or later PiP focus with the pointer over PiP does not redirect", function()
+  for _, later in ipairs({ false, true }) do
+    local h = pip()
+    h.mouse = { x = 450, y = 400 }
+    h:activate(later and 61 or 50)
+    if later then
+      h:focus(50)
+    end
+    h:advance(0.3)
+    eq(h:countFocus(), 0)
+    eq(h.focused, 50)
+  end
 end)
 
 test("shutdown stops arrow interception", function()

@@ -7,8 +7,8 @@ Set `HAMMERSPOON_APP` if Hammerspoon is installed outside `/Applications`.
 The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
-tracking failures with popups and no retries, and shutdown. Explicit action failures
-still log and show popups.
+tracking failures with popups and no retries, and shutdown. The switcher suite
+checks that explicit action failures still log and show popups.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
 checks the frames it requests: longer-side splits for new windows, the app
@@ -75,6 +75,8 @@ be read are ignored. App icons are cached by bundle identifier, so a reused proc
 cannot show another app's icon.
 
 The real switcher runs in an isolated model of Hammerspoon, `lib.window_manager` replies,
+`lib.window_filter` deliveries of already-admitted windows (admission itself is checked by
+the observer suite),
 window focus, event notifications, and timers. The suite does not launch
 Hammerspoon, send input, or focus windows.
 
@@ -106,9 +108,9 @@ before or after the `window_manager.space` reply, arrival timeouts, superseded r
 direct Space notifications, late PiP focus, per-Space window identity, empty desktop fallback,
 explicit mouse intent, superseded replies, shutdown, and idle snapshot activity.
 It also checks PiP activation redirects, display boundaries, repeated presses during
-a pending switch, Mission Control key passthrough and focus suppression, and Dock
-restart detection. Its window model keeps untracked, minimized, hidden, layer-3, and
-other-display windows out of the candidates.
+a pending switch, and Mission Control key passthrough and focus suppression. Its window
+model keeps untracked, minimized, hidden, layer-3, and other-display windows out of the
+candidates.
 
 Ctrl-Left/Right use `window_manager.space` outside Mission Control and stop at the current display's
 first/last Space. Numbered shortcuts use global Mission Control indices. Shortcuts take
