@@ -18,6 +18,17 @@ local function isPiP(title)
   return title == "pictureinpicture" or title == "pip"
 end
 
+-- Without Screen Recording, the WindowServer list omits titles; the tracked window still has one.
+---@param info table `hs.window.list()` entry
+---@return string
+local function titleOf(info)
+  if info.kCGWindowName then
+    return info.kCGWindowName
+  end
+  local window = filter.windowsOf(info.kCGWindowOwnerPID)[info.kCGWindowNumber]
+  return window and window:title() or ""
+end
+
 local function eligible(row)
   return row.app ~= "Hammerspoon" and not isPiP(row.title)
 end
@@ -41,7 +52,7 @@ local function snapshot(frame)
         id = id,
         pid = pid,
         app = info.kCGWindowOwnerName,
-        title = info.kCGWindowName or "",
+        title = titleOf(info),
         frame = { x = b.X, y = b.Y, w = b.Width, h = b.Height },
         inside = inside,
       }
@@ -446,7 +457,7 @@ local function leavePiP(id, pid)
   local b = info and info.kCGWindowBounds
   if
     not b
-    or not isPiP(info.kCGWindowName)
+    or not isPiP(titleOf(info))
     or hs.geometry
       .new(hs.mouse.absolutePosition())
       :inside({ x = b.X, y = b.Y, w = b.Width, h = b.Height })
@@ -549,7 +560,7 @@ module.appWatcher = hs.application.watcher
     for _, entry in
       ipairs(hs.window.list() --[[@as table[] ]])
     do
-      if entry.kCGWindowOwnerPID == pid and isPiP(entry.kCGWindowName) then
+      if entry.kCGWindowOwnerPID == pid and isPiP(titleOf(entry)) then
         window = app:focusedWindow()
         if window and window:id() == entry.kCGWindowNumber then
           retake()

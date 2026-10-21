@@ -126,7 +126,8 @@ link, or other activation gives that app's PiP focus within 0.5 s, focus continu
 to the app's latest real window unless the pointer is over the PiP. The rule stays
 armed for those 0.5 s, so a PiP that retakes focus after the redirect is redirected
 again. Later PiP focus, e.g. after closing a window, stays on the current Space. The PiP
-title and bounds come from the WindowServer list; an activation asks the app for its
+title and bounds come from the WindowServer list (the title from the tracked window when
+the list omits it without Screen Recording); an activation asks the app for its
 focused window only when that list shows a PiP it owns. The target is the app's
 tracked, unminimized non-PiP window with the latest switcher recency (seeded at load from
 the WindowServer's front-to-back on-screen order; lowest window ID for windows on other
@@ -150,8 +151,9 @@ yield to the next run-loop turn so a newer shortcut can cancel them before dispa
 A swipe already posted or a running native call cannot be recalled.
 There is no Space-command queue or retry.
 Mission Control state is seeded once and updated by Dock Accessibility notifications,
-with subscriptions renewed on Dock launch. Switcher busy checks do not inspect
-screen-recording permission. Focus validation checks the current Space after the
+with subscriptions renewed on Dock launch. The switcher counts as busy from the Cmd-Tab
+press, before its menu shows, until the chosen window has focus. Switcher busy checks do
+not inspect screen-recording permission. Focus validation checks the current Space after the
 other state checks, so a Space change during those checks cannot focus an old window.
 
 Focus restoration reads the Space synchronously in-process: `hs.window.list()` for the

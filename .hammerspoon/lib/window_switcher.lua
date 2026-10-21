@@ -1031,8 +1031,9 @@ switcher.windows:subscribe({
   end
 end)
 
+-- Busy from the Cmd-Tab press, before the menu shows, until the chosen window has focus.
 function switcher.isBusy()
-  return operation ~= nil or switcher.canvas:isShowing()
+  return operation ~= nil or cycle ~= nil or switcher.canvas:isShowing()
 end
 
 -- Useful from the Hammerspoon console when checking what the menu contains.

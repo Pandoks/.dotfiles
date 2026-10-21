@@ -1869,6 +1869,7 @@ end)
 test("quick Cmd-Tab release before list arrives focuses once and passes later keys", function()
   local h = harness()
   h:key("keyDown", "tab", { cmd = true })
+  eq(h.menu.isBusy(), true, "busy before the menu shows, so Space focus stays out")
   h:release()
   for _, key in ipairs({ "a", "right", "escape" }) do
     eq(h:key("keyDown", key, {}), false, key)

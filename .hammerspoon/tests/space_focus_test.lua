@@ -517,7 +517,7 @@ local function harness(options)
             kCGWindowNumber = r.id,
             kCGWindowOwnerPID = r.pid,
             kCGWindowOwnerName = r.app,
-            kCGWindowName = r.title,
+            kCGWindowName = not o.noTitles and r.title or nil,
             kCGWindowLayer = r.layer or 0,
             kCGWindowBounds = { X = f.x, Y = f.y, Width = f.w, Height = f.h },
           }
@@ -1667,8 +1667,10 @@ local function pip(options)
 end
 
 test("activation onto PiP continues to the app's most recent real window", function()
-  for _, loaded in ipairs({ true, false }) do
-    local h = pip({ noSwitcher = not loaded })
+  for _, case in ipairs({ { true }, { false }, { true, true } }) do
+    local loaded = case[1]
+    -- Without Screen Recording, titles come from the tracked windows instead.
+    local h = pip({ noSwitcher = not loaded, noTitles = case[2] })
     -- Without the switcher, the lowest tracked ID wins.
     h.recent = { [61] = 2 }
     h:activate(50)
