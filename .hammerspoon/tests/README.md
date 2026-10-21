@@ -16,8 +16,9 @@ allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that never
 falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
 that a Space jump posts all its swipes at once and reports once on arrival, and that
-a press during a jump continues from that jump's target. Neither touches the real window
-server; the native gesture, focus, and Accessibility calls in
+a press during a jump continues from that jump's target. It also checks that loading starts
+one background window search, so the first Cmd-Tab finds windows on other Spaces cached.
+Neither touches the real window server; the native gesture, focus, and Accessibility calls in
 `lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
 
 Run `sh .hammerspoon/tests/previews_test.sh` for the native preview worker pool.
