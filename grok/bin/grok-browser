@@ -1,0 +1,204 @@
+#!/bin/sh
+
+# Run Helium on the dedicated grokbot profile with DevTools on loopback, and
+# drive it with Playwright over CDP. Only ever touches the Helium process using
+# that profile; Helium windows on any other profile are left alone.
+
+set -eu
+
+app=/Applications/Helium.app
+profile="$HOME/grok/config/helium-grokbot-profile"
+log="$HOME/grok/logs/grok-browser.log"
+port=${GROK_BROWSER_PORT:-9333}
+endpoint="http://127.0.0.1:$port"
+mise_data=${MISE_DATA_DIR:-$HOME/.local/share/mise}
+node_modules="$mise_data/installs/npm-playwright-core/latest/node_modules"
+
+usage() {
+  cat >&2 << 'EOF'
+usage: grok-browser start | stop | status
+       grok-browser run SCRIPT.js [ARGS...]
+       grok-browser open URL
+       grok-browser screenshot URL OUT.png
+       grok-browser dump URL
+
+run gives SCRIPT require('playwright-core') and GROK_BROWSER_CDP_URL for
+chromium.connectOverCDP(). The port is 9333 unless GROK_BROWSER_PORT is set.
+EOF
+  exit 2
+}
+
+fail() {
+  echo "grok-browser: $*" >&2
+  exit 1
+}
+
+case $port in
+  '' | *[!0-9]*) fail "GROK_BROWSER_PORT must be a port number" ;;
+esac
+
+(umask 077 && mkdir -p "$profile")
+mkdir -p "$(dirname "$log")"
+profile=$(realpath "$profile")
+if [ -n "${GROK_BROWSER_PROFILE-}" ] \
+  && [ "$(realpath "$GROK_BROWSER_PROFILE" 2> /dev/null)" != "$profile" ]; then
+  fail "refusing profile $GROK_BROWSER_PROFILE; only $profile may be used"
+fi
+
+# PID of the Helium browser process on the grokbot profile (not its helpers)
+browser_pid() {
+  ps -axww -o pid= -o command= | awk -v bin="$app/Contents/MacOS/Helium" \
+    -v arg="--user-data-dir=$profile" '
+    { pid = $1; sub(/^ *[0-9]+ /, ""); line = $0 " " }
+    index(line, bin " ") == 1 && index(line, " " arg " ") { print pid; exit }'
+}
+
+# PID holding the profile's SingletonLock (a "host-pid" symlink), if alive
+lock_pid() {
+  target=$(readlink "$profile/SingletonLock" 2> /dev/null) || return 0
+  pid=${target##*-}
+  ! kill -0 "$pid" 2> /dev/null || echo "$pid"
+}
+
+# Addresses PID $1 listens on for the debug port, one per line
+listen_addresses() {
+  lsof -nP -a -p "$1" -iTCP:"$port" -sTCP:LISTEN -Fn 2> /dev/null | sed -n 's/^n//p'
+}
+
+# Fail unless PID $1 serves CDP on the port, bound to loopback only
+check_debug_port() {
+  addresses=$(listen_addresses "$1")
+  [ -n "$addresses" ] || fail "Helium is running on the grokbot profile (pid $1) without the" \
+    "debug port; quit that window or run 'grok-browser stop', then 'grok-browser start'"
+  for address in $addresses; do
+    case $address in
+      "127.0.0.1:$port" | "[::1]:$port") ;;
+      *) fail "debug port is listening on $address, not just loopback; run 'grok-browser stop'" ;;
+    esac
+  done
+  curl -fsS --max-time 5 "$endpoint/json/version" > /dev/null \
+    || fail "$endpoint/json/version isn't responding"
+}
+
+require_running() {
+  pid=$(browser_pid)
+  [ -n "$pid" ] || fail "not running; run 'grok-browser start'"
+  check_debug_port "$pid"
+}
+
+start() {
+  pid=$(browser_pid)
+  if [ -n "$pid" ]; then
+    check_debug_port "$pid"
+    echo "already running (pid $pid) at $endpoint"
+    return
+  fi
+  pid=$(lock_pid)
+  [ -z "$pid" ] || fail "the grokbot profile is locked by pid $pid; quit that Helium first"
+  [ -z "$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2> /dev/null)" ] \
+    || fail "port $port is already in use by another process"
+  [ -d "$app" ] || fail "Helium isn't installed at $app"
+
+  echo "=== $(date '+%Y-%m-%d %H:%M:%S') grok-browser start" >> "$log"
+  # -n starts a separate instance even while other Helium windows are open
+  open -n -g -a "$app" --stdout "$log" --stderr "$log" --args \
+    --user-data-dir="$profile" \
+    --remote-debugging-port="$port" \
+    --remote-debugging-address=127.0.0.1 \
+    --no-first-run \
+    --no-default-browser-check
+
+  tries=0
+  until curl -fsS --max-time 1 "$endpoint/json/version" > /dev/null 2>&1; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 30 ] || fail "no answer from $endpoint after 30s; see $log"
+    sleep 1
+  done
+  pid=$(browser_pid)
+  [ -n "$pid" ] || fail "$endpoint answers, but not from the grokbot Helium; see $log"
+  check_debug_port "$pid"
+  echo "started (pid $pid) at $endpoint"
+}
+
+stop() {
+  pid=$(browser_pid)
+  if [ -z "$pid" ]; then
+    echo "not running"
+    return
+  fi
+  kill "$pid"
+  tries=0
+  while kill -0 "$pid" 2> /dev/null; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 15 ]; then
+      kill -9 "$pid" 2> /dev/null || true
+      break
+    fi
+    sleep 1
+  done
+  echo "stopped (pid $pid)"
+}
+
+status() {
+  pid=$(browser_pid)
+  if [ -z "$pid" ]; then
+    echo "not running"
+    exit 1
+  fi
+  check_debug_port "$pid"
+  version=$(curl -fsS --max-time 5 "$endpoint/json/version" \
+    | sed -n 's/.*"Browser": *"\([^"]*\)".*/\1/p')
+  echo "running (pid $pid) at $endpoint, $version, profile $profile"
+}
+
+# Run node with playwright-core resolvable and the CDP endpoint exported
+node_playwright() {
+  require_running
+  [ -d "$node_modules/playwright-core" ] \
+    || fail "playwright-core isn't installed; run 'mise bootstrap --yes'"
+  PATH="$mise_data/shims:$PATH"
+  NODE_PATH="$node_modules${NODE_PATH:+:$NODE_PATH}"
+  GROK_BROWSER_CDP_URL=$endpoint
+  export PATH NODE_PATH GROK_BROWSER_CDP_URL
+  exec node "$@"
+}
+
+# open, screenshot and dump in one script: argv is COMMAND URL [OUT]
+helper='
+const { chromium } = require("playwright-core");
+const [command, url, out] = process.argv.slice(1);
+(async () => {
+  const browser = await chromium.connectOverCDP(process.env.GROK_BROWSER_CDP_URL);
+  const page = await browser.contexts()[0].newPage();
+  await page.goto(url);
+  if (command === "screenshot") await page.screenshot({ path: out, fullPage: true });
+  if (command === "dump") console.log(await page.innerText("body"));
+  if (command !== "open") await page.close();
+  // Disconnects only; Helium and its open tabs keep running
+  await browser.close();
+})().catch((error) => {
+  console.error("grok-browser: " + error.message);
+  process.exit(1);
+});
+'
+
+case "${1-}" in
+  start | stop | status)
+    [ $# -eq 1 ] || usage
+    "$1"
+    ;;
+  run)
+    [ $# -ge 2 ] || usage
+    shift
+    node_playwright "$@"
+    ;;
+  open | dump)
+    [ $# -eq 2 ] || usage
+    node_playwright -e "$helper" "$1" "$2"
+    ;;
+  screenshot)
+    [ $# -eq 3 ] || usage
+    node_playwright -e "$helper" "$1" "$2" "$3"
+    ;;
+  *) usage ;;
+esac

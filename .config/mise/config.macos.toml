@@ -1,3 +1,6 @@
+[tools]
+"npm:playwright-core" = "latest" # for grok-browser
+
 [bootstrap.brew.taps]
 
 [bootstrap.packages]
@@ -67,3 +70,5 @@ test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoo
 "~/.hammerspoon" = "../../.hammerspoon"
 "~/.config/yabai/yabairc" = "../yabai/yabairc"
 "~/.rtorrent.rc" = "../../.rtorrent.rc"
+
+"~/grok/bin/grok-browser" = "../../grok/bin/grok-browser"
