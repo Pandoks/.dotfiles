@@ -22,6 +22,10 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 
 [bootstrap.hooks.final]
 run = '''
+if [ -d /run/systemd/system ]; then
+  sudo systemctl enable --now fwupd-refresh.timer
+fi
+
 # Fix a misdetected laptop with: hostnamectl chassis laptop
 case "$(hostnamectl chassis 2>/dev/null)" in
   laptop|convertible) ;;
@@ -68,7 +72,3 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:containerd" = "latest"
 "pacman:docker-buildx" = "latest"
 "pacman:docker-compose" = "latest"
-
-[bootstrap.services."fwupd-refresh.timer"]
-enabled = true
-state = "running"
