@@ -5,6 +5,7 @@
 
 [bootstrap.directories."/etc/systemd/logind.conf.d"]
 [bootstrap.directories."/etc/systemd/system/acpid.service.d"]
+[bootstrap.directories."/etc/sysctl.d"]
 [bootstrap.directories."/usr/local/libexec"]
 
 [bootstrap.files."/etc/systemd/logind.conf.d/60-mise-laptop-power.conf"]
@@ -12,6 +13,14 @@ content = '''
 [Login]
 HandleLidSwitch=suspend
 HandleLidSwitchExternalPower=ignore
+'''
+
+# Turn silent hard freezes into a panic and a reboot after 10s so they leave a trace
+[bootstrap.files."/etc/sysctl.d/60-mise-crash.conf"]
+content = '''
+kernel.softlockup_panic = 1
+kernel.hardlockup_panic = 1
+kernel.panic = 10
 '''
 
 [bootstrap.files."/usr/local/libexec/laptop-panel"]
@@ -46,4 +55,7 @@ notify = ["acpid"]
 on_change = "restart"
 
 [bootstrap.hooks.final]
-run = "sudo systemctl reload systemd-logind"
+run = '''
+sudo systemctl reload systemd-logind
+sudo sysctl --system >/dev/null
+'''

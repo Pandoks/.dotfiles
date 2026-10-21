@@ -68,3 +68,8 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:containerd" = "latest"
 "pacman:docker-buildx" = "latest"
 "pacman:docker-compose" = "latest"
+
+# fwupd-refresh.timer keeps LVFS firmware metadata current so fwupd sees new BIOS updates
+[bootstrap.services."fwupd-refresh.timer"]
+enabled = true
+state = "running"
