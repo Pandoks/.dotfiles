@@ -1,8 +1,5 @@
 #!/bin/sh
 
-# List, read and copy files inside the Proton Drive folder, and nowhere else.
-# Reading a cloud-only placeholder downloads it first, which can take a while.
-
 set -eu
 
 root="$HOME/Library/CloudStorage/ProtonDrive-pandoks@example.com-folder"
@@ -28,7 +25,6 @@ fail() {
 
 root=$(realpath "$root" 2> /dev/null) || fail "no Proton Drive folder; is Proton Drive signed in?"
 
-# Print the resolved path of $1, refusing anything outside the Drive folder
 inside() {
   case $1 in
     /*) path=$1 ;;
@@ -41,7 +37,6 @@ inside() {
   esac
 }
 
-# Run a command that reads $1, giving a placeholder time to download
 reading() {
   file=$1
   shift
@@ -50,7 +45,6 @@ reading() {
   esac
   status=0
   perl -e 'alarm shift; exec @ARGV or die "$!\n"' "$download_timeout" "$@" || status=$?
-  # 142 is death by SIGALRM
   [ "$status" -ne 142 ] || fail "no download after ${download_timeout}s; retry later"
   return "$status"
 }

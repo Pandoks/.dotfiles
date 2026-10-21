@@ -1,13 +1,3 @@
-# Proton Mail through the local Proton Mail Bridge, used by grok-proton-mail.
-#
-# Read and draft only: no account has an `smtp` block, so himalaya has no way
-# to send mail with this file. Proton files sent mail itself, so
-# `message.send.save-copy` stays unset.
-#
-# Passwords are the per-account ones Bridge's `info` prints, kept in the login
-# keychain under service `grok-proton-bridge` with the address as the account.
-# proton-bridge-cert.pem is Bridge's self-signed certificate, fetched once.
-
 downloads-dir = "~/grok/cache/proton-mail"
 envelope.list.datetime-local-tz = true
 

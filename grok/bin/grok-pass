@@ -1,8 +1,5 @@
 #!/bin/sh
 
-# Run pass-cli as pandoks@example.com, or as manda@example.com with --manda.
-# Each session dir gets its own keychain key, so the two logins stay separate.
-
 set -eu
 
 session=pandoks

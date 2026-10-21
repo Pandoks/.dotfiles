@@ -1,8 +1,5 @@
 #!/bin/sh
 
-# Read and draft Proton Mail through the local Bridge with himalaya. Nothing can
-# be sent: the config has no SMTP, and only the subcommands below run.
-
 set -eu
 
 usage() {
@@ -78,14 +75,12 @@ for arg; do
     -h | --help) help=true ;;
   esac
   if [ "$command" = 'message add' ]; then
-    # Only `-m drafts` and `--mailbox drafts`, checked above
     case $arg in
       --mailbox=*) deny "$arg" ;;
       -m | --*) ;;
       -*m*) deny "$arg" ;;
     esac
   fi
-  # \Deleted is a delete: the next expunge removes the message
   case "$command:$arg" in
     'flag add:'*[Dd][Ee][Ll][Ee][Tt][Ee][Dd]* | 'flag set:'*[Dd][Ee][Ll][Ee][Tt][Ee][Dd]*)
       deny "$command $arg"
@@ -102,6 +97,5 @@ if [ "$help" = false ] && [ "$command" != 'account list' ] \
   exit 1
 fi
 
-# Debug and trace logs can include the IMAP login
 unset RUST_LOG
 exec himalaya -c "$HOME/grok/config/himalaya/config.toml" ${account:+--account "$account"} "$@"

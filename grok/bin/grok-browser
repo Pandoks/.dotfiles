@@ -1,9 +1,5 @@
 #!/bin/sh
 
-# Run Helium on the dedicated grokbot profile with DevTools on loopback, and
-# drive it with Playwright over CDP. Only ever touches the Helium process using
-# that profile; Helium windows on any other profile are left alone.
-
 set -eu
 
 app=/Applications/Helium.app
@@ -45,7 +41,6 @@ if [ -n "${GROK_BROWSER_PROFILE-}" ] \
   fail "refusing profile $GROK_BROWSER_PROFILE; only $profile may be used"
 fi
 
-# PID of the Helium browser process on the grokbot profile (not its helpers)
 browser_pid() {
   ps -axww -o pid= -o command= | awk -v bin="$app/Contents/MacOS/Helium" \
     -v arg="--user-data-dir=$profile" '
@@ -53,19 +48,16 @@ browser_pid() {
     index(line, bin " ") == 1 && index(line, " " arg " ") { print pid; exit }'
 }
 
-# PID holding the profile's SingletonLock (a "host-pid" symlink), if alive
 lock_pid() {
   target=$(readlink "$profile/SingletonLock" 2> /dev/null) || return 0
   pid=${target##*-}
   ! kill -0 "$pid" 2> /dev/null || echo "$pid"
 }
 
-# Addresses PID $1 listens on for the debug port, one per line
 listen_addresses() {
   lsof -nP -a -p "$1" -iTCP:"$port" -sTCP:LISTEN -Fn 2> /dev/null | sed -n 's/^n//p'
 }
 
-# Fail unless PID $1 serves CDP on the port, bound to loopback only
 check_debug_port() {
   addresses=$(listen_addresses "$1")
   [ -n "$addresses" ] || fail "Helium is running on the grokbot profile (pid $1) without the" \
@@ -100,7 +92,6 @@ start() {
   [ -d "$app" ] || fail "Helium isn't installed at $app"
 
   echo "=== $(date '+%Y-%m-%d %H:%M:%S') grok-browser start" >> "$log"
-  # -n starts a separate instance even while other Helium windows are open
   open -n -g -a "$app" --stdout "$log" --stderr "$log" --args \
     --user-data-dir="$profile" \
     --remote-debugging-port="$port" \
@@ -151,7 +142,6 @@ status() {
   echo "running (pid $pid) at $endpoint, $version, profile $profile"
 }
 
-# Run node with playwright-core resolvable and the CDP endpoint exported
 node_playwright() {
   require_running
   [ -d "$node_modules/playwright-core" ] \
@@ -163,7 +153,6 @@ node_playwright() {
   exec node "$@"
 }
 
-# open, screenshot and dump in one script: argv is COMMAND URL [OUT]
 helper='
 const { chromium } = require("playwright-core");
 const [command, url, out] = process.argv.slice(1);
@@ -174,7 +163,6 @@ const [command, url, out] = process.argv.slice(1);
   if (command === "screenshot") await page.screenshot({ path: out, fullPage: true });
   if (command === "dump") console.log(await page.innerText("body"));
   if (command !== "open") await page.close();
-  // Disconnects only; Helium and its open tabs keep running
   await browser.close();
 })().catch((error) => {
   console.error("grok-browser: " + error.message);
