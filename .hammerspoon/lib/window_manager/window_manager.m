@@ -28,8 +28,7 @@ static BOOL keepImageLoaded(void) {
 
 #pragma mark - Space switching
 
-// Dock swipe synthesis, ported from rift (src/sys/space_switch.rs, Apache-2.0) and
-// InstantSpaceSwitcher (Sources/ISS/ISS.c, MIT).
+// Swipe synthesis from rift (src/sys/space_switch.rs, Apache-2.0) and InstantSpaceSwitcher (MIT).
 enum {
   typeField = 55, hidTypeField = 110, maskField = 115, motionField = 123, progressField = 124,
   positionXField = 125, positionYField = 126, velocityXField = 129, velocityYField = 130,
@@ -204,8 +203,7 @@ static id attribute(AXUIElementRef element, CFStringRef name) {
 static NSMutableDictionary<NSNumber *, NSMutableDictionary<NSNumber *, id> *> *elements;
 static NSMutableDictionary<NSNumber *, NSMutableSet<NSNumber *> *> *absent;
 
-// Fills the caches for `wanted`. Windows on other Spaces are missing from AXWindows, so
-// ids not seen before are searched once by remote token.
+// Windows on other Spaces aren't in AXWindows; unseen ids are searched once by remote token.
 static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wanted) {
   NSMutableDictionary *cache;
   NSMutableSet *skipped;
