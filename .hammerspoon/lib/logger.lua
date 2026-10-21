@@ -2,16 +2,25 @@
 local logger = {}
 
 local consolePrint = print
-local logDirectory = os.getenv("HOME") .. "/Library/Logs/Hammerspoon"
-local failurePrefix = "Could not write Hammerspoon file log: "
+local directory = os.getenv("HOME") .. "/Library/Logs/Hammerspoon"
 
-logger.path = logDirectory .. "/config.log"
+logger.path = directory .. "/config.log"
+
+---@param message string
+function logger.error(message)
+  print(message)
+  hs.alert.show(message:match("^[^\n]+"), 5)
+end
 
 function logger.install()
-  if not hs.fs.attributes(logDirectory) then
-    local created, errorMessage = hs.fs.mkdir(logDirectory)
+  local function failure(message)
+    print = consolePrint
+    logger.error("Could not write Hammerspoon file log: " .. tostring(message))
+  end
+  if not hs.fs.attributes(directory) then
+    local created, message = hs.fs.mkdir(directory)
     if not created then
-      consolePrint(failurePrefix .. (errorMessage or "could not create log directory"))
+      failure(message or "could not create log directory")
       return
     end
   end
@@ -22,13 +31,16 @@ function logger.install()
       values[index] = tostring(values[index])
     end
 
-    local file, errorMessage = io.open(logger.path, "a")
+    local file, message = io.open(logger.path, "a")
     if not file then
-      consolePrint(failurePrefix .. (errorMessage or "unknown error"))
+      failure(message or "could not open log")
     else
       local timestamp = os.date("%Y-%m-%d %H:%M:%S") --[[@as string]]
-      file:write(timestamp, "\t", table.concat(values, "\t"), "\n")
-      file:close()
+      local written, writeError = file:write(timestamp, "\t", table.concat(values, "\t"), "\n")
+      local closed, closeError = file:close()
+      if not written or not closed then
+        failure(writeError or closeError or "could not flush log")
+      end
     end
 
     return consolePrint(table.unpack(values, 1, values.n))

@@ -103,6 +103,8 @@ source $ZSH/oh-my-zsh.sh
 # fi
 export EDITOR='nvim'
 export VISUAL='nvim'
+# Skip Nvim's startup terminal queries over SSH, where replies can miss its 100ms wait (E1568)
+[[ -n $SSH_TTY ]] && export NVIM_NOTTYFAST=1
 
 # Compilation flags
 # export ARCHFLAGS="-arch $(uname -m)"
