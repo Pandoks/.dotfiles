@@ -158,14 +158,19 @@ end
 ---@param done? WindowManagerDone
 function windowManager.focus(pid, id, done)
   done = done or function() end
+  -- A window on no Space (e.g. minimized) is focused directly.
   local space = windowManager.spaceOf(id)
-  local display = space and hs.spaces.spaceDisplay(space)
-  local active, err = hs.spaces.activeSpaces()
-  if not active then
-    done(false, err)
+  if not space then
+    native.focus(pid, id, done)
     return
   end
-  if not space or not display or active[display] == space then
+  local display = hs.spaces.spaceDisplay(space)
+  local active, err = hs.spaces.activeSpaces()
+  if not display or not active then
+    done(false, display and err or "display unavailable for Space " .. space)
+    return
+  end
+  if active[display] == space then
     native.focus(pid, id, done)
     return
   end

@@ -30,6 +30,9 @@ local function harness()
   local env = setmetatable({
     hs = {
       spaces = {
+        spaceDisplay = function(space)
+          return not h.displayGone and space and "d" or nil
+        end,
         watcher = {
           new = function(fn)
             watcher = fn
@@ -73,6 +76,13 @@ local function harness()
               h.steps = h.steps + count
               h.inflight[#h.inflight + 1] = (right and 100 or -100) * count
               return true
+            end,
+            spaces = function(ids)
+              return { [ids[1]] = h.windowSpace }
+            end,
+            focus = function(_, id, done)
+              h.focused = id
+              done(true)
             end,
           }
         end,
@@ -127,5 +137,20 @@ test("an unreadable Space layout fails at once instead of waiting for the timeou
   eq(h.results[3], "Spaces unavailable")
   eq(h.steps, 0)
 end)
+
+test(
+  "focusing a window whose display can't be found fails instead of skipping its Space",
+  function()
+    local h = harness()
+    h.windowSpace, h.displayGone = 300, true
+    local result
+    h.windowManager.focus(10, 7, function(ok, err)
+      result = ok and "ok" or err
+    end)
+    eq(result, "display unavailable for Space 300")
+    eq(h.focused, nil, "not focused without showing its Space")
+    eq(h.steps, 0)
+  end
+)
 
 print("RESULT " .. passed .. " passed, 0 failed")
