@@ -1,3 +1,6 @@
+[tools]
+"aqua:pimalaya/himalaya" = "2.2.1"
+
 [bootstrap.brew.taps]
 
 [bootstrap.packages]
@@ -22,6 +25,7 @@
 "brew-cask:grok-bot" = "latest"
 "brew-cask:notion-calendar" = "latest"
 "brew-cask:proton-drive" = "latest"
+"brew-cask:proton-mail-bridge" = { version = "latest", adopt = true }
 "brew-cask:proton-pass" = "latest"
 "brew-cask:protonvpn" = "latest"
 "brew-cask:slack" = "latest"
@@ -45,6 +49,22 @@ three_finger_drag = false
 [bootstrap.macos.keyboard]
 press_and_hold = false
 
+[bootstrap.directories."~/grok/logs"]
+[bootstrap.directories."~/grok/cache/proton-mail"]
+[bootstrap.directories."~/grok/config/proton-pass/pandoks"]
+mode = "0700"
+[bootstrap.directories."~/grok/config/proton-pass/manda"]
+mode = "0700"
+
+# Headless Bridge serving IMAP on 127.0.0.1:1143 for grok-proton-mail
+[bootstrap.macos.launchd.agents.proton-bridge]
+program = "/Applications/Proton Mail Bridge.app/Contents/MacOS/bridge"
+args = ["--noninteractive"]
+run_at_load = true
+keep_alive = true
+stdout_path = "~/grok/logs/proton-bridge.log"
+stderr_path = "~/grok/logs/proton-bridge.log"
+
 # Installs that mise can't handle itself
 [bootstrap.hooks.post-packages]
 run = '''
@@ -67,3 +87,8 @@ test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoo
 "~/.hammerspoon" = "../../.hammerspoon"
 "~/.config/yabai/yabairc" = "../yabai/yabairc"
 "~/.rtorrent.rc" = "../../.rtorrent.rc"
+
+"~/grok/bin/grok-pass" = "../../grok/bin/grok-pass"
+"~/grok/bin/grok-proton-mail" = "../../grok/bin/grok-proton-mail"
+"~/grok/bin/grok-proton-drive" = "../../grok/bin/grok-proton-drive"
+"~/grok/config/himalaya/config.toml" = "../../grok/config/himalaya/config.toml"

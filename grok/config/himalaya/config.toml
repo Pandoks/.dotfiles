@@ -1,0 +1,44 @@
+# Proton Mail through the local Proton Mail Bridge, used by grok-proton-mail.
+#
+# Read and draft only: no account has an `smtp` block, so himalaya has no way
+# to send mail with this file. Proton files sent mail itself, so
+# `message.send.save-copy` stays unset.
+#
+# Passwords are the per-account ones Bridge's `info` prints, kept in the login
+# keychain under service `grok-proton-bridge` with the address as the account.
+# proton-bridge-cert.pem is Bridge's self-signed certificate, fetched once.
+
+downloads-dir = "~/grok/cache/proton-mail"
+envelope.list.datetime-local-tz = true
+
+mailbox.alias.inbox = "INBOX"
+mailbox.alias.sent = "Sent"
+mailbox.alias.drafts = "Drafts"
+mailbox.alias.trash = "Trash"
+mailbox.alias.junk = "Spam"
+mailbox.alias.archive = "Archive"
+
+[accounts.proton]
+default = true
+email = "pandoks@example.com"
+imap.server = "imap://127.0.0.1:1143"
+imap.starttls = true
+imap.tls.provider = "rustls"
+imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
+imap.sasl.plain.username = "pandoks@example.com"
+imap.sasl.plain.password.command = [
+  "security", "find-generic-password", "-w",
+  "-s", "grok-proton-bridge", "-a", "pandoks@example.com",
+]
+
+[accounts.manda]
+email = "manda@example.com"
+imap.server = "imap://127.0.0.1:1143"
+imap.starttls = true
+imap.tls.provider = "rustls"
+imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
+imap.sasl.plain.username = "manda@example.com"
+imap.sasl.plain.password.command = [
+  "security", "find-generic-password", "-w",
+  "-s", "grok-proton-bridge", "-a", "manda@example.com",
+]
