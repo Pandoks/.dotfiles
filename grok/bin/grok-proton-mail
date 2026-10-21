@@ -50,13 +50,19 @@ case "${1-}" in
     ;;
 esac
 
+himalaya="${MISE_DATA_DIR:-$HOME/.local/share/mise}/installs/aqua-pimalaya-himalaya/latest/himalaya"
+[ -x "$himalaya" ] || {
+  echo "grok-proton-mail: himalaya isn't installed; run 'mise -E grok bootstrap --yes'" >&2
+  exit 1
+}
+
 case "${1-} ${2-}" in
   'envelope list' | 'envelope search' | 'mailbox list' | 'message read') ;;
   'attachment list' | 'attachment download' | 'account list' | 'account check') ;;
   'flag add' | 'flag set' | 'flag remove' | 'imap store' | 'imap expunge') ;;
   'message compose' | 'message reply' | 'message forward' | 'message add') ;;
   'message send' | 'message delete' | 'message move' | 'message copy') ;;
-  '-V ' | '--version ') exec himalaya --version ;;
+  '-V ' | '--version ') exec "$himalaya" --version ;;
   ' ' | '-h ' | '--help ' | 'help ') usage ;;
   *) deny "${1-} ${2-}" ;;
 esac
@@ -121,5 +127,5 @@ if [ "$help" = false ] && [ "$command" != 'account list' ]; then
 fi
 
 unset RUST_LOG
-exec himalaya -c "$HOME/grok/config/himalaya/config.toml" ${account:+--account "$account"} \
+exec "$himalaya" -c "$HOME/grok/config/himalaya/config.toml" ${account:+--account "$account"} \
   "$group" "$sub" "$@"

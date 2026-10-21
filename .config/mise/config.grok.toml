@@ -1,5 +1,5 @@
 [tools]
-"aqua:pimalaya/himalaya" = "2.2.1"
+"aqua:pimalaya/himalaya" = "latest"
 "npm:playwright-core" = "latest"
 
 [bootstrap.packages]
