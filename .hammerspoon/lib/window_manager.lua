@@ -193,6 +193,9 @@ windowManager.frame = native.frame
 windowManager.minimize = native.minimize
 windowManager.windows = native.windows
 
+-- Cache windows on other Spaces now, so the first Cmd-Tab doesn't search for them.
+native.windows(function() end)
+
 function windowManager.stop()
   watcher:stop()
   if jump then
