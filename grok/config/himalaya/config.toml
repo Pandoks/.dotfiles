@@ -1,5 +1,6 @@
 downloads-dir = "~/grok/cache/proton-mail"
 envelope.list.datetime-local-tz = true
+message.send.save-copy = false
 
 mailbox.alias.inbox = "INBOX"
 mailbox.alias.sent = "Sent"
@@ -20,6 +21,15 @@ imap.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
   "-s", "grok-proton-bridge", "-a", "pandoks@example.com",
 ]
+smtp.server = "smtp://127.0.0.1:1025"
+smtp.starttls = true
+smtp.tls.provider = "rustls"
+smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
+smtp.sasl.plain.username = "pandoks@example.com"
+smtp.sasl.plain.password.command = [
+  "security", "find-generic-password", "-w",
+  "-s", "grok-proton-bridge", "-a", "pandoks@example.com",
+]
 
 [accounts.manda]
 email = "manda@example.com"
@@ -29,6 +39,15 @@ imap.tls.provider = "rustls"
 imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
 imap.sasl.plain.username = "manda@example.com"
 imap.sasl.plain.password.command = [
+  "security", "find-generic-password", "-w",
+  "-s", "grok-proton-bridge", "-a", "manda@example.com",
+]
+smtp.server = "smtp://127.0.0.1:1025"
+smtp.starttls = true
+smtp.tls.provider = "rustls"
+smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
+smtp.sasl.plain.username = "manda@example.com"
+smtp.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
   "-s", "grok-proton-bridge", "-a", "manda@example.com",
 ]

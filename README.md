@@ -206,10 +206,30 @@ mise -E grok bootstrap --yes
 ### Proton
 
 - `grok-pass` runs `pass-cli` as you, or as Manda with `--manda` first.
-- `grok-proton-mail` reads mail and saves drafts through Proton Mail Bridge;
-  it can't send.
+- `grok-proton-mail` reads, sends, deletes, archives, moves, labels and flags
+  mail through Proton Mail Bridge (IMAP on `127.0.0.1:1143`, SMTP on
+  `127.0.0.1:1025`, both STARTTLS). `-h` lists the allowed commands.
 - `grok-proton-drive` lists, reads and copies files inside the Proton Drive
   folder only.
+
+Bridge files sent mail in Sent itself, so himalaya keeps no copy
+(`message.send.save-copy = false`); `--save Sent` would duplicate it. Proton
+labels show up as `Labels/NAME` mailboxes and custom folders as
+`Folders/NAME`. Message IDs are per mailbox, so list the one you act on first:
+
+```sh
+grok-proton-mail message move -t Archive 12        # archive
+grok-proton-mail message move -t Folders/Work 12   # move to a folder
+grok-proton-mail message delete 12                 # to Trash; again from Trash is final
+grok-proton-mail message copy -t Labels/Work 12    # add a label
+grok-proton-mail envelope list -m Labels/Work      # remove it: find its ID there,
+grok-proton-mail imap store -m Labels/Work -f '\Deleted' -- 7
+grok-proton-mail imap expunge Labels/Work          # then expunge just that label
+```
+
+Don't remove a label with `message delete -m Labels/NAME`: it moves the message
+to Trash. `imap store` and `imap expunge` only work on `Labels/` mailboxes,
+where Bridge drops the label and leaves the message alone.
 
 Sign in once. Each Pass login opens a browser:
 
@@ -227,8 +247,8 @@ launchctl bootout "gui/$(id -u)/dev.mise.proton-bridge"
 "/Applications/Proton Mail Bridge.app/Contents/MacOS/bridge" --cli
 ```
 
-Store each password in the Keychain (it prompts), start the agent again, and
-save Bridge's certificate:
+Store each password in the Keychain (it prompts; IMAP and SMTP share it), start
+the agent again, and save Bridge's certificate:
 
 ```sh
 security add-generic-password -U -s grok-proton-bridge -a pandoks@example.com -w

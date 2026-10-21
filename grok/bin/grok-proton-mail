@@ -6,24 +6,33 @@ usage() {
   cat >&2 << 'EOF'
 usage: grok-proton-mail [-a ACCOUNT] COMMAND SUBCOMMAND [OPTIONS...]
 
-Accounts: proton (default), manda. Read and draft only:
+Accounts: proton (default), manda.
   envelope list|search            mailbox list
-  message read                    attachment list|download
-  message compose|reply|forward   prints the message; --save only to drafts
-  message add -m drafts           flag add|set|remove (not deleted)
-  account list|check
+  message read|send|delete        message compose|reply|forward [--send]
+  message move|copy|add           attachment list|download
+  flag add|set|remove             account list|check
+  imap store -m Labels/NAME       imap expunge Labels/NAME
+
+IDs are per mailbox: take them from 'envelope list -m MAILBOX'.
+  archive  grok-proton-mail message move -t Archive ID
+  delete   grok-proton-mail message delete ID      (to Trash; again from Trash is final)
+  folder   grok-proton-mail message move -t Folders/NAME ID
+  label    grok-proton-mail message copy -t Labels/NAME ID
+  unlabel  grok-proton-mail imap store -m Labels/NAME -f '\Deleted' -- ID
+           grok-proton-mail imap expunge Labels/NAME
+  send     grok-proton-mail message compose -t ADDR -s SUBJECT --body TEXT --send
 EOF
   exit 2
 }
 
 deny() {
-  echo "grok-proton-mail: '$*' is not allowed: read and draft only" >&2
+  echo "grok-proton-mail: '$*' is not allowed" >&2
   exit 1
 }
 
-is_drafts() {
+is_label() {
   case $1 in
-    [Dd][Rr][Aa][Ff][Tt][Ss]) return 0 ;;
+    Labels/?*) return 0 ;;
   esac
   return 1
 }
@@ -44,58 +53,74 @@ esac
 case "${1-} ${2-}" in
   'envelope list' | 'envelope search' | 'mailbox list' | 'message read') ;;
   'attachment list' | 'attachment download' | 'account list' | 'account check') ;;
-  'flag add' | 'flag set' | 'flag remove') ;;
+  'flag add' | 'flag set' | 'flag remove' | 'imap store' | 'imap expunge') ;;
   'message compose' | 'message reply' | 'message forward' | 'message add') ;;
+  'message send' | 'message delete' | 'message move' | 'message copy') ;;
   '-V ' | '--version ') exec himalaya --version ;;
   ' ' | '-h ' | '--help ' | 'help ') usage ;;
   *) deny "${1-} ${2-}" ;;
 esac
+group=$1
+sub=$2
 command="$1 $2"
+shift 2
 
 help=false
+smtp=false
+labelled=false
+[ "$command" != 'message send' ] || smtp=true
 previous=
 for arg; do
   case $previous in
-    --save) is_drafts "$arg" || deny "--save $arg" ;;
-    -m | --mailbox)
-      [ "$command" != 'message add' ] || is_drafts "$arg" || deny "$command -m $arg"
-      ;;
     --log-level | --log)
       case $arg in
         debug | trace) deny "$previous $arg" ;;
       esac
       ;;
+    -m | --mailbox)
+      [ "$command" != 'imap store' ] || is_label "$arg" || deny "$command $previous $arg"
+      labelled=true
+      ;;
   esac
   case $arg in
-    --send | --send=* | -c | -c?* | --config | --config=* | --log-file | --log-file=*)
-      deny "$arg"
-      ;;
+    -c | -c?* | --config | --config=* | --log-file | --log-file=*) deny "$arg" ;;
     --log-level=debug | --log-level=trace | --log=debug | --log=trace) deny "$arg" ;;
-    --save=*) is_drafts "${arg#--save=}" || deny "$arg" ;;
+    --send) smtp=true ;;
     -h | --help) help=true ;;
   esac
-  if [ "$command" = 'message add' ]; then
+  if [ "$command" = 'imap store' ]; then
     case $arg in
-      --mailbox=*) deny "$arg" ;;
-      -m | --*) ;;
-      -*m*) deny "$arg" ;;
+      --mailbox=*)
+        is_label "${arg#--mailbox=}" || deny "$command $arg"
+        labelled=true
+        ;;
+      -m?*) deny "$command $arg" ;;
     esac
   fi
-  case "$command:$arg" in
-    'flag add:'*[Dd][Ee][Ll][Ee][Tt][Ee][Dd]* | 'flag set:'*[Dd][Ee][Ll][Ee][Tt][Ee][Dd]*)
-      deny "$command $arg"
-      ;;
-  esac
+  if [ "$command" = 'imap expunge' ]; then
+    case "$previous:$arg" in
+      -a:* | --account:* | -b:* | --backend:* | --log-level:* | --log:* | *:-*) ;;
+      *) is_label "$arg" || deny "$command $arg" ;;
+    esac
+  fi
   previous=$arg
 done
 
-if [ "$help" = false ] && [ "$command" != 'account list' ] \
-  && ! nc -z -G 2 127.0.0.1 1143 2> /dev/null; then
-  echo "grok-proton-mail: Proton Mail Bridge isn't listening on 127.0.0.1:1143." \
-    "Check 'launchctl print gui/$(id -u)/dev.mise.proton-bridge'" \
-    "and ~/grok/logs/proton-bridge.log" >&2
-  exit 1
+if [ "$command" = 'imap store' ] && [ "$help" = false ] && [ "$labelled" = false ]; then
+  deny "$command without -m Labels/NAME"
+fi
+
+if [ "$help" = false ] && [ "$command" != 'account list' ]; then
+  for port in 1143 $([ "$smtp" = false ] || echo 1025); do
+    if ! nc -z -G 2 127.0.0.1 "$port" 2> /dev/null; then
+      echo "grok-proton-mail: Proton Mail Bridge isn't listening on 127.0.0.1:$port." \
+        "Check 'launchctl print gui/$(id -u)/dev.mise.proton-bridge'" \
+        "and ~/grok/logs/proton-bridge.log" >&2
+      exit 1
+    fi
+  done
 fi
 
 unset RUST_LOG
-exec himalaya -c "$HOME/grok/config/himalaya/config.toml" ${account:+--account "$account"} "$@"
+exec himalaya -c "$HOME/grok/config/himalaya/config.toml" ${account:+--account "$account"} \
+  "$group" "$sub" "$@"
