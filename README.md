@@ -185,19 +185,6 @@ Set the dashboard password in `management.secret-key` of
 accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html`. The config
 links into this public repo, so never commit `secret-key` or API keys.
 
-Pull request reviews in [pandoks.com] use a second instance with only the
-Claude Max accounts' Console API keys, so they spend the plans' monthly API
-credits and never the subscriptions. Copy `~/.cli-proxy-api/config.yaml` to
-`~/.cli-proxy-api-ci/config.yaml` (`chmod 600`; it stays off this repo), then
-set `server.port: 8318`, `oauth.auth-dir: "/home/<user>/.cli-proxy-api-ci"`,
-`routing.strategy: "fill-first"`, the keys under `api-keys.claude`, and remove
-`management.secret-key`:
-
-```sh
-mise -E cliproxyapi bootstrap --yes
-sudo tailscale serve --service=svc:cliproxyapi-ci --https=443 http://127.0.0.1:8318
-```
-
 Then enable WebSockets on each Codex account: **Auth Files**, open the account,
 turn on **WebSockets (websockets)**, and save. Codex already connects to the
 proxy over WebSockets, but the proxy only uses them upstream for accounts with
@@ -209,6 +196,5 @@ mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-pro
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
-[pandoks.com]: https://github.com/Pandoks/pandoks.com
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
