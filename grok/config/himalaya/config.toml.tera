@@ -11,43 +11,43 @@ mailbox.alias.archive = "Archive"
 
 [accounts.proton]
 default = true
-email = "pandoks@example.com"
+email = "{{ vars.grok_proton_email }}"
 imap.server = "imap://127.0.0.1:1143"
 imap.starttls = true
 imap.tls.provider = "rustls"
 imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-imap.sasl.plain.username = "pandoks@example.com"
+imap.sasl.plain.username = "{{ vars.grok_proton_email }}"
 imap.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "pandoks@example.com",
+  "-s", "grok-proton-bridge", "-a", "{{ vars.grok_proton_email }}",
 ]
 smtp.server = "smtp://127.0.0.1:1025"
 smtp.starttls = true
 smtp.tls.provider = "rustls"
 smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-smtp.sasl.plain.username = "pandoks@example.com"
+smtp.sasl.plain.username = "{{ vars.grok_proton_email }}"
 smtp.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "pandoks@example.com",
+  "-s", "grok-proton-bridge", "-a", "{{ vars.grok_proton_email }}",
 ]
 
 [accounts.manda]
-email = "manda@example.com"
+email = "{{ vars.grok_manda_email }}"
 imap.server = "imap://127.0.0.1:1143"
 imap.starttls = true
 imap.tls.provider = "rustls"
 imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-imap.sasl.plain.username = "manda@example.com"
+imap.sasl.plain.username = "{{ vars.grok_manda_email }}"
 imap.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "manda@example.com",
+  "-s", "grok-proton-bridge", "-a", "{{ vars.grok_manda_email }}",
 ]
 smtp.server = "smtp://127.0.0.1:1025"
 smtp.starttls = true
 smtp.tls.provider = "rustls"
 smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-smtp.sasl.plain.username = "manda@example.com"
+smtp.sasl.plain.username = "{{ vars.grok_manda_email }}"
 smtp.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "manda@example.com",
+  "-s", "grok-proton-bridge", "-a", "{{ vars.grok_manda_email }}",
 ]

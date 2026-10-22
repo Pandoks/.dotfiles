@@ -2,11 +2,19 @@
 "aqua:pimalaya/himalaya" = "latest"
 "npm:playwright-core" = "latest"
 
+[vars.grok_proton_email]
+required = "Run 'mise -E grok vars prompt' to set grok_proton_email"
+prompt = "Proton email for the proton himalaya account"
+[vars.grok_manda_email]
+required = "Run 'mise -E grok vars prompt' to set grok_manda_email"
+prompt = "Proton email for the manda himalaya account"
+
 [bootstrap.packages]
 "brew-cask:proton-mail-bridge" = "latest"
 
 [bootstrap.directories."~/grok/logs"]
 [bootstrap.directories."~/grok/cache/proton-mail"]
+[bootstrap.directories."~/grok/config/himalaya"]
 [bootstrap.directories."~/grok/config/proton-pass/pandoks"]
 mode = "0700"
 [bootstrap.directories."~/grok/config/proton-pass/manda"]
@@ -15,5 +23,4 @@ mode = "0700"
 [dotfiles]
 "~/grok/bin/grok-browser" = "../../grok/bin/grok-browser"
 "~/grok/bin/himalaya" = "~/.local/share/mise/installs/aqua-pimalaya-himalaya/latest/himalaya"
-"~/grok/config/himalaya/config.toml" = "../../grok/config/himalaya/config.toml"
-"~/.config/himalaya/config.toml" = "../../grok/config/himalaya/config.toml"
+"~/.config/himalaya/config.toml" = { source = "../../grok/config/himalaya/config.toml.tera", mode = "template" }
