@@ -264,15 +264,17 @@ test("lookalikes and embedded Ramp URLs remain native", function()
     assert(#state.tasks == 0 and state.reads == 0)
   end
 end)
-test("Notion overrides preserve their configured profiles", function()
-  for name, directory in pairs({ ["sieve-data"] = "Profile 1", pandoks = "Default" }) do
+test("Notion links open in their configured browser profiles", function()
+  for url, directory in pairs({
+    ["https://app.notion.com/p/sieve-data/document"] = "Profile 1",
+    ["https://app.notion.com/p/pandoks/document"] = "Default",
+    ["https://app.notion.com/p/kwok/document"] = "Default",
+    ["https://www.notion.so/michelle/document"] = "Default",
+  }) do
     local state = browser()
-    assert(state.route("https://app.notion.com/p/" .. name .. "/document"))
+    assert(state.route(url))
     assert(state.tasks[1].arguments[1] == "--profile-directory=" .. directory)
   end
-  local state = browser()
-  assert(state.route("https://app.notion.com/p/someone-else/document") == "native")
-  assert(#state.tasks == 0)
 end)
 test("the first explicit rule wins and can handle a different app", function()
   local calls = 0
@@ -465,10 +467,11 @@ test("selectors preserve order without serializing action functions", function()
   local state = browser()
   local publication = state.publications[1]
   assert(publication.path:match("/HammerspoonURLRouter/selectors/rules%.json$"))
-  assert(publication.document.version == 1 and #publication.document.rules == 3)
+  assert(publication.document.version == 1 and #publication.document.rules == 4)
   assert(publication.document.rules[1].host == "ramp.com")
   assert(publication.document.rules[2].pattern == "^https?://app%.notion%.com/p/sieve%-data/")
-  assert(publication.document.rules[3].pattern == "^https?://app%.notion%.com/p/pandoks/")
+  assert(publication.document.rules[3].host == "app.notion.com")
+  assert(publication.document.rules[4].host == "www.notion.so")
   for _, rule in ipairs(publication.document.rules) do
     assert(rule.open == nil)
   end
@@ -482,7 +485,7 @@ test("pending selectors cannot dispatch until their exact generation is acknowle
     kind = "ready",
     generation = "older",
     sha256 = "hash:snapshot:generation-1",
-    count = 3,
+    count = 4,
     pid = 100,
   }
   state.changed()

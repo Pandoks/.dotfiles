@@ -7,5 +7,7 @@ local personal = chromium.url({ bundleID = "net.imput.helium", profile = "Person
 return router.install({
   { host = "ramp.com", open = work },
   { pattern = "^https?://app%.notion%.com/p/sieve%-data/", open = work },
-  { pattern = "^https?://app%.notion%.com/p/pandoks/", open = personal },
+  -- Every other Notion app link opens in the browser, not the Notion app.
+  { host = "app.notion.com", open = personal },
+  { host = "www.notion.so", open = personal },
 })
