@@ -99,6 +99,8 @@ local function browser(options)
               error("invalid JSON")
             end
             return state.status
+          elseif contents:match("^notion:") then
+            return { spaceDomain = contents:sub(8) }
           end
           return {
             profile = {
@@ -212,6 +214,7 @@ local function browser(options)
       assert(
         name == "lib.url_router"
           or name == "lib.url_router.match"
+          or name == "lib.url_router.notion"
           or name == "lib.window_adapters.chromium",
         name
       )
@@ -264,17 +267,42 @@ test("lookalikes and embedded Ramp URLs remain native", function()
     assert(#state.tasks == 0 and state.reads == 0)
   end
 end)
-test("Notion links open in their configured browser profiles", function()
+test("Notion links open in their workspace's browser profile", function()
   for url, directory in pairs({
     ["https://app.notion.com/p/sieve-data/document"] = "Profile 1",
+    ["https://www.notion.so/sieve-data/Page-3382e03c6a5880368090d9fa3b706f16"] = "Profile 1",
     ["https://app.notion.com/p/pandoks/document"] = "Default",
     ["https://app.notion.com/p/kwok/document"] = "Default",
     ["https://www.notion.so/michelle/document"] = "Default",
   }) do
     local state = browser()
-    assert(state.route(url))
+    assert(state.route(url) == true and #state.tasks == 1)
     assert(state.tasks[1].arguments[1] == "--profile-directory=" .. directory)
   end
+end)
+test("page-ID-only Notion links open in the workspace Notion reports", function()
+  local url = "https://app.notion.com/p/Codenames-3382e03c6a5880368090d9fa3b706f16"
+  for domain, directory in pairs({ ["sieve-data"] = "Profile 1", kwok = "Default" }) do
+    local state = browser()
+    assert(state.route(url) == true and #state.tasks == 1)
+    local lookup = state.tasks[1]
+    assert(lookup.path == "/usr/bin/curl")
+    assert(
+      table
+        .concat(lookup.arguments, " ")
+        :find('"blockId":"3382e03c-6a58-8036-8090-d9fa3b706f16"', 1, true)
+    )
+    lookup.callback(0, "notion:" .. domain, "")
+    assert(#state.tasks == 2 and state.tasks[2].arguments[1] == "--profile-directory=" .. directory)
+    assert(state.tasks[2].arguments[2] == url and #state.logs == 0)
+  end
+end)
+test("failed Notion lookups report once without opening a profile", function()
+  local state = browser()
+  assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == true)
+  state.tasks[1].callback(28, "", "Operation timed out")
+  assert(#state.tasks == 1 and #state.logs == 1)
+  assert(state.logs[1] == "Notion workspace lookup failed: Operation timed out")
 end)
 test("the first explicit rule wins and can handle a different app", function()
   local calls = 0
@@ -458,7 +486,7 @@ test("pure matching does not invoke actions or perform browser work", function()
   local state = browser()
   assert(state.router.match("https://app.ramp.com/") == 1)
   assert(state.router.match("https://app.notion.com/p/sieve-data/document") == 2)
-  assert(state.router.match("https://app.notion.com/p/pandoks/document") == 3)
+  assert(state.router.match("https://www.notion.so/pandoks/document") == 3)
   assert(state.router.match("https://example.com/") == 0)
   assert(state.router.match("file:///tmp/file") == -1)
   assert(#state.logs == 0 and #state.tasks == 0 and state.lookups == 0 and state.reads == 0)
@@ -467,11 +495,10 @@ test("selectors preserve order without serializing action functions", function()
   local state = browser()
   local publication = state.publications[1]
   assert(publication.path:match("/HammerspoonURLRouter/selectors/rules%.json$"))
-  assert(publication.document.version == 1 and #publication.document.rules == 4)
+  assert(publication.document.version == 1 and #publication.document.rules == 3)
   assert(publication.document.rules[1].host == "ramp.com")
-  assert(publication.document.rules[2].pattern == "^https?://app%.notion%.com/p/sieve%-data/")
-  assert(publication.document.rules[3].host == "app.notion.com")
-  assert(publication.document.rules[4].host == "www.notion.so")
+  assert(publication.document.rules[2].host == "app.notion.com")
+  assert(publication.document.rules[3].host == "www.notion.so")
   for _, rule in ipairs(publication.document.rules) do
     assert(rule.open == nil)
   end
@@ -485,7 +512,7 @@ test("pending selectors cannot dispatch until their exact generation is acknowle
     kind = "ready",
     generation = "older",
     sha256 = "hash:snapshot:generation-1",
-    count = 4,
+    count = 3,
     pid = 100,
   }
   state.changed()
