@@ -8,7 +8,7 @@ mailbox.alias.drafts = "Drafts"
 mailbox.alias.trash = "Trash"
 mailbox.alias.junk = "Spam"
 mailbox.alias.archive = "Archive"
-{%- for raw in vars.GROK_PROTON_EMAILS | split(pat=",") %}
+{%- for raw in vars.GROK_PROTON_EMAILS | default(value="") | split(pat=",") %}
 {%- set email = raw | trim %}
 {%- if email %}
 
