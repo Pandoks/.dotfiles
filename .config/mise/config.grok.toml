@@ -18,4 +18,5 @@ mode = "0700"
 
 [dotfiles]
 "~/grok/bin/grok-browser" = "../../grok/bin/grok-browser"
+"~/grok/.env.example" = "../../grok/.env.example"
 "~/.config/himalaya/config.toml" = { source = "../../grok/config/himalaya/config.toml.tera", mode = "template" }
