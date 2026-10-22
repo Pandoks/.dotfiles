@@ -3,6 +3,7 @@
 
 [dotfiles]
 "~/.cli-proxy-api/config.yaml" = "../../.cli-proxy-api/config.yaml"
+"~/.cli-proxy-api-ci/config.yaml" = "../../.cli-proxy-api-ci/config.yaml"
 
 [bootstrap.linux.systemd.units.cli-proxy-api]
 description = "cli-proxy-api Service"
