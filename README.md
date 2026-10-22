@@ -202,9 +202,8 @@ Playwright. It runs Helium on its own profile,
 `~/grok/config/helium-grokbot-profile`, with DevTools on `127.0.0.1:9333`, and
 never touches Helium windows on your everyday profile.
 
-Sign in once: run `~/grok/bin/grok-browser start`, log into the sites agents
-need in the window that opens, then leave it running or run
-`~/grok/bin/grok-browser stop`. Cookies stay in the grokbot profile.
+The script doesn't create the profile; set it up once by hand with
+[grok/helium-setup.md](grok/helium-setup.md).
 
 ```sh
 ~/grok/bin/grok-browser start | stop | status

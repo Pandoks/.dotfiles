@@ -37,7 +37,8 @@ case $port in
   '' | *[!0-9]*) fail "GROK_BROWSER_PORT must be a port number" ;;
 esac
 
-(umask 077 && mkdir -p "$profile")
+[ -d "$profile" ] || fail "$profile doesn't exist; set it up by hand first," \
+  "see ~/.dotfiles/grok/helium-setup.md"
 mkdir -p "$(dirname "$log")"
 profile=$(realpath "$profile")
 if [ -n "${GROK_BROWSER_PROFILE-}" ] \
