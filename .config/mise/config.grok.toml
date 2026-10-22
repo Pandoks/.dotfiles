@@ -3,7 +3,7 @@
 "npm:playwright-core" = "latest"
 
 [bootstrap.packages]
-"brew-cask:proton-mail-bridge" = { version = "latest", adopt = true }
+"brew-cask:proton-mail-bridge" = "latest"
 
 [bootstrap.directories."~/grok/logs"]
 [bootstrap.directories."~/grok/cache/proton-mail"]
