@@ -36,5 +36,9 @@
   <true/>
   <key>LSMultipleInstancesProhibited</key>
   <true/>
+  <key>NSUserActivityTypes</key>
+  <array>
+    <string>NSUserActivityTypeBrowsingWeb</string>
+  </array>
 </dict>
 </plist>

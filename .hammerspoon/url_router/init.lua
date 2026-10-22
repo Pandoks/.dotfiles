@@ -1,11 +1,11 @@
 local chromium = require("lib.window_adapters.chromium")
+local router = require("lib.url_router")
 
-return chromium.installURLRouter({
-  bundleID = "net.imput.helium",
-  fallbackProfile = "Personal",
-  rules = {
-    -- Lua patterns are matched in order against the complete URL.
-    -- { pattern = "^https?://[^/]*%.example%-work%.com/", profile = "Work" },
-    -- { pattern = "^https?://[^/]*%.example%-personal%.com/", profile = "Personal" },
-  },
+local work = chromium.url({ bundleID = "net.imput.helium", profile = "Work" })
+local personal = chromium.url({ bundleID = "net.imput.helium", profile = "Personal" })
+
+return router.install({
+  { host = "ramp.com", open = work },
+  { pattern = "^https?://app%.notion%.com/p/sieve%-data/", open = work },
+  { pattern = "^https?://app%.notion%.com/p/pandoks/", open = personal },
 })
