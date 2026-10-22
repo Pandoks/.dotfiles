@@ -8,46 +8,30 @@ mailbox.alias.drafts = "Drafts"
 mailbox.alias.trash = "Trash"
 mailbox.alias.junk = "Spam"
 mailbox.alias.archive = "Archive"
+{%- for raw in vars.GROK_PROTON_EMAILS | split(pat=",") %}
+{%- set email = raw | trim %}
+{%- if email %}
 
-[accounts.proton]
-default = true
-email = "{{ vars.GROK_PROTON_EMAIL }}"
+[accounts."{{ email | split(pat="@") | first | lower }}"]
+default = {{ loop.first }}
+email = "{{ email }}"
 imap.server = "imap://127.0.0.1:1143"
 imap.starttls = true
 imap.tls.provider = "rustls"
 imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-imap.sasl.plain.username = "{{ vars.GROK_PROTON_EMAIL }}"
+imap.sasl.plain.username = "{{ email }}"
 imap.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "{{ vars.GROK_PROTON_EMAIL }}",
+  "-s", "grok-proton-bridge", "-a", "{{ email }}",
 ]
 smtp.server = "smtp://127.0.0.1:1025"
 smtp.starttls = true
 smtp.tls.provider = "rustls"
 smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-smtp.sasl.plain.username = "{{ vars.GROK_PROTON_EMAIL }}"
+smtp.sasl.plain.username = "{{ email }}"
 smtp.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "{{ vars.GROK_PROTON_EMAIL }}",
+  "-s", "grok-proton-bridge", "-a", "{{ email }}",
 ]
-
-[accounts.manda]
-email = "{{ vars.GROK_MANDA_EMAIL }}"
-imap.server = "imap://127.0.0.1:1143"
-imap.starttls = true
-imap.tls.provider = "rustls"
-imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-imap.sasl.plain.username = "{{ vars.GROK_MANDA_EMAIL }}"
-imap.sasl.plain.password.command = [
-  "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "{{ vars.GROK_MANDA_EMAIL }}",
-]
-smtp.server = "smtp://127.0.0.1:1025"
-smtp.starttls = true
-smtp.tls.provider = "rustls"
-smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-smtp.sasl.plain.username = "{{ vars.GROK_MANDA_EMAIL }}"
-smtp.sasl.plain.password.command = [
-  "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "{{ vars.GROK_MANDA_EMAIL }}",
-]
+{%- endif %}
+{%- endfor %}
