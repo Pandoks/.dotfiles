@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix="url-interception-test.", dir="/var/tmp"
         assert result.returncode == 0 and result.stdout, "Missing trusted target must leave the daemon running unhooked"
         event = json.loads((Path(status) / "status.json").read_text())
         assert event["kind"] == "error" and event["stage"] == "environment", "Hook setup error must be acknowledged"
-        print("PASS actual injected constructor: missing status/target environment leaves the daemon running unhooked")
+        print("PASS actual injected constructor: missing status/target environment returns to the host process instead of exiting")
         snapshot = selectors / "rules.json"
         os.mkfifo(snapshot, 0o600)
         result = subprocess.run([str(binary), str(selectors), status, "snapshot"], capture_output=True, text=True, timeout=2)

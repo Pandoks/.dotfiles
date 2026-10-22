@@ -58,17 +58,26 @@ end
 function router.by(adapter, actions, default)
   return function(url, report)
     report = report or logger.error
-    local result
+    local result, later = true, false
     adapter(url, function(key, message)
       if message then
         report(message)
         result = false
-      else
-        result = (actions[key] or default)(url, report)
+        return
+      end
+      local action = actions[key] or default
+      if not later then
+        result = action(url, report)
+        return
+      end
+      -- The router only checks results returned before `open` does.
+      local ok, opened = xpcall(action, debug.traceback, url, report)
+      if not ok or opened ~= true then
+        report("URL rule failed: " .. (ok and "action returned " .. tostring(opened) or opened))
       end
     end)
-    -- Adapters that finish later report their own failures.
-    return result ~= false
+    later = true
+    return result
   end
 end
 

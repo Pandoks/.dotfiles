@@ -16,8 +16,8 @@ function notion.workspace(options)
       return
     end
 
-    -- Notion only resolves dashed page IDs.
-    local id = page:gsub("^(........)(....)(....)(....)", "%1-%2-%3-%4-")
+    -- Notion only resolves lowercase, dashed page IDs.
+    local id = page:lower():gsub("^(........)(....)(....)(....)", "%1-%2-%3-%4-")
     local task = hs.task.new("/usr/bin/curl", function(code, output, message)
       local decoded, data = pcall(hs.json.decode, output)
       if code ~= 0 or not decoded or type(data) ~= "table" then
@@ -25,6 +25,8 @@ function notion.workspace(options)
           nil,
           "Notion workspace lookup failed: " .. (code ~= 0 and message or "invalid response")
         )
+      elseif type(data.spaceDomain) ~= "string" then
+        done(nil, "Notion workspace lookup failed: no workspace for this page")
       else
         done(data.spaceDomain)
       end

@@ -100,7 +100,8 @@ local function browser(options)
             end
             return state.status
           elseif contents:match("^notion:") then
-            return { spaceDomain = contents:sub(8) }
+            local domain = contents:sub(8)
+            return { spaceDomain = domain ~= "" and domain or nil }
           end
           return {
             profile = {
@@ -281,8 +282,12 @@ test("Notion links open in their workspace's browser profile", function()
   end
 end)
 test("page-ID-only Notion links open in the workspace Notion reports", function()
-  local url = "https://app.notion.com/p/Codenames-3382e03c6a5880368090d9fa3b706f16"
-  for domain, directory in pairs({ ["sieve-data"] = "Profile 1", kwok = "Default" }) do
+  for _, case in ipairs({
+    { "Codenames-3382e03c6a5880368090d9fa3b706f16", "sieve-data", "Profile 1" },
+    { "Codenames-3382E03C6A5880368090D9FA3B706F16", "sieve-data", "Profile 1" },
+    { "3382e03c6a5880368090d9fa3b706f16", "kwok", "Default" },
+  }) do
+    local url, domain, directory = "https://app.notion.com/p/" .. case[1], case[2], case[3]
     local state = browser()
     assert(state.route(url) == true and #state.tasks == 1)
     local lookup = state.tasks[1]
@@ -297,12 +302,38 @@ test("page-ID-only Notion links open in the workspace Notion reports", function(
     assert(state.tasks[2].arguments[2] == url and #state.logs == 0)
   end
 end)
+test("router.by reports actions that finish later exactly once", function()
+  for _, action in ipairs({
+    function()
+      return false
+    end,
+    function() end,
+    function()
+      error("action failed")
+    end,
+  }) do
+    local finish, reports = nil, {}
+    local open = browser().router.by(function(_, done)
+      finish = done
+    end, {}, action)
+    assert(open("https://example.com/", function(message)
+      reports[#reports + 1] = message
+    end) == true)
+    assert(finish)("key")
+    assert(#reports == 1 and reports[1]:match("^URL rule failed: "))
+  end
+end)
 test("failed Notion lookups report once without opening a profile", function()
   local state = browser()
   assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == true)
   state.tasks[1].callback(28, "", "Operation timed out")
   assert(#state.tasks == 1 and #state.logs == 1)
   assert(state.logs[1] == "Notion workspace lookup failed: Operation timed out")
+  state = browser()
+  assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == true)
+  state.tasks[1].callback(0, "notion:", "")
+  assert(#state.tasks == 1 and #state.logs == 1)
+  assert(state.logs[1] == "Notion workspace lookup failed: no workspace for this page")
   state = browser({ startFailure = true })
   assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == false)
   assert(#state.tasks == 1 and #state.logs == 1)

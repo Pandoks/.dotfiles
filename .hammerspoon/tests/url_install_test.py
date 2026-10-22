@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from unittest.mock import patch
 
 root = Path(__file__).resolve().parent.parent
@@ -163,6 +164,26 @@ elif operation == "bootout" and state["pid"]:
         "-framework", "Foundation", "-framework", "Security", "-lbsm", "-o", str(probe)], check=True)
     result = subprocess.run([str(probe), "--health"], text=True, capture_output=True, check=False)
     assert result.returncode == 1 and "validated only" in result.stderr
+
+    # Skip the build check and the live swcd query to reach the acknowledgement wait on any Mac.
+    waiting = (root / "url_router/interception/probe.m").read_text()
+    for live, skipped in (("if (!URLRouterCheckABI(&error))", "if (NO)"), ("NSString *message = health(deadline);", "NSString *message = nil;")):
+        assert waiting.count(live) == 1, live
+        waiting = waiting.replace(live, skipped)
+    (temporary / "probe-wait.m").write_text(waiting)
+    probe = temporary / "probe-wait"
+    subprocess.run(["clang", "-O2", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-I", str(root / "url_router/interception"),
+        str(temporary / "probe-wait.m"), str(root / "url_router/interception/platform.m"), str(root / "url_router/interception/status.m"),
+        "-framework", "Foundation", "-framework", "Security", "-lbsm", "-o", str(probe)], check=True)
+    status = temporary / "probe-status"
+    status.mkdir(mode=0o700)
+    (status / "status.json").write_text(json.dumps({"version": 1, "kind": "error", "stage": "target", "error": "Router code identity validation failed",
+                                                    "generation": "", "sha256": "", "count": 0, "pid": os.getpid()}))
+    os.chmod(status / "status.json", 0o600)
+    started = time.monotonic()
+    result = subprocess.run([str(probe), str(status / "status.json"), str(uuid.uuid4()), "0" * 64], text=True, capture_output=True, timeout=15)
+    assert result.returncode == 1 and "identity validation failed" in result.stderr and time.monotonic() - started < 5, result
+    print("PASS probe reports a running hook's setup error instead of waiting for its timeout")
 
     actual_run = installer.run
     actual_subprocess = installer.subprocess.run

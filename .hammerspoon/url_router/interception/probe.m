@@ -78,13 +78,15 @@ int main(int argc, const char **argv) {
         return fail([@"Could not read router status: " stringByAppendingString:readError.localizedDescription]);
       }
       id row = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-      if ([row isKindOfClass:NSDictionary.class] && [row[@"version"] isEqual:@1]
-          && [row[@"generation"] isEqual:generation] && [row[@"sha256"] isEqual:hash]) {
-        if ([row[@"kind"] isEqual:@"error"]) {
+      if ([row isKindOfClass:NSDictionary.class] && [row[@"version"] isEqual:@1]) {
+        BOOL current = [row[@"generation"] isEqual:generation] && [row[@"sha256"] isEqual:hash];
+        BOOL live = [row[@"pid"] intValue] > 0 && kill([row[@"pid"] intValue], 0) == 0;
+        // A running hook that failed setup reports no generation.
+        if ([row[@"kind"] isEqual:@"error"] && (current || (live && [row[@"generation"] isEqual:@""]))) {
           dispatch_source_cancel(source);
           return fail(row[@"error"] ?: @"Router daemon reported an error");
         }
-        if ([row[@"kind"] isEqual:@"ready"] && [row[@"pid"] intValue] > 0 && kill([row[@"pid"] intValue], 0) == 0) {
+        if (current && live && [row[@"kind"] isEqual:@"ready"]) {
           print(row); dispatch_source_cancel(source); return 0;
         }
       }

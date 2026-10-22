@@ -19,8 +19,10 @@ static NSString *environment(const char *name) {
   return value ? [NSString stringWithUTF8String:value] : nil;
 }
 
+// A nil event publishes the current snapshot, read under the lock so an older one can't win.
 static void publish(NSDictionary *event) {
   os_unfair_lock_lock(&publication);
+  event = event ?: store.snapshot;
   NSMutableDictionary *row = [event mutableCopy];
   BOOL ready = atomic_load(&installed) && [event[@"kind"] isEqual:@"loaded"] && !event[@"error"] && [target unchanged];
   row[@"kind"] = ready ? @"ready" : @"error";
@@ -49,7 +51,7 @@ static NSError *failure(NSString *message) {
   return [NSError errorWithDomain:@"HammerspoonURLRouter" code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
 }
 
-// Failures leave swcd unhooked so links keep their native behavior.
+// Failures leave swcd running unhooked; exiting would stall every link lookup.
 __attribute__((constructor)) static void install(void) {
   @autoreleasepool {
     NSError *error;
@@ -138,6 +140,6 @@ __attribute__((constructor)) static void install(void) {
     }];
     method_setImplementation(method, replacement);
     atomic_store(&installed, YES);
-    publish(store.snapshot);
+    publish(nil);
   }
 }
