@@ -2,10 +2,12 @@ local classify = require("lib.url_router.match")
 local logger = require("lib.logger")
 local router = {}
 
+---@alias URLAction fun(url: string, report?: fun(message: string)): boolean
+
 ---@class URLRule
 ---@field host? string domain, including its subdomains
 ---@field pattern? string Lua pattern matched against the complete URL
----@field open fun(url: string, report?: fun(message: string)): boolean
+---@field open URLAction
 
 ---@class URLRouterNative
 ---@field publish fun(path: string, contents: string): boolean, string?
@@ -46,6 +48,28 @@ end
 ---@return { generation?: string, ready: boolean, error?: string }
 function router.status()
   return { generation = current and current.generation, ready = ready, error = failure }
+end
+
+---Opens a URL with the action for the key its adapter finds, or `default` for other keys.
+---@param adapter fun(url: string, done: fun(key?: string, error?: string)) calls `done` once, now or later
+---@param actions table<string, URLAction>
+---@param default URLAction
+---@return URLAction
+function router.by(adapter, actions, default)
+  return function(url, report)
+    report = report or logger.error
+    local result
+    adapter(url, function(key, message)
+      if message then
+        report(message)
+        result = false
+      else
+        result = (actions[key] or default)(url, report)
+      end
+    end)
+    -- Adapters that finish later report their own failures.
+    return result ~= false
+  end
 end
 
 ---@param rules URLRule[]

@@ -90,10 +90,12 @@ Chromium actions retain their own reporting when called directly.
 `chromium.url({ bundleID = "net.imput.helium", profile = "Work" })` selects a
 Chromium profile by its display name from `Local State`; browser tab/window
 behavior remains under the browser's control.
-`notion.url({ workspaces = { ["sieve-data"] = work }, default = personal, lookup = true })`
-picks an action by the workspace in a Notion link. With `lookup`, links that only
-carry a page ID ask Notion's undocumented `getPublicPageData` endpoint for the
-workspace (3-second limit); a failed lookup is reported and opens nothing.
+`router.by(adapter, { key = action }, default)` opens a URL with the action for the
+key its adapter finds. An adapter in `lib/url_adapters/` only finds the key and
+calls `done(key)` or `done(nil, error)`, now or later; an error is reported and
+opens nothing. `notion.workspace({ lookup = true })` finds the workspace domain;
+`lookup` asks Notion's undocumented `getPublicPageData` endpoint about links that
+only carry a page ID (3-second limit).
 
 The published JSON contains selectors only, not Lua action functions. The hook
 loads selectors into the same Lua version and acknowledges their UUID generation

@@ -214,7 +214,7 @@ local function browser(options)
       assert(
         name == "lib.url_router"
           or name == "lib.url_router.match"
-          or name == "lib.url_router.notion"
+          or name == "lib.url_adapters.notion"
           or name == "lib.window_adapters.chromium",
         name
       )
@@ -303,6 +303,10 @@ test("failed Notion lookups report once without opening a profile", function()
   state.tasks[1].callback(28, "", "Operation timed out")
   assert(#state.tasks == 1 and #state.logs == 1)
   assert(state.logs[1] == "Notion workspace lookup failed: Operation timed out")
+  state = browser({ startFailure = true })
+  assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == false)
+  assert(#state.tasks == 1 and #state.logs == 1)
+  assert(state.logs[1] == "Could not start the Notion workspace lookup")
 end)
 test("the first explicit rule wins and can handle a different app", function()
   local calls = 0
