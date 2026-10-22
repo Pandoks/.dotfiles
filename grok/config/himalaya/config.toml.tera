@@ -8,12 +8,14 @@ mailbox.alias.drafts = "Drafts"
 mailbox.alias.trash = "Trash"
 mailbox.alias.junk = "Spam"
 mailbox.alias.archive = "Archive"
+{%- set_global first = true %}
 {%- for raw in vars.GROK_PROTON_EMAILS | default(value="") | split(pat=",") %}
 {%- set email = raw | trim %}
 {%- if email %}
 
-[accounts."{{ email | split(pat="@") | first | lower }}"]
-default = {{ loop.first }}
+[accounts."{{ email | lower }}"]
+default = {{ first }}
+{%- set_global first = false %}
 email = "{{ email }}"
 imap.server = "imap://127.0.0.1:1143"
 imap.starttls = true

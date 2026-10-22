@@ -22,11 +22,14 @@ const [command, url, out] = process.argv.slice(1);
 (async () => {
   const browser = await chromium.connectOverCDP(process.env.GROK_BROWSER_CDP_URL);
   const page = await browser.contexts()[0].newPage();
-  await page.goto(url);
-  if (command === "screenshot") await page.screenshot({ path: out, fullPage: true });
-  if (command === "dump") console.log(await page.innerText("body"));
-  if (command !== "open") await page.close();
-  await browser.close();
+  try {
+    await page.goto(url);
+    if (command === "screenshot") await page.screenshot({ path: out, fullPage: true });
+    if (command === "dump") console.log(await page.innerText("body"));
+  } finally {
+    if (command !== "open") await page.close();
+    await browser.close();
+  }
 })().catch((error) => {
   console.error("grok-browser: " + error.message);
   process.exit(1);

@@ -23,8 +23,8 @@ security add-generic-password -U -s grok-proton-bridge -a you@proton.me -w
 Save Bridge's certificate:
 
 ```sh
-openssl s_client -connect 127.0.0.1:1143 -starttls imap < /dev/null 2> /dev/null \
-  | openssl x509 -out ~/grok/config/himalaya/proton-bridge-cert.pem
+openssl s_client -connect 127.0.0.1:1143 -starttls imap < /dev/null \
+  2> /dev/null | openssl x509 -out ~/grok/config/himalaya/proton-bridge-cert.pem
 ```
 
 ## Proton Pass
