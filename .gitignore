@@ -6,3 +6,5 @@
 .hammerspoon/dictation/__pycache__/
 .cli-proxy-api/*
 !.cli-proxy-api/config.yaml
+.cli-proxy-api-ci/*
+!.cli-proxy-api-ci/config.yaml
