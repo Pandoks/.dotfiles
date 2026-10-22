@@ -413,7 +413,7 @@ upstream:
     # Credential attributes and explicit per-key cloak modes override this shared default.
     # Default false keeps the per-client "auto" behavior (cloak only non-Claude-Code clients).
     # API-key overrides use api-keys.claude[].keys[].cloak.mode.
-    disable-claude-cloak-mode: false
+    disable-claude-cloak-mode: true
 
     # When true, return original model IDs in Anthropic model list responses instead of cloaked IDs.
     disable-cloaking-model-list: false
@@ -1222,4 +1222,11 @@ plugins:
 api-keys:
   claude:
     - name: max-accounts
+      # The API answers a spent organization with a 400, which the proxy otherwise
+      # treats as a bad request and returns instead of trying the next key.
+      request-scoped-errors:
+        - status: 400
+          match-regexr:
+            - "(?i)credit balance|spend limit|usage limit"
+          action: "continue-and-cooldown"
       keys: []
