@@ -1151,8 +1151,8 @@ observability:
 # Plugin list Management API reads Logo and ConfigFields from plugin metadata for management UI display.
 # Per-plugin enabled only controls plugins.configs.<pluginID>.enabled and does not implicitly change global plugins.enabled.
 plugins:
-  enabled: true
-  dir: "~/.cli-proxy-api/plugins"
+  enabled: false
+  dir: "plugins"
   # Additional plugin store registries. The built-in official registry is always included.
   # store-sources:
   #   - "https://example.com/cliproxy-plugins/registry.json"
@@ -1184,39 +1184,6 @@ plugins:
 
   # Home owns this revision; it is not an ordinary editable setting.
   # auth-revision: 0
-
-  store-sources:
-    - https://raw.githubusercontent.com/Pandoks/cpa-plugin-paced-affinity/main/registry.json
-  configs:
-    paced-affinity:
-      enabled: true
-      priority: 1
-      shadow: false
-      claude-placement: observed-weekly
-      providers:
-        - claude
-        - codex
-      store:
-        id: paced-affinity
-        name: Paced Affinity
-        description: Routes Claude and Codex chats with warm-cache affinity, observed weekly pacing for new Claude chats, and quota-aware placement and failover.
-        author: Pandoks
-        version: 0.1.1
-        release-tag: v0.1.1
-        repository: https://github.com/Pandoks/cpa-plugin-paced-affinity
-        homepage: https://github.com/Pandoks/cpa-plugin-paced-affinity
-        license: MIT
-        tags:
-          - Scheduler
-          - Claude
-          - Codex
-          - Quota
-          - Prompt cache
-        source-id: source-82b99558cfc0
-        source-name: raw.githubusercontent.com
-        source-url: https://raw.githubusercontent.com/Pandoks/cpa-plugin-paced-affinity/main/registry.json
-        install:
-          type: github-release
 
 # Legacy compatibility reference (comments only; not part of this v8 template).
 # Old files and /v0/management still work without a v8 write. Existing legacy-only

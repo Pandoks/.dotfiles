@@ -195,11 +195,6 @@ this toggle on. It's stored in the account's auth file, not in this repo.
 mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
 ```
 
-The CI instance on `:8318` serves only Console API keys, so reviews spend the
-API credits and never the subscriptions. Add one key per account under
-`api-keys.claude` in `~/.cli-proxy-api-ci/config.yaml`; it also links into
-this repo.
-
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
