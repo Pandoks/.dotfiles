@@ -11,10 +11,6 @@ _.file = "~/grok/.env"
 [bootstrap.directories."~/grok/logs"]
 [bootstrap.directories."~/grok/cache/proton-mail"]
 [bootstrap.directories."~/grok/config/himalaya"]
-[bootstrap.directories."~/grok/config/proton-pass/pandoks"]
-mode = "0700"
-[bootstrap.directories."~/grok/config/proton-pass/manda"]
-mode = "0700"
 
 [dotfiles]
 "~/grok/bin/grok-browser" = "../../grok/bin/grok-browser"
