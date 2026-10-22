@@ -14,6 +14,6 @@ mode = "0700"
 
 [dotfiles]
 "~/grok/bin/grok-browser" = "../../grok/bin/grok-browser"
-"~/grok/bin/himalaya" = "~/.local/share/mise/installs/aqua-pimalaya-himalaya/latest/himalaya" # shim needs MISE_ENV=grok
+"~/grok/bin/himalaya" = "~/.local/share/mise/installs/aqua-pimalaya-himalaya/latest/himalaya"
 "~/grok/config/himalaya/config.toml" = "../../grok/config/himalaya/config.toml"
 "~/.config/himalaya/config.toml" = "../../grok/config/himalaya/config.toml"
