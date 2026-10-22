@@ -15,4 +15,5 @@ _.file = "~/grok/.env"
 [dotfiles]
 "~/grok/bin/grok-browser" = "../../grok/bin/grok-browser"
 "~/grok/.env.example" = "../../grok/.env.example"
-"~/.config/himalaya/config.toml" = { source = "../../grok/config/himalaya/config.toml.tera", mode = "template" }
+"~/grok/.env" = { permissions = "0600" }
+"~/.config/himalaya/config.toml" = { source = "../../grok/config/himalaya/config.toml.tera", mode = "template", permissions = "0600" }
