@@ -11,43 +11,43 @@ mailbox.alias.archive = "Archive"
 
 [accounts.proton]
 default = true
-email = "{{ vars.grok_proton_email }}"
+email = "{{ vars.GROK_PROTON_EMAIL }}"
 imap.server = "imap://127.0.0.1:1143"
 imap.starttls = true
 imap.tls.provider = "rustls"
 imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-imap.sasl.plain.username = "{{ vars.grok_proton_email }}"
+imap.sasl.plain.username = "{{ vars.GROK_PROTON_EMAIL }}"
 imap.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "{{ vars.grok_proton_email }}",
+  "-s", "grok-proton-bridge", "-a", "{{ vars.GROK_PROTON_EMAIL }}",
 ]
 smtp.server = "smtp://127.0.0.1:1025"
 smtp.starttls = true
 smtp.tls.provider = "rustls"
 smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-smtp.sasl.plain.username = "{{ vars.grok_proton_email }}"
+smtp.sasl.plain.username = "{{ vars.GROK_PROTON_EMAIL }}"
 smtp.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "{{ vars.grok_proton_email }}",
+  "-s", "grok-proton-bridge", "-a", "{{ vars.GROK_PROTON_EMAIL }}",
 ]
 
 [accounts.manda]
-email = "{{ vars.grok_manda_email }}"
+email = "{{ vars.GROK_MANDA_EMAIL }}"
 imap.server = "imap://127.0.0.1:1143"
 imap.starttls = true
 imap.tls.provider = "rustls"
 imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-imap.sasl.plain.username = "{{ vars.grok_manda_email }}"
+imap.sasl.plain.username = "{{ vars.GROK_MANDA_EMAIL }}"
 imap.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "{{ vars.grok_manda_email }}",
+  "-s", "grok-proton-bridge", "-a", "{{ vars.GROK_MANDA_EMAIL }}",
 ]
 smtp.server = "smtp://127.0.0.1:1025"
 smtp.starttls = true
 smtp.tls.provider = "rustls"
 smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
-smtp.sasl.plain.username = "{{ vars.grok_manda_email }}"
+smtp.sasl.plain.username = "{{ vars.GROK_MANDA_EMAIL }}"
 smtp.sasl.plain.password.command = [
   "security", "find-generic-password", "-w",
-  "-s", "grok-proton-bridge", "-a", "{{ vars.grok_manda_email }}",
+  "-s", "grok-proton-bridge", "-a", "{{ vars.GROK_MANDA_EMAIL }}",
 ]
