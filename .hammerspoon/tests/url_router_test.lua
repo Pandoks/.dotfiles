@@ -311,6 +311,9 @@ test("router.by reports actions that finish later exactly once", function()
     function()
       error("action failed")
     end,
+    function()
+      error({ reason = "action failed" })
+    end,
   }) do
     local finish, reports = nil, {}
     local open = browser().router.by(function(_, done)

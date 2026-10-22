@@ -73,7 +73,7 @@ function router.by(adapter, actions, default)
       -- The router only checks results returned before `open` does.
       local ok, opened = xpcall(action, debug.traceback, url, report)
       if not ok or opened ~= true then
-        report("URL rule failed: " .. (ok and "action returned " .. tostring(opened) or opened))
+        report("URL rule failed: " .. (ok and "action returned " or "") .. tostring(opened))
       end
     end)
     later = true

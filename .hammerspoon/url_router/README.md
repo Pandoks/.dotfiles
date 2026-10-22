@@ -17,8 +17,9 @@ actual dispatch failure.
 The native hook uses private macOS APIs. Installation is guarded to the tested
 macOS 26.6.2 (25G83) and 27.0.1 (26A434), CSR mask `0x46`, and `-arm64e_preview_abi`
 boot argument. On any other build, or any hook setup failure, `swcd` keeps running
-unhooked, so apps' own Universal Links still open natively. Hammerspoon reports the
-error, and the helper rejects web links with a popup until the hook is ready.
+unhooked, so apps' own Universal Links still open natively. The helper rejects web
+links with a popup until the hook is ready; Hammerspoon also reports the error
+whenever the hook can write its status file.
 This SIP configuration relaxes filesystem, debugging, and NVRAM protections;
 authenticated root, kernel integrity, restricted entitlements, and explicit
 library validation remain separate constraints. The hook does not require the
