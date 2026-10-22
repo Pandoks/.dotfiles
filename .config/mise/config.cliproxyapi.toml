@@ -13,3 +13,13 @@ restart = "always"
 restart_sec = "10"
 wanted_by = ["default.target"]
 start = true
+
+[bootstrap.linux.systemd.units.cli-proxy-api-ci]
+description = "cli-proxy-api CI Service"
+after = ["network.target"]
+type = "simple"
+exec_start = "%h/.local/share/mise/installs/github-router-for-me-cli-proxy-api/latest/cli-proxy-api --config %h/.cli-proxy-api-ci/config.yaml"
+restart = "always"
+restart_sec = "10"
+wanted_by = ["default.target"]
+start = true
