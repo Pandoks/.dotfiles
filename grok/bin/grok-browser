@@ -63,7 +63,7 @@ usage() {
 
 require_profile() {
   [ -d "${PROFILE}" ] \
-    || die "${PROFILE} doesn't exist; set it up by hand first, see ~/.dotfiles/grok/helium-setup.md"
+    || die "${PROFILE} doesn't exist; set it up by hand first, see ~/.dotfiles/grok/README.md"
   mkdir -p "$(dirname "${LOG}")"
   PROFILE=$(realpath "${PROFILE}")
 }
