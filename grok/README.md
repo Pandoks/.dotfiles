@@ -4,7 +4,7 @@ Proton Pass, Mail, Drive, and a Helium browser for Grok agents on this Mac.
 
 ```sh
 sudo -v && mise -E grok bootstrap --yes
-cp ~/grok/.env.example ~/grok/.env  # list your Proton emails, first is default
+cp ~/grok/.env.example ~/grok/.env
 mise -E grok bootstrap --yes --only dotfiles
 ```
 
@@ -12,12 +12,15 @@ Rerun the last command after editing `~/grok/.env`.
 
 ## Proton Mail Bridge
 
-Open Bridge, sign in to each account, and turn on start at login. In combined
-address mode list only each account's main address; in split mode list every
-address. Then, per email:
+Open Bridge, sign in to each account, and turn on start at login. Add each
+account to `~/grok/.env` as `GROK_<NAME>_PROTON_EMAIL` and
+`GROK_<NAME>_PROTON_PASSWORD` (the Bridge password); `<name>` is its himalaya
+account:
 
 ```sh
-security add-generic-password -U -s grok-proton-bridge -a you@proton.me -w
+GROK_PROTON_DEFAULT=personal
+GROK_PERSONAL_PROTON_EMAIL=you@proton.me
+GROK_PERSONAL_PROTON_PASSWORD=bridge-password
 ```
 
 Save Bridge's certificate:
