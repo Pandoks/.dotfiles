@@ -195,7 +195,49 @@ this toggle on. It's stored in the account's auth file, not in this repo.
 mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
 ```
 
+## Grok browser
+
+On macOS, `~/grok/bin/grok-browser` lets Grok agents drive [Helium] through
+Playwright. It runs Helium on its own profile,
+`~/grok/config/helium-grokbot-profile`, with DevTools on `127.0.0.1:9333`, and
+never touches Helium windows on your everyday profile. The `grok` profile links
+it and installs `playwright-core`:
+
+```sh
+mise -E grok bootstrap --yes
+```
+
+The script doesn't create the profile; set it up once by hand with
+[grok/helium-setup.md](grok/helium-setup.md).
+
+```sh
+~/grok/bin/grok-browser start | stop | status
+~/grok/bin/grok-browser run script.js  # see below
+~/grok/bin/grok-browser open URL
+~/grok/bin/grok-browser screenshot URL out.png
+~/grok/bin/grok-browser dump URL       # prints the page text
+```
+
+`run` scripts are CommonJS (`import` won't find Playwright):
+
+```js
+const { chromium } = require("playwright-core");
+
+(async () => {
+  const browser = await chromium.connectOverCDP(process.env.GROK_BROWSER_CDP_URL);
+  const page = await browser.contexts()[0].newPage();
+  await page.goto("https://example.com");
+  console.log(await page.title());
+  await browser.close(); // disconnects; Helium keeps running
+})();
+```
+
+Logs go to `~/grok/logs/grok-browser.log`. Helium's built-in content blocking
+(uBlock Origin) can break some sites; turn it off for that site in the grokbot
+window.
+
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
+[Helium]: https://helium.computer/
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
