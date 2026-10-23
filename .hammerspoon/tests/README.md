@@ -21,6 +21,18 @@ one background window search, so the first Cmd-Tab finds windows on other Spaces
 Neither touches the real window server; the native gesture, focus, and Accessibility calls in
 `lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
 
+The URL router suites cover Lua rules, profiles, and selector readiness
+(`url_router_test.lua`); native selector publication and watchers
+(`url_router_native_test.sh`); the `swcd` hook's matcher, acknowledgements, and sandbox
+access (`url_interception_test.py`); installer staging and rollback with system
+registration stubbed (`url_install_test.py`); default-handler changes
+(`url_set_default_test.py`); and the helper's native dispatch and message-port bridge
+(`url_dispatch_test.py`). They need Python 3 and the Swift/Clang command-line tools.
+The interception suite downloads Lua 5.4.9 and checks its pinned SHA-256; set
+`LUA_ARCHIVE` to a local copy to run offline. Swift suites compile copies with
+`NSWorkspace` and `NSAlert` replaced, so they never open apps, show popups, or change
+default handlers.
+
 Run `sh .hammerspoon/tests/previews_test.sh` for the native preview worker pool.
 It uses synthetic images and windows, without Screen Recording access or UI changes.
 The tests verify four concurrent captures, progressive main-thread delivery,
