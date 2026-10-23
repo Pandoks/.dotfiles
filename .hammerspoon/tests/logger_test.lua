@@ -74,4 +74,9 @@ local logger = assert(loadfile(
 ))()
 assert(pcall(logger.error, "Tiling: no window\ndetail") and alerts[1] == "Tiling: no window")
 print("PASS an error alerts even when print raises")
-print("RESULT 5 passed, 0 failed")
+for _, message in ipairs({ "", "\nstack traceback:" }) do
+  assert(pcall(logger.error, message), "raised on " .. ("%q"):format(message))
+end
+assert(alerts[2] == "" and alerts[3] == "stack traceback:", tostring(alerts[3]))
+print("PASS an empty or line-break-first error still alerts")
+print("RESULT 6 passed, 0 failed")

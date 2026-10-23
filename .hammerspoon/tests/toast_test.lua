@@ -1,6 +1,6 @@
 local root = assert(arg[1])
 -- Two 1000x600 screens side by side below a 25 pt menu bar; text is 7 pt a character, 16 a line.
-local canvases, timers = {}, {}
+local canvases, timers, logged, measured = {}, {}, {}, 0
 local screens, styled = {}, {}
 local function display(id, x)
   return setmetatable({
@@ -14,6 +14,12 @@ local function display(id, x)
 end
 local main, side = display(1, 0), display(2, 1000)
 local focused = main
+local windows = {}
+local window = setmetatable({
+  screen = function()
+    return side
+  end,
+}, windows)
 -- As hs.alert's: `show` and `hs.alert(...)` call `showWithImage`.
 local alert = {}
 function alert.show(message, ...)
@@ -26,7 +32,9 @@ local toast = assert(loadfile(
     hs = {
       alert = alert,
       getObjectMetatable = function(name)
-        return ({ ["hs.styledtext"] = styled, ["hs.screen"] = screens })[name]
+        local kinds =
+          { ["hs.styledtext"] = styled, ["hs.screen"] = screens, ["hs.window"] = windows }
+        return kinds[name]
       end,
       screen = {
         mainScreen = function()
@@ -53,6 +61,7 @@ local toast = assert(loadfile(
         new = function()
           local canvas = { elements = {}, visible = false, deleted = false }
           function canvas.minimumTextSize(_, text)
+            measured = measured + 1
             local w, lines = 0, 0
             for line in text.text:gmatch("[^\n]+") do
               w, lines = math.max(w, 7 * #line), lines + 1
@@ -91,6 +100,14 @@ local toast = assert(loadfile(
         end,
       },
     },
+    require = function(name)
+      assert(name == "lib.logger")
+      return {
+        error = function(message)
+          logged[#logged + 1] = message
+        end,
+      }
+    end,
   }, { __index = _G })
 ))()
 local passed = 0
@@ -167,10 +184,22 @@ test("a click dismisses, and a sixth toast drops the oldest", function()
   clear()
 end)
 
-test("long text wraps to three lines, and a name keeps its case", function()
-  toast.show(("word "):rep(60), { failure = true })
+test("long text wraps to three lines, measured once a word until then", function()
+  measured = 0
+  toast.show(("word "):rep(600), { failure = true })
   local lines = select(2, texts(canvases[1]):gsub("\n", "")) + 1
   assert(lines == 3 and canvases[1].frame.w <= 14 + 26 + 340 + 14, lines)
+  assert(measured < 40, measured .. " measurements: the last line is measured again a word")
+  clear()
+end)
+
+test("a line break is kept, and a name keeps its case", function()
+  toast.install()
+  alert.show("⌘A: Alpha\n⌘B: Beta\n⌘C: Gamma\n⌘D: Delta")
+  assert(
+    texts(canvases[1]) == "⌘A: Alpha\n⌘B: Beta\n⌘C: Gamma ⌘D: Delta",
+    texts(canvases[1])
+  )
   toast.show("Space focus: macOS refused it")
   assert(texts(canvases[2]) == "Space focus | macOS refused it", texts(canvases[2]))
   clear()
@@ -182,8 +211,7 @@ test("install picks the theme, and an unknown one says so", function()
   assert(canvases[1].elements[1].fillGradientColors[4].white == 0.3, "not the edge rim")
   clear()
   toast.install({ theme = "chrome" })
-  assert(texts(canvases[1]):find("No theme chrome", 1, true), texts(canvases[1]))
-  clear()
+  assert(logged[1] and logged[1]:find("no theme chrome", 1, true), tostring(logged[1]))
   toast.install()
   toast.show("metal")
   assert(canvases[1].elements[1].fillGradientColors[3].white == 0.42, "not the metal rim")
@@ -210,6 +238,10 @@ test("every hs.alert is a toast, with its seconds and screen", function()
   assert(texts(canvases[4]) == "styled", texts(canvases[4]))
   alert.show(io.stdout) -- a userdata that is not styled text
   assert(texts(canvases[5]):find("^file %("), texts(canvases[5]))
+  alert.show("on the window's screen", window, 2)
+  alert.show("false is the default", false)
+  assert(canvases[6].at.x >= 1000 and timers[6].seconds == 2, "a window is not its screen")
+  assert(timers[7] and timers[7].seconds == 3, "false seconds stayed until closed")
   clear()
 end)
 

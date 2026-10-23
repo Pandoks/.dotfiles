@@ -82,8 +82,8 @@ local function arm(entry, seconds)
   end) or nil
 end
 
--- `text` in lines of at most `limit` points, and its size; past `lines`, the rest goes on the
--- last, cut with "…".
+-- `text` in lines of at most `limit` points, breaking at its own line breaks too, and its size;
+-- past `lines`, the rest goes on the last, cut with "…".
 ---@param canvas hs.canvas
 ---@param text string
 ---@param style table
@@ -93,15 +93,22 @@ local function wrap(canvas, text, style, lines)
     return canvas:minimumTextSize(hs.styledtext.new(value, style)) --[[@as ToastSize]]
   end
   local out, line = {}, nil
-  for word in text:gmatch("%S+") do
-    local longer = line and line .. " " .. word or word
-    if line and size(longer).w > limit and #out < lines - 1 then
-      out[#out + 1], line = line, word
-    else
-      line = longer
+  for paragraph in (text .. "\n"):gmatch("([^\n]*)\n") do
+    for word in paragraph:gmatch("%S+") do
+      local longer = line and line .. " " .. word or word
+      -- Measured only while the line may still break: the last one would grow quadratically.
+      if line and #out < lines - 1 and size(longer).w > limit then
+        out[#out + 1], line = line, word
+      else
+        line = longer
+      end
+    end
+    if line and #out < lines - 1 then
+      out[#out + 1], line = line, nil
     end
   end
-  out[#out + 1] = line or ""
+  out[#out + 1] = line
+  out[1] = out[1] or ""
   local joined = table.concat(out, "\n")
   return hs.styledtext.new(joined, style), size(joined)
 end
@@ -128,7 +135,7 @@ function toast.show(text, options)
   if not screen then
     return text
   end
-  local head, rest = text:match("^([^:\n]+): (.+)$")
+  local head, rest = text:match("^([^:\n]+): ([^\n]+)$")
   if not head or #head > 24 then
     head, rest = text, nil
   end
@@ -230,28 +237,32 @@ function toast.install(options)
   local name = options and options.theme or "metal"
   theme = themes[name] or themes.metal
   if not themes[name] then
-    toast.show(
-      "Toast: no theme " .. tostring(name) .. "; use metal, edge, or flat",
-      { failure = true }
+    require("lib.logger").error(
+      "Toast: no theme " .. tostring(name) .. "; use metal, edge, or flat"
     )
   end
-  local styled, screens = hs.getObjectMetatable("hs.styledtext"), hs.getObjectMetatable("hs.screen")
+  local styled = hs.getObjectMetatable("hs.styledtext")
+  local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
-  -- Both hs.alert.show and hs.alert(...) end here. As hs.alert reads its arguments: a table is a
-  -- style, a screen the screen, anything else the seconds.
+  -- Both hs.alert.show and hs.alert(...) end here. As hs.alert reads its arguments: a screen, or
+  -- a window for its screen; a table is a style; anything else the seconds, none or false the
+  -- default, another non-number until closed.
   alert.showWithImage = function(message, _, ...)
     local style, screen, seconds
     for _, value in ipairs(table.pack(...)) do
-      if type(value) == "table" and not style then
-        style = value
-      elseif getmetatable(value) == screens and not screen then
+      local kind = getmetatable(value)
+      if kind and kind == screens and not screen then
         screen = value
+      elseif kind and kind == windows and not screen then
+        screen = value:screen()
+      elseif type(value) == "table" and not style then
+        style = value
       elseif seconds == nil then
         seconds = value
       end
     end
     local text = getmetatable(message) == styled and message:getString() or tostring(message)
-    local time = seconds == nil and 3 or type(seconds) == "number" and seconds or false
+    local time = not seconds and 3 or type(seconds) == "number" and seconds or false
     return toast.show(text, { seconds = time, screen = screen })
   end
   alert.closeSpecific = toast.close
