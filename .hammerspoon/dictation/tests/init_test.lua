@@ -2,6 +2,7 @@ local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 local passed, alerts, strokes, timers, changes, takes, serial = 0, {}, {}, {}, 0, 0, 0
 local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead, settings
+local frame, broken
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
 local directory = scratch .. "/init-history"
@@ -54,7 +55,8 @@ local hs = {
     end,
   },
   timer = {
-    doEvery = function()
+    doEvery = function(_, callback)
+      frame = callback
       return stub()
     end,
     doAfter = function(_, callback)
@@ -119,7 +121,12 @@ local modules = {
   ["dictation.history"] = load("history", { hs = { fs = fs } }),
   ["dictation.overlay"] = {
     new = function()
-      return stub({ canvas = stub() })
+      return stub({
+        canvas = stub(),
+        update = function()
+          assert(not broken, "broken frame")
+        end,
+      })
     end,
   },
   ["dictation.recorder"] = {
@@ -143,7 +150,7 @@ local modules = {
         os.remove(capture.wav)
       end
     end,
-    poll = function() end,
+    analyze = function() end,
   },
   ["dictation.engine"] = {
     new = function(config, callbacks)
@@ -408,6 +415,16 @@ test("Escape while recording deletes the take", function()
   focus = field("Hi")
   toggle()
   escape()
+  assert(not fs.attributes(recorded), "the recording is left")
+end)
+
+test("a frame that raises ends the take and says so", function()
+  alerts, focus = {}, field("Hi")
+  toggle()
+  broken = true
+  frame()
+  broken = false
+  assert(alerts[1] and alerts[1]:find("broken frame", 1, true), tostring(alerts[1]))
   assert(not fs.attributes(recorded), "the recording is left")
 end)
 

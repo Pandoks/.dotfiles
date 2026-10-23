@@ -294,7 +294,14 @@ local function toggle()
     end
     recording = capture
     animation = hs.timer.doEvery(1 / 30, function()
-      pill:update(state == "recording" and recorder.poll(capture))
+      -- An error would stop the timer silently.
+      local ok, trace = xpcall(function()
+        pill:update(state == "recording" and recorder.analyze(capture))
+      end, debug.traceback)
+      if not ok then
+        fail("overlay: " .. tostring(trace))
+        finish()
+      end
     end)
     if not dictation.cancel:enable() then
       fail("could not bind Escape to cancel")
