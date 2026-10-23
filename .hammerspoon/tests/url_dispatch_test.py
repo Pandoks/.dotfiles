@@ -11,7 +11,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parent.parent
 main = (root / "url_router/main.swift").read_text()
 native = (root / "url_router/native.swift").read_text()
-compiler = ["swiftc", "-swift-version", "6", "-warnings-as-errors", str(root / "url_router/universal.swift")]
+compiler = ["swiftc", "-swift-version", "6", "-warnings-as-errors"]
 subprocess.run(compiler + ["-typecheck", str(root / "url_router/main.swift"), str(root / "url_router/native.swift")], check=True)
 
 mock = r'''

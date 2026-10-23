@@ -36,7 +36,5 @@ python3 "$test_dir/url_router_test.py"
 
 python3 "$test_dir/url_dispatch_test.py"
 
-python3 "$test_dir/url_signing_test.py"
-
 "$test_build/lua" "$test_dir/logger_test.lua" "$test_dir/../lib"
 "$test_build/lua" "$test_dir/native_loader_test.lua" "$test_dir/../lib" "$test_build/cache"

@@ -151,14 +151,9 @@ originating app's click context. macOS updates may change private method signatu
 or launch-job behavior; mismatches fail explicitly and require a new investigation.
 
 Run `sh ~/.hammerspoon/tests/run.sh` for isolated rules, profiles, selector
-transport, native dispatch, Swift bridging, signing, and installer checks.
+transport, native dispatch, Swift bridging, and installer checks.
 Installer tests exercise real builds and filesystem rollback while stubbing
 system registration/default APIs; they do not replace real session delivery,
 administrator authentication, or reboot checks. A manual check should open a
 configured profile link, an unmatched local web page, and a Universal Link for an
 installed native app, then verify unavailable Hammerspoon is reported explicitly.
-
-The helper's `--inspect HTTP_URL [HTTP_URL ...]` command is a separate read-only
-`SFUniversalLink` signing experiment. [SIGNING.md](SIGNING.md) describes its
-restricted entitlement and authorized provisioning requirements. SIP settings do
-not grant that entitlement.

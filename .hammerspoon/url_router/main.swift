@@ -156,17 +156,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-if CommandLine.arguments.dropFirst().first == "--inspect" {
-    do {
-        let result = try inspectUniversalLinks(Array(CommandLine.arguments.dropFirst(2)))
-        FileHandle.standardOutput.write(result + Data([10]))
-        exit(0)
-    } catch {
-        FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
-        exit(1)
-    }
-}
-
 let application = NSApplication.shared
 let delegate = AppDelegate()
 application.delegate = delegate
@@ -176,7 +165,7 @@ if CommandLine.arguments.count > 1 {
     let url = CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--native"
         ? URL(string: CommandLine.arguments[2]) : nil
     guard warm || url?.scheme != nil else {
-        FileHandle.standardError.write(Data("usage: HammerspoonURLRouter --native URL | --warm-links | --inspect HTTP_URL [HTTP_URL ...]\n".utf8))
+        FileHandle.standardError.write(Data("usage: HammerspoonURLRouter --native URL | --warm-links\n".utf8))
         exit(1)
     }
     Task {
