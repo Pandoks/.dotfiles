@@ -276,51 +276,63 @@ import select
 import subprocess
 import sys
 import time
-from contextlib import closing
 
 deadline = time.monotonic() + 10
+exiting = None
 
-def remaining():
+def remaining(message):
     seconds = deadline - time.monotonic()
     if seconds <= 0:
-        raise RuntimeError("The previous swcd process did not exit before service replacement")
+        raise RuntimeError(message)
     return seconds
 
 def launch(*arguments, absent=False):
-    result = subprocess.run(["/bin/launchctl", *arguments], text=True, capture_output=True, timeout=remaining())
+    late = "launchctl " + " ".join(arguments) + " missed its 10-second deadline"
+    result = subprocess.run(["/bin/launchctl", *arguments], text=True, capture_output=True, timeout=remaining(late))
     if absent and result.returncode == 113:
         return None
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "Protected launchctl operation failed")
     return result.stdout
 
+def wait():
+    global exiting
+    if exiting:
+        service, queue = exiting
+        late = "The retiring " + service + " process did not exit within 10 seconds"
+        if not queue.control(None, 1, remaining(late)):
+            raise RuntimeError(late)
+    exiting = None
+
 def retire(service, absent=False):
+    global exiting
     launch("disable", service)
     details = launch("print", service, absent=absent)
     if details is None:
         return
     pid = re.search(r"^\s*pid = (\d+)\s*$", details, re.MULTILINE)
-    with closing(select.kqueue()) as queue:
-        watching = False
-        if pid:
-            event = select.kevent(int(pid.group(1)), filter=select.KQ_FILTER_PROC,
-                                 flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_ONESHOT,
-                                 fflags=select.KQ_NOTE_EXIT)
-            try:
-                queue.control([event], 0, 0)
-                watching = True
-            except OSError as error:
-                if error.errno != errno.ESRCH:
-                    raise
-        launch("bootout", service)
-        if watching and not queue.control(None, 1, remaining()):
-            raise RuntimeError("The previous swcd process did not exit before service replacement")
+    if pid:
+        queue = select.kqueue()
+        event = select.kevent(int(pid.group(1)), filter=select.KQ_FILTER_PROC,
+                             flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_ONESHOT,
+                             fflags=select.KQ_NOTE_EXIT)
+        try:
+            queue.control([event], 0, 0)
+            exiting = (service, queue)
+        except OSError as error:
+            if error.errno != errno.ESRCH:
+                raise
+    launch("bootout", service)
+    wait()
 
 def restore():
     global deadline
     deadline = time.monotonic() + 10
-    retire(domain + "/" + label, absent=True)
+    launch("disable", domain + "/" + label)
     launch("enable", domain + "/com.apple.swcd")
+    # A booted-out job stays listed until its process exits.
+    wait()
+    retire(domain + "/" + label, absent=True)
     if launch("print", domain + "/com.apple.swcd", absent=True) is None:
         launch("bootstrap", domain, original)
 
@@ -331,9 +343,12 @@ try:
             retire(domain + "/com.apple.swcd")
             launch("bootstrap", domain, sys.argv[5])
             launch("kickstart", domain + "/" + label)
-        except BaseException:
+        except BaseException as error:
             # Never leave Apple's job retired without a running replacement.
-            restore()
+            try:
+                restore()
+            except BaseException as failure:
+                raise RuntimeError(f"{error}; restoring com.apple.swcd also failed: {failure}") from error
             raise
     else:
         restore()

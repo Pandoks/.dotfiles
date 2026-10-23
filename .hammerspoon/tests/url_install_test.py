@@ -59,18 +59,33 @@ with tempfile.TemporaryDirectory(prefix="url-install-test.", dir="/var/tmp") as 
     servicepath = temporary / "service.json"
     launcher = temporary / "launchctl"
     launcher.write_text("#!" + sys.executable + "\n" + r"""
-import json, os, signal, sys
+import json, os, signal, subprocess, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 state = json.loads(path.read_text())
-operation = sys.argv[2]
+operation, target = sys.argv[2], sys.argv[-1]
+apple = target.endswith("/com.apple.swcd")
+# Zombies have exited.
+alive = bool(state["pid"]) and subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(state["pid"])], capture_output=True, text=True).stdout.strip()[:1] not in ("", "Z")
+if state["fail"] and (operation == "kickstart" or (operation == "bootout" and not apple)):
+    sys.exit(operation + " failed")
 if operation == "print":
-    if not sys.argv[3].endswith("/com.apple.swcd"):
+    # A booted-out job stays listed while its process lives.
+    if apple and (state["loaded"] or alive):
+        print("pid = " + str(state["pid"]) if alive else "state = waiting")
+    elif not apple and state["clone"]:
+        print("state = running")
+    else:
         sys.exit(113)
-    if state["pid"]:
-        print("pid = " + str(state["pid"]))
-elif operation == "bootout" and state["pid"]:
-    os.kill(state["pid"], signal.SIGTERM)
+elif operation == "bootout" and apple:
+    state["loaded"] = False
+    if alive:
+        os.kill(state["pid"], signal.SIGTERM)
+elif operation == "bootstrap":
+    state["loaded" if target == "/System/Library/LaunchAgents/com.apple.swcd.plist" else "clone"] = True
+elif operation in ("enable", "disable") and apple:
+    state["disabled"] = operation == "disable"
+path.write_text(json.dumps(state))
 """)
     launcher.chmod(0o700)
     wrapper = temporary / "launchctl-wrapper"
@@ -81,23 +96,23 @@ elif operation == "bootout" and state["pid"]:
     def retirement(mode):
         children = []
         def spawn():
-            source = program if mode != "retirement timeout" else program.replace("lambda *_: (time.sleep(0.3), sys.exit(0))", "signal.SIG_IGN")
+            # The timeout process exits only after the first deadline.
+            source = program if mode != "retirement timeout" else program.replace("time.sleep(0.3)", "time.sleep(12)")
             child = subprocess.Popen([sys.executable, "-c", source], stdout=subprocess.PIPE, text=True)
             children.append(child)
             assert child.stdout and child.stdout.readline().strip() == "ready"
             return child
         first = None if mode.startswith("started") else spawn()
         live = [first]
-        servicepath.write_text(json.dumps({"pid": first.pid if first else None}))
-        def launch(arguments, **kwargs):
-            return actual_run([wrapper, *arguments[1:]], **kwargs)
+        servicepath.write_text(json.dumps({"pid": first.pid if first else None, "loaded": True, "clone": False,
+                                           "disabled": False, "fail": mode == "restore failure"}))
         def authenticate(commands):
             if "during authentication" in mode:
                 if first:
                     first.kill()
                     first.wait()
                 live[0] = spawn()
-                servicepath.write_text(json.dumps({"pid": live[0].pid}))
+                servicepath.write_text(json.dumps(dict(json.loads(servicepath.read_text()), pid=live[0].pid)))
             for command in commands:
                 command = list(map(str, command))
                 source = command.index("-c") + 1
@@ -110,15 +125,22 @@ elif operation == "bootout" and state["pid"]:
                 actual_run(command)
         try:
             start = time.monotonic()
-            with patch.object(installer, "run", side_effect=launch), patch.object(installer, "admin", side_effect=authenticate):
-                if mode == "retirement timeout":
+            with patch.object(installer, "admin", side_effect=authenticate):
+                if mode in ("retirement timeout", "restore failure"):
                     try:
                         installer.service("activate", temporary / "clone.plist")
                     except RuntimeError as error:
-                        assert "did not exit" in str(error)
+                        message = str(error)
                     else:
-                        raise AssertionError("stalled service retirement accepted")
-                    assert 9.8 <= time.monotonic() - start < 12
+                        raise AssertionError("failed service replacement accepted")
+                    state = json.loads(servicepath.read_text())
+                    if mode == "retirement timeout":
+                        assert "com.apple.swcd process did not exit" in message, message
+                        assert state["loaded"], "Apple's job was not bootstrapped again after its process exited"
+                        assert 11.8 <= time.monotonic() - start < 15
+                    else:
+                        assert "kickstart failed; restoring com.apple.swcd also failed: bootout failed" in message, message
+                        assert not state["disabled"], "Apple's job stayed disabled after retiring the clone failed"
                 else:
                     installer.service("activate", temporary / "clone.plist")
                     child = live[0]
@@ -129,9 +151,11 @@ elif operation == "bootout" and state["pid"]:
                     child.kill()
                 child.wait()
                 child.stdout.close()
-        print("PASS retiring service exit boundary: " + mode)
+        print("PASS retiring service exit boundary: " + {
+            "retirement timeout": "a missed deadline bootstraps Apple's job again once its process exits",
+            "restore failure": "a failed restore keeps Apple's job enabled and reports both errors"}.get(mode, mode))
 
-    for mode in ("unchanged", "replaced during authentication", "started during authentication", "retirement timeout"):
+    for mode in ("unchanged", "replaced during authentication", "started during authentication", "retirement timeout", "restore failure"):
         retirement(mode)
 
     payload = temporary / "payload"
