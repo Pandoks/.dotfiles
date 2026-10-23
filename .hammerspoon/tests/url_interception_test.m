@@ -163,6 +163,10 @@ int main(int argc, const char **argv) {
     NSError *error;
     URLRouterStatus *status = [[URLRouterStatus alloc] initWithPath:statusPath error:&error];
     require(status != nil, error.localizedDescription);
+    NSString *file = [@(argv[2]) stringByAppendingPathComponent:@"file"];
+    require([NSData.data writeToFile:file atomically:NO], @"regular file fixture");
+    require(![[URLRouterStatus alloc] initWithPath:[file stringByAppendingPathComponent:@"status.json"] error:&error]
+      && [error.localizedDescription hasSuffix:@(strerror(ENOTDIR))], error.localizedDescription);
     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
     NSLock *lock = [NSLock new]; NSMutableArray *events = [NSMutableArray new];
     NSArray *original = @[@{@"host": @"ramp.com"}, @{@"pattern": @"^https?://app%.notion%.com/p/sieve%-data/"},

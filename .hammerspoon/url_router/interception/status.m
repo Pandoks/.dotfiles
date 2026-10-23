@@ -49,10 +49,13 @@ NSData *URLRouterReadStatus(NSString *path, NSError **error) {
     return -1;
   }
   int directory = open(path.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  if (directory < 0) {
+    failure(error, [@"Could not open status directory: " stringByAppendingString:@(strerror(errno))]);
+    return -1;
+  }
   struct stat status;
-  if (directory < 0 || fstat(directory, &status) || !S_ISDIR(status.st_mode)
-      || status.st_uid != getuid() || (status.st_mode & 0077)) {
-    if (directory >= 0) close(directory);
+  if (fstat(directory, &status) || !S_ISDIR(status.st_mode) || status.st_uid != getuid() || (status.st_mode & 0077)) {
+    close(directory);
     failure(error, @"Status directory must be owned by this user with permissions 0700");
     return -1;
   }
