@@ -19,9 +19,33 @@ local function eq(actual, expected, label)
   end
 end
 
+-- hs.timer keeps a callback until its timer is collected: a stopped timer its own callback reaches leaks.
+local function leaked(timers)
+  local count, here = 0, debug.getinfo(1, "S").source
+  for _, t in ipairs(timers) do
+    for i = 1, math.huge do
+      local name, value = debug.getupvalue(t.callback, i)
+      if not name or t.active or debug.getinfo(t.callback, "S").source == here then
+        break
+      end
+      local held = value == t
+      if type(value) == "table" and name ~= "_ENV" then
+        for _, field in pairs(value) do
+          held = held or field == t
+        end
+      end
+      if held then
+        count = count + 1
+        break
+      end
+    end
+  end
+  return count
+end
+
 -- Four Spaces on one display; the Dock lands each batch of swipes and reports once.
 local function harness()
-  local h = { current = 100, steps = 0, inflight = {}, results = {} }
+  local h = { current = 100, steps = 0, inflight = {}, results = {}, timers = {} }
   local spaces = {}
   for i = 1, 4 do
     spaces[i] = { ManagedSpaceID = i * 100, display = "d" }
@@ -60,8 +84,13 @@ local function harness()
         end,
       },
       timer = {
-        doAfter = function()
-          return { stop = function() end }
+        doAfter = function(_, callback)
+          local t = { callback = callback, active = true }
+          function t:stop()
+            self.active = false
+          end
+          h.timers[#h.timers + 1] = t
+          return t
         end,
       },
     },
@@ -131,6 +160,14 @@ test("presses during a jump wait for its swipes to land, then continue from ther
     eq(h.results[2], "superseded")
     eq(h.results[case.second], "ok")
   end
+end)
+
+test("finished and superseded jumps release their timers", function()
+  local h = harness()
+  h:space(2)
+  h:space(4)
+  h:settle()
+  eq(leaked(h.timers), 0)
 end)
 
 test("an unreadable Space layout fails at once instead of waiting for the timeout", function()

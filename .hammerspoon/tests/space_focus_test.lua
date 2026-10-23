@@ -24,6 +24,29 @@ local function test(name, fn)
   passed = passed + 1
   print("PASS " .. name)
 end
+-- hs.timer keeps a callback until its timer is collected: a stopped timer its own callback reaches leaks.
+local function leaked(timers)
+  local count, here = 0, debug.getinfo(1, "S").source
+  for _, t in ipairs(timers) do
+    for i = 1, math.huge do
+      local name, value = debug.getupvalue(t.callback, i)
+      if not name or t.active or debug.getinfo(t.callback, "S").source == here then
+        break
+      end
+      local held = value == t
+      if type(value) == "table" and name ~= "_ENV" then
+        for _, field in pairs(value) do
+          held = held or field == t
+        end
+      end
+      if held then
+        count = count + 1
+        break
+      end
+    end
+  end
+  return count
+end
 local function harness(options)
   local o = options or {}
   local h = {
@@ -1056,6 +1079,15 @@ test("rapid relative shortcuts advance from the pending destination", function()
   eq(h.space, 303)
   eq(h.focused, nil)
   eq(h:countFocus(), 0)
+end)
+test("finished and superseded jobs release their timers", function()
+  local h = harness()
+  h.module.switchSpace(2)
+  h:advance(0.3)
+  h.module.switchSpace(3)
+  h.module.switchSpace(1)
+  h:advance(2)
+  eq(leaked(h.timers), 0)
 end)
 test("invalid request does not leave the controller busy", function()
   local h = harness()
