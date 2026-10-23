@@ -67,7 +67,7 @@ text = replace(text, "NSApplication.shared.", "// NSApplication.shared.", 2)
 text = replace(text, "import AppKit", "import AppKit\n" + mock)
 assert "NSAlert()" not in text and text.count("NSWorkspace.shared") == 1
 
-with tempfile.TemporaryDirectory(prefix="url-router-test.", dir="/var/tmp") as directory:
+with tempfile.TemporaryDirectory(prefix="url-set-default-test.", dir="/var/tmp") as directory:
     directory = Path(directory)
     test = directory / "main.swift"
     test.write_text(text)
