@@ -341,6 +341,7 @@ try:
     if mode == "activate":
         try:
             retire(domain + "/com.apple.swcd")
+            launch("enable", domain + "/" + label)
             launch("bootstrap", domain, sys.argv[5])
             launch("kickstart", domain + "/" + label)
         except BaseException as error:
@@ -403,7 +404,9 @@ def activate(warm):
         if warm:
             service("activate", JOB)
         else:
-            admin([["/bin/launchctl", "disable", f"gui/{os.getuid()}/com.apple.swcd"]])
+            # An interrupted rollback leaves the clone disabled.
+            admin([["/bin/launchctl", "enable", f"gui/{os.getuid()}/" + LABEL],
+                   ["/bin/launchctl", "disable", f"gui/{os.getuid()}/com.apple.swcd"]])
         state["phase"] = "activated" if warm else "awaiting-login"
         write(SUPPORT / "state.json", state)
         if warm:

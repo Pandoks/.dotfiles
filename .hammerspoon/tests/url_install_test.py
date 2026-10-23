@@ -276,17 +276,12 @@ path.write_text(json.dumps(state))
                     service["clone_disabled" if str(command[-1]).endswith(installer.LABEL) else "disabled"] = False
                 elif operation in ("bootout", "bootstrap"):
                     name = "replacement" if str(command[-1]).endswith(installer.LABEL) or str(command[-1]) == str(jobpath) else "original"
+                    if operation == "bootstrap" and service["clone_disabled" if name == "replacement" else "disabled"]:
+                        raise RuntimeError("Bootstrap failed: 5: Input/output error")
                     service[name] = operation == "bootstrap"
                 elif operation == "kickstart" and mode == "admin-failure" and not service.get("failed"):
                     service["failed"] = True
                     raise RuntimeError("administrator operation failed")
-
-        def prompt(commands):
-            # The user cancels the rollback prompt after a protected step fails.
-            if mode == "admin-failure" and service.get("failed") and not service.get("cancelled"):
-                service["cancelled"] = True
-                raise RuntimeError("osascript: User canceled. (-128)")
-            admin(commands)
 
         def transport(arguments, mode=mode, **kwargs):
             arguments = [str(item) for item in arguments]
@@ -311,8 +306,8 @@ path.write_text(json.dumps(state))
                     Path(arguments[2]).write_text(json.dumps(defaults))
                 elif arguments[1] == "--restore":
                     assert json.loads(Path(arguments[2]).read_text()) == defaults
-                    if mode == "restore-failure" and not service.get("failed"):
-                        service["failed"] = True
+                    if mode in ("restore-failure", "admin-failure") and not service.get("refused"):
+                        service["refused"] = True
                         raise RuntimeError("The saved http handler is unavailable")
                     live.update(defaults)
                 elif arguments[1] == "--terminate":
@@ -336,7 +331,7 @@ path.write_text(json.dumps(state))
                     if failure:
                         raise RuntimeError("private ABI check rejected")
                     return "{}"
-                assert service["replacement"]
+                assert service["replacement"], "the replacement swcd is not running"
                 # Like the real probe, acknowledge only the snapshot this test wrote.
                 if arguments[1:] != [str(statusroot / "HammerspoonURLRouter/status.json"), *acknowledged]:
                     raise RuntimeError("Router did not acknowledge the current selector generation within 10 seconds")
@@ -344,7 +339,7 @@ path.write_text(json.dumps(state))
                                    "generation": acknowledged[0], "sha256": acknowledged[1]})
             return actual_run(arguments, **kwargs)
 
-        with patch.multiple(installer, SUPPORT=support, APP=app, JOB=jobpath), patch.object(installer, "environment", return_value={}), patch.object(installer, "run", side_effect=transport), patch.object(installer, "admin", side_effect=prompt), patch.object(installer.subprocess, "run", side_effect=system):
+        with patch.multiple(installer, SUPPORT=support, APP=app, JOB=jobpath), patch.object(installer, "environment", return_value={}), patch.object(installer, "run", side_effect=transport), patch.object(installer, "admin", side_effect=admin), patch.object(installer.subprocess, "run", side_effect=system):
             if mode.startswith("disabled-"):
                 try:
                     installer.stage(payload)
@@ -381,12 +376,19 @@ path.write_text(json.dumps(state))
                             raise AssertionError("failed activation accepted")
                         if mode == "admin-failure":
                             assert service["original"] and not service["disabled"] and not service["replacement"], "failed activation left Apple's swcd retired"
+                            # The rollback stopped at the defaults, leaving the clone disabled; a retry must still load it.
+                            assert installer.saved()["phase"] == "activation-failed" and service["clone_disabled"]
+                            installer.activate(True)
+                            assert installer.saved()["phase"] == "ready" and service["replacement"]
                             installer.uninstall()
                     else:
+                        if mode == "login":
+                            service["clone_disabled"] = True  # Left by an interrupted rollback.
                         installer.activate(not mode.startswith("login"))
                         if mode.startswith("login"):
                             assert installer.saved()["phase"] == "awaiting-login" and live == defaults
-                            service.update(original=False, replacement=True)
+                            # A clean login loads only enabled jobs.
+                            service.update(original=not service["disabled"], replacement=not service["clone_disabled"])
                             with patch.object(installer.sys, "argv", ["install.py", "finish"]):
                                 if mode == "login-default-failure":
                                     try:
@@ -477,7 +479,8 @@ path.write_text(json.dumps(state))
                 assert not any(call[0] == "ADMIN" for call in calls)
         checks = {"stale-ack": "rejects an acknowledgement from another swcd process",
                   "default-failure": "rejects a partial HTTP(S) default change",
-                  "admin-failure": "keeps Apple's swcd running when a protected step fails and the rollback prompt is cancelled",
+                  "admin-failure": "keeps Apple's swcd running when a protected step fails and the rollback stops early, then a retry loads the disabled clone,",
+                  "login": "loads a clone left disabled by an interrupted rollback, preserves readiness ordering,",
                   "login-default-failure": "rejects a partial HTTP(S) default change at login completion",
                   "restore-failure": "preserves readiness ordering, keeps the hook and phase while a failed default restore leaves the helper default,"}
         print("PASS lifecycle " + ("rejects " + mode if mode.startswith("disabled-") else
