@@ -41,7 +41,7 @@ PROTON_PASS_SESSION_DIR=~/grok/config/proton-pass/<account> pass-cli login
 ## Helium
 
 ```sh
-mkdir -m 700 ~/grok/config/helium-grokbot-profile
+mkdir -m 700 ~/grok/config/helium-grokbot
 ~/grok/bin/grok-browser start
 ```
 

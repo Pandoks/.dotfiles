@@ -14,7 +14,7 @@ readonly PORT=9333
 readonly ENDPOINT="http://127.0.0.1:${PORT}"
 readonly MISE_DATA="${MISE_DATA_DIR:-${HOME}/.local/share/mise}"
 readonly NODE_MODULES="${MISE_DATA}/installs/npm-playwright-core/latest/node_modules"
-PROFILE="${HOME}/grok/config/helium-grokbot-profile"
+PROFILE="${HOME}/grok/config/helium-grokbot"
 
 readonly HELPER='
 const { chromium } = require("playwright-core");
