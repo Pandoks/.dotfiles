@@ -46,13 +46,7 @@ int main(int argc, const char **argv) {
       print(@{@"version": @1, @"macOSBuild": URLRouterBuild(), @"applicationIdentifier": target.applicationIdentifier, @"privateABI": @"validated"});
       return 0;
     }
-    if (argc == 2 && !strcmp(argv[1], "--health")) {
-      NSString *message = health(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
-      if (message) return fail(message);
-      print(@{@"version": @1, @"service": @"ready"});
-      return 0;
-    }
-    if (argc != 4) return fail(@"usage: probe --preflight APP_PATH APPLICATION_IDENTIFIER CODE_HASH | --health | STATUS_PATH GENERATION SHA256");
+    if (argc != 4) return fail(@"usage: probe --preflight APP_PATH APPLICATION_IDENTIFIER CODE_HASH | STATUS_PATH GENERATION SHA256");
     NSString *path = @(argv[1]), *generation = @(argv[2]), *hash = @(argv[3]);
     int directory = open(path.stringByDeletingLastPathComponent.fileSystemRepresentation, O_EVTONLY | O_CLOEXEC | O_NOFOLLOW);
     if (directory < 0) return fail(@"Could not watch the router status directory");

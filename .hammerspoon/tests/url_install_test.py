@@ -170,12 +170,13 @@ elif operation == "bootout" and state["pid"]:
     platform = platform[:start] + '  return @"25G84";' + platform[end:]
     changed = temporary / "platform-newbuild.m"
     changed.write_text(platform)
-    probe = temporary / "probe-newbuild"
+    newbuild = temporary / "probe-newbuild"
     subprocess.run(["clang", "-O2", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-I", str(root / "url_router/interception"),
         str(root / "url_router/interception/probe.m"), str(changed), str(root / "url_router/interception/status.m"),
-        "-framework", "Foundation", "-framework", "Security", "-lbsm", "-o", str(probe)], check=True)
-    result = subprocess.run([str(probe), "--health"], text=True, capture_output=True, check=False)
-    assert result.returncode == 1 and "validated only" in result.stderr
+        "-framework", "Foundation", "-framework", "Security", "-lbsm", "-o", str(newbuild)], check=True)
+    result = subprocess.run([str(newbuild)], text=True, capture_output=True, check=False)
+    assert result.returncode == 1 and "validated only" in result.stderr, result
+    print("PASS probe rejects an untested macOS build before reading any arguments")
 
     # Skip the build check and the live swcd query to reach the acknowledgement wait on any Mac.
     waiting = (root / "url_router/interception/probe.m").read_text()
@@ -184,7 +185,7 @@ elif operation == "bootout" and state["pid"]:
         waiting = waiting.replace(live, skipped)
     (temporary / "probe-wait.m").write_text(waiting)
     probe = temporary / "probe-wait"
-    subprocess.run(["clang", "-O2", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-I", str(root / "url_router/interception"),
+    subprocess.run(["clang", "-O2", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-I", str(root / "url_router/interception"),
         str(temporary / "probe-wait.m"), str(root / "url_router/interception/platform.m"), str(root / "url_router/interception/status.m"),
         "-framework", "Foundation", "-framework", "Security", "-lbsm", "-o", str(probe)], check=True)
     status = temporary / "probe-status"
@@ -307,11 +308,6 @@ elif operation == "bootout" and state["pid"]:
                     if failure:
                         raise RuntimeError("private ABI check rejected")
                     return "{}"
-                if arguments[1] == "--health":
-                    if mode == "unsupported-build":
-                        return actual_run([probe, "--health"])
-                    assert service["original"] and not service["replacement"]
-                    return '{"version":1,"service":"ready"}'
                 assert service["replacement"]
                 return json.dumps({"version": 1, "kind": "ready", "pid": 777 if mode == "stale-ack" else 2147483647,
                                    "generation": arguments[2], "sha256": arguments[3]})
@@ -422,7 +418,12 @@ elif operation == "bootout" and state["pid"]:
                                 else:
                                     assert service["clone_disabled"], "remaining clone can reload after interrupted cleanup"
                             if mode == "unsupported-build":
-                                with patch.object(installer, "environment", side_effect=RuntimeError("Unsupported macOS after update")):
+                                # After the update, every probe mode fails the build check.
+                                def updated(arguments, **keywords):
+                                    if str(arguments[0]).endswith("hook.dylib.probe"):
+                                        return actual_run([newbuild, *arguments[1:]], **keywords)
+                                    return transport(arguments, **keywords)
+                                with patch.object(installer, "environment", side_effect=RuntimeError("Unsupported macOS after update")), patch.object(installer, "run", side_effect=updated):
                                     try:
                                         installer.validate(installer.saved())
                                     except RuntimeError as error:
