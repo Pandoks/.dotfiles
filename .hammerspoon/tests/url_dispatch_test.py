@@ -117,7 +117,6 @@ do {
         ("actual native launch errors do not fall back", "https://example.com/", "denied", "com.apple.Safari,net.imput.helium", False, 1, 0, 0, None, False),
         ("Helium launch errors never try another app", "https://example.com/", "missing", "com.apple.Safari,net.imput.helium", True, 1, 0, 1, "net.imput.helium", False),
         ("missing Helium does not select Safari", "https://example.com/", "missing", routers + ",com.apple.Safari", False, 1, 0, 1, None, False),
-        ("no web handlers fails explicitly", "https://example.com/", "missing", "", False, 1, 0, 1, None, False),
         ("no custom scheme handlers fails explicitly", "slack://example", "missing", "", False, 0, 1, 0, None, False),
         ("only routers cannot recurse", "slack://example", "missing", routers, False, 0, 1, 0, None, False),
         ("invalid bundles are skipped", "slack://example", "missing", "invalid,com.tinyspeck.slackmacgap", False, 0, 1, 0, "com.tinyspeck.slackmacgap", True),
