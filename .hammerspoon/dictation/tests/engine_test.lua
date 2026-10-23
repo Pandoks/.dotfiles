@@ -9,49 +9,49 @@ local function test(name, callback)
   print("PASS " .. name)
 end
 
-local engine = assert(loadfile(
-  root .. "/engine.lua",
-  "t",
-  setmetatable({
-    require = function(name)
-      return name == "dictation.recorder" and { ffmpeg = "/usr/bin/ffmpeg" } or require(name)
-    end,
-    print = function(text)
-      printed[#printed + 1] = text
-      assert(not dead, "ipc port is no longer valid") -- hs.ipc's, with a dead `hs` CLI registered
-    end,
-    hs = {
-      fs = {
-        attributes = function()
-          return { mode = "file" }
-        end,
-      },
-      json = json,
-      alert = {
-        show = function(text)
-          alerts[#alerts + 1] = text
-        end,
-      },
-      task = {
-        new = function(_, onExit, stream)
-          output, exit = stream, onExit
-          return {
-            start = function(self)
-              return self
-            end,
-            isRunning = function()
-              return true
-            end,
-            setInput = function(_, data)
-              inputs[#inputs + 1] = json.decode(data)
-            end,
-            terminate = function() end,
-          }
-        end,
-      },
+local environment = setmetatable({
+  print = function(text)
+    printed[#printed + 1] = text
+    assert(not dead, "ipc port is no longer valid") -- hs.ipc's, with a dead `hs` CLI registered
+  end,
+  hs = {
+    fs = {
+      attributes = function()
+        return { mode = "file" }
+      end,
     },
-  }, { __index = _G })
-))()
+    json = json,
+    alert = {
+      show = function(text)
+        alerts[#alerts + 1] = text
+      end,
+    },
+    task = {
+      new = function(_, onExit, stream)
+        output, exit = stream, onExit
+        return {
+          start = function(self)
+            return self
+          end,
+          isRunning = function()
+            return true
+          end,
+          setInput = function(_, data)
+            inputs[#inputs + 1] = json.decode(data)
+          end,
+          terminate = function() end,
+        }
+      end,
+    },
+  },
+}, { __index = _G })
+function environment.require(name)
+  if name == "lib.logger" then
+    return assert(loadfile(root .. "/../lib/logger.lua", "t", environment))()
+  end
+  return name == "dictation.recorder" and { ffmpeg = "/usr/bin/ffmpeg" } or require(name)
+end
+local engine = assert(loadfile(root .. "/engine.lua", "t", environment))()
 
 test("a handler's error is reported and later results are still read", function()
   local finals, failed = {}, {}

@@ -1,3 +1,4 @@
+local logger = require("lib.logger")
 local recorder = require("dictation.recorder")
 
 local engine = {}
@@ -32,12 +33,11 @@ function engine.new(config, handlers)
     self:stop()
     handlers.onError(message)
   end
-  -- A raise here stops hs.task's later replies; so does hs.ipc's print with a dead `hs` CLI.
+  -- A raise here stops hs.task's later replies.
   local function call(handler, ...)
     local ok, problem = pcall(handler, ...)
     if not ok then
-      hs.alert.show("Dictation: " .. tostring(problem):match("^[^\n]*"), 5)
-      pcall(print, "Dictation: " .. tostring(problem))
+      logger.error("Dictation: " .. tostring(problem))
     end
   end
   -- One request at a time: a second setInput drops what the full pipe has not taken yet.

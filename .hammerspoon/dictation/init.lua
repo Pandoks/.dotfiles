@@ -1,14 +1,13 @@
 local Engine = require("dictation.engine")
 local Overlay = require("dictation.overlay")
 local history = require("dictation.history")
+local logger = require("lib.logger")
 local recorder = require("dictation.recorder")
 local spaced = require("dictation.spacing")
 
--- Alert, then log: hs.ipc's print raises while a dead `hs` CLI is registered.
 ---@param message string
 local function fail(message)
-  hs.alert.show("Dictation: " .. message:match("^[^\n]+"), 5)
-  pcall(print, "Dictation: " .. message)
+  logger.error("Dictation: " .. message)
 end
 
 local config = require("dictation.defaults")
