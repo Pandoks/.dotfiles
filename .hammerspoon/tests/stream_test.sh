@@ -5,7 +5,7 @@ test_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 test_build=$(mktemp -d "${TMPDIR:-/var/tmp}/stream-tests.XXXXXX")
 trap 'rm -rf "$test_build"' EXIT HUP INT TERM
 frameworks="${HAMMERSPOON_APP:-/Applications/Hammerspoon.app}/Contents/Frameworks"
-ffmpeg=$(cd / && mise which ffmpeg)
+ffmpeg=$(command -v ffmpeg) || { echo "stream tests need ffmpeg on PATH" >&2; exit 1; }
 
 clang -O2 -Wall -Wextra -Wshadow -Wconversion -Wpedantic -Werror \
   -fobjc-arc -fmodules -bundle -undefined dynamic_lookup \
