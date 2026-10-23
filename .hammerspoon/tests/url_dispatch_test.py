@@ -12,6 +12,13 @@ root = Path(__file__).resolve().parent.parent
 main = (root / "url_router/main.swift").read_text()
 native = (root / "url_router/native.swift").read_text()
 compiler = ["swiftc", "-swift-version", "6", "-warnings-as-errors"]
+
+
+def replace(text, old, new, count=1):
+    assert text.count(old) == count, (old, text.count(old))
+    return text.replace(old, new)
+
+
 subprocess.run(compiler + ["-typecheck", str(root / "url_router/main.swift"), str(root / "url_router/native.swift")], check=True)
 
 mock = r'''
@@ -76,7 +83,10 @@ with tempfile.TemporaryDirectory(prefix="url-dispatch-test.", dir="/var/tmp") as
     acknowledgement.write_text(json.dumps(ready))
     path = directory / "main.swift"
     binary = directory / "native"
-    path.write_text(native.replace("NSWorkspace.shared", "MockWorkspace.shared").replace("Bundle.", "MockBundle.").replace("Bundle(url:", "MockBundle(url:") + mock + r'''
+    mocked = replace(native, "NSWorkspace.shared", "MockWorkspace.shared", 2)
+    mocked = replace(replace(mocked, "Bundle.", "MockBundle."), "Bundle(url:", "MockBundle(url:")
+    assert "NSWorkspace.shared" not in mocked
+    path.write_text(mocked + mock + r'''
 do {
     if ProcessInfo.processInfo.environment["URL_TEST_WARM"] == "1" {
         try await warmNativeLinks()
@@ -125,22 +135,22 @@ do {
             assert "URL " + url in lines, (name, lines)
         print("PASS native " + name)
 
-    bridge = main.replace('"local.pandoks.HammerspoonURLRouter.route" as CFString', 'ProcessInfo.processInfo.environment["URL_TEST_PORT"]! as CFString')
-    bridge = bridge.replace("FileManager.default.homeDirectoryForCurrentUser", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
-    bridge = bridge.replace("FileManager.default.temporaryDirectory", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
-    bridge = bridge.replace('NSRunningApplication.runningApplications(withBundleIdentifier: "org.hammerspoon.Hammerspoon")', "mockRunningApplications()")
-    bridge = bridge.replace("private func route", "func route")
+    bridge = replace(main, '"local.pandoks.HammerspoonURLRouter.route" as CFString', 'ProcessInfo.processInfo.environment["URL_TEST_PORT"]! as CFString')
+    bridge = replace(bridge, "FileManager.default.homeDirectoryForCurrentUser", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
+    bridge = replace(bridge, "FileManager.default.temporaryDirectory", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
+    bridge = replace(bridge, 'NSRunningApplication.runningApplications(withBundleIdentifier: "org.hammerspoon.Hammerspoon")', "mockRunningApplications()")
+    bridge = replace(bridge, "private func route", "func route")
     bridge = bridge[:bridge.index("let application = NSApplication.shared")]
-    bridge = bridge.replace("let alert = NSAlert()", "let alert = MockAlert()")
-    bridge = bridge.replace("NSApplication.shared.setActivationPolicy(.accessory)", "")
-    bridge = bridge.replace("NSApplication.shared.setActivationPolicy(.prohibited)", "")
-    bridge = bridge.replace("NSApplication.shared.activate(ignoringOtherApps: true)", "")
-    bridge = bridge.replace('NSLog("%@", message)', 'print("LOG " + message)')
-    bridge = bridge.replace('case .success("true"):\n                    return',
+    bridge = replace(bridge, "let alert = NSAlert()", "let alert = MockAlert()")
+    bridge = replace(bridge, "NSApplication.shared.setActivationPolicy(.accessory)", "")
+    bridge = replace(bridge, "NSApplication.shared.setActivationPolicy(.prohibited)", "")
+    bridge = replace(bridge, "NSApplication.shared.activate(ignoringOtherApps: true)", "")
+    bridge = replace(bridge, 'NSLog("%@", message)', 'print("LOG " + message)')
+    bridge = replace(bridge, 'case .success("true"):\n                    return',
         'case .success("true"):\n                    print("ACCEPTED"); if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }')
-    bridge = bridge.replace('NSLog("URL routing failed for %@", url.host ?? "unknown host")',
+    bridge = replace(bridge, 'NSLog("URL routing failed for %@", url.host ?? "unknown host")',
         'print("REJECTED"); if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }')
-    assert bridge.count("URL_TEST_PORT") == 1 and bridge.count("ACCEPTED") == 1 and bridge.count("REJECTED") == 1
+    assert not any(name in bridge for name in ("NSAlert()", "NSWorkspace.shared", "NSRunningApplication", "FileManager.default", "NSApplication.shared"))
     bridge += r"""
 @MainActor final class MockAlert {
     static var blocked = false

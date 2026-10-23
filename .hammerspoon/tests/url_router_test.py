@@ -51,12 +51,21 @@ final class MockAlert {
     func runModal() { print("POPUP " + informativeText) }
 }
 '''
-text = source.read_text().replace("NSWorkspace.shared", "MockWorkspace.shared")
-text = text.replace("MockWorkspace.shared.openApplication", "NSWorkspace.shared.openApplication")
-text = text.replace("Bundle(url:", "MockBundle(url:").replace("let alert = NSAlert()", "let alert = MockAlert()")
-text = text.replace('NSLog("%@", message)', 'print("LOG " + message)')
-text = "\n".join(line for line in text.splitlines() if "NSApplication.shared" not in line)
-text = text.replace("import AppKit", "import AppKit\n" + mock)
+
+
+def replace(text, old, new, count=1):
+    assert text.count(old) == count, (old, text.count(old))
+    return text.replace(old, new)
+
+
+# Only the untested --launch path keeps the real workspace.
+text = replace(source.read_text(), "NSWorkspace.shared", "MockWorkspace.shared", 5)
+text = replace(text, "MockWorkspace.shared.openApplication", "NSWorkspace.shared.openApplication")
+text = replace(replace(text, "Bundle(url:", "MockBundle(url:"), "let alert = NSAlert()", "let alert = MockAlert()")
+text = replace(text, 'NSLog("%@", message)', 'print("LOG " + message)')
+text = replace(text, "NSApplication.shared.", "// NSApplication.shared.", 2)
+text = replace(text, "import AppKit", "import AppKit\n" + mock)
+assert "NSAlert()" not in text and text.count("NSWorkspace.shared") == 1
 
 with tempfile.TemporaryDirectory(prefix="url-router-test.", dir="/var/tmp") as directory:
     directory = Path(directory)
