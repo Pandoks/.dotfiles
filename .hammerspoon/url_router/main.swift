@@ -117,7 +117,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     NSLocalizedDescriptionKey: "URL selectors are invalid; reload Hammerspoon",
                 ])
             }
-            let statusPath = FileManager.default.temporaryDirectory
+            // dirhelper never prunes the Darwin cache directory, unlike its temporary directory.
+            var cache = [CChar](repeating: 0, count: Int(PATH_MAX))
+            guard confstr(_CS_DARWIN_USER_CACHE_DIR, &cache, cache.count) > 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            let statusPath = URL(fileURLWithFileSystemRepresentation: cache, isDirectory: true, relativeTo: nil)
                 .appendingPathComponent("HammerspoonURLRouter/status.json")
             let statusData = try readSnapshot(statusPath)
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

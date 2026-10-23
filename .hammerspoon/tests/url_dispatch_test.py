@@ -136,7 +136,7 @@ do {
 
     bridge = replace(main, '"local.pandoks.HammerspoonURLRouter.route" as CFString', 'ProcessInfo.processInfo.environment["URL_TEST_PORT"]! as CFString')
     bridge = replace(bridge, "FileManager.default.homeDirectoryForCurrentUser", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
-    bridge = replace(bridge, "FileManager.default.temporaryDirectory", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
+    bridge = replace(bridge, "URL(fileURLWithFileSystemRepresentation: cache, isDirectory: true, relativeTo: nil)", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
     bridge = replace(bridge, 'NSRunningApplication.runningApplications(withBundleIdentifier: "org.hammerspoon.Hammerspoon")', "mockRunningApplications()")
     bridge = replace(bridge, "private func route", "func route")
     bridge = bridge[:bridge.index("let application = NSApplication.shared")]
