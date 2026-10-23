@@ -2,17 +2,20 @@
 
 A free, fully local Raycast-style dictation pill. Press Option+Space to record, again to stop
 (Escape cancels): a local speech model transcribes, a local LLM cleans up fillers and
-self-corrections, your vocabulary fixes names, and the text goes into the focused field.
+self-corrections, your word list fixes names, and the text goes into the focused field.
 `~/.hammerspoon/init.lua` loads it only on Apple Silicon with macOS 14+ (MLX).
 
 ## Setup
 
 1. `~/.hammerspoon/dictation/setup.sh` (needs `uv` and `ffmpeg` from `mise install`).
 2. Grant **Hammerspoon** Microphone and Accessibility in **System Settings > Privacy & Security**.
-3. Reload Hammerspoon. The first start downloads the models pinned in `config.lua` into
+3. Reload Hammerspoon. The first start downloads the models pinned in `defaults.lua` into
    `~/.cache/huggingface`; later starts load them offline.
 
-Every setting lives in `config.lua`, typed, with hover docs from lua-language-server.
+Your settings are in `config.lua`: the hotkey and `words`, each name as it should be written,
+alone (`"Slack"`) or with what the speech model hears instead (`Raycast = { "ray cast" }`).
+`defaults.lua` has every other setting, typed, with hover docs from lua-language-server; a key
+set in `config.lua` replaces its default whole, and an unknown one alerts.
 If Raycast also uses Option+Space, Hammerspoon wins; rebind one. The macOS dictation (mic)
 key cannot be used: macOS 26 always handles it itself.
 
@@ -30,7 +33,7 @@ saves the text and `init.lua` types it into the focused field, spaced by `spacin
 
 Set `speech.backend`, `speech.model`, and `speech.revision`
 (`.venv/bin/hf models info <repo> --expand sha`). WER is the Open ASR Leaderboard English average
-of the upstream model. Only `parakeet-mlx` takes `speech.boost`; `mlx-whisper` gets the vocabulary
+of the upstream model. Only `parakeet-mlx` takes `speech.boost`; `mlx-whisper` gets `words`
 as a prompt; `mlx-audio` ignores it.
 
 | Model | Backend | Download | License | WER | Notes |
@@ -46,8 +49,8 @@ as a prompt; `mlx-audio` ignores it.
 
 The default cleanup model is the simplewords v3 LoRA on Qwen3.5-2B (1.7 GB + 67 MB). It ships
 its own prompt, so `style` and per-app `style` apply only to a plain instruct model
-(`cleanup.adapter = nil`). Pin only repos you trust: mlx-lm runs Python a model repo names in
-its config.
+(`cleanup.adapter = nil`); with an adapter they fail the load. Pin only repos you trust: mlx-lm
+runs Python a model repo names in its config.
 
 ## Limitations
 
@@ -61,8 +64,8 @@ its config.
 
 In `models.py`, subclass `Speech` (`load`, `transcribe(wav, hint)`) and register it in `SPEECH`,
 or subclass `Cleaner` (`load`, `complete(messages, raw)`) and register it in `CLEANERS`, under
-the name `speech.backend` or `cleanup.backend` (default `mlx-lm`) selects. Then add that name in
-`config.lua`: to the `DictationBackend` alias, or to `cleanup.backend`'s type (`"mlx-lm"`).
+the name `speech.backend` or `cleanup.backend` (default `mlx-lm`) selects. Then add that name to
+the field's type in `defaults.lua`.
 
 ## Tests
 

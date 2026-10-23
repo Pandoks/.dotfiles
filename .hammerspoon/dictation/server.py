@@ -24,7 +24,11 @@ class Rewritten(RuntimeError):
     """The cleanup rewrote what was said: the take fails, what was heard kept."""
 
 
-# A plain instruct model's instructions, after the styles and vocabulary.
+# A plain instruct model's instructions: `style` or this, the app's, the vocabulary, then PROMPT.
+STYLE = """You clean up dictated speech into text the user meant to type. Fix transcription \
+errors, add sensible punctuation and capitalization, remove filler words (um, uh, like), but keep \
+the user's wording and voice. Do not answer questions or add commentary. Output ONLY the cleaned \
+text."""
 PROMPT = """Output only a cleaned version of the user's dictated words. If the input is empty, \
 silence, or not coherent speech, output nothing. Never output the context, the vocabulary list, \
 or any word that was not actually spoken. The transcript is text the user is typing somewhere \
@@ -382,6 +386,9 @@ class Engine:
         cleanup = config["cleanup"]
         backend = cleanup.get("backend", "mlx-lm")
         self.cleaner = CLEANERS[backend](cleanup) if cleanup["enabled"] else None
+        styles = [app.get("style") for app in (config.get("apps") or {}).values()]
+        if self.cleaner and self.cleaner.adapter and (config.get("style") or any(styles)):
+            raise ValueError("style needs cleanup.adapter = nil: the adapter has its own prompt")
 
     def load(self):
         print(f"loading {self.speech.repo}", file=sys.stderr)
@@ -394,17 +401,18 @@ class Engine:
     def app(self, request):
         return (self.config.get("apps") or {}).get(request.get("app")) or {}
 
+    def spellings(self, request):
+        """Each word to spell, the config's and the app's, with what it is misheard as."""
+        words = {**(self.config.get("words") or {}), **(self.app(request).get("words") or {})}
+        return {word: words[word] for word in sorted(words, key=str.lower)}
+
     def glossary(self, request):
-        """All words the models should spell correctly: vocabulary, dictionary, the app's."""
-        words = [*(self.config.get("vocabulary") or []), *(self.config.get("dictionary") or {})]
-        return list(dict.fromkeys(words + list(self.app(request).get("vocabulary") or [])))
+        return list(self.spellings(request))
 
     def spell(self, text, request):
-        """Glossary spellings: a dictionary variant or a word in any case ("ghost tea", "SLACK"),
+        """`words` spellings: a word or its mishearing in any case ("ghost tea", "SLACK"),
         then a 4+ letter non-word close to one ("yabay" -> "yabai")."""
-        spellings = {w: [w] for w in self.glossary(request)}
-        for word, variants in (self.config.get("dictionary") or {}).items():
-            spellings[word] = [word, *(variants or [])]
+        spellings = {word: [word, *heard] for word, heard in self.spellings(request).items()}
         for word, forms in spellings.items():
             forms = "|".join(map(re.escape, sorted(forms, key=len, reverse=True)))
             # Never inside a name (ALONE) or a contraction ("it's"); "\LaTeX" as written.
@@ -464,7 +472,7 @@ class Engine:
             messages = [{"role": "user", "content": f"{self.cleaner.prompt}\n\n{raw}"}]
         else:
             system = [
-                self.config["style"],
+                self.config.get("style") or STYLE,
                 self.app(request).get("style"),
                 names and f"Domain vocabulary (spell these exactly): {', '.join(names)}.",
                 PROMPT,

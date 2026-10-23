@@ -28,14 +28,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import models  # pyright: ignore[reportMissingImports]
 import server  # pyright: ignore[reportMissingImports]
 
-# A vocabulary and dictionary like config.lua's defaults.
+# Words like config.lua's.
 engine = server.Engine(
     {
         "speech": {"backend": "parakeet-mlx", "model": "stub", "revision": "0" * 40},
         "cleanup": {"enabled": False},
-        "vocabulary": ["yabai", "Raycast", "Hammerspoon", "Ghostty", "mise", "Neovim", "rtorrent"]
-        + ["macOS", "GitHub", "Slack", "Oki", "Uniqlo"],
-        "dictionary": {
+        "words": {
             "Raycast": ["ray cast", "re cast", "ray cost"],
             "yabai": ["yabe", "ya bye", "yah bye"],
             "Hammerspoon": ["hammer spoon", "hammers spoon"],
@@ -45,6 +43,8 @@ engine = server.Engine(
             "rtorrent": ["r torrent"],
             "macOS": ["mac os", "mac o s"],
             "GitHub": ["git hub"],
+            "Slack": [],
+            "Oki": [],
             "Uniqlo": ["unicolo", "uni clo", "uni klo", "uni clow", "une clo", "une klo"],
         },
     }
@@ -164,8 +164,11 @@ check(
 symbols = server.Engine(
     dict(
         engine.config,
-        vocabulary=["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve", "Node.js", "O'Reilly"]
-        + ["Shell", "Visual Studio Code", "Москва", "Київ"],
+        words={
+            word: []
+            for word in ["C++", "C#", ".NET", "A/B", "yt-dlp", "José", "naïve", "Node.js"]
+            + ["O'Reilly", "Shell", "Visual Studio Code", "Москва", "Київ"]
+        },
     )
 )
 check(
@@ -186,15 +189,15 @@ check(
     ],
     lambda text: symbols.spell(text, {}),
 )
-apps = server.Engine(dict(engine.config, apps={"com.x": {"vocabulary": ["Zed"]}}))
+apps = server.Engine(dict(engine.config, apps={"com.x": {"words": {"Zed": []}}}))
 check(
-    "an app's vocabulary applies only while it is in front",
+    "an app's words apply only while it is in front",
     [({"app": "com.x"}, "Use Zed."), ({}, "Use zed.")],
     lambda request: apps.spell("Use zed.", request),
 )
-latex = server.Engine(dict(engine.config, dictionary={"\\LaTeX": ["latex"], "\\frac": ["frac"]}))
+latex = server.Engine(dict(engine.config, words={"\\LaTeX": ["latex"], "\\frac": ["frac"]}))
 check(
-    "dictionary inserts its spelling as written",
+    "a word goes in as written",
     [("Write it in latex with frac.", "Write it in \\LaTeX with \\frac.")],
     lambda text: latex.spell(text, {}),
 )
@@ -657,6 +660,28 @@ check(
         ({"system_v2.txt": " \n"}, "ValueError"),
     ],
     load_adapter,
+)
+
+
+def styled(config):
+    """An Engine for `config` with config.lua's adapter: its load failure, or "ok"."""
+    adapter = {"adapter": "stub/adapter", "adapterRevision": "0" * 40}
+    try:
+        server.Engine(dict(engine.config, cleanup=dict(stub, enabled=True, **adapter), **config))
+    except ValueError:
+        return "ValueError"
+    return "ok"
+
+
+check(
+    "a style with an adapter, which has its own prompt, fails the load",
+    [
+        ({}, "ok"),
+        ({"style": "Be terse."}, "ValueError"),
+        ({"apps": {"com.x": {"style": "Be terse."}}}, "ValueError"),
+        ({"apps": {"com.x": {"words": {"Zed": []}}}}, "ok"),
+    ],
+    styled,
 )
 parakeet = models.Parakeet({"model": "stub", "revision": "0" * 40})
 parakeet.model = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]

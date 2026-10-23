@@ -1,6 +1,5 @@
 local Engine = require("dictation.engine")
 local Overlay = require("dictation.overlay")
-local config = require("dictation.config")
 local history = require("dictation.history")
 local recorder = require("dictation.recorder")
 local spaced = require("dictation.spacing")
@@ -9,6 +8,31 @@ local spaced = require("dictation.spacing")
 local function fail(message)
   print("Dictation: " .. message)
   hs.alert.show("Dictation: " .. message:match("^[^\n]+"), 5)
+end
+
+-- config.lua's settings over the defaults, each replacing its default whole.
+local config = require("dictation.defaults")
+for key, value in pairs(require("dictation.config")) do
+  if config[key] == nil then
+    fail("config.lua: unknown setting " .. tostring(key))
+  end
+  config[key] = value
+end
+-- "Slack" becomes Slack = {}: JSON has no table that is a list and a map at once.
+local function spelled(words)
+  local out = {}
+  for key, value in pairs(words or {}) do
+    if type(key) == "number" then
+      out[value] = {}
+    else
+      out[key] = value
+    end
+  end
+  return out
+end
+config.words = spelled(config.words)
+for _, app in pairs(config.apps) do
+  app.words = spelled(app.words)
 end
 
 local dictation = {}

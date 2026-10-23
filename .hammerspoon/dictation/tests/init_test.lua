@@ -1,7 +1,7 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 local passed, alerts, strokes, timers, changes, takes, serial = 0, {}, {}, {}, 0, 0, 0
-local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead
+local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead, settings
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
 local directory = scratch .. "/init-history"
@@ -28,7 +28,7 @@ local function load(name, env)
   return assert(loadfile(root .. "/" .. name .. ".lua", "t", setmetatable(env, { __index = _G })))()
 end
 
-local config = load("config", {})
+local config = load("defaults", {})
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
 local hs = {
   alert = {
@@ -112,7 +112,8 @@ local hs = {
 
 -- init.lua with the real spacing and history; the hotkey, recorder, and backend are stubs to drive.
 local modules = {
-  ["dictation.config"] = config,
+  ["dictation.defaults"] = config,
+  ["dictation.config"] = load("config", {}),
   ["dictation.spacing"] = load("spacing", {}),
   ["dictation.history"] = load("history", { hs = { fs = fs } }),
   ["dictation.overlay"] = {
@@ -145,8 +146,8 @@ local modules = {
     poll = function() end,
   },
   ["dictation.engine"] = {
-    new = function(_, callbacks)
-      handlers = callbacks
+    new = function(config, callbacks)
+      handlers, settings = callbacks, config
       return {
         ready = true,
         stop = function() end,
@@ -352,6 +353,13 @@ test("a take recording when the backend dies goes on, and is kept", function()
   done()
   refused = nil
   assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
+end)
+
+test("config.lua's settings replace the defaults, its words sent as one map", function()
+  local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
+  local sent = json.decode(assert(json.encode(settings)))
+  assert(sent.speech.model and next(sent.words.Slack) == nil, json.encode(sent.words))
+  assert(sent.words.Raycast[1] == "ray cast", json.encode(sent.words))
 end)
 
 test("a take too short or too quiet is never sent, and is deleted", function()
