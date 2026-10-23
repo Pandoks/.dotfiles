@@ -45,6 +45,9 @@ static int permissions(lua_State *state) {
   return 0;
 }
 
+static int passed;
+static void output(const char *line) { passed += !strncmp(line, "PASS ", 5); puts(line); }
+static int print(lua_State *state) { output(luaL_tolstring(state, 1, NULL)); return 0; }
 static int finish(lua_State *state) { (void)state; CFRunLoopStop(CFRunLoopGetMain()); return 0; }
 static void awaitEvents(void) {
   __block BOOL completed = NO;
@@ -96,7 +99,7 @@ int main(int argc, char **argv) {
     assert([[NSData dataWithContentsOfFile:path] isEqualToData:one]);
     awaitEvents();
     assert(number(state, "events") > 0);
-    puts("PASS atomic replacement never exposes partial selectors and delivers vnode events");
+    output("PASS atomic replacement never exposes partial selectors and delivers vnode events");
 
     execute(state, "local ok,error=native.publish(path,string.rep('X',1024*1024+1)); assert(not ok and type(error)=='string'); ok,error=native.publish(path..'/missing','bad'); assert(not ok and type(error)=='string'); cancel(); cancel()");
     assert([[NSData dataWithContentsOfFile:path] isEqualToData:one]);
@@ -107,7 +110,7 @@ int main(int argc, char **argv) {
     dispatch_async(dispatch_get_main_queue(), ^{ CFRunLoopStop(CFRunLoopGetMain()); });
     awaitEvents();
     assert(number(state, "events") == previous);
-    puts("PASS publication failures preserve prior contents and cancellation stops callbacks");
+    output("PASS publication failures preserve prior contents and cancellation stops callbacks");
 
     execute(state, "assert(native.read(path)=='after cancellation'); local contents,error,code=native.read(path..'.missing'); assert(contents==nil and type(error)=='string' and code==2)");
     NSString *fifo = [directory stringByAppendingPathComponent:@"fifo.json"];
@@ -120,7 +123,7 @@ int main(int argc, char **argv) {
     assert(symlink(path.fileSystemRepresentation, fifo.fileSystemRepresentation) == 0);
     execute(state, "local contents,error,code=native.read(fifo); assert(contents==nil and type(error)=='string' and code~=2); assert(native.read(path)=='after cancellation')");
     assert(unlink(fifo.fileSystemRepresentation) == 0);
-    puts("PASS metadata reads reject FIFOs and symlinks promptly while preserving ENOENT and regular contents");
+    output("PASS metadata reads reject FIFOs and symlinks promptly while preserving ENOENT and regular contents");
 
     execute(state, "invalidated=false; cancel=assert(native.watch(path,function(error) assert(type(error)=='string'); invalidated=true; finish() end))");
     NSString *moved = [directory stringByAppendingString:@".moved"];
@@ -129,7 +132,7 @@ int main(int argc, char **argv) {
     lua_getglobal(state, "invalidated"); assert(lua_toboolean(state, -1)); lua_pop(state, 1);
     execute(state, "cancel(); cancel=nil; collectgarbage('collect')");
     assert([[NSFileManager defaultManager] moveItemAtPath:moved toPath:directory error:nil]);
-    puts("PASS removed or renamed status directories fail explicitly");
+    output("PASS removed or renamed status directories fail explicitly");
 
     NSString *cold = [directory stringByAppendingPathComponent:@"cold-session"];
     NSString *coldPath = [cold stringByAppendingPathComponent:@"status.json"];
@@ -139,7 +142,7 @@ int main(int argc, char **argv) {
     lua_getglobal(state, "coldReady"); assert(lua_toboolean(state, -1)); lua_pop(state, 1);
     assert(stat(cold.fileSystemRepresentation, &info) == 0 && (info.st_mode & 0777) == 0700);
     execute(state, "cancel(); cancel=nil; collectgarbage('collect')");
-    puts("PASS cold status watcher creates a private temporary directory before acknowledgement");
+    output("PASS cold status watcher creates a private temporary directory before acknowledgement");
 
     NSTask *task = [NSTask new];
     task.executableURL = [NSURL fileURLWithPath:@"/bin/sleep"];
@@ -152,7 +155,7 @@ int main(int argc, char **argv) {
     lua_getglobal(state, "exited"); assert(lua_toboolean(state, -1)); lua_pop(state, 1);
     [task waitUntilExit];
     execute(state, "cancel(); assert(native.process(pid,'/bin/sleep',function() error('dead process callback') end)==false)");
-    puts("PASS executable validation and process exit invalidate readiness without polling");
+    output("PASS executable validation and process exit invalidate readiness without polling");
 
     execute(state, "cancel=assert(native.watch(path,function() error('old Lua callback') end)); assert(native.publish(path,'reload pending')); native=nil");
     [skin resetLuaState];
@@ -162,11 +165,12 @@ int main(int argc, char **argv) {
     lua_pushstring(state, argv[1]); lua_setglobal(state, "binary");
     lua_pushstring(state, path.fileSystemRepresentation); lua_setglobal(state, "path");
     lua_pushcfunction(state, finish); lua_setglobal(state, "finish");
+    lua_pushcfunction(state, print); lua_setglobal(state, "print");
     execute(state, "native=assert(package.loadlib(binary,'luaopen_url_router'))(); fresh=false; cancel=assert(native.watch(path,function(error) assert(error==nil); fresh=true; finish() end)); assert(native.publish(path,'fresh Lua state'))");
     awaitEvents();
     lua_getglobal(state, "fresh"); assert(lua_toboolean(state, -1)); lua_pop(state, 1);
     execute(state, "cancel(); cancel=nil; collectgarbage('collect')");
-    puts("PASS Lua reload discards old callbacks while native cancellation code remains mapped");
+    output("PASS Lua reload discards old callbacks while native cancellation code remains mapped");
 
     NSString *home = [directory stringByAppendingPathComponent:@"home"];
     NSString *support = [home stringByAppendingPathComponent:@"Library/Application Support/HammerspoonURLRouter"];
@@ -218,11 +222,11 @@ int main(int argc, char **argv) {
     assert([relaunched launchAndReturnError:nil]);
     lua_pushinteger(state, relaunched.processIdentifier); lua_setglobal(state, "live");
     execute(state, "metadata.respawn(live)"); awaitEvents(); execute(state, "metadata.ready()");
-    puts("PASS actual Lua readiness resumes quietly from the relaunched process");
+    output("PASS actual Lua readiness resumes quietly from the relaunched process");
     execute(state, "metadata.close()"); awaitEvents(); execute(state, "metadata.closed()");
     if (task.running) [task terminate]; [task waitUntilExit];
     [relaunched terminate]; [relaunched waitUntilExit];
-    puts("RESULT 22 passed, 0 failed");
+    printf("RESULT %d passed, 0 failed\n", passed);
   }
   return 0;
 }
