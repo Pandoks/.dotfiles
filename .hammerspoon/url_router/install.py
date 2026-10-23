@@ -27,6 +27,8 @@ REGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchS
 IDENTIFIER = "LOCALPROBE.local.pandoks.HammerspoonURLRouter"
 BUNDLE = "local.pandoks.HammerspoonURLRouter"
 DISABLED = r'"com\.apple\.swcd"\s*=>\s*(?:true|disabled)\b'
+# Root-owned; /usr/bin/python3 can resolve into admin-writable /Applications.
+PYTHON = "/Library/Developer/CommandLineTools/usr/bin/python3"
 
 
 def run(arguments, **kwargs):
@@ -65,6 +67,8 @@ def environment():
         raise RuntimeError(f"Unsupported macOS {version} ({build}); the private ABI must be verified before installation")
     if "-arm64e_preview_abi" not in run(["/usr/sbin/nvram", "boot-args"]).split():
         raise RuntimeError("The tested -arm64e_preview_abi boot argument is required")
+    if not os.access(PYTHON, os.X_OK):
+        raise RuntimeError("The command-line tools' Python is required at " + PYTHON)
     return {"version": version, "build": build, "csr": mask.value}
 
 
@@ -326,7 +330,7 @@ except (OSError, RuntimeError, subprocess.SubprocessError) as error:
 
 
 def stop(service):
-    admin([[sys.executable, "-I", "-c", SERVICE, "stop", service]])
+    admin([["/usr/bin/env", "-i", PYTHON, "-I", "-S", "-c", SERVICE, "stop", service]])
 
 
 def complete(state):
@@ -416,7 +420,7 @@ def status():
 
 def restore_service():
     domain = f"gui/{os.getuid()}"
-    admin([[sys.executable, "-I", "-c", SERVICE, "restore", domain, ORIGINAL, LABEL]])
+    admin([["/usr/bin/env", "-i", PYTHON, "-I", "-S", "-c", SERVICE, "restore", domain, ORIGINAL, LABEL]])
 
 
 def uninstall():

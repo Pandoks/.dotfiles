@@ -91,10 +91,13 @@ elif operation == "bootout" and state["pid"]:
                 servicepath.write_text(json.dumps({"pid": live[0].pid}))
             for command in commands:
                 command = list(map(str, command))
-                if command[0] == "/bin/launchctl":
-                    command[0] = str(wrapper)
-                else:
-                    command[3] = command[3].replace("/bin/launchctl", str(wrapper))
+                source = command.index("-c") + 1
+                # Root runs these programs, so nobody else may be able to replace them.
+                for path in (Path(part).resolve() for part in command[:source] if part.startswith("/")):
+                    for item in (path, *path.parents):
+                        assert item.stat().st_uid == 0 and not item.stat().st_mode & 0o022, "replaceable privileged program: " + str(item)
+                assert command[source].count('"/bin/launchctl"') == 1
+                command[source] = command[source].replace('"/bin/launchctl"', '"' + str(wrapper) + '"')
                 actual_run(command)
         try:
             start = time.monotonic()
@@ -222,10 +225,11 @@ elif operation == "bootout" and state["pid"]:
         def admin(commands):
             for command in commands:
                 calls.append(["ADMIN", *map(str, command)])
-                if str(command[0]) == sys.executable:
-                    with patch.object(sys, "argv", ["-c", *map(str, command[4:])]):
+                if "-c" in command:
+                    source = command.index("-c") + 1
+                    with patch.object(sys, "argv", ["-c", *map(str, command[source + 1:])]):
                         try:
-                            exec(command[3], {})  # noqa: S102 - Run the trusted installer helper with isolated launchctl.
+                            exec(command[source], {})  # noqa: S102 - Run the trusted installer helper with isolated launchctl.
                         except SystemExit as error:
                             raise RuntimeError("administrator operation failed") from error
                     continue
