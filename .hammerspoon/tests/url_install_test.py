@@ -65,6 +65,8 @@ path = Path(sys.argv[1])
 state = json.loads(path.read_text())
 operation = sys.argv[2]
 if operation == "print":
+    if not sys.argv[3].endswith("/com.apple.swcd"):
+        sys.exit(113)
     if state["pid"]:
         print("pid = " + str(state["pid"]))
 elif operation == "bootout" and state["pid"]:
@@ -111,14 +113,14 @@ elif operation == "bootout" and state["pid"]:
             with patch.object(installer, "run", side_effect=launch), patch.object(installer, "admin", side_effect=authenticate):
                 if mode == "retirement timeout":
                     try:
-                        installer.stop("gui/test/com.apple.swcd")
+                        installer.service("activate", temporary / "clone.plist")
                     except RuntimeError as error:
                         assert "did not exit" in str(error)
                     else:
                         raise AssertionError("stalled service retirement accepted")
                     assert 9.8 <= time.monotonic() - start < 12
                 else:
-                    installer.stop("gui/test/com.apple.swcd")
+                    installer.service("activate", temporary / "clone.plist")
                     child = live[0]
                     assert child and child.poll() == 0, "replacement returned before the actual retiring process finished cleanup: " + mode
         finally:
@@ -243,14 +245,21 @@ elif operation == "bootout" and state["pid"]:
                 operation = command[1]
                 if operation == "disable":
                     service["clone_disabled" if str(command[-1]).endswith(installer.LABEL) else "disabled"] = True
-                    if mode == "admin-failure" and not service.get("failed"):
-                        service["failed"] = True
-                        raise RuntimeError("administrator operation failed")
                 elif operation == "enable":
                     service["clone_disabled" if str(command[-1]).endswith(installer.LABEL) else "disabled"] = False
                 elif operation in ("bootout", "bootstrap"):
                     name = "replacement" if str(command[-1]).endswith(installer.LABEL) or str(command[-1]) == str(jobpath) else "original"
                     service[name] = operation == "bootstrap"
+                elif operation == "kickstart" and mode == "admin-failure" and not service.get("failed"):
+                    service["failed"] = True
+                    raise RuntimeError("administrator operation failed")
+
+        def prompt(commands):
+            # The user cancels the rollback prompt after a protected step fails.
+            if mode == "admin-failure" and service.get("failed") and not service.get("cancelled"):
+                service["cancelled"] = True
+                raise RuntimeError("osascript: User canceled. (-128)")
+            admin(commands)
 
         def transport(arguments, mode=mode, **kwargs):
             arguments = [str(item) for item in arguments]
@@ -305,7 +314,7 @@ elif operation == "bootout" and state["pid"]:
                                    "generation": arguments[2], "sha256": arguments[3]})
             return actual_run(arguments, **kwargs)
 
-        with patch.multiple(installer, SUPPORT=support, APP=app, JOB=jobpath), patch.object(installer, "environment", return_value={}), patch.object(installer, "run", side_effect=transport), patch.object(installer, "admin", side_effect=admin), patch.object(installer.subprocess, "run", side_effect=system):
+        with patch.multiple(installer, SUPPORT=support, APP=app, JOB=jobpath), patch.object(installer, "environment", return_value={}), patch.object(installer, "run", side_effect=transport), patch.object(installer, "admin", side_effect=prompt), patch.object(installer.subprocess, "run", side_effect=system):
             if mode.startswith("disabled-"):
                 try:
                     installer.stage(payload)
@@ -340,6 +349,9 @@ elif operation == "bootout" and state["pid"]:
                             assert expected in str(error)
                         else:
                             raise AssertionError("failed activation accepted")
+                        if mode == "admin-failure":
+                            assert service["original"] and not service["disabled"] and not service["replacement"], "failed activation left Apple's swcd retired"
+                            installer.uninstall()
                     else:
                         installer.activate(not mode.startswith("login"))
                         if mode.startswith("login"):

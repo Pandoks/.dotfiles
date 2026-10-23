@@ -316,23 +316,35 @@ def retire(service, absent=False):
         if watching and not queue.control(None, 1, remaining()):
             raise RuntimeError("The previous swcd process did not exit before service replacement")
 
+def restore():
+    global deadline
+    deadline = time.monotonic() + 10
+    retire(domain + "/" + label, absent=True)
+    launch("enable", domain + "/com.apple.swcd")
+    if launch("print", domain + "/com.apple.swcd", absent=True) is None:
+        launch("bootstrap", domain, original)
+
 try:
-    if sys.argv[1] == "stop":
-        retire(sys.argv[2])
+    mode, domain, original, label = sys.argv[1:5]
+    if mode == "activate":
+        try:
+            retire(domain + "/com.apple.swcd")
+            launch("bootstrap", domain, sys.argv[5])
+            launch("kickstart", domain + "/" + label)
+        except BaseException:
+            # Never leave Apple's job retired without a running replacement.
+            restore()
+            raise
     else:
-        domain, original, label = sys.argv[2:]
-        retire(domain + "/" + label, absent=True)
-        launch("enable", domain + "/com.apple.swcd")
-        if launch("print", domain + "/com.apple.swcd", absent=True) is None:
-            launch("bootstrap", domain, original)
+        restore()
 except (OSError, RuntimeError, subprocess.SubprocessError) as error:
     print(str(error), file=sys.stderr)
     sys.exit(1)
 """
 
 
-def stop(service):
-    admin([["/usr/bin/env", "-i", PYTHON, "-I", "-S", "-c", SERVICE, "stop", service]])
+def service(mode, *extra):
+    admin([["/usr/bin/env", "-i", PYTHON, "-I", "-S", "-c", SERVICE, mode, f"gui/{os.getuid()}", ORIGINAL, LABEL, *extra]])
 
 
 def complete(state):
@@ -369,18 +381,14 @@ def activate(warm):
     if state["phase"] not in ("staged", "activation-failed"):
         raise RuntimeError("Only a staged installation can be activated")
     validate(state)
-    domain = f"gui/{os.getuid()}"
-    commands = [["/bin/launchctl", "disable", domain + "/com.apple.swcd"]]
     state["phase"] = "activating"
     state["activationMode"] = "warm" if warm else "login"
     write(SUPPORT / "state.json", state)
     try:
         if warm:
-            stop(domain + "/com.apple.swcd")
-            admin([["/bin/launchctl", "bootstrap", domain, JOB],
-                   ["/bin/launchctl", "kickstart", domain + "/" + LABEL]])
+            service("activate", JOB)
         else:
-            admin(commands)
+            admin([["/bin/launchctl", "disable", f"gui/{os.getuid()}/com.apple.swcd"]])
         state["phase"] = "activated" if warm else "awaiting-login"
         write(SUPPORT / "state.json", state)
         if warm:
@@ -420,11 +428,6 @@ def status():
     print(json.dumps(result, sort_keys=True))
 
 
-def restore_service():
-    domain = f"gui/{os.getuid()}"
-    admin([["/usr/bin/env", "-i", PYTHON, "-I", "-S", "-c", SERVICE, "restore", domain, ORIGINAL, LABEL]])
-
-
 def uninstall():
     state = saved()
     if APP.is_symlink() or (APP.exists() and signing(APP, local=False) not in (state["codeHash"], state.get("previousCodeHash"))):
@@ -436,14 +439,14 @@ def uninstall():
         elif APP.exists():
             raise RuntimeError("A new helper appeared after restoration; preserve it before cleanup")
         if state.get("activationMode"):
-            restore_service()
+            service("restore")
     else:
         if state["hadHelper"] and signing(SUPPORT / "original-helper.bundle", local=False) != state.get("previousCodeHash"):
             raise RuntimeError("The original helper backup changed")
         state["phase"] = "uninstalling"
         write(SUPPORT / "state.json", state)
         if state.get("activationMode"):
-            restore_service()
+            service("restore")
         run([SUPPORT / "runtime/set-default", "--restore", SUPPORT / "original-defaults.json"])
         restored = SUPPORT / "restored-helper.bundle"
         displaced = SUPPORT / "displaced-helper.bundle"
