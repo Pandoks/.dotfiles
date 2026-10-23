@@ -27,11 +27,11 @@ The URL router suites cover Lua rules, profiles, and selector readiness
 access (`url_interception_test.py`); installer staging and rollback with system
 registration stubbed (`url_install_test.py`); default-handler changes
 (`url_set_default_test.py`); and the helper's native dispatch and message-port bridge
-(`url_dispatch_test.py`). They need Python 3 and the Swift/Clang command-line tools.
-The interception suite downloads Lua 5.4.9 and checks its pinned SHA-256; set
-`LUA_ARCHIVE` to a local copy to run offline. Swift suites compile copies with
-`NSWorkspace` and `NSAlert` replaced, so they never open apps, show popups, or change
-default handlers.
+(`url_dispatch_test.py`). They need Python 3.12 or later and the Swift/Clang
+command-line tools. The interception suite downloads Lua 5.4.9 and checks its pinned
+SHA-256; set `LUA_ARCHIVE` to a local copy to run offline. Swift suites compile copies
+with `NSWorkspace` and `NSAlert` replaced, so they never open apps, show popups, or
+change default handlers.
 
 Run `sh .hammerspoon/tests/previews_test.sh` for the native preview worker pool.
 It uses synthetic images and windows, without Screen Recording access or UI changes.
