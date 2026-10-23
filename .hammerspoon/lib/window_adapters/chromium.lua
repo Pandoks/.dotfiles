@@ -1,38 +1,7 @@
 local logger = require("lib.logger")
 local chromium = {}
 
-local function readJson(path)
-  local file = io.open(path, "r")
-  if not file then
-    return nil
-  end
-  local contents = file:read("*a")
-  file:close()
-
-  local decoded, value = pcall(hs.json.decode, contents)
-  return decoded and value or nil
-end
-
----@param userDataDirectory string
----@param profileName string
----@return string?
-local function profileDirectory(userDataDirectory, profileName)
-  local state = readJson(userDataDirectory .. "/Local State")
-  local infoCache = state and state.profile and state.profile.info_cache or {}
-  for directory, profile in pairs(infoCache) do
-    if profile.name == profileName then
-      return directory
-    end
-  end
-  return nil
-end
-
----@class ChromiumProfile
----@field bundleID string
----@field profile string profile display name
----@field userDataDirectory? string defaults to ~/Library/Application Support/<bundleID>
-
----@param profile ChromiumProfile
+---@param profile { bundleID: string, profile: string } `profile` is the display name
 ---@return fun(url: string, report?: fun(message: string)): boolean
 function chromium.url(profile)
   return function(url, report)
@@ -42,15 +11,27 @@ function chromium.url(profile)
       return false
     end
 
-    local data = profile.userDataDirectory
-      or (os.getenv("HOME") .. "/Library/Application Support/" .. profile.bundleID)
-    local directory = profileDirectory(data, profile.profile)
+    -- Find the profile's directory by display name
+    local directory
+    local path = os.getenv("HOME") .. "/Library/Application Support/" .. profile.bundleID
+    local file = io.open(path .. "/Local State", "r")
+    if file then
+      local decoded, state = pcall(hs.json.decode, file:read("a"))
+      file:close()
+      local cache = decoded and state and state.profile and state.profile.info_cache or {}
+      for name, info in pairs(cache) do
+        if info.name == profile.profile then
+          directory = name
+          break
+        end
+      end
+    end
     if not directory then
       report("Chromium URL routing failed: missing profile " .. profile.profile)
       return false
     end
 
-    -- LaunchServices owns the browser so reloads can't kill it; `-n` passes arguments to a running one.
+    -- Survives reloads via LaunchServices; `-n`'s new instance hands its arguments to a running one
     local task = hs.task.new("/usr/bin/open", function(code, _, message)
       if code ~= 0 then
         report("Chromium URL routing failed: " .. message)
