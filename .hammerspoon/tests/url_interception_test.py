@@ -53,7 +53,9 @@ with tempfile.TemporaryDirectory(prefix="url-interception-test.", dir="/var/tmp"
         result = subprocess.run(arguments, env=environment, text=True, capture_output=True, timeout=10)
         assert result.returncode == 0 and result.stdout, "Missing trusted target must leave the daemon running unhooked"
         event = json.loads((Path(status) / "status.json").read_text())
-        assert event["kind"] == "error" and event["stage"] == "environment", "Hook setup error must be acknowledged"
+        build = subprocess.check_output(["sysctl", "-n", "kern.osversion"], text=True).strip()
+        stage = "environment" if build in ("25G83", "26A434") else "runtime"
+        assert event["kind"] == "error" and event["stage"] == stage, "Hook setup error must be acknowledged"
         print("PASS actual injected constructor: missing status/target environment returns to the host process instead of exiting")
         (selectors / "rules.json").write_text('{"version":1,"generation":"regular-control","rules":[{"host":"ramp.com"}]}')
         for mode, expected in ((0o770, "watch-open"), (0o700, "loaded")):

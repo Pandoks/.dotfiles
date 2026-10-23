@@ -230,10 +230,6 @@ static void push(lua_State *state, NSString *value) {
   return -1;
 }
 
-- (void)stop {
-  if (_source) dispatch_source_cancel(_source);
-}
-
 - (void)dealloc {
   if (_source) dispatch_source_cancel(_source);
   if (_state) lua_close(_state);

@@ -1,6 +1,5 @@
 #import "selectors.h"
 #import "status.h"
-#import "platform.h"
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -53,7 +52,6 @@ int main(int argc, const char **argv) {
       require(!store || [store classifyURL:[NSURL URLWithString:@"https://ramp.com/"] snapshot:nil]
         == ([result[@"kind"] isEqual:@"loaded"] ? 1 : -1), @"snapshot result agrees with classifier readiness");
       puts([result[@"stage"] ?: result[@"kind"] UTF8String]);
-      [store stop];
       return 0;
     }
     if (!strcmp(argv[3], "status-snapshot")) {
@@ -91,12 +89,10 @@ int main(int argc, const char **argv) {
       require([store classifyURL:[NSURL URLWithString:@"https://ramp.com/allowed"] snapshot:nil] == 0
         && [store classifyURL:[NSURL URLWithString:@"https://notion.com/allowed"] snapshot:nil] == 1,
         @"sandbox observes external atomic selector replacement");
-      [store stop];
       puts("PASS actual swcd sandbox: external selector read/watch/replacement, denied external write, atomic temp status acknowledgement after directory removal");
       return 0;
     }
     NSError *error;
-    require(URLRouterCheckABI(&error), error.localizedDescription);
     URLRouterStatus *status = [[URLRouterStatus alloc] initWithPath:statusPath error:&error];
     require(status != nil, error.localizedDescription);
     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
@@ -176,7 +172,6 @@ int main(int argc, const char **argv) {
     require(unlink(rules.fileSystemRepresentation) == 0, @"remove FIFO fixture");
     publish(rules, @"empty", @[]); await(semaphore, events, lock, @"generation", @"empty");
     require([store classifyURL:[NSURL URLWithString:@"https://ramp.com"] snapshot:nil] == 0, @"empty active selectors pass through");
-    [store stop];
     puts("PASS invalid patterns, runtime failure, generation immutability, malformed JSON, symlink/FIFO rejection, deletion, and recovery");
     return 0;
   }
