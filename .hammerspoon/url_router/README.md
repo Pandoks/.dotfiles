@@ -121,10 +121,12 @@ loads selectors into an embedded Lua 5.4 and acknowledges their UUID generation
 and SHA-256 bytes through an atomic status file. Filesystem notifications update
 both sides. The helper sends message 1 with `generation\nurl` to Hammerspoon's
 `local.pandoks.HammerspoonURLRouter.route` CFMessagePort, which replies `true`,
-`false`, or `native`. Hammerspoon blocks actions until that generation is ready
-and belongs to a live `swcd`. launchd stops an idle `swcd` and relaunches it on the
-next lookup, so its exit, or a ready status from an exited process, pauses routing
-with a log line and no popup until the relaunched hook republishes readiness.
+`false`, or `native`. Hammerspoon blocks actions until a hook acknowledges that
+generation and its selector bytes. launchd stops an idle `swcd` and relaunches it
+on the next lookup with the same selectors, so its exit, or a ready status naming
+an exited or reused process ID, keeps routing ready; Hammerspoon watches the
+relaunched process once its status arrives. Exits during uninstall still stop
+routing.
 Reload failures are explicit rather than silently mixing old selectors with new
 actions. `RouteHTTPURL(url, generation)` remains for `hs -c` debugging and for
 helpers built before the port existed.

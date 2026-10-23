@@ -13,7 +13,7 @@ local router = {}
 ---@field publish fun(path: string, contents: string): boolean, string?
 ---@field read fun(path: string): string?, string?, integer?
 ---@field watch fun(path: string, changed: fun(error?: string)): fun()?, string?
----@field process fun(pid: integer, executable: string, stopped: fun(error: string)): (fun()|false|nil), string? false when not running
+---@field process fun(pid: integer, executable: string, stopped: fun(error: string)): (fun()|false|nil), string? false when exited or the pid is reused
 
 local native = require("lib.utils").native("url_router") --[[@as URLRouterNative]]
 local directory = os.getenv("HOME") .. "/Library/Application Support/HammerspoonURLRouter"
@@ -45,14 +45,6 @@ local function fail(message)
     logger.error("URL routing failed: " .. message)
   end
   failure = message
-end
-
--- launchd stops idle swcd and relaunches it on demand, which republishes readiness.
-local function pause(message)
-  if ready then
-    print("URL routing paused: " .. message)
-  end
-  ready, failure = false, nil
 end
 
 ---@return { generation?: string, ready: boolean, error?: string }
@@ -213,7 +205,7 @@ function router.install(rules)
     end
   end
 
-  -- Reinstalls reuse the helper's port; reloads close the Lua state, which deletes it.
+  -- Reinstalls reuse Hammerspoon's route port; reloads close the Lua state, which deletes it.
   if not port then
     local ok, result = pcall(
       hs.ipc.localPort,
@@ -318,23 +310,20 @@ function router.install(rules)
             cancelProcess()
           end
           cancelProcess, pid = nil, nil
+          -- Only uninstall exits stop routing; launchd relaunches idle swcd with these selectors.
           local watcher, watchError = native.process(status.pid, "/usr/libexec/swcd", function()
             pid = nil
-            local ending, stateError = cleanup()
+            local _, stateError = cleanup()
             if stateError then
               fail(stateError)
-            elseif not ending then
-              pause("swcd exited")
             end
           end)
-          if watcher == false then
-            pause("interception status belongs to an exited swcd")
-            return
-          elseif not watcher then
+          if watcher then
+            cancelProcess, pid = watcher, status.pid
+          elseif watcher == nil then
             fail("could not watch interception process: " .. tostring(watchError))
             return
           end
-          cancelProcess, pid = watcher, status.pid
         end
         ready, failure = true, nil
       end

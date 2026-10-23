@@ -191,7 +191,7 @@ local function verify()
     or mode == "readyCleanup"
     or mode == "processCleanup"
   local value = router.status()
-  assert(not value.ready)
+  assert(value.ready == (mode == "idle"))
   if quiet then
     assert(not value.error and #logs == 0 and canceled == 1)
     assert(stopped == ((mode == "readyCleanup" or mode == "processCleanup") and 1 or 0))
