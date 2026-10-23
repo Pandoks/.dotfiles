@@ -18,8 +18,8 @@ for _, failure in ipairs({ "mkdir", "open", "write", "close" }) do
     require = function(name)
       assert(name == "lib.toast")
       return {
-        show = function(message, style)
-          alerts[#alerts + 1] = style .. ": " .. message
+        show = function(message, options)
+          alerts[#alerts + 1] = (options.failure and "failure: " or "") .. message
         end,
       }
     end,

@@ -11,7 +11,7 @@ logger.path = directory .. "/config.log"
 ---@param message string
 function logger.error(message)
   print(message)
-  toast.show(message:match("^[^\n]+"), "failure", 5)
+  toast.show(message:match("^[^\n]+"), { failure = true, seconds = 5 })
 end
 
 function logger.install()

@@ -1,20 +1,36 @@
 local root = assert(arg[1])
--- A 1000x600 screen below a 25 pt menu bar; text is 7 pt a character, 16 pt a line.
+-- Two 1000x600 screens side by side below a 25 pt menu bar; text is 7 pt a character, 16 a line.
 local canvases, timers = {}, {}
+local screens, styled = {}, {}
+local function display(id, x)
+  return setmetatable({
+    id = function()
+      return id
+    end,
+    frame = function()
+      return { x = x, y = 25, w = 1000, h = 600 }
+    end,
+  }, screens)
+end
+local main, side = display(1, 0), display(2, 1000)
+local focused = main
+-- As hs.alert's: `show` and `hs.alert(...)` call `showWithImage`.
 local alert = {}
+function alert.show(message, ...)
+  return alert.showWithImage(message, nil, ...)
+end
 local toast = assert(loadfile(
   root .. "/toast.lua",
   "t",
   setmetatable({
     hs = {
       alert = alert,
+      getObjectMetatable = function(name)
+        return ({ ["hs.styledtext"] = styled, ["hs.screen"] = screens })[name]
+      end,
       screen = {
         mainScreen = function()
-          return {
-            frame = function()
-              return { x = 0, y = 25, w = 1000, h = 600 }
-            end,
-          }
+          return focused
         end,
       },
       styledtext = {
@@ -28,9 +44,6 @@ local toast = assert(loadfile(
           function timer.stop()
             timer.stopped = true
           end
-          function timer.setNextTrigger(_, next)
-            timer.seconds = next
-          end
           timers[#timers + 1] = timer
           return timer
         end,
@@ -39,9 +52,9 @@ local toast = assert(loadfile(
         windowLevels = { status = 25 },
         new = function()
           local canvas = { elements = {}, visible = false, deleted = false }
-          function canvas.minimumTextSize(_, styled)
+          function canvas.minimumTextSize(_, text)
             local w, lines = 0, 0
-            for line in styled.text:gmatch("[^\n]+") do
+            for line in text.text:gmatch("[^\n]+") do
               w, lines = math.max(w, 7 * #line), lines + 1
             end
             return { w = w, h = 16 * lines }
@@ -55,6 +68,9 @@ local toast = assert(loadfile(
           end
           function canvas.appendElements(_, element)
             canvas.elements[#canvas.elements + 1] = element
+          end
+          function canvas.behaviorAsLabels(_, labels)
+            canvas.labels = table.concat(labels, " ")
           end
           function canvas.mouseCallback(_, fn)
             canvas.click = fn
@@ -92,23 +108,25 @@ local function texts(canvas)
   end
   return table.concat(found, " | ")
 end
+local function bottom(canvas)
+  return canvas.at.y + canvas.frame.h
+end
 local function clear()
   for _, canvas in ipairs(canvases) do
-    if not canvas.deleted and canvas.click then
+    if not canvas.deleted then
       canvas.click()
     end
   end
-  canvases, timers = {}, {}
+  canvases, timers, focused = {}, {}, main
 end
 
 test("a failure sits at the bottom right, titled by its source, with a red cross", function()
-  toast.show("Tiling: no focused window", "failure", 5)
+  toast.show("Tiling: no focused window", { failure = true, seconds = 5 })
   local canvas = canvases[1]
   assert(texts(canvas) == "Tiling | No focused window", texts(canvas))
   assert(canvas.elements[3].type == "circle" and canvas.visible and timers[1].seconds == 5)
-  assert(canvas.at.x + canvas.frame.w == 1000 - 16, "not at the right edge")
-  assert(canvas.elements[1].fillGradient == "linear" and canvas.elements[2].frame.x == 1, "no rim")
-  assert(canvas.at.y + canvas.frame.h == 25 + 600 - 16, "not at the bottom")
+  assert(canvas.at.x + canvas.frame.w == 1000 - 16 and bottom(canvas) == 609, "not bottom right")
+  assert(canvas.labels:find("fullScreenAuxiliary", 1, true), "hidden over full-screen apps")
   clear()
 end)
 
@@ -116,18 +134,26 @@ test("a newer toast stacks below the older, which drops back when it goes", func
   toast.show("first")
   toast.show("second")
   local first, second = canvases[1], canvases[2]
-  assert(second.at.y + second.frame.h == 609 and first.at.y + first.frame.h == second.at.y - 8)
+  assert(bottom(second) == 609 and bottom(first) == second.at.y - 8)
   assert(texts(first) == "first" and #first.elements == 3, "an info toast has no icon")
   timers[2].fn()
-  assert(second.deleted and not first.deleted and first.at.y + first.frame.h == 609)
+  assert(second.deleted and not first.deleted and bottom(first) == 609)
+  clear()
+end)
+
+test("a toast stays on its screen when focus and the stack change", function()
+  toast.show("on main")
+  focused = side
+  toast.show("on side")
+  assert(canvases[1].at.x < 1000 and canvases[2].at.x >= 1000, "a toast moved screens")
+  assert(bottom(canvases[1]) == 609 and bottom(canvases[2]) == 609, "screens share one stack")
   clear()
 end)
 
 test("the same toast again restarts its time instead of stacking", function()
-  toast.show("Window list unavailable", nil, 2)
-  timers[1].seconds = 0
-  toast.show("Window list unavailable", nil, 2)
-  assert(#canvases == 1 and timers[1].seconds == 2)
+  toast.show("Window list unavailable", { seconds = 2 })
+  toast.show("Window list unavailable", { seconds = 2 })
+  assert(#canvases == 1 and timers[1].stopped and timers[2].seconds == 2)
   clear()
 end)
 
@@ -137,12 +163,12 @@ test("a click dismisses, and a sixth toast drops the oldest", function()
   end
   assert(canvases[1].deleted and timers[1].stopped and not canvases[2].deleted)
   canvases[4].click()
-  assert(canvases[4].deleted and canvases[5].at.y + canvases[5].frame.h == canvases[6].at.y - 8)
+  assert(canvases[4].deleted and bottom(canvases[5]) == canvases[6].at.y - 8)
   clear()
 end)
 
 test("long text wraps to three lines, and a name keeps its case", function()
-  toast.show(("word "):rep(60), "failure")
+  toast.show(("word "):rep(60), { failure = true })
   local lines = select(2, texts(canvases[1]):gsub("\n", "")) + 1
   assert(lines == 3 and canvases[1].frame.w <= 14 + 26 + 340 + 14, lines)
   toast.show("Space focus: macOS refused it")
@@ -150,12 +176,52 @@ test("long text wraps to three lines, and a name keeps its case", function()
   clear()
 end)
 
-test("install makes every hs.alert.show a toast, with its seconds", function()
+test("install picks the theme, and an unknown one says so", function()
+  toast.install({ theme = "edge" })
+  toast.show("edged")
+  assert(canvases[1].elements[1].fillGradientColors[4].white == 0.3, "not the edge rim")
+  clear()
+  toast.install({ theme = "chrome" })
+  assert(texts(canvases[1]):find("No theme chrome", 1, true), texts(canvases[1]))
+  clear()
+  toast.install()
+  toast.show("metal")
+  assert(canvases[1].elements[1].fillGradientColors[3].white == 0.42, "not the metal rim")
+  clear()
+end)
+
+test("every hs.alert is a toast, with its seconds and screen", function()
   toast.install()
   alert.show("Could not switch to that window", 4)
-  alert.show("Focused display unavailable", {}, nil, 7)
+  alert.show("Focused display unavailable", {}, side, 7)
+  alert.show(setmetatable({}, {
+    __tostring = function()
+      return "hs.window: Notes"
+    end,
+  }))
   assert(texts(canvases[1]) == "Could not switch to that window" and timers[1].seconds == 4)
-  assert(texts(canvases[2]) == "Focused display unavailable" and timers[2].seconds == 7)
+  assert(canvases[2].at.x >= 1000 and timers[2].seconds == 7, "the screen or seconds were lost")
+  assert(texts(canvases[3]) == "hs.window | Notes" and timers[3].seconds == 3, texts(canvases[3]))
+  local message = setmetatable({}, styled)
+  function message.getString()
+    return "styled"
+  end
+  alert.show(message)
+  assert(texts(canvases[4]) == "styled", texts(canvases[4]))
+  alert.show(io.stdout) -- a userdata that is not styled text
+  assert(texts(canvases[5]):find("^file %("), texts(canvases[5]))
+  clear()
+end)
+
+test("an hs.alert with non-number seconds stays until closed by its id", function()
+  toast.install()
+  local id = alert.show("Working…", "indefinite")
+  alert.show("other", 1)
+  assert(#timers == 1, "the indefinite one got a timer")
+  alert.closeSpecific(id)
+  assert(canvases[1].deleted and not canvases[2].deleted)
+  alert.closeAll()
+  assert(canvases[2].deleted)
   clear()
 end)
 
