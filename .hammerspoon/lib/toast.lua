@@ -3,7 +3,7 @@ local toast = {}
 
 local limit = 340 -- widest line of text, in points
 local margin, gap, padding, icon = 16, 8, 14, 16
-local most = 5 -- toasts on screen; a sixth drops the oldest
+local most = 5 -- toasts on a screen; a sixth drops its oldest timed one
 local title = {
   font = { name = ".AppleSystemUIFontMedium", size = 13 },
   color = { white = 0.976 },
@@ -31,7 +31,15 @@ local theme = themes.metal
 
 ---@alias ToastSize { w: number, h: number }
 
----@type { id: integer, text: string, canvas: hs.canvas, screen: hs.screen, timer?: hs.timer }[]
+---@class ToastEntry
+---@field id integer
+---@field text string
+---@field failure boolean
+---@field canvas hs.canvas
+---@field screen hs.screen
+---@field timer? hs.timer
+
+---@type ToastEntry[]
 local shown = {} -- oldest first; each screen's newest sits at its bottom
 local count = 0 -- the last toast's id
 
@@ -71,7 +79,7 @@ function toast.close(id)
   end
 end
 
----@param entry { id: integer, timer?: hs.timer }
+---@param entry ToastEntry
 ---@param seconds number|false
 local function arm(entry, seconds)
   local id = entry.id
@@ -115,10 +123,15 @@ local function wrap(canvas, text, style, lines)
   return hs.styledtext.new(joined, style), size(joined)
 end
 
+---@class ToastOptions
+---@field failure? boolean a red cross
+---@field seconds? number|false 3 by default; false keeps it until closed
+---@field screen? hs.screen the focused window's by default
+---@field image? hs.image an icon in place of the red cross
+
 -- Show `text`, titled "Tiling" for "Tiling: no window", and return its id for `close`.
--- `seconds`: 3 by default, false until closed; `screen`: the focused window's by default.
 ---@param text string
----@param options? { failure?: boolean, seconds?: number|false, screen?: hs.screen }
+---@param options? ToastOptions
 ---@return integer?
 function toast.show(text, options)
   options = options or {}
@@ -130,10 +143,12 @@ function toast.show(text, options)
   if not screen then
     return nil
   end
+  local failure = options.failure == true
   -- The same timed toast again, on the same screen, restarts its time instead of stacking; one
   -- kept until closed is its caller's alone, closed by that caller.
   for _, entry in ipairs(shown) do
-    if seconds and entry.timer and entry.text == text and entry.screen:id() == screen:id() then
+    local same = entry.text == text and entry.failure == failure and not options.image
+    if seconds and entry.timer and same and entry.screen:id() == screen:id() then
       arm(entry, seconds)
       return entry.id
     end
@@ -156,7 +171,7 @@ function toast.show(text, options)
   end
   local width = math.min(limit, math.max(top.w, below and below.w or 0))
   local height = 2 * 12 + top.h + (below and 2 + below.h or 0)
-  local left = padding + (options.failure and icon + 10 or 0)
+  local left = padding + ((failure or options.image) and icon + 10 or 0)
   local size, radius = { w = left + width + padding, h = height }, math.min(height / 2, 20)
   canvas:size(size)
   canvas:appendElements({
@@ -176,7 +191,14 @@ function toast.show(text, options)
     fillGradientColors = grays(theme.face),
     fillGradientAngle = 90,
   })
-  if options.failure then
+  if options.image then
+    canvas:appendElements({
+      type = "image",
+      image = options.image,
+      imageScaling = "scaleProportionally",
+      frame = { x = padding, y = height / 2 - icon / 2, w = icon, h = icon },
+    })
+  elseif failure then
     local x, y, reach = padding + icon / 2, height / 2, icon * 0.18
     canvas:appendElements({
       type = "circle",
@@ -224,11 +246,24 @@ function toast.show(text, options)
   canvas:mouseCallback(function()
     toast.close(id)
   end)
-  local entry = { id = id, text = text, canvas = canvas, screen = screen }
+  local entry = { id = id, text = text, failure = failure, canvas = canvas, screen = screen }
   arm(entry, seconds)
   shown[#shown + 1] = entry
-  if #shown > most then
-    toast.close(shown[1].id)
+  -- Past the cap, the screen's oldest timed toast before this one goes; one kept until closed
+  -- stays.
+  local on = {}
+  for _, other in ipairs(shown) do
+    if other.screen:id() == screen:id() then
+      on[#on + 1] = other
+    end
+  end
+  if #on > most then
+    for i = 1, #on - 1 do
+      if on[i].timer then
+        toast.close(on[i].id)
+        break
+      end
+    end
   end
   layout()
   canvas:show(0.15)
@@ -252,7 +287,7 @@ function toast.install(options)
   -- Both hs.alert.show and hs.alert(...) end here. As hs.alert reads its arguments: a screen, or
   -- a window for its screen; a table is a style; anything else the seconds, none or false the
   -- default, another non-number until closed.
-  alert.showWithImage = function(message, _, ...)
+  alert.showWithImage = function(message, image, ...)
     local style, screen, seconds
     for i, value in ipairs(table.pack(...)) do
       local kind = getmetatable(value)
@@ -270,7 +305,7 @@ function toast.install(options)
     end
     local text = getmetatable(message) == styled and message:getString() or tostring(message)
     local time = not seconds and 3 or type(seconds) == "number" and seconds or false
-    return toast.show(text, { seconds = time, screen = screen })
+    return toast.show(text, { seconds = time, screen = screen, image = image })
   end
   alert.closeSpecific = toast.close
   alert.closeAll = function()

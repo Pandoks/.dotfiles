@@ -278,6 +278,45 @@ test("each hs.alert kept until closed has its own id, and an old id closes nothi
   clear()
 end)
 
+test("the cap drops a screen's oldest timed toast, never one kept until closed", function()
+  toast.install()
+  local kept = alert.show("Working…", "indefinite")
+  for i = 1, 5 do
+    toast.show("toast " .. i)
+  end
+  assert(not canvases[1].deleted and canvases[2].deleted, "the cap dropped the kept alert")
+  focused = side
+  for i = 1, 5 do
+    toast.show("side " .. i)
+  end
+  assert(not canvases[3].deleted, "another screen's toasts counted toward this screen's cap")
+  alert.closeSpecific(kept)
+  clear()
+  for _ = 1, 6 do
+    alert.show("Working…", "indefinite")
+  end
+  toast.show("timed")
+  assert(not canvases[7].deleted, "the cap dropped the toast it was making room for")
+  clear()
+end)
+
+test("a failure and a plain toast with the same text are not repeats", function()
+  toast.show("Window list unavailable")
+  toast.show("Window list unavailable", { failure = true })
+  assert(#canvases == 2 and canvases[2].elements[3].type == "circle", "the failure merged")
+  clear()
+end)
+
+test("hs.alert.showWithImage shows its image as the icon", function()
+  toast.install()
+  local image = {}
+  alert.showWithImage("Synced", image, 2)
+  local icon = canvases[1].elements[3]
+  assert(icon.type == "image" and icon.image == image and icon.frame.w == 16, "no image")
+  assert(canvases[1].elements[4].frame.x == 14 + 16 + 10, "the text is not past the icon")
+  clear()
+end)
+
 test("an argument hs.alert would not take is an error, as in hs.alert", function()
   toast.install()
   local ok, problem = pcall(alert.show, "x", {}, side, 2, 3)
