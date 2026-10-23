@@ -114,7 +114,13 @@ local hs = {
 local modules = {
   ["dictation.defaults"] = config,
   ["dictation.config"] = mine,
-  ["lib.logger"] = load("../lib/logger", { hs = hs, print = function() end }),
+  ["lib.logger"] = load("../lib/logger", {
+    hs = hs,
+    print = function() end,
+    require = function()
+      return { show = hs.alert.show }
+    end,
+  }),
   ["dictation.spacing"] = load("spacing", {}),
   ["dictation.history"] = load("history", { hs = { fs = fs } }),
   ["dictation.overlay"] = {

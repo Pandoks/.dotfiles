@@ -46,7 +46,9 @@ local environment = setmetatable({
   },
 }, { __index = _G })
 function environment.require(name)
-  if name == "lib.logger" then
+  if name == "lib.toast" then
+    return { show = environment.hs.alert.show }
+  elseif name == "lib.logger" then
     return assert(loadfile(root .. "/../lib/logger.lua", "t", environment))()
   end
   return name == "dictation.recorder" and { ffmpeg = "/usr/bin/ffmpeg" } or require(name)
