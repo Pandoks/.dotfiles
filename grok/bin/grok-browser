@@ -46,8 +46,9 @@ die() {
 }
 
 usage() {
-  printf "%bUsage:%b grok-browser <command> [args]\n\n" "${BOLD}" "${NORMAL}" >&2
-  printf "Drive Helium on the grokbot profile with DevTools on %s.\n\n" "${ENDPOINT}" >&2
+  printf "%bUsage:%b grok-browser [--profile DIR] <command> [args]\n\n" "${BOLD}" "${NORMAL}" >&2
+  printf "Drive Helium on the grokbot profile with DevTools on %s.\n" "${ENDPOINT}" >&2
+  printf "The profile is %s unless --profile is given, created if missing.\n\n" "${PROFILE}" >&2
 
   printf "%bCommands:%b\n" "${BOLD}" "${NORMAL}" >&2
   printf "  %bstart%b                   Launch Helium on the grokbot profile\n" \
@@ -65,8 +66,8 @@ usage() {
 }
 
 require_profile() {
-  [ -d "${PROFILE}" ] \
-    || die "${PROFILE} doesn't exist; set it up by hand first, see ~/.dotfiles/grok/README.md"
+  mkdir -p "$(dirname "${PROFILE}")"
+  [ -d "${PROFILE}" ] || mkdir -m 700 "${PROFILE}"
   mkdir -p "$(dirname "${LOG}")"
   PROFILE=$(realpath "${PROFILE}")
 }
@@ -191,6 +192,11 @@ cmd_status() {
 }
 
 main() {
+  if [ "${1-}" = --profile ]; then
+    [ $# -ge 2 ] || usage 1
+    PROFILE="$2"
+    shift 2
+  fi
   [ $# -ge 1 ] || usage 0
   cmd="$1"
   shift

@@ -41,8 +41,7 @@ PROTON_PASS_SESSION_DIR=~/grok/config/proton-pass/<account> pass-cli login
 ## Helium
 
 ```sh
-mkdir -m 700 ~/grok/config/helium-grokbot
-~/grok/bin/grok-browser start
+~/grok/bin/grok-browser --profile ~/grok/config/helium-grokbot start
 ```
 
 Install extensions and sign in to sites in that window; they persist.
