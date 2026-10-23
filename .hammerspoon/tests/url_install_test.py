@@ -45,8 +45,15 @@ with tempfile.TemporaryDirectory(prefix="url-install-test.", dir="/var/tmp") as 
     snapshot.write_text(json.dumps({"version": 1, "generation": "72929621-22a6-48c9-97ea-df69e0c45918", "rules": []}))
     result = subprocess.run(command, capture_output=True, text=True, timeout=2)
     assert result.returncode == 0 and "72929621-22a6-48c9-97ea-df69e0c45918" in result.stdout, result
+    snapshot.write_text(json.dumps({"version": 1, "generation": 7, "rules": []}))
+    try:
+        installer.selectors(snapshot)
+    except ValueError as error:
+        assert "generation" in str(error)
+    else:
+        raise AssertionError("non-string generation accepted")
     snapshot.unlink()
-    print("PASS installer rejects a FIFO before reading and accepts regular selectors")
+    print("PASS installer rejects a FIFO before reading, a non-string generation as invalid input, and accepts regular selectors")
 
     # Authentication can change the process that the protected helper must retire.
     servicepath = temporary / "service.json"

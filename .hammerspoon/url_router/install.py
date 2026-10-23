@@ -105,6 +105,8 @@ def selectors(path):
         raise RuntimeError("The selector snapshot version is invalid")
     if not isinstance(snapshot.get("rules"), list):
         raise RuntimeError("The selector snapshot rules are invalid")
+    if not isinstance(snapshot.get("generation"), str):
+        raise ValueError("The selector snapshot generation is invalid")
     uuid.UUID(snapshot["generation"])
     for rule in snapshot["rules"]:
         if not isinstance(rule, dict) or set(rule) not in ({"host"}, {"pattern"}):
