@@ -71,6 +71,10 @@ int main(int argc, const char **argv) {
       require(status != nil, error.localizedDescription);
       require([status write:@{@"version": @1, @"kind": @"ready", @"generation": @"sandbox", @"pid": @(getpid())} error:&error],
         error.localizedDescription ?: @"atomic temp status creation/write/rename in real swcd sandbox");
+      require(!unlink(statusPath.fileSystemRepresentation)
+        && !rmdir(statusPath.stringByDeletingLastPathComponent.fileSystemRepresentation), @"remove status directory");
+      require([status write:@{@"version": @1, @"kind": @"ready", @"generation": @"recreated", @"pid": @(getpid())} error:&error],
+        error.localizedDescription ?: @"status writer recreates a removed directory");
       dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
       NSLock *lock = [NSLock new]; NSMutableArray *events = [NSMutableArray new];
       URLSelectorStore *store = [[URLSelectorStore alloc] initWithPath:rules report:^(NSDictionary *event) {
@@ -87,7 +91,7 @@ int main(int argc, const char **argv) {
         && [store classifyURL:[NSURL URLWithString:@"https://notion.com/allowed"] snapshot:nil] == 1,
         @"sandbox observes external atomic selector replacement");
       [store stop];
-      puts("PASS actual swcd sandbox: external selector read/watch/replacement, denied external write, atomic temp status acknowledgement");
+      puts("PASS actual swcd sandbox: external selector read/watch/replacement, denied external write, atomic temp status acknowledgement after directory removal");
       return 0;
     }
     NSError *error;

@@ -37,31 +37,35 @@ NSData *URLRouterReadStatus(NSString *path, NSError **error) {
 }
 
 @implementation URLRouterStatus {
-  int _directory;
-  NSString *_name;
+  NSString *_path;
   os_unfair_lock _lock;
+}
+
+// Opens by path each time so a removed directory is recreated.
+- (int)directory:(NSError **)error {
+  NSString *path = _path.stringByDeletingLastPathComponent;
+  if (mkdir(path.fileSystemRepresentation, 0700) != 0 && errno != EEXIST) {
+    failure(error, [@"Could not create status directory: " stringByAppendingString:@(strerror(errno))]);
+    return -1;
+  }
+  int directory = open(path.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  struct stat status;
+  if (directory < 0 || fstat(directory, &status) || !S_ISDIR(status.st_mode)
+      || status.st_uid != getuid() || (status.st_mode & 0077)) {
+    if (directory >= 0) close(directory);
+    failure(error, @"Status directory must be owned by this user with permissions 0700");
+    return -1;
+  }
+  return directory;
 }
 
 - (instancetype)initWithPath:(NSString *)path error:(NSError **)error {
   if (!(self = [super init])) return nil;
   _lock = OS_UNFAIR_LOCK_INIT;
-  _name = path.lastPathComponent;
-  NSString *directory = path.stringByDeletingLastPathComponent;
-  if (mkdir(directory.fileSystemRepresentation, 0700) != 0 && errno != EEXIST) {
-    _directory = -1;
-    failure(error, [@"Could not create status directory: " stringByAppendingString:@(strerror(errno))]);
-    return nil;
-  }
-  _directory = open(directory.fileSystemRepresentation,
-    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-  struct stat status;
-  if (_directory < 0 || fstat(_directory, &status) || !S_ISDIR(status.st_mode)
-      || status.st_uid != getuid() || (status.st_mode & 0077)) {
-    if (_directory >= 0) close(_directory);
-    _directory = -1;
-    failure(error, @"Status directory must be owned by this user with permissions 0700");
-    return nil;
-  }
+  _path = [path copy];
+  int directory = [self directory:error];
+  if (directory < 0) return nil;
+  close(directory);
   return self;
 }
 
@@ -70,11 +74,18 @@ NSData *URLRouterReadStatus(NSString *path, NSError **error) {
   if (!data) return NO;
   NSString *temporary = [@".status-" stringByAppendingString:NSUUID.UUID.UUIDString];
   os_unfair_lock_lock(&_lock);
-  int file = openat(_directory, temporary.fileSystemRepresentation,
+  int directory = [self directory:error];
+  if (directory < 0) {
+    os_unfair_lock_unlock(&_lock);
+    return NO;
+  }
+  int file = openat(directory, temporary.fileSystemRepresentation,
     O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
   if (file < 0) {
+    int saved = errno;
+    close(directory);
     os_unfair_lock_unlock(&_lock);
-    return failure(error, [@"Could not create status file: " stringByAppendingString:@(strerror(errno))]);
+    return failure(error, [@"Could not create status file: " stringByAppendingString:@(strerror(saved))]);
   }
   size_t offset = 0;
   while (offset < data.length) {
@@ -85,15 +96,12 @@ NSData *URLRouterReadStatus(NSString *path, NSError **error) {
   }
   BOOL success = offset == data.length && close(file) == 0;
   if (offset != data.length) close(file);
-  if (success) success = renameat(_directory, temporary.fileSystemRepresentation,
-    _directory, _name.fileSystemRepresentation) == 0;
+  if (success) success = renameat(directory, temporary.fileSystemRepresentation,
+    directory, _path.lastPathComponent.fileSystemRepresentation) == 0;
   int saved = errno;
-  if (!success) unlinkat(_directory, temporary.fileSystemRepresentation, 0);
+  if (!success) unlinkat(directory, temporary.fileSystemRepresentation, 0);
+  close(directory);
   os_unfair_lock_unlock(&_lock);
   return success ?: failure(error, [@"Could not publish status: " stringByAppendingString:@(strerror(saved))]);
-}
-
-- (void)dealloc {
-  if (_directory >= 0) close(_directory);
 }
 @end
