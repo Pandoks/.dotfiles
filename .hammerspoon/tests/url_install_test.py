@@ -450,8 +450,13 @@ elif operation == "bootout" and state["pid"]:
             assert live == defaults and service["original"] and not service["replacement"] and not service["disabled"] and not service["clone_disabled"]
             if mode in ("success", "preflight", "disabled-boolean", "disabled-word"):
                 assert not any(call[0] == "ADMIN" for call in calls)
+        checks = {"stale-ack": "rejects an acknowledgement from another swcd process",
+                  "default-failure": "rejects a partial HTTP(S) default change",
+                  "admin-failure": "keeps Apple's swcd running when a protected step fails and the rollback prompt is cancelled",
+                  "login-default-failure": "rejects a partial HTTP(S) default change at login completion",
+                  "restore-failure": "preserves readiness ordering, keeps the hook while a failed default restore leaves the helper default,"}
         print("PASS lifecycle " + ("rejects " + mode if mode.startswith("disabled-") else
               "failed preflight rolls back all staged filesystem writes" if failure else
               "stage leaves live defaults/service intact and uninstall restores the original helper" if mode == "success" else
-              mode + " preserves readiness ordering and restores defaults/helper/service"))
+              mode + " " + checks.get(mode, "preserves readiness ordering") + " and restores defaults/helper/service"))
 
