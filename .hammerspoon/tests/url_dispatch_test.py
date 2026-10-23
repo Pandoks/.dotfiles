@@ -136,7 +136,7 @@ do {
 
     bridge = replace(main, '"local.pandoks.HammerspoonURLRouter.route" as CFString', 'ProcessInfo.processInfo.environment["URL_TEST_PORT"]! as CFString')
     bridge = replace(bridge, "FileManager.default.homeDirectoryForCurrentUser", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
-    bridge = replace(bridge, "URL(fileURLWithFileSystemRepresentation: cache, isDirectory: true, relativeTo: nil)", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
+    bridge = replace(bridge, "confstr(", "mockConfstr(")
     bridge = replace(bridge, 'NSRunningApplication.runningApplications(withBundleIdentifier: "org.hammerspoon.Hammerspoon")', "mockRunningApplications()")
     bridge = replace(bridge, "private func route", "func route")
     bridge = bridge[:bridge.index("let application = NSApplication.shared")]
@@ -166,6 +166,11 @@ do {
         }
         if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }
     }
+}
+// Only the cache directory resolves to the fixture; any other name fails like a missing directory.
+func mockConfstr(_ name: Int32, _ buffer: UnsafeMutablePointer<CChar>, _ size: Int) -> Int {
+    guard name == _CS_DARWIN_USER_CACHE_DIR else { return 0 }
+    return ProcessInfo.processInfo.environment["URL_TEST_HOME"]!.withCString { strlcpy(buffer, $0, size) + 1 }
 }
 func mockRunningApplications() -> [Int] {
     ProcessInfo.processInfo.environment["URL_TEST_RUNNING"] == "0" ? [] : [1]
