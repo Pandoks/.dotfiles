@@ -46,13 +46,3 @@ mkdir -m 700 ~/grok/config/helium-grokbot-profile
 ```
 
 Install extensions and sign in to sites in that window; they persist.
-
-## Usage
-
-```sh
-PROTON_PASS_SESSION_DIR=~/grok/config/proton-pass/<account> pass-cli ...
-~/.local/share/mise/installs/aqua-pimalaya-himalaya/latest/himalaya ...
-~/grok/bin/grok-browser start | stop | status | run | open | screenshot | dump
-```
-
-Proton Drive is plain files in `~/Library/CloudStorage/ProtonDrive-<account>`.
