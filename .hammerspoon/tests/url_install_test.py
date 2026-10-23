@@ -208,7 +208,7 @@ elif operation == "bootout" and state["pid"]:
         support = home / "Library/Application Support/HammerspoonURLRouter"
         app = home / "Applications/Hammerspoon URL Router.app"
         jobpath = home / "Library/LaunchAgents" / (installer.LABEL + ".plist")
-        statusroot = home / "temporary"
+        statusroot = home / "cache"
         statusroot.mkdir(parents=True)
         app.parent.mkdir(parents=True)
         if mode != "without-helper":
@@ -267,7 +267,9 @@ elif operation == "bootout" and state["pid"]:
         def transport(arguments, mode=mode, **kwargs):
             arguments = [str(item) for item in arguments]
             calls.append(arguments)
-            if arguments[:2] == ["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"]:
+            if arguments[0] == "/usr/bin/getconf":
+                # dirhelper deletes idle files under the temporary directory after 3 days.
+                assert arguments[1:] == ["DARWIN_USER_CACHE_DIR"], arguments
                 return str(statusroot)
             if arguments[:2] == ["/bin/launchctl", "print-disabled"]:
                 if mode == "disabled-boolean":

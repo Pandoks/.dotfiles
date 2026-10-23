@@ -173,8 +173,8 @@ def saved():
     state = json.loads(read(SUPPORT / "state.json"))
     if not isinstance(state, dict) or state.get("version") != 1 or state.get("appPath") != str(APP) or state.get("jobPath") != str(JOB) or state.get("hookPath") != str(SUPPORT / "runtime/hook.dylib"):
         raise RuntimeError("The installed router state is invalid")
-    temporary = Path(run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"])) / "HammerspoonURLRouter/status.json"
-    if state.get("statusPath") != str(temporary) or state.get("selectorsPath") != str(SUPPORT / "selectors/rules.json") or state.get("probePath") != str(SUPPORT / "runtime/hook.dylib.probe"):
+    cache = Path(run(["/usr/bin/getconf", "DARWIN_USER_CACHE_DIR"])) / "HammerspoonURLRouter/status.json"
+    if state.get("statusPath") != str(cache) or state.get("selectorsPath") != str(SUPPORT / "selectors/rules.json") or state.get("probePath") != str(SUPPORT / "runtime/hook.dylib.probe"):
         raise RuntimeError("The installed router paths are invalid")
     return state
 
@@ -190,13 +190,13 @@ def stage(directory):
         raise RuntimeError("The router support directory must not be a symlink")
     SUPPORT.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(SUPPORT, 0o700)
-    temporary = Path(run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"])) / "HammerspoonURLRouter"
-    if temporary.is_symlink():
+    cache = Path(run(["/usr/bin/getconf", "DARWIN_USER_CACHE_DIR"])) / "HammerspoonURLRouter"
+    if cache.is_symlink():
         raise RuntimeError("The router status directory must not be a symlink")
-    temporary.mkdir(mode=0o700, exist_ok=True)
-    os.chmod(temporary, 0o700)
+    cache.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(cache, 0o700)
     paths = {"appPath": str(APP), "jobPath": str(JOB), "selectorsPath": str(SUPPORT / "selectors/rules.json"),
-             "statusPath": str(temporary / "status.json"), "hookPath": str(SUPPORT / "runtime/hook.dylib"),
+             "statusPath": str(cache / "status.json"), "hookPath": str(SUPPORT / "runtime/hook.dylib"),
              "probePath": str(SUPPORT / "runtime/hook.dylib.probe")}
     original = plistlib.loads(ORIGINAL.read_bytes())
     clone = launchjob(original, paths, manifest["codeHash"])
@@ -214,7 +214,7 @@ def stage(directory):
             shutil.copytree(APP, SUPPORT / "original-helper.bundle", symlinks=True)
         shutil.copytree(directory, SUPPORT / "runtime", symlinks=True)
         write(SUPPORT / "state.json", state)
-        write(temporary / "status.json", {"version": 1, "kind": "pending"})
+        write(cache / "status.json", {"version": 1, "kind": "pending"})
     except BaseException:
         if (SUPPORT / "runtime").exists():
             shutil.rmtree(SUPPORT / "runtime")
