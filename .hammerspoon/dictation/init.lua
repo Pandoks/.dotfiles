@@ -4,10 +4,11 @@ local history = require("dictation.history")
 local recorder = require("dictation.recorder")
 local spaced = require("dictation.spacing")
 
+-- Alert, then log: hs.ipc's print raises while a dead `hs` CLI is registered.
 ---@param message string
 local function fail(message)
-  print("Dictation: " .. message)
   hs.alert.show("Dictation: " .. message:match("^[^\n]+"), 5)
+  pcall(print, "Dictation: " .. message)
 end
 
 -- config.lua's settings over the defaults, each replacing its default whole.
@@ -25,7 +26,7 @@ local function spelled(words)
     if type(key) == "number" then
       out[value] = {}
     else
-      out[key] = value
+      out[key] = type(value) == "string" and { value } or value
     end
   end
   return out
@@ -319,7 +320,7 @@ local function toggle()
     recorder.stop(recording, function(wav, peak, duration)
       -- Too short is an accidental tap; too quiet is a mic problem worth showing.
       if duration < config.minDuration then
-        print(("Dictation: discarded (%.2fs < %.2fs)"):format(duration, config.minDuration))
+        pcall(print, ("Dictation: discarded (%.2fs < %.2fs)"):format(duration, config.minDuration))
         return finish()
       elseif peak < config.minLevel then
         -- Named: a Bluetooth headset delivers silence while it switches modes.
@@ -361,6 +362,10 @@ hs.shutdownCallback = function()
   -- A reload must not leave the dictation on the clipboard.
   if restore then
     restore.timer:fire()
+  end
+  -- A take still recording is kept: nothing will transcribe it.
+  if recording and hs.fs.attributes(recording.wav) then
+    keep(recording.wav)
   end
   finish()
   engine:stop()

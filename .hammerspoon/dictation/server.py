@@ -132,6 +132,8 @@ def write_numbers(text, names):
                 return group
             return f"{number}{DECADE[words[-1]]}s"
         if words[-1] in ORDINAL and "point" not in words:  # "twenty first" -> "21st"
+            if words[-1] == "second" and previous in ("a", "an"):
+                return group  # "a thirty-second timeout"
             number, *rest = chunks(words[:-1] + [ORDINAL[words[-1]]])
             if len(words) == 1 or rest or words[0] == "one" and words[-1][:-2] in SCALES:
                 return group  # "third", "one hundredth"
@@ -165,7 +167,10 @@ def write_numbers(text, names):
         scale = VALUE[words[-1]]
         if words[-1] in ("million", "billion") and number % scale == 0 and number < 1000 * scale:
             return f"{number // scale:,} {words[-1]}"  # "a hundred million" -> "100 million"
-        year = 2000 <= number < 2100 and previous in ("in", "since", "until", "during", "by")
+        # "in 2000", "class of 2008"; not "2,000 people", "2,050 of them"
+        dated = previous in ("in", "since", "until", "during", "by")
+        named = number % 1000 and not counted and not re.match(r"(?i) of\b", after)
+        year = 2000 <= number < 2100 and (dated or named)
         return str(number) if year else f"{number:,}"
 
     return RUN.sub(convert, text)
@@ -190,8 +195,15 @@ def looks_rewritten(raw, out):
         found = []
         for token in re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text):
             word = token[0].lower()
+            while word.isdecimal() and len(word) > 1 and word[0] == "0":  # "05" is "oh five"
+                found.append(("oh", token.start(), token.end()))
+                word = word[1:]
             word = UNITS[int(word)] if word.isdecimal() and int(word) < 13 else word
-            if token[0].isupper() or not re.fullmatch(HESITATIONS, word):
+            # An "oh" between numbers is a zero: "two oh one", not "10, oh my god".
+            number = rf"(?:\b(?:{WORD}|oh)\b|\d)"
+            zero = word == "oh" and re.search(rf"(?i){number}[ -]$", text[: token.start()])
+            zero = zero and re.match(rf"(?i)[ -]{number}", text[token.end() :])
+            if token[0].isupper() or zero or not re.fullmatch(HESITATIONS, word):
                 found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end()))
         return found
 
@@ -236,8 +248,8 @@ def looks_rewritten(raw, out):
         return len(found[0].split()) if commas or opens or ends or likes else 0
 
     def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
-        if re.search(r"\d", a + b) or a in VALUE:
-            return False  # "15000" -> "150000" is another number
+        if re.search(r"\d", a + b) or a in VALUE or {a, b} <= VALUE.keys() | ORDINAL.keys():
+            return False  # "15000" -> "150000", "fifteenth" -> "fiftieth" is another number
         return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
 
     def unexplained(ops):  # whether a change isn't a left-out stall, filler, repeat, or correction
@@ -352,6 +364,10 @@ def ensure_question(raw, text):
     """The speech model's closing '?' survives the cleanup's end mark, unless it moved."""
     if not re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) or "?" in text:
         return text
+    # Not when the question was left out: "Sounds good. Yeah?" -> "Sounds good."
+    asked = {fold(w) for w in re.split(r"[.!]\s+", raw.strip())[-1].split()}
+    if not asked & {fold(w) for w in re.split(r"[.!?]\s+", text.strip())[-1].split()}:
+        return text
     return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
 
 
@@ -403,7 +419,9 @@ class Engine:
 
     def spellings(self, request):
         """Each word to spell, the config's and the app's, with what it is misheard as."""
-        words = {**(self.config.get("words") or {}), **(self.app(request).get("words") or {})}
+        words = dict(self.config.get("words") or {})
+        for word, heard in (self.app(request).get("words") or {}).items():
+            words[word] = [*words.get(word, []), *heard]
         return {word: words[word] for word in sorted(words, key=str.lower)}
 
     def glossary(self, request):
@@ -431,7 +449,7 @@ class Engine:
                 (
                     (difflib.SequenceMatcher(None, word, key).ratio(), name)
                     for key, name in keys.items()
-                    if key not in word
+                    if key not in word and key[0] == word[0]  # "tacos" is never "macOS"
                 ),
                 default=(0, ""),
             )

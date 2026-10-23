@@ -157,6 +157,7 @@ check(
             "I'll hammer soon.",
             "You're cast as the lead.",
             "I have two Macs at home.",
+            "Install uTorrent now.",
         ]
     ],
     lambda text: engine.spell(text, {}),
@@ -189,11 +190,17 @@ check(
     ],
     lambda text: symbols.spell(text, {}),
 )
-apps = server.Engine(dict(engine.config, apps={"com.x": {"words": {"Zed": []}}}))
+apps = server.Engine(
+    dict(engine.config, apps={"com.x": {"words": {"Zed": [], "GitHub": ["get hub"]}}})
+)
 check(
-    "an app's words apply only while it is in front",
-    [({"app": "com.x"}, "Use Zed."), ({}, "Use zed.")],
-    lambda request: apps.spell("Use zed.", request),
+    "an app's words apply only while it is in front, added to the others",
+    [
+        (({"app": "com.x"}, "Use zed."), "Use Zed."),
+        (({}, "Use zed."), "Use zed."),
+        (({"app": "com.x"}, "Push to git hub, then get hub."), "Push to GitHub, then GitHub."),
+    ],
+    lambda pair: apps.spell(pair[1], pair[0]),
 )
 latex = server.Engine(dict(engine.config, words={"\\LaTeX": ["latex"], "\\frac": ["frac"]}))
 check(
@@ -308,6 +315,11 @@ check(
         ("Edit ~/two/three.txt now.", "Edit ~/two/three.txt now."),
         ("Use three.js for it.", "Use three.js for it."),
         ("Read fifty shades today.", "Read fifty shades today."),
+        ("Add a thirty-second timeout.", "Add a thirty-second timeout."),
+        ("The class of two thousand eight.", "The class of 2008."),
+        ("March fifth, two thousand twenty five.", "March fifth, 2025."),
+        ("We sold two thousand fifty of them.", "We sold 2,050 of them."),
+        ("Crash of two thousand eight, of course, hit us.", "Crash of 2008, of course, hit us."),
     ],
     lambda text: server.write_numbers(text, ["Fifty Shades"]),
 )
@@ -459,6 +471,7 @@ check(
         ),
         # The speech model's '?' is kept, not one it never put: a retracted question.
         (("Is it ready? No wait, just ship it.", "Just ship it."), "Just ship it."),
+        (("Sounds good. Yeah?", "Sounds good."), "Sounds good."),
         (
             ("Can you send it to John, no wait, to Jane?", "Can you send it to Jane."),
             "Can you send it to Jane?",
@@ -512,6 +525,10 @@ check(
             ("I don't know weather to go.", "I don't know whether to go."),
             ("Send me an e mail.", "Send me an email."),
             ("Call me at 1.30pm.", "Call me at 1:30 pm."),
+            ("I counted to 10 oh my god it was huge.", "I counted to 10, oh my god it was huge."),
+            ("Meet at eight oh five.", "Meet at 8:05."),
+            ("Meet at 10 oh 5.", "Meet at 10:05."),
+            ("It's the forth quarter already.", "It's the fourth quarter already."),
         ]
     ]
     + [
@@ -553,6 +570,12 @@ check(
             ("Don't, don't delete it.", "Delete it."),
             ("Take him to the ER now.", "Take him to the now."),
             ("Let's go with plan A", "Let's go with plan."),
+            ("Room two oh one is free.", "Room two one is free."),
+            ("Meet at 10 oh 5 tomorrow.", "Meet at 10:5 tomorrow."),
+            ("Add 0.5 cups.", "Add 0.05 cups."),
+            ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
+            ("It's on the fifteenth.", "It's on the fiftieth."),
+            ("It's the seventh.", "It's the seventy."),
         ]
     ],
     lambda pair: server.looks_rewritten(*pair),

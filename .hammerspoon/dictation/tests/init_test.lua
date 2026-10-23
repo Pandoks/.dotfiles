@@ -29,8 +29,11 @@ local function load(name, env)
 end
 
 local config = load("defaults", {})
+local mine = load("config", {})
+mine.apps = { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } } }
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
 local hs = {
+  fs = fs,
   alert = {
     show = function(message)
       alerts[#alerts + 1] = message
@@ -113,7 +116,7 @@ local hs = {
 -- init.lua with the real spacing and history; the hotkey, recorder, and backend are stubs to drive.
 local modules = {
   ["dictation.defaults"] = config,
-  ["dictation.config"] = load("config", {}),
+  ["dictation.config"] = mine,
   ["dictation.spacing"] = load("spacing", {}),
   ["dictation.history"] = load("history", { hs = { fs = fs } }),
   ["dictation.overlay"] = {
@@ -360,6 +363,8 @@ test("config.lua's settings replace the defaults, its words sent as one map", fu
   local sent = json.decode(assert(json.encode(settings)))
   assert(sent.speech.model and next(sent.words.Slack) == nil, json.encode(sent.words))
   assert(sent.words.Raycast[1] == "ray cast", json.encode(sent.words))
+  local app = sent.apps["com.x"].words
+  assert(next(app.Zed) == nil and app.Neovim[1] == "neo vim", json.encode(app))
 end)
 
 test("a take too short or too quiet is never sent, and is deleted", function()
@@ -422,13 +427,15 @@ test("a copy made before the clipboard restore is kept", function()
 end)
 
 -- Last: it tears everything down.
-test("shutdown puts the clipboard back and keeps the take still transcribing", function()
+test("shutdown puts the clipboard back and keeps the takes transcribing and recording", function()
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "x" })
   local count = wavs()
   dictate(field("Hi"))
+  escape() -- still transcribing, no longer waited on
+  toggle()
   hs.shutdownCallback()
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
-  assert(wavs() == count + 1 and not fs.attributes(recorded), "the recording is not kept")
+  assert(wavs() == count + 2 and not fs.attributes(recorded), "a recording is not kept")
 end)
 
 print(passed .. " init tests passed")

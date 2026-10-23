@@ -32,12 +32,13 @@ function engine.new(config, handlers)
     self:stop()
     handlers.onError(message)
   end
-  -- Reported, not raised: an error here would stop hs.task reading every later reply.
+  -- Reported, not raised: an error here would stop hs.task reading every later reply. So would
+  -- hs.ipc's print, while a dead `hs` CLI is registered.
   local function call(handler, ...)
     local ok, problem = pcall(handler, ...)
     if not ok then
-      print("Dictation: " .. tostring(problem))
       hs.alert.show("Dictation: " .. tostring(problem):match("^[^\n]*"), 5)
+      pcall(print, "Dictation: " .. tostring(problem))
     end
   end
   -- One request at a time: a second setInput drops what the full pipe has not taken yet.
@@ -55,15 +56,17 @@ function engine.new(config, handlers)
     stderr = stderr or ""
     -- Load chatter (progress bars) stays out of the console; later output, even past exit, goes in.
     if stderr ~= "" and (self.ready or self.stopped) then
-      print("Dictation backend: " .. stderr:gsub("\n$", ""))
+      pcall(print, "Dictation backend: " .. stderr:gsub("\n$", ""))
     end
     if self.stopped then
       return true
     end
     self.errors = (self.errors .. stderr):sub(-4000)
+    -- Anchored and greedy, so one pass however long the line: an unanchored match is quadratic.
     local buffer = self.buffer .. (stdout or "")
-    self.buffer = buffer:match("[^\n]*$") -- a partial line waits for the next chunk
-    for line in buffer:gmatch("([^\n]+)\n") do
+    local lines, partial = buffer:match("^(.*\n)(.*)$")
+    self.buffer = partial or buffer -- a partial line waits for the next chunk
+    for line in (lines or ""):gmatch("[^\n]+") do
       local event = hs.json.decode(line)
       if type(event) ~= "table" then
         failure("invalid backend response: " .. line)
@@ -71,7 +74,7 @@ function engine.new(config, handlers)
       elseif event.event == "ready" then
         -- Load chatter (HF warnings, progress bars) is no crash reason.
         self.ready, self.errors = true, ""
-        print("Dictation: backend ready")
+        pcall(print, "Dictation: backend ready")
       elseif event.event == "final" then
         answered(event.id)
         call(handlers.onFinal, event)

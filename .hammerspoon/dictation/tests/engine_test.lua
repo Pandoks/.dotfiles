@@ -1,6 +1,6 @@
 local root, frameworks = assert(arg[1], "pass the dictation directory"), arg[2]
 local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
-local passed, alerts, output, exit, printed, inputs = 0, {}, nil, nil, {}, {}
+local passed, alerts, output, exit, printed, inputs, dead = 0, {}, nil, nil, {}, {}, false
 
 local function test(name, callback)
   local ok, failure = pcall(callback)
@@ -19,6 +19,7 @@ local engine = assert(loadfile(
     end,
     print = function(text)
       printed[#printed + 1] = text
+      assert(not dead, "ipc port is no longer valid") -- hs.ipc's, with a dead `hs` CLI registered
     end,
     hs = {
       fs = {
@@ -87,6 +88,38 @@ test("what the backend prints once ready reaches the console", function()
   local console = table.concat(printed, "\n")
   assert(not console:find("Downloading", 1, true), "load chatter in the console")
   assert(console:find("requires 9000 MB", 1, true), console)
+end)
+
+test("a print that raises leaves later replies read", function()
+  local finals = {}
+  assert(engine.new({}, {
+    onFinal = function(result)
+      finals[#finals + 1] = result.id
+      error("no window")
+    end,
+    onError = function() end,
+  }))
+  local feed = assert(output, "no backend task")
+  dead = true
+  local ok = pcall(feed, nil, '{"event":"ready"}\n', "Loaded\n")
+  local later = ok and pcall(feed, nil, '{"event":"final","id":1,"text":"a"}\n', "warning\n")
+  dead = false
+  assert(ok and later and #finals == 1, "stopped reading")
+end)
+
+test("a long reply is read in one pass", function()
+  local finals = {}
+  assert(engine.new({}, {
+    onFinal = function(result)
+      finals[#finals + 1] = #result.text
+    end,
+    onError = function() end,
+  }))
+  local line = '{"event":"final","id":1,"text":"' .. ("word "):rep(40000) .. '"}\n'
+  local feed, start = assert(output, "no backend task"), os.clock()
+  feed(nil, '{"event":"ready"}\n' .. line:sub(1, 100000), "")
+  feed(nil, line:sub(100001), "")
+  assert(finals[1] == 200000 and os.clock() - start < 0.5, ("%.2f s"):format(os.clock() - start))
 end)
 
 test("a take waits for the one before it, never written over it", function()
