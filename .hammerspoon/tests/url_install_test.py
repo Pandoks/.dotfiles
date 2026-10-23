@@ -200,6 +200,8 @@ elif operation == "bootout" and state["pid"]:
 
     actual_run = installer.run
     actual_subprocess = installer.subprocess.run
+    rules = json.dumps({"version": 1, "generation": "d0819922-4a5f-479a-9007-b73f80e37a4d", "rules": []})
+    acknowledged = ["d0819922-4a5f-479a-9007-b73f80e37a4d", hashlib.sha256(rules.encode()).hexdigest()]
     for mode in ("success", "preflight", "disabled-boolean", "disabled-word", "activation", "stale-ack", "default-failure", "admin-failure", "login", "login-default-failure", "restore-failure", "cleanup-failure", "without-helper", "job-removal-failure", "restored-reboot", "unsupported-build"):
         failure = mode == "preflight"
         home = temporary / mode
@@ -309,8 +311,11 @@ elif operation == "bootout" and state["pid"]:
                         raise RuntimeError("private ABI check rejected")
                     return "{}"
                 assert service["replacement"]
+                # Like the real probe, acknowledge only the snapshot this test wrote.
+                if arguments[1:] != [str(statusroot / "HammerspoonURLRouter/status.json"), *acknowledged]:
+                    raise RuntimeError("Router did not acknowledge the current selector generation within 10 seconds")
                 return json.dumps({"version": 1, "kind": "ready", "pid": 777 if mode == "stale-ack" else 2147483647,
-                                   "generation": arguments[2], "sha256": arguments[3]})
+                                   "generation": acknowledged[0], "sha256": acknowledged[1]})
             return actual_run(arguments, **kwargs)
 
         with patch.multiple(installer, SUPPORT=support, APP=app, JOB=jobpath), patch.object(installer, "environment", return_value={}), patch.object(installer, "run", side_effect=transport), patch.object(installer, "admin", side_effect=prompt), patch.object(installer.subprocess, "run", side_effect=system):
@@ -339,7 +344,7 @@ elif operation == "bootout" and state["pid"]:
                 if mode != "success":
                     snapshot = support / "selectors/rules.json"
                     snapshot.parent.mkdir()
-                    snapshot.write_text(json.dumps({"version": 1, "generation": "d0819922-4a5f-479a-9007-b73f80e37a4d", "rules": []}))
+                    snapshot.write_text(rules)
                     if mode in ("stale-ack", "default-failure", "admin-failure"):
                         try:
                             installer.activate(True)
