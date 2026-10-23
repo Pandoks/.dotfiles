@@ -124,9 +124,10 @@ Runtime files are under `~/Library/Application Support/HammerspoonURLRouter/`.
 `selectors/rules.json` holds the selectors. The cloned job is
 `~/Library/LaunchAgents/local.pandoks.HammerspoonURLRouter.swcd.plist`.
 It preserves Apple's Mach service, launch events, and execution settings, changing
-only its label and hook environment. Status lives in the user's Darwin temporary
-directory because the `swcd` sandbox cannot write ordinary support directories.
-Both sides recreate the private status directory after a clean shutdown.
+only its label and hook environment. Status lives in the user's Darwin cache
+directory because the `swcd` sandbox cannot write ordinary support directories,
+and dirhelper's daily cleanup skips it. The hook recreates the private status
+directory before each write; Hammerspoon creates it when it starts watching.
 Keep Hammerspoon's launch-at-login setting enabled.
 Hammerspoon failures go to `~/Library/Logs/Hammerspoon/config.log`; the helper
 and installer also use the system log and popups. The helper rejects dispatch

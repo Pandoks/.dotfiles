@@ -69,7 +69,7 @@ int main(int argc, const char **argv) {
       URLRouterStatus *status = [[URLRouterStatus alloc] initWithPath:statusPath error:&error];
       require(status != nil, error.localizedDescription);
       require([status write:@{@"version": @1, @"kind": @"ready", @"generation": @"sandbox", @"pid": @(getpid())} error:&error],
-        error.localizedDescription ?: @"atomic temp status creation/write/rename in real swcd sandbox");
+        error.localizedDescription ?: @"atomic cache status creation/write/rename in real swcd sandbox");
       require(!unlink(statusPath.fileSystemRepresentation)
         && !rmdir(statusPath.stringByDeletingLastPathComponent.fileSystemRepresentation), @"remove status directory");
       require([status write:@{@"version": @1, @"kind": @"ready", @"generation": @"recreated", @"pid": @(getpid())} error:&error],
@@ -83,13 +83,13 @@ int main(int argc, const char **argv) {
       }];
       await(semaphore, events, lock, @"generation", @"sandbox");
       require([store classifyURL:[NSURL URLWithString:@"https://ramp.com/allowed"] snapshot:nil] == 1,
-        @"sandbox reads selectors outside writable temp tree");
+        @"sandbox reads selectors outside the writable cache tree");
       puts("READY sandbox watcher"); fflush(stdout);
       await(semaphore, events, lock, @"generation", @"sandbox-reload");
       require([store classifyURL:[NSURL URLWithString:@"https://ramp.com/allowed"] snapshot:nil] == 0
         && [store classifyURL:[NSURL URLWithString:@"https://notion.com/allowed"] snapshot:nil] == 1,
         @"sandbox observes external atomic selector replacement");
-      puts("PASS actual swcd sandbox: external selector read/watch/replacement, denied external write, atomic temp status acknowledgement after directory removal");
+      puts("PASS actual swcd sandbox: external selector read/watch/replacement, denied external write, atomic cache status acknowledgement after directory removal");
       return 0;
     }
     NSError *error;

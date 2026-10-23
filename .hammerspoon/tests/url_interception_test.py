@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix="url-interception-test.", dir="/var/tmp"
     subprocess.run(["codesign", "--force", "--sign", "-", str(hook)], check=True)
     selectors = directory / "selectors"
     selectors.mkdir(mode=0o700)
-    temporary = subprocess.check_output(["getconf", "DARWIN_USER_TEMP_DIR"], text=True).strip()
+    temporary = subprocess.check_output(["getconf", "DARWIN_USER_CACHE_DIR"], text=True).strip()
     with tempfile.TemporaryDirectory(prefix="url-interception-status.", dir=temporary) as status:
         environment = {key: value for key, value in os.environ.items() if not key.startswith("URL_ROUTER_")}
         environment["DYLD_INSERT_LIBRARIES"] = str(hook)
