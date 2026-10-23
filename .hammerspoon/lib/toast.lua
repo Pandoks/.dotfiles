@@ -31,8 +31,9 @@ local theme = themes.metal
 
 ---@alias ToastSize { w: number, h: number }
 
----@type { text: string, canvas: hs.canvas, screen: hs.screen, timer?: hs.timer }[]
+---@type { id: integer, text: string, canvas: hs.canvas, screen: hs.screen, timer?: hs.timer }[]
 local shown = {} -- oldest first; each screen's newest sits at its bottom
+local count = 0 -- the last toast's id
 
 local function grays(levels)
   local colors = {}
@@ -54,11 +55,11 @@ local function layout()
   end
 end
 
--- By text, which is all the callbacks hold: one holding its own timer is never collected.
----@param text string
-function toast.close(text)
+-- By id, which is all the callbacks hold: one holding its own timer is never collected.
+---@param id integer?
+function toast.close(id)
   for i, entry in ipairs(shown) do
-    if entry.text == text then
+    if entry.id == id then
       table.remove(shown, i)
       if entry.timer then
         entry.timer:stop()
@@ -70,15 +71,15 @@ function toast.close(text)
   end
 end
 
----@param entry { text: string, timer?: hs.timer }
+---@param entry { id: integer, timer?: hs.timer }
 ---@param seconds number|false
 local function arm(entry, seconds)
-  local text = entry.text
+  local id = entry.id
   if entry.timer then
     entry.timer:stop()
   end
   entry.timer = seconds and hs.timer.doAfter(seconds, function()
-    toast.close(text)
+    toast.close(id)
   end) or nil
 end
 
@@ -93,7 +94,7 @@ local function wrap(canvas, text, style, lines)
     return canvas:minimumTextSize(hs.styledtext.new(value, style)) --[[@as ToastSize]]
   end
   local out, line = {}, nil
-  for paragraph in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for paragraph in (text:gsub("\n+$", "") .. "\n"):gmatch("([^\n]*)\n") do
     for word in paragraph:gmatch("%S+") do
       local longer = line and line .. " " .. word or word
       -- Measured only while the line may still break: the last one would grow quadratically.
@@ -103,8 +104,9 @@ local function wrap(canvas, text, style, lines)
         line = longer
       end
     end
-    if line and #out < lines - 1 then
-      out[#out + 1], line = line, nil
+    -- A line break ends the line, a blank one too, until the last line takes the rest.
+    if #out < lines - 1 then
+      out[#out + 1], line = line or "", nil
     end
   end
   out[#out + 1] = line
@@ -113,27 +115,28 @@ local function wrap(canvas, text, style, lines)
   return hs.styledtext.new(joined, style), size(joined)
 end
 
--- Show `text`, titled "Tiling" for "Tiling: no window"; its id for `close` is the text.
+-- Show `text`, titled "Tiling" for "Tiling: no window", and return its id for `close`.
 -- `seconds`: 3 by default, false until closed; `screen`: the focused window's by default.
 ---@param text string
 ---@param options? { failure?: boolean, seconds?: number|false, screen?: hs.screen }
----@return string
+---@return integer?
 function toast.show(text, options)
   options = options or {}
   local seconds = options.seconds
   if seconds == nil then
     seconds = 3
   end
-  -- The same toast again restarts its time instead of stacking.
+  -- The same timed toast again restarts its time instead of stacking; one kept until closed is
+  -- its caller's alone, closed by that caller.
   for _, entry in ipairs(shown) do
-    if entry.text == text then
+    if seconds and entry.timer and entry.text == text then
       arm(entry, seconds)
-      return text
+      return entry.id
     end
   end
   local screen = options.screen or hs.screen.mainScreen()
   if not screen then
-    return text
+    return nil
   end
   local head, rest = text:match("^([^:\n]+): ([^\n]+)$")
   if not head or #head > 24 then
@@ -216,18 +219,20 @@ function toast.show(text, options)
 
   -- A click dismisses it.
   canvas:canvasMouseEvents(true, false, false, false)
+  count = count + 1
+  local id = count
   canvas:mouseCallback(function()
-    toast.close(text)
+    toast.close(id)
   end)
-  local entry = { text = text, canvas = canvas, screen = screen }
+  local entry = { id = id, text = text, canvas = canvas, screen = screen }
   arm(entry, seconds)
   shown[#shown + 1] = entry
   if #shown > most then
-    toast.close(shown[1].text)
+    toast.close(shown[1].id)
   end
   layout()
   canvas:show(0.15)
-  return text
+  return id
 end
 
 -- Pick the look, and make every hs.alert a toast: `show`, `hs.alert(...)`, a Spoon's, a hotkey
@@ -249,7 +254,7 @@ function toast.install(options)
   -- default, another non-number until closed.
   alert.showWithImage = function(message, _, ...)
     local style, screen, seconds
-    for _, value in ipairs(table.pack(...)) do
+    for i, value in ipairs(table.pack(...)) do
       local kind = getmetatable(value)
       if kind and kind == screens and not screen then
         screen = value
@@ -259,6 +264,8 @@ function toast.install(options)
         style = value
       elseif seconds == nil then
         seconds = value
+      else
+        error(("unexpected %s found for argument %d"):format(type(value), i + 1), 2)
       end
     end
     local text = getmetatable(message) == styled and message:getString() or tostring(message)
@@ -268,7 +275,7 @@ function toast.install(options)
   alert.closeSpecific = toast.close
   alert.closeAll = function()
     while shown[1] do
-      toast.close(shown[1].text)
+      toast.close(shown[1].id)
     end
   end
 end
