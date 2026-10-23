@@ -1,7 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <LuaSkin/LuaSkin.h>
 #include <assert.h>
+#include <dlfcn.h>
 #include <spawn.h>
+#include <stdatomic.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -106,12 +108,42 @@ int main(int argc, char **argv) {
   @autoreleasepool {
     assert(argc == 4);
     binary = argv[1]; ffmpeg = argv[2]; directory = argv[3];
+    atomic_int *armed = dlsym(RTLD_DEFAULT, "armed");
+    assert(armed && unsetenv("DYLD_INSERT_LIBRARIES") == 0);
     char reference[1024], path[1024];
     snprintf(reference, sizeof reference, "%s/reference.pcm", directory);
     assert(reap(sine(reference, NO)) == 0);
     LuaSkin *skin = [LuaSkin sharedWithDelegate:[StreamTestLog new]];
     lua_State *state = prepare(skin);
     struct stat info;
+
+    socketPath(state, "existing", path);
+    execute(state, "local long=directory..'/'..string.rep('x',120);"
+      " local close,problem=stream.listen(long,error); assert(close==nil and problem:find('too long'),problem);"
+      " close,problem=stream.listen(directory..'/reference.pcm',error);"
+      " assert(close==nil and problem:find('could not listen'),problem);"
+      " assert(io.open(directory..'/reference.pcm')):close()");
+    socketPath(state, "refused", path);
+    execute(state, "failures={}; close=assert(stream.listen(path,function(chunk,problem)"
+      " assert(chunk==nil); failures[#failures+1]=problem; finish() end))");
+    // No descriptor left for accept(); first, so no earlier stream is still closing one.
+    int client = socket(AF_UNIX, SOCK_STREAM, 0);
+    struct rlimit limits;
+    assert(client >= 0 && getrlimit(RLIMIT_NOFILE, &limits) == 0);
+    struct rlimit tight = { .rlim_cur = (rlim_t)client + 1, .rlim_max = limits.rlim_max };
+    assert(setrlimit(RLIMIT_NOFILE, &tight) == 0);
+    assert(dup(client) < 0 && errno == EMFILE);
+    struct sockaddr_un address = { .sun_family = AF_UNIX };
+    strlcpy(address.sun_path, path, sizeof address.sun_path);
+    assert(connect(client, (struct sockaddr *)&address, sizeof address) == 0);
+    await(3, YES);
+    assert(setrlimit(RLIMIT_NOFILE, &limits) == 0);
+    close(client);
+    await(0.3, NO);
+    execute(state, "assert(#failures==1 and failures[1]:find('accept'),failures[1]);"
+      " local rest,problem=close(); assert(rest=='' and problem==nil)");
+    assert(stat(path, &info) != 0 && errno == ENOENT);
+    pass("listen failures return an error; a stream failure is raised once and stops it");
 
     socketPath(state, "live", path);
     execute(state, "chunks,times={},{}; close=assert(stream.listen(path,function(chunk,problem)"
@@ -145,37 +177,17 @@ int main(int argc, char **argv) {
       " local rest,problem=close(); assert(rest==data and problem==nil,'lost a finished writer') end");
     pass("close() returns every byte not yet delivered, and nothing is delivered after it");
 
-    socketPath(state, "existing", path);
-    execute(state, "local long=directory..'/'..string.rep('x',120);"
-      " local close,problem=stream.listen(long,error); assert(close==nil and problem:find('too long'),problem);"
-      " close,problem=stream.listen(directory..'/reference.pcm',error);"
-      " assert(close==nil and problem:find('could not listen'),problem);"
-      " assert(io.open(directory..'/reference.pcm')):close()");
-    socketPath(state, "refused", path);
-    execute(state, "failures={}; close=assert(stream.listen(path,function(chunk,problem)"
-      " assert(chunk==nil); failures[#failures+1]=problem; finish() end))");
-    // No descriptor left for accept(): earlier streams close theirs asynchronously, so fill any freed.
-    await(0.3, NO);
-    int client = socket(AF_UNIX, SOCK_STREAM, 0);
-    struct rlimit limits;
-    assert(client >= 0 && getrlimit(RLIMIT_NOFILE, &limits) == 0);
-    struct rlimit tight = { .rlim_cur = (rlim_t)client + 1, .rlim_max = limits.rlim_max };
-    assert(setrlimit(RLIMIT_NOFILE, &tight) == 0);
-    int spare[256], spares = 0;
-    while (spares < 256 && (spare[spares] = dup(client)) >= 0) spares++;
-    assert(spares < 256 && errno == EMFILE);
-    struct sockaddr_un address = { .sun_family = AF_UNIX };
-    strlcpy(address.sun_path, path, sizeof address.sun_path);
-    assert(connect(client, (struct sockaddr *)&address, sizeof address) == 0);
+
+    // A read failure lands while bytes are pending, and their callback closes the stream.
+    socketPath(state, "reentrant", path);
+    execute(state, "closed=nil; close=assert(stream.listen(path,function(chunk)"
+      " assert(chunk and not closed,'raised after close()'); closed=table.pack(close()); finish() end))");
+    atomic_store(armed, 1);
+    execute(state, "send(path,'ab')");
     await(3, YES);
-    assert(setrlimit(RLIMIT_NOFILE, &limits) == 0);
-    while (spares) close(spare[--spares]);
-    close(client);
     await(0.3, NO);
-    execute(state, "assert(#failures==1 and failures[1]:find('accept'),failures[1]);"
-      " local rest,problem=close(); assert(rest=='' and problem==nil)");
-    assert(stat(path, &info) != 0 && errno == ENOENT);
-    pass("listen failures return an error; a stream failure is raised once and stops it");
+    execute(state, "assert(closed[1]=='' and closed[2] and closed[2]:find('read'),'close() lost the read error')");
+    pass("close() from a chunk callback returns the read failure that came with the chunk");
 
     socketPath(state, "collected", path);
     snprintf(target, sizeof target, "unix:%s", path);

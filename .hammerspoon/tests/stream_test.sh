@@ -16,4 +16,7 @@ clang -O2 -Wall -Wextra -Wshadow -Wconversion -Wpedantic -Werror \
   -I"$frameworks/LuaSkin.framework/Headers" -F"$frameworks" \
   -framework Foundation -framework LuaSkin -Wl,-rpath,"$frameworks" \
   "$test_dir/stream_test.m" -o "$test_build/stream"
-"$test_build/stream" "$test_build/stream.so" "$ffmpeg" "$test_build"
+clang -O2 -Wall -Wextra -Wconversion -Wpedantic -Werror -dynamiclib \
+  "$test_dir/stream_fault.c" -o "$test_build/fault.dylib"
+DYLD_INSERT_LIBRARIES="$test_build/fault.dylib" \
+  "$test_build/stream" "$test_build/stream.so" "$ffmpeg" "$test_build"

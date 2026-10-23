@@ -84,16 +84,20 @@ static dispatch_queue_t queue;
 
 - (void)deliver {
   __block NSData *chunk;
-  __block NSString *error;
   dispatch_sync(queue, ^{
     self.scheduled = NO;
     if (self.closed) return;
     chunk = [self.pending copy];
     self.pending.length = 0;
+  });
+  if (chunk.length) [self call:chunk error:nil];
+  // Taken after the chunk, so a close() from its callback returns the error instead.
+  __block NSString *error;
+  dispatch_sync(queue, ^{
+    if (self.closed) return;
     error = self.error;
     self.error = nil;
   });
-  if (chunk.length) [self call:chunk error:nil];
   if (error && [self call:nil error:error]) [self finish:nil];
 }
 
