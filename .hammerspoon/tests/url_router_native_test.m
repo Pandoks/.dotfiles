@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
     lua_getglobal(state, "coldReady"); assert(lua_toboolean(state, -1)); lua_pop(state, 1);
     assert(stat(cold.fileSystemRepresentation, &info) == 0 && (info.st_mode & 0777) == 0700);
     execute(state, "cancel(); cancel=nil; collectgarbage('collect')");
-    output("PASS cold status watcher creates a private temporary directory before acknowledgement");
+    output("PASS cold status watcher creates its private status directory before acknowledgement");
 
     NSTask *task = [NSTask new];
     task.executableURL = [NSURL fileURLWithPath:@"/bin/sleep"];
