@@ -487,4 +487,3 @@ path.write_text(json.dumps(state))
               "failed preflight rolls back all staged filesystem writes" if failure else
               "stage leaves live defaults/service intact and uninstall restores the original helper" if mode == "success" else
               mode + " " + checks.get(mode, "preserves readiness ordering") + " and restores defaults/helper/service"))
-
