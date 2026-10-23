@@ -1,10 +1,3 @@
-"""The dictation backend's text pipeline, protocol, and boosted decoder, with stub models.
-
-Run: .hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/server_test.py
-No model load, microphone, or Hammerspoon; only the cleanup tokenizer's small files are fetched,
-once, when they are not cached yet.
-"""
-
 import functools
 import itertools
 import json
@@ -28,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import models  # pyright: ignore[reportMissingImports]
 import server  # pyright: ignore[reportMissingImports]
 
-# Words like config.lua's.
 engine = server.Engine(
     {
         "speech": {"backend": "parakeet-mlx", "model": "stub", "revision": "0" * 40},
@@ -74,8 +66,7 @@ def check(name, cases, function):
 
 
 def dictate(raw, cleaned=None, numbers=False):
-    """Engine.process on `raw` as heard; the cleanup returns `cleaned` (default: its input), and
-    None means the guard rejected it. Number words stay words unless `numbers`."""
+    """Engine.process on `raw`, the cleanup returning `cleaned` or its input; None if rejected."""
     engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
     engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
         prompt="prompt",
@@ -91,7 +82,6 @@ def dictate(raw, cleaned=None, numbers=False):
 
 
 def serve(script, takes, config="{}"):
-    """server.main() after `script` (stubs), fed `takes`; its stdout events and its stderr."""
     run = subprocess.run(
         [
             sys.executable,
@@ -257,7 +247,6 @@ check(
         ("Music from the nineteen eighties.", "Music from the 1980s."),
         ("A million people came.", "1 million people came."),
         ("The call is three thirty pm.", "The call is 3:30 pm."),
-        # One alone, idioms, and readings that are not one number stay words.
         ("One of the ideas was a trinket.", "One of the ideas was a trinket."),
         ("No one came to the meeting.", "No one came to the meeting."),
         ("It was a one-off.", "It was a one-off."),
@@ -323,7 +312,6 @@ check(
     ],
     lambda text: server.write_numbers(text, ["Fifty Shades"]),
 )
-# No run of number words, joins, and endings raises: a take always comes back.
 words = ["one", "twenty", "hundred", "and", "point", "first", "eighties", "a", "thirty", "pm"]
 words += ["million", "oh", "twenty-five", ","]
 for size in (2, 3, 4):
@@ -591,7 +579,6 @@ check(
     ],
     dictate,
 )
-# An empty cleanup types nothing; the result carries what was heard so Hammerspoon keeps it.
 engine.speech = SimpleNamespace(transcribe=lambda wav, hint: "Mmm wha blah", boost=0)
 engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
     prompt="prompt", complete=lambda messages, raw: ""
@@ -599,7 +586,6 @@ engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
 assert engine.process("take.wav", {}) == "" and engine.heard == "Mmm wha blah", engine.heard
 print("PASS an empty cleanup types nothing and keeps what was heard")
 
-# Only protocol lines reach stdout: a library that prints, on load or during a take, goes to stderr.
 chatty = """
 class Chatty:
     def __init__(self, config):
@@ -618,12 +604,10 @@ events, stderr = serve(chatty, [{"id": 1, "wav": "x.wav"}])
 assert events == [{"event": "ready"}, {"event": "final", "id": 1, "text": "ok", "heard": None}]
 assert "native chatter" in stderr, stderr
 print("PASS a library that prints cannot corrupt the protocol")
-# A failed load reports why before it exits, and is never ready.
 events, stderr = serve("", [], config='{"speech": {"backend": "nope"}}')
 assert [e["event"] for e in events] == ["error"] and "id" not in events[0], events
 assert "nope" in events[0]["msg"] and "Traceback" in stderr, (events, stderr)
 print("PASS a failed load reports an error and never ready")
-# A rewritten take fails with what was heard, no traceback; a failed transcription heard nothing.
 takes = """
 from types import SimpleNamespace
 heard = iter(["Send fifteen dollars.", "Send it."])
@@ -649,7 +633,7 @@ assert events[3]["heard"] is None and "speech model failed" in events[3]["msg"],
 assert stderr.count("Traceback") == 1, stderr
 print("PASS a failed take reports what was heard, and only a bug's traceback")
 
-# The model may close the template's think block again; only what follows is the reply.
+# The model may close the template's think block again.
 cleaner = models.MlxLm(stub)
 cleaner.llm, cleaner.tokenizer = None, tokenizer  # pyright: ignore[reportAttributeAccessIssue]
 with mock.patch("mlx_lm.generate", return_value="Fix the bug.</think>\n\nFix the bug."):
@@ -659,7 +643,6 @@ print("PASS a stray closing think tag leaves only the reply")
 
 
 def load_adapter(files):
-    """MlxLm.load with an adapter download holding `files`: its prompt, or the failure."""
     with tempfile.TemporaryDirectory() as folder:
         for name, text in files.items():
             Path(folder, name).write_text(text)
@@ -687,7 +670,6 @@ check(
 
 
 def styled(config):
-    """An Engine for `config` with config.lua's adapter: its load failure, or "ok"."""
     adapter = {"adapter": "stub/adapter", "adapterRevision": "0" * 40}
     try:
         server.Engine(dict(engine.config, cleanup=dict(stub, enabled=True, **adapter), **config))
@@ -736,7 +718,7 @@ class Model:
     """Weightless TDT model: `logits[last token][step]` is the joint output."""
 
     vocabulary = ("▁ok", "i", "ay", "▁g", "it", "hub", "'s", "▁me", "▁M", "e", ".")
-    vocabulary += ("<unk>", "<|eo|>")  # special pieces
+    vocabulary += ("<unk>", "<|eo|>")
     durations = (0, 1, 2)
     max_symbols = 3
     time_ratio = 0.08
@@ -752,7 +734,7 @@ class Model:
         return self.logits[int(decoder_out[0, 0, 0])][int(feature[0, 0, 0])].reshape(1, 1, 1, -1)
 
     def decode(self, greedy, steps):
-        """Run ParakeetTDT.decode, which calls decode_greedy as ParakeetSpeech replaces it."""
+        """Run ParakeetTDT.decode, which calls decode_greedy as Parakeet replaces it."""
         self.decode_greedy = functools.partial(greedy, self)
         features = mx.arange(steps, dtype=mx.float32).reshape(1, steps, 1)
         tokens, states = ParakeetTDT.decode(self, features)  # pyright: ignore[reportArgumentType]
@@ -784,7 +766,6 @@ blank = len(Model.vocabulary)
 
 
 def speak(frames, words, bonus):
-    """Boosted decoding of `frames` ({piece: score}) with `words` listed."""
     rows = mx.full((len(frames) + 1, width), -20.0).at[-1, blank].add(30).at[:, blank + 2].add(30)
     for step, frame in enumerate(frames):
         for piece, score in frame.items():

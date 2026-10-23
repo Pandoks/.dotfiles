@@ -1,4 +1,3 @@
--- Each character of `chars` as a key.
 local function set(chars)
   local result = {}
   for _, code in utf8.codes(chars) do

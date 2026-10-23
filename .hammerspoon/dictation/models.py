@@ -1,5 +1,3 @@
-"""Swappable models: subclass Speech or Cleaner and register it under the config's `backend`."""
-
 import functools
 import os
 import re
@@ -70,8 +68,6 @@ class Boosted:
 
 
 class Speech:
-    """Speech to text: `load()` once, then `transcribe(wav, hint)`, `hint` the words to spell."""
-
     boost = 0  # Parakeet TDT: log-prob bonus per matching vocabulary letter
 
     def __init__(self, speech):
@@ -143,7 +139,7 @@ class Whisper(Speech):
     def transcribe(self, wav, hint):
         import mlx_whisper
 
-        prompt = ", ".join(hint) or None  # the vocabulary goes in as a prompt
+        prompt = ", ".join(hint) or None
         result = mlx_whisper.transcribe(wav, path_or_hf_repo=self.path, initial_prompt=prompt)
         return result["text"].strip()  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -162,8 +158,6 @@ SPEECH = {"parakeet-mlx": Parakeet, "mlx-whisper": Whisper, "mlx-audio": MlxAudi
 
 
 class Cleaner:
-    """Cleanup: `load()` once, then `complete(messages, raw)` greedily, with room to echo `raw`."""
-
     prompt = None  # a cleanup-trained adapter's own prompt, used verbatim; None = plain model
     words = frozenset()  # its tokenizer's whole words, kept as real words by the spelling pass
 

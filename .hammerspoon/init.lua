@@ -34,8 +34,7 @@ end
 --  hs.eventtap.keyStrokes("")
 -- end)
 
--- Local, free, Raycast-style dictation (./dictation); MLX needs Apple Silicon and macOS 14+. Last,
--- so a load error in it stops nothing else.
+-- MLX needs Apple Silicon and macOS 14+; last, so a load error in it stops nothing else.
 if
   (hs.processInfo.arch == "arm64" or hs.processInfo.isRosetta)
   and hs.host.operatingSystemVersion()["major"] >= 14

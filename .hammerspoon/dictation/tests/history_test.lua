@@ -1,7 +1,7 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 local date, clock = os.date, 0
--- history.lua with the real hs.fs, stamping takes at a clock the tests set.
+-- os.date reads a clock the tests set, so take names are known.
 local history = assert(loadfile(
   root .. "/history.lua",
   "t",
@@ -29,7 +29,6 @@ end
 local directory = scratch .. "/history"
 local settings = { directory = directory, maxMegabytes = 3 * 4096 / 1024 / 1024 } -- three blocks
 
--- Owner-only even if it already existed; stamped, suffixed within the second.
 os.execute(("mkdir -m 755 '%s'"):format(directory))
 assert(not history.prepare(settings) and fs.attributes(directory, "permissions") == "rwx------")
 clock = os.time({ year = 2026, month = 1, day = 2, hour = 3, min = 4, sec = 5 })
@@ -49,7 +48,7 @@ local want = "2026-01-02_03-04-05 copy.txt 2026-01-02_03-04-06.txt 2026-01-02_03
   .. "2026-01-02_03-04-08.txt notes.txt"
 assert(list(directory) == want, list(directory))
 
--- A kept recording moves in, and pruning never deletes it.
+-- Pruning never deletes a kept recording.
 local wav = scratch .. "/take.wav"
 local file = assert(io.open(wav, "w"))
 file:write("RIFF")

@@ -1,4 +1,3 @@
-# Backend deps; setup.sh runs `uv sync --locked` (refresh: `uv lock --upgrade`).
 [project]
 name = "dictation"
 version = "0"

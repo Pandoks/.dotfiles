@@ -12,7 +12,6 @@ local function folder(settings)
   )
 end
 
--- Create the folder, owner-only even if it already existed; once, at load.
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.prepare(settings)
@@ -23,12 +22,10 @@ function history.prepare(settings)
   end
 end
 
--- A free <timestamp>.<extension> path in the folder.
 ---@param settings DictationHistoryConfig
 ---@param extension string
 local function slot(settings, extension)
   local directory = folder(settings)
-  -- A second take in the same second gets a suffix.
   local stamp = tostring(os.date("%Y-%m-%d_%H-%M-%S"))
   local path, count = ("%s/%s.%s"):format(directory, stamp, extension), 1
   while hs.fs.attributes(path) do
@@ -38,7 +35,6 @@ local function slot(settings, extension)
   return path
 end
 
--- Save `text` as <timestamp>.txt.
 ---@param text string
 ---@param settings DictationHistoryConfig
 ---@return string? failure
@@ -53,7 +49,7 @@ function history.save(text, settings)
   total = total and total + hs.fs.attributes(path, "blocks") * 512
 end
 
--- Move a recording in as <timestamp>.wav, never pruned: it is the only copy of what was said.
+-- Never pruned: it is the only copy of what was said.
 ---@param wav string
 ---@param settings DictationHistoryConfig
 ---@return string? failure

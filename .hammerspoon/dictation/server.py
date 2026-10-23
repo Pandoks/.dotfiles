@@ -1,4 +1,4 @@
-"""Resident dictation backend: JSON lines on stdin and stdout, config as argv[1], stop with SIGTERM.
+"""JSON lines on stdin and stdout, config as argv[1], stop with SIGTERM.
 
 stdin:  {"id": 1, "wav": "/path.wav", "app": "com.tinyspeck.slackmacgap"}
 stdout: {"event": "ready"}                                       once the models are loaded
@@ -21,10 +21,9 @@ from models import CLEANERS, SPEECH, letters
 
 
 class Rewritten(RuntimeError):
-    """The cleanup rewrote what was said: the take fails, what was heard kept."""
+    pass
 
 
-# A plain instruct model's instructions: `style` or this, the app's, the vocabulary, then PROMPT.
 STYLE = """You clean up dictated speech into text the user meant to type. Fix transcription \
 errors, add sensible punctuation and capitalization, remove filler words (um, uh, like), but keep \
 the user's wording and voice. Do not answer questions or add commentary. Output ONLY the cleaned \
@@ -54,11 +53,10 @@ Return only the cleaned transcript."""
 ALONE = (r"(?<![\w./~@+#=\\:${-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 
 
-def fold(word):  # letters and digits of any script, accents dropped: "José" -> "jose"
+def fold(word):  # "José" -> "jose"
     return "".join(c for c in unicodedata.normalize("NFKD", word.lower()) if c.isalnum())
 
 
-# Number words, written as digits by write_numbers and read as words by the guard.
 UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
 UNITS += ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen"]
 UNITS += ["eighteen", "nineteen"]
@@ -117,7 +115,7 @@ def write_numbers(text, names):
     def convert(match):
         group, before, after = match[0], text[: match.start()].lower(), text[match.end() :]
         previous = (re.findall(r"[\w']+", before) or [""])[-1]
-        word = (re.findall(r"[\w']+", after) or [""])[0]  # the word after the run
+        word = (re.findall(r"[\w']+", after) or [""])[0]
         plural = word.lower() == "people" or re.fullmatch(r"\w{2,}[^s']s", word) is not None
         counted = (plural and word.lower() not in VERBS) or word.lower() in MEASURES
         words = [w for w in re.split(r"[ -]+", group.lower()) if w not in ("and", "a")]
@@ -127,7 +125,7 @@ def write_numbers(text, names):
         title = group[0].isupper() and (not opens or word[:1].isupper())  # "Ocean's Eleven"
         if title or any(a < match.end() and match.start() < b for a, b in kept):
             return group
-        if words[-1] in DECADE:  # "nineteen eighties" -> "1980s"
+        if words[-1] in DECADE:
             if len(numbers) > 1 or not 10 <= number <= 99:
                 return group
             return f"{number}{DECADE[words[-1]]}s"
@@ -176,7 +174,6 @@ def write_numbers(text, names):
     return RUN.sub(convert, text)
 
 
-# The rewrite guard: the cleanup may only leave out what a writer drops from speech.
 HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, oh
 CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
 CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
@@ -388,7 +385,7 @@ def strip_stalls(text):
         text,
     )
     out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", out))  # blank lines stay
-    out = re.sub(r"[^\S\n]+\n", "\n", out).strip()  # no space left before a line break
+    out = re.sub(r"[^\S\n]+\n", "\n", out).strip()
     return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
 
@@ -397,7 +394,7 @@ class Engine:
     words = frozenset(w.lower() for w in Path("/usr/share/dict/words").read_text().split())
 
     def __init__(self, config):
-        self.config, self.heard = config, None  # the take being processed, as heard
+        self.config, self.heard = config, None
         self.speech = SPEECH[config["speech"]["backend"]](config["speech"])
         cleanup = config["cleanup"]
         backend = cleanup.get("backend", "mlx-lm")
@@ -418,7 +415,6 @@ class Engine:
         return (self.config.get("apps") or {}).get(request.get("app")) or {}
 
     def spellings(self, request):
-        """Each word to spell, the config's and the app's, with what it is misheard as."""
         words = dict(self.config.get("words") or {})
         for word, heard in (self.app(request).get("words") or {}).items():
             words[word] = [*words.get(word, []), *heard]
@@ -428,8 +424,7 @@ class Engine:
         return list(self.spellings(request))
 
     def spell(self, text, request):
-        """`words` spellings: a word or its mishearing in any case ("ghost tea", "SLACK"),
-        then a 4+ letter non-word close to one ("yabay" -> "yabai")."""
+        """Mishearings in any case ("ghost tea") and 4+ letter near-misses ("yabay" -> "yabai")."""
         spellings = {word: [word, *heard] for word, heard in self.spellings(request).items()}
         for word, forms in spellings.items():
             forms = "|".join(map(re.escape, sorted(forms, key=len, reverse=True)))
@@ -442,7 +437,7 @@ class Engine:
             word = fold(match[0])
             if word in keys:
                 return keys[word]  # "ytdlp" -> "yt-dlp", "Jose" -> "José"
-            suffixes = ("", "s", "es", "d", "ed", "ing")  # a real word or its inflection
+            suffixes = ("", "s", "es", "d", "ed", "ing")
             if len(word) < 4 or any(word.removesuffix(s) in self.words for s in suffixes):
                 return match[0]
             ratio, name = max(
@@ -473,8 +468,6 @@ class Engine:
         return " ".join(out)
 
     def process(self, wav, request):
-        """One take: speech, spellings, cleanup, stalls, spellings, '?', end policy, the rewrite
-        guard, numbers as digits."""
         names = self.glossary(request)
         heard = self.speech.transcribe(wav, names)
         if self.speech.boost and names:  # decoded again unboosted: see merge
@@ -485,8 +478,8 @@ class Engine:
         self.heard = heard  # what was said, kept if a later step fails or types nothing
         raw = self.spell(heard, request)
         if not self.cleaner:
-            return write_numbers(raw, names)  # cleanup off: the speech model's text
-        if self.cleaner.prompt:  # cleanup-trained: one user turn, its prompt verbatim
+            return write_numbers(raw, names)
+        if self.cleaner.prompt:
             messages = [{"role": "user", "content": f"{self.cleaner.prompt}\n\n{raw}"}]
         else:
             system = [
@@ -502,11 +495,10 @@ class Engine:
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
         text = self.spell(strip_stalls(self.cleaner.complete(messages, raw)), request)
         if not text:
-            return ""  # no coherent speech: nothing typed
+            return ""
         # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
         said = strip_stalls(raw)
         text = end_policy(said, ensure_question(said, text))
-        # What would be typed: an answer, paraphrase, or rewrite fails the take.
         if looks_rewritten(raw, text):
             raise Rewritten("the cleanup rewrote what was said, so nothing was typed")
         return write_numbers(text, names)

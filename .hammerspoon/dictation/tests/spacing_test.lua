@@ -22,48 +22,48 @@ for _, case in ipairs({
   { "[", "", "]", "link", "link" },
   { "{", "", "}", "x", "x" },
   { "<", "", ">", "div", "div" },
-  { "“", "", "”", "hi", "hi" }, -- smart quotes (Notes, Pages, Mail)
+  { "“", "", "”", "hi", "hi" },
   { "‘", "", "’", "hi", "hi" },
   { "", "", "(aside)", "Note", "Note " },
   { "~/", "", "", "notes", "notes" },
   { "end", "", ".", "word", " word" },
-  { 'He said "', "", '"', "hi", "hi" }, -- opening straight quote
+  { 'He said "', "", '"', "hi", "hi" },
   { 'She said "I want ', "", '" and left.', "it", "it" }, -- a closing quote after a space
   { "He said '", "", "'", "hi", "hi" },
-  { '("', "", "", "hi", "hi" }, -- a quote opening after an opener
-  { 'He said "hi"', "", "", "and left.", " and left." }, -- closing straight quote
+  { '("', "", "", "hi", "hi" },
+  { 'He said "hi"', "", "", "and left.", " and left." },
   { "", "", '"quoted"', "Say", "Say " },
-  { "", "Sam", "'s car", "John", "John" }, -- an apostrophe inside a word
-  { "Ask ", "Sam", "'s mom.", "John", "John" }, -- a selected name before 's mid-sentence
+  { "", "Sam", "'s car", "John", "John" },
+  { "Ask ", "Sam", "'s mom.", "John", "John" },
   { "Sam", "", "'s", "uel", " uel" },
   { "a ", "foo ", "'quoted'", "bar", "bar " },
-  { "run `", "", "`", "ls", "ls" }, -- an inline code span
+  { "run `", "", "`", "ls", "ls" },
   { "", "", "`ls`", "Run", "Run " },
   { "😀", "", "", "hi", " hi" },
-  { "😀 ", "", "world", "hi", "hi " }, -- an emoji is two units
+  { "😀 ", "", "world", "hi", "hi " },
   { "a ", "foo", " b", "bar", "bar" },
   { "a😀", "foo", "b", "bar", " bar " },
-  { "", "", "éclair", "hello", "hello " }, -- a word in any script
+  { "", "", "éclair", "hello", "hello " },
   { "", "", "日本", "hello", "hello " },
   { "", "", "—then", "hello", "hello" }, -- a dash is a mark, not a word
-  { "", "", "？", "hello", "hello" }, -- fullwidth punctuation
+  { "", "", "？", "hello", "hello" },
   { "你好", "", "世界", "漂亮", "漂亮" }, -- scripts without spaces between words
   { "你好。", "", "", "漂亮", "漂亮" },
   { "你好", "", "", "hello", " hello" },
-  { "/usr/", "local", "/bin", "share", "share" }, -- a path segment
-  { "foo.", "local", ".bar", "remote", "remote" }, -- a dotted name's part
+  { "/usr/", "local", "/bin", "share", "share" },
+  { "foo.", "local", ".bar", "remote", "remote" },
   { "foo.", "", "bar", "remote", "remote" },
   { "/usr/", "", "bin", "local", "local" },
   { "/usr", "", "/bin", "local", "local" },
-  { "foo-", "bar", "", "remote", "remote" }, -- a hyphenated name's part
+  { "foo-", "bar", "", "remote", "remote" },
   { "foo_", "", "bar", "remote", "remote" },
-  { "user@", "example", ".com", "work", "work" }, -- an email address's part
+  { "user@", "example", ".com", "work", "work" },
   { "user", "", "@example.com", "new", "new" },
   { "user+", "tag", "@example.com", "new", "new" },
-  { "KEY=", "old", "", "new", "new" }, -- an assignment's value
-  { "C:\\", "old", "\\file", "new", "new" }, -- a Windows path's part
-  { "image:", "latest", "", "stable", "stable" }, -- an image tag
-  { "fo", "ob", "ar", "baz", "baz" }, -- part of a word
+  { "KEY=", "old", "", "new", "new" },
+  { "C:\\", "old", "\\file", "new", "new" },
+  { "image:", "latest", "", "stable", "stable" },
+  { "fo", "ob", "ar", "baz", "baz" },
   { "Note:", "", "", "hi", " hi" },
 }) do
   local before, selected, after, text, want = table.unpack(case)

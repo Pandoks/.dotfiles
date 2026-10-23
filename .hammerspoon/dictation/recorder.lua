@@ -118,7 +118,7 @@ function recorder.start(bands, onError)
       recording.done(wav, recording.peak, recording.offset / (2 * rate))
     end
   end, function(_, _, errors)
-    failure(errors or "") -- a streaming task keeps stdin open
+    failure(errors or "") -- streaming keeps stdin open for the watchdog
     return true
   end, {
     "-c",
@@ -173,7 +173,6 @@ function recorder.start(bands, onError)
   return recording
 end
 
--- Read new PCM and analyze the latest window; nil until a full window exists. Called per frame.
 ---@param recording DictationRecording
 ---@return number[]? bands each 0..1: auto-gained shape times loudness over the room
 function recorder.poll(recording)

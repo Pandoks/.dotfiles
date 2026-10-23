@@ -13,7 +13,6 @@ local function test(name, callback)
   print("PASS " .. name)
 end
 
--- Every method a no-op that succeeds.
 local function stub(fields)
   return setmetatable(fields or {}, {
     __index = function()
@@ -86,7 +85,6 @@ local hs = {
       }
     end,
   },
-  -- Every write counts, as NSPasteboard's changeCount does.
   pasteboard = {
     readAllData = function()
       return clipboard
@@ -113,7 +111,6 @@ local hs = {
   },
 }
 
--- init.lua with the real spacing and history; the hotkey, recorder, and backend are stubs to drive.
 local modules = {
   ["dictation.defaults"] = config,
   ["dictation.config"] = mine,
@@ -131,7 +128,6 @@ local modules = {
       assert(io.open(recorded, "w")):close()
       return { wav = recorded }
     end,
-    -- As the real one: `done` gets the finished wav; cleanup deletes it and cancels `done`.
     stop = function(capture, callback)
       capture.done = callback
       done = function()
@@ -181,8 +177,7 @@ local function app(bundle)
   }
 end
 
--- A text area holding `before`, the cursor at its end; `deaf` takes writes but keeps its value
--- (Chromium), `fixed` takes none (a terminal).
+-- `deaf` takes writes but keeps its value (Chromium); `fixed` takes none (a terminal).
 local function field(before, deaf, fixed)
   local element = { value = before }
   function element:attributeValue(name)
@@ -206,7 +201,6 @@ local function field(before, deaf, fixed)
   return element
 end
 
--- A take into `element`, recorded and stopped; its request id.
 local function dictate(element)
   alerts, strokes, focus = {}, {}, element
   toggle()
@@ -215,7 +209,6 @@ local function dictate(element)
   return serial
 end
 
--- Whether a transcript in history holds exactly `text`.
 local function saved(text)
   for entry in fs.dir(directory) do
     local file = entry:match("%.txt$") and assert(io.open(directory .. "/" .. entry))
@@ -226,7 +219,6 @@ local function saved(text)
   return false
 end
 
--- Recordings kept in history.
 local function wavs()
   local count = 0
   for entry in fs.dir(directory) do

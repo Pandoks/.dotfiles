@@ -11,7 +11,6 @@ local function fail(message)
   pcall(print, "Dictation: " .. message)
 end
 
--- config.lua's settings over the defaults, each replacing its default whole.
 local config = require("dictation.defaults")
 for key, value in pairs(require("dictation.config")) do
   if config[key] == nil then
@@ -48,9 +47,7 @@ local state = "idle"
 local overlay, recording, animation
 -- The request whose text gets typed, and the field focused when its take stopped.
 local inflight, target, targetError
--- Wavs the backend has yet to answer, by request id.
 local wavs = {}
--- The clipboard to put back after the last paste.
 local restore
 
 -- Gecko apps apply accessibility writes late, after the read-back that would then paste it again.
@@ -110,7 +107,6 @@ local function paste(text)
   }
 end
 
--- An attribute of the focused field, or whether it is settable; nil when unsupported.
 ---@param element hs.axuielement
 ---@param name string
 ---@param settable? boolean
@@ -127,7 +123,6 @@ local function read(element, name, settable)
   return value
 end
 
--- Into the field focused at stop, by accessibility write or ⌘V. Raises on failure.
 ---@param text string
 local function insert(text)
   if targetError then
@@ -173,7 +168,6 @@ local function insert(text)
   end
 end
 
--- Deliver `text`, if any, and return to idle.
 ---@param text string?
 local function finish(text)
   if text and config.insert == "clipboard" then
@@ -198,7 +192,6 @@ local function finish(text)
   dictation.cancel:disable()
 end
 
--- Move a recording into history: with no transcript, it is the only copy of what was said.
 ---@param wav string
 local function keep(wav)
   local problem = history.keep(wav, config.history)
@@ -208,9 +201,8 @@ local function keep(wav)
   )
 end
 
--- Save the text that came back for take `id` and delete its wav; with no reply, keep the wav.
 ---@param id integer
----@param text string? "" when nothing was heard
+---@param text string? nil when no reply came, "" when nothing was heard
 ---@return boolean saved
 local function settle(id, text)
   local wav = wavs[id]
@@ -234,7 +226,6 @@ end
 local engine, problem = Engine.new(config, {
   onFinal = function(result)
     local text = result.text ~= "" and result.text or nil
-    -- With nothing to type, what the speech model heard is saved.
     local saved = settle(result.id, text or result.heard or "")
     if inflight == result.id then
       if not text then
@@ -269,7 +260,6 @@ local engine, problem = Engine.new(config, {
 })
 if not engine then
   fail(tostring(problem))
-  -- The hotkey says why too, rather than doing nothing.
   dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, function()
     fail(tostring(problem))
   end)
@@ -304,7 +294,6 @@ local function toggle()
       return finish()
     end
     recording = capture
-    -- 30 fps: the ripple intro, the equalizer once the mic opens, then the shimmer.
     animation = hs.timer.doEvery(1 / 30, function()
       pill:update(state == "recording" and recorder.poll(capture))
     end)
@@ -314,7 +303,6 @@ local function toggle()
   elseif state == "recording" then
     state = "thinking"
     local pill = overlay
-    -- The app at stop, for its per-app style and vocabulary.
     local app = hs.application.frontmostApplication()
     local bundle = app and app:bundleID()
     recorder.stop(recording, function(wav, peak, duration)
@@ -354,7 +342,6 @@ if not dictation.hotkey then
   fail("could not register the hotkey; another app or macOS already uses it")
   engine:stop()
 end
--- Enabled only while dictating, so Escape works normally otherwise.
 dictation.cancel = hs.hotkey.new({}, "escape", finish)
 
 local shutdown = hs.shutdownCallback

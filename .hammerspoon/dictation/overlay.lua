@@ -10,7 +10,6 @@ local spread = 0.80 -- fraction of width the bars occupy
 local peak = 0.34 -- tallest bar as a fraction of height
 local fade = 12 -- frames (~0.4 s at 30 fps) from the ripple intro to the live equalizer
 
--- A pill shown near the bottom of the screen with the focused window.
 ---@param height number
 function overlay.new(height)
   local width, barWidth = height * aspect, height * thickness
@@ -21,10 +20,10 @@ function overlay.new(height)
     width = width,
     barWidth = barWidth,
     baseline = {}, -- an idle pill's diamond envelope, like Raycast's
-    bars = {}, -- live heights, smoothed
-    thinking = false, -- shimmer while transcribing
+    bars = {},
+    thinking = false,
     warmth = 1, -- 1 = ripple intro, fading to 0 = live equalizer
-    phase = 0, -- the intro blooms from the center at 0
+    phase = 0,
   }, overlay)
   local bands = overlay.bands
   for i = 1, 2 * bands - 1 do
@@ -69,7 +68,6 @@ function overlay.new(height)
   return self
 end
 
--- Recompute every bar's frame from the current state.
 function overlay:layout()
   local height, width, barWidth = self.height, self.width, self.barWidth
   local count = #self.bars
@@ -107,7 +105,7 @@ function overlay:layout()
   end
 end
 
--- One frame: the ripple or shimmer moves on; live `bands` (low to high) mirror out from the center.
+-- Live `bands` (low to high) mirror out from the center bar.
 ---@param bands? number[]|false
 function overlay:update(bands)
   self.phase = self.phase + 0.35

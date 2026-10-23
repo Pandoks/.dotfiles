@@ -32,8 +32,7 @@ function engine.new(config, handlers)
     self:stop()
     handlers.onError(message)
   end
-  -- Reported, not raised: an error here would stop hs.task reading every later reply. So would
-  -- hs.ipc's print, while a dead `hs` CLI is registered.
+  -- A raise here stops hs.task's later replies; so does hs.ipc's print with a dead `hs` CLI.
   local function call(handler, ...)
     local ok, problem = pcall(handler, ...)
     if not ok then
@@ -65,7 +64,7 @@ function engine.new(config, handlers)
     -- Anchored and greedy, so one pass however long the line: an unanchored match is quadratic.
     local buffer = self.buffer .. (stdout or "")
     local lines, partial = buffer:match("^(.*\n)(.*)$")
-    self.buffer = partial or buffer -- a partial line waits for the next chunk
+    self.buffer = partial or buffer
     for line in (lines or ""):gmatch("[^\n]+") do
       local event = hs.json.decode(line)
       if type(event) ~= "table" then
@@ -119,7 +118,6 @@ function engine.new(config, handlers)
   return self
 end
 
--- Queue `wav`, recorded with app `app` in front; its id, or nil and why not.
 ---@param wav string
 ---@param app string?
 function engine:transcribe(wav, app)

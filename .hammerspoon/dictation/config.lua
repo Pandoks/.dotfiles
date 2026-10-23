@@ -1,4 +1,3 @@
--- Your settings; defaults.lua has the rest, and any of its keys can go here.
 ---@type DictationConfig
 return {
   hotkey = { mods = { "alt" }, key = "space" },

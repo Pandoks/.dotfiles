@@ -9,7 +9,6 @@ local function test(name, callback)
   print("PASS " .. name)
 end
 
--- engine.lua with its backend task stubbed: the tests feed the task's output callback.
 local engine = assert(loadfile(
   root .. "/engine.lua",
   "t",
@@ -82,7 +81,7 @@ test("what the backend prints once ready reaches the console", function()
   assert(engine.new({}, { onFinal = function() end, onError = function() end }))
   local feed = assert(output, "no backend task")
   printed = {}
-  feed(nil, "", "Downloading: 100%\n") -- load chatter
+  feed(nil, "", "Downloading: 100%\n")
   feed(nil, '{"event":"ready"}\n', "")
   feed(nil, "", "[WARNING] Generating with a model that requires 9000 MB\n")
   local console = table.concat(printed, "\n")
@@ -155,7 +154,7 @@ test("a backend that fails, dies, or says something unknown fails once and says 
     { '{"event":"error","msg":"load failed"}\n', "KeyError" }, -- the traceback printed before it
     { '{"event":"ready"}\nTraceback\n', "Traceback" },
     { '{"event":"ready"}\n{"event":"x"}\n', '"x"' },
-    { '{"event":"ready"}\n', "KeyError", 1 }, -- exits with code 1
+    { '{"event":"ready"}\n', "KeyError", 1 },
   }) do
     local said, why, code = table.unpack(case)
     local failures = {}
@@ -172,7 +171,7 @@ test("a backend that fails, dies, or says something unknown fails once and says 
     else
       feed(nil, said, "KeyError: 'speech'\n")
     end
-    die(1, "", "") -- it exits after failing
+    die(1, "", "")
     assert(#failures == 1 and tostring(failures[1]):find(why, 1, true), tostring(failures[1]))
     assert(not backend:transcribe("/tmp/x.wav"), "a dead backend took a take")
   end

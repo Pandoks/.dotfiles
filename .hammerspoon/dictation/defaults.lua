@@ -11,7 +11,7 @@
 ---@field insert? "direct"|"clipboard" Type into the field focused at stop, or only copy.
 ---@field minLevel? number Peak loudness (0..1) below which a take is silence.
 ---@field minDuration? number Seconds below which a take is an accidental tap.
----@field overlayHeight? number Pill height in points.
+---@field overlayHeight? number In points.
 
 ---@class DictationSpeech
 ---@field backend "parakeet-mlx"|"mlx-audio"|"mlx-whisper" The runtime `model` needs (README.md).
@@ -31,7 +31,7 @@
 ---@field directory string Every transcript goes here first; unanswered takes keep their wav.
 ---@field maxMegabytes number Disk cap; the oldest transcripts go first.
 
--- Every setting; config.lua's replace these whole, key by key.
+-- A key in config.lua replaces its default whole, not field by field.
 ---@type DictationConfig
 return {
   hotkey = { mods = { "alt" }, key = "space" },
@@ -47,7 +47,6 @@ return {
     boost = 4.5,
   },
 
-  -- simplewords v3: a Qwen3.5-2B LoRA trained only to clean dictation ("Thursday no Friday").
   cleanup = {
     enabled = true,
     model = "mlx-community/Qwen3.5-2B-MLX-4bit",
