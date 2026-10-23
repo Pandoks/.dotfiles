@@ -32,13 +32,20 @@ requires the identifier's prefix to have ten characters when decoding an app lin
 
 ## Setup
 
-Requires Hammerspoon, Helium, Swift/Clang command-line tools, Python 3, and the
-tested OS/SIP configuration. The installer never changes SIP or boot arguments,
+Requires Hammerspoon, Helium, the Xcode command-line tools, Python 3, and the
+tested OS/SIP configuration. Protected steps run under the command-line tools'
+root-owned Python. The installer never changes SIP or boot arguments,
 logs out, reboots, or commits files.
+`zsh ~/.hammerspoon/url_router/install.sh check` prints the macOS version, build,
+and SIP mask as JSON, or fails naming the first unmet requirement: SIP mask,
+tested build, boot argument, or command-line tools' Python. It changes nothing;
+`prepare`, `stage`, and `activate` repeat the same checks.
 
 1. Build an isolated payload with `zsh ~/.hammerspoon/url_router/install.sh prepare /var/tmp/url-router-ready`.
-   The output directory must be new. This builds and signs the helper, hook, and
-   readiness probe; it does not register an application or change live settings.
+   The output directory must be new. This downloads Lua 5.4.9 from lua.org,
+   rejects it unless it matches a pinned SHA-256 checksum, then builds and signs
+   the helper, hook, and readiness probe. It does not register an application or
+   change live settings.
 2. Run `zsh ~/.hammerspoon/url_router/install.sh stage /var/tmp/url-router-ready`.
    This saves the previous helper and each scheme's default, installs the new
    files, registers the helper, and stages a per-user launch job. Existing
@@ -48,7 +55,8 @@ logs out, reboots, or commits files.
 4. Run `zsh ~/.hammerspoon/url_router/install.sh activate --warm`.
    Protected launchd operations request administrator authentication if needed.
    After authentication, one protected helper disables respawning, observes the
-   retiring process, and waits for its exit event before replacing the job. This
+   retiring process, and waits for its exit event before starting the replacement
+   job. If any step fails, the same helper restores Apple's job. This
    operation has a ten-second deadline. The installer performs one harmless native lookup,
    waits for the hook's readiness acknowledgement without polling, and verifies
    that acknowledgement belongs to the replacement process. It starts the helper
@@ -69,7 +77,9 @@ Apple job cannot respawn if its existing process exits beforehand.
 
 `zsh ~/.hammerspoon/url_router/install.sh uninstall` restores the previous HTTP
 and HTTPS defaults, previous helper, and Apple's original launch job. It removes
-the installed runtime and cloned job. Reload Hammerspoon afterward. Selector
+the installed runtime and cloned job. Defaults are restored first: if the saved
+browser is missing or macOS's prompt is refused, the hook keeps serving links
+until a rerun succeeds. Reload Hammerspoon afterward. Selector
 snapshots are retained because they belong to the Hammerspoon configuration.
 Restoration also refreshes the native-link client before reporting success, so
 the first subsequent native link uses Apple's restored service. An interrupted
