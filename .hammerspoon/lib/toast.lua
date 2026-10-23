@@ -126,17 +126,17 @@ function toast.show(text, options)
   if seconds == nil then
     seconds = 3
   end
-  -- The same timed toast again restarts its time instead of stacking; one kept until closed is
-  -- its caller's alone, closed by that caller.
-  for _, entry in ipairs(shown) do
-    if seconds and entry.timer and entry.text == text then
-      arm(entry, seconds)
-      return entry.id
-    end
-  end
   local screen = options.screen or hs.screen.mainScreen()
   if not screen then
     return nil
+  end
+  -- The same timed toast again, on the same screen, restarts its time instead of stacking; one
+  -- kept until closed is its caller's alone, closed by that caller.
+  for _, entry in ipairs(shown) do
+    if seconds and entry.timer and entry.text == text and entry.screen:id() == screen:id() then
+      arm(entry, seconds)
+      return entry.id
+    end
   end
   local head, rest = text:match("^([^:\n]+): ([^\n]+)$")
   if not head or #head > 24 then

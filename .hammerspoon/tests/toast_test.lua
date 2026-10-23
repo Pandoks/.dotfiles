@@ -167,10 +167,13 @@ test("a toast stays on its screen when focus and the stack change", function()
   clear()
 end)
 
-test("the same toast again restarts its time instead of stacking", function()
+test("the same toast again restarts its time on its screen instead of stacking", function()
   toast.show("Window list unavailable", { seconds = 2 })
   toast.show("Window list unavailable", { seconds = 2 })
   assert(#canvases == 1 and timers[1].stopped and timers[2].seconds == 2)
+  focused = side
+  toast.show("Window list unavailable", { seconds = 2 })
+  assert(#canvases == 2 and canvases[2].at.x >= 1000, "the repeat stayed on the other screen")
   clear()
 end)
 
