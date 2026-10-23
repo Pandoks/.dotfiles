@@ -58,6 +58,9 @@ BOOL URLRouterCheckABI(NSError **error) {
     && check(record, @"initWithBundleIdentifier:allowPlaceholder:error:", "@36@0:8@16B24^@28", error)
     && check(record, @"URL", "@16@0:8", error)
     && check(record, @"userActivityTypes", "@16@0:8", error)
+    // macOS 27 adds a twentieth flag.
+    && (check(record, @"_rawMoreFlags", "{LSBundleMoreFlags=b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1}16@0:8", NULL)
+      || check(record, @"_rawMoreFlags", "{LSBundleMoreFlags=b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1}16@0:8", error))
     && check(NSXPCConnection.class, @"auditToken", "{?=[8I]}16@0:8", error);
 }
 
@@ -112,12 +115,7 @@ BOOL URLRouterCheckABI(NSError **error) {
     failure(error, @"LaunchServices router registration does not match the trusted path or browsing-web activity");
     return nil;
   }
-  Method flags = class_getInstanceMethod([record class], NSSelectorFromString(@"_rawMoreFlags"));
-  const char *type = flags ? method_getTypeEncoding(flags) : "";
-  // macOS 27 adds a twentieth flag.
-  if ((!strcmp(type, "{LSBundleMoreFlags=b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1}16@0:8")
-       || !strcmp(type, "{LSBundleMoreFlags=b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1}16@0:8"))
-      && ((uint32_t (*)(id, SEL))objc_msgSend)(record, NSSelectorFromString(@"_rawMoreFlags")) != 0) {
+  if (((uint32_t (*)(id, SEL))objc_msgSend)(record, NSSelectorFromString(@"_rawMoreFlags")) != 0) {
     failure(error, @"Router registration is ineligible for native app-link delivery");
     return nil;
   }
