@@ -411,6 +411,7 @@ path.write_text(json.dumps(state))
                                 except RuntimeError as error:
                                     assert "unavailable" in str(error)
                                     assert service["replacement"], "helper left as the default after its hook was removed"
+                                    assert installer.saved()["phase"] == "ready", "a failed default restore marked the install as uninstalling"
                                 else:
                                     raise AssertionError("failed default restoration ignored")
                             if mode == "cleanup-failure":
@@ -478,7 +479,7 @@ path.write_text(json.dumps(state))
                   "default-failure": "rejects a partial HTTP(S) default change",
                   "admin-failure": "keeps Apple's swcd running when a protected step fails and the rollback prompt is cancelled",
                   "login-default-failure": "rejects a partial HTTP(S) default change at login completion",
-                  "restore-failure": "preserves readiness ordering, keeps the hook while a failed default restore leaves the helper default,"}
+                  "restore-failure": "preserves readiness ordering, keeps the hook and phase while a failed default restore leaves the helper default,"}
         print("PASS lifecycle " + ("rejects " + mode if mode.startswith("disabled-") else
               "failed preflight rolls back all staged filesystem writes" if failure else
               "stage leaves live defaults/service intact and uninstall restores the original helper" if mode == "success" else
