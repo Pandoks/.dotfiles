@@ -445,9 +445,10 @@ def uninstall():
             raise RuntimeError("The original helper backup changed")
         state["phase"] = "uninstalling"
         write(SUPPORT / "state.json", state)
+        # Restore defaults first so a refused prompt leaves the helper's hook running.
+        run([SUPPORT / "runtime/set-default", "--restore", SUPPORT / "original-defaults.json"])
         if state.get("activationMode"):
             service("restore")
-        run([SUPPORT / "runtime/set-default", "--restore", SUPPORT / "original-defaults.json"])
         restored = SUPPORT / "restored-helper.bundle"
         displaced = SUPPORT / "displaced-helper.bundle"
         if restored.exists():

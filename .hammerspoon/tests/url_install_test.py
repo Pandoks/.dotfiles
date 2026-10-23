@@ -199,7 +199,7 @@ elif operation == "bootout" and state["pid"]:
 
     actual_run = installer.run
     actual_subprocess = installer.subprocess.run
-    for mode in ("success", "preflight", "disabled-boolean", "disabled-word", "activation", "stale-ack", "default-failure", "admin-failure", "login", "login-default-failure", "cleanup-failure", "without-helper", "job-removal-failure", "restored-reboot", "unsupported-build"):
+    for mode in ("success", "preflight", "disabled-boolean", "disabled-word", "activation", "stale-ack", "default-failure", "admin-failure", "login", "login-default-failure", "restore-failure", "cleanup-failure", "without-helper", "job-removal-failure", "restored-reboot", "unsupported-build"):
         failure = mode == "preflight"
         home = temporary / mode
         support = home / "Library/Application Support/HammerspoonURLRouter"
@@ -282,6 +282,9 @@ elif operation == "bootout" and state["pid"]:
                     Path(arguments[2]).write_text(json.dumps(defaults))
                 elif arguments[1] == "--restore":
                     assert json.loads(Path(arguments[2]).read_text()) == defaults
+                    if mode == "restore-failure" and not service.get("failed"):
+                        service["failed"] = True
+                        raise RuntimeError("The saved http handler is unavailable")
                     live.update(defaults)
                 elif arguments[1] == "--terminate":
                     assert arguments[2] == str(app)
@@ -375,6 +378,14 @@ elif operation == "bootout" and state["pid"]:
                             assert barrier < changed
                             warmed = next(index for index, call in enumerate(calls) if call[0].endswith("/Contents/MacOS/HammerspoonURLRouter") and call[1] == "--warm-links")
                             assert barrier < warmed < changed
+                            if mode == "restore-failure":
+                                try:
+                                    installer.uninstall()
+                                except RuntimeError as error:
+                                    assert "unavailable" in str(error)
+                                    assert service["replacement"], "helper left as the default after its hook was removed"
+                                else:
+                                    raise AssertionError("failed default restoration ignored")
                             if mode == "cleanup-failure":
                                 remove = installer.shutil.rmtree
                                 def cleanup(path, *arguments, **keywords):
