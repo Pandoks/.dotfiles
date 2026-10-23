@@ -84,9 +84,10 @@ installation path is terminated before replacement or restoration.
 ## Rules and reloads
 
 Edit ordered rules in `url_router/init.lua`, then reload Hammerspoon. A `host`
-selector includes subdomains; a `pattern` selector uses Lua patterns against the
-complete URL. The first match invokes `open(url)`, which returns a boolean.
-Actions may accept a second `report(message)` argument to supply failure details.
+selector ignores case and includes subdomains; a `pattern` selector uses Lua
+patterns against the complete URL. The first match invokes `open(url)`, which
+returns a boolean. Actions may accept a second `report(message)` argument to
+supply failure details.
 The router logs and displays each declined, thrown, or invalid action result once;
 Chromium actions retain their own reporting when called directly.
 `chromium.url({ bundleID = "net.imput.helium", profile = "Work" })` selects a

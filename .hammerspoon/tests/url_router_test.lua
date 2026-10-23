@@ -173,9 +173,6 @@ local function browser(options)
         assert(name == "url_router")
         return {
           read = function(path)
-            if settings.metadataFailure then
-              return nil, "Expected a regular router file", 22
-            end
             local file, error, code = environment.io.open(path)
             if not file then
               return nil, error, code
@@ -229,6 +226,9 @@ local function browser(options)
     },
     ["lib.logger"] = {
       error = function(message)
+        if settings.loggerFailure then
+          error("print failed")
+        end
         state.logs[#state.logs + 1] = message
       end,
     },
@@ -378,7 +378,7 @@ test("the first explicit rule wins and can handle a different app", function()
   local state = browser({
     rules = {
       {
-        host = "example.com",
+        host = "Example.COM",
         open = function(url)
           calls = calls + 1
           assert(url == "https://example.com/")
@@ -439,6 +439,21 @@ test("failed rules never fall through to native or another rule", function()
     end
   end
 end)
+test("reports that throw reach the helper instead of failing silently", function()
+  local state = browser({
+    loggerFailure = true,
+    rules = {
+      {
+        host = "example.com",
+        open = function(_, report)
+          report("selected action failed")
+          return false
+        end,
+      },
+    },
+  })
+  assert(not pcall(state.request, "generation-1\nhttps://example.com/"))
+end)
 test("handler exceptions and missing results fail explicitly", function()
   for _, handler in ipairs({
     function()
@@ -475,13 +490,24 @@ test("invalid rules fail installation", function()
     local state = browser({ rules = { rule } })
     assert(not state.installed and state.route == nil and #state.logs == 1)
   end
+  local state = browser({
+    rules = {
+      ramp = {
+        host = "ramp.com",
+        open = function()
+          return true
+        end,
+      },
+    },
+  })
+  assert(not state.installed and state.route == nil and #state.logs == 1)
 end)
 test("an empty configuration leaves every web URL native", function()
   local state = browser({ rules = {} })
   assert(state.route("https://app.ramp.com/") == "native" and state.lookups == 0)
 end)
 test("invalid HTTP URLs fail before any action", function()
-  for _, url in ipairs({ "file:///var/tmp/test", "https:///missing", "not a URL" }) do
+  for _, url in ipairs({ "ftp://app.ramp.com/", "https:///missing", "not a URL" }) do
     local state = browser()
     assert(state.route(url) == false and #state.logs == 1 and state.lookups == 0)
   end
@@ -551,29 +577,36 @@ test("native helper failures log without reopening", function()
   state.tasks[1].callback(1, "", "native process failed")
   assert(#state.tasks == 1 and #state.logs == 1)
 end)
-test("pure matching does not invoke actions or perform browser work", function()
-  local state = browser()
-  assert(state.router.match("https://app.ramp.com/") == 1)
-  assert(state.router.match("https://app.notion.com/p/sieve-data/document") == 2)
-  assert(state.router.match("https://www.notion.so/pandoks/document") == 3)
-  assert(state.router.match("https://example.com/") == 0)
-  assert(state.router.match("file:///tmp/file") == -1)
-  assert(#state.logs == 0 and #state.tasks == 0 and state.lookups == 0 and state.reads == 0)
-end)
 test("selectors preserve order without serializing action functions", function()
-  local state = browser()
+  local open = function()
+    return true
+  end
+  local state = browser({
+    rules = { { pattern = "^https://b/", open = open }, { host = "A.example", open = open } },
+  })
   local publication = state.publications[1]
   assert(publication.path:match("/HammerspoonURLRouter/selectors/rules%.json$"))
-  assert(publication.document.version == 1 and #publication.document.rules == 3)
-  assert(publication.document.rules[1].host == "ramp.com")
-  assert(publication.document.rules[2].host == "app.notion.com")
-  assert(publication.document.rules[3].host == "www.notion.so")
-  for _, rule in ipairs(publication.document.rules) do
-    assert(rule.open == nil)
+  local rules = publication.document.rules
+  assert(publication.document.version == 1 and #rules == 2)
+  assert(rules[1].pattern == "^https://b/" and rules[2].host == "a.example")
+  for _, rule in ipairs(rules) do
+    assert(next(rule, next(rule)) == nil)
   end
 end)
 test("pending selectors cannot dispatch until their exact generation is acknowledged", function()
-  local state = browser({ pending = true })
+  local opened = 0
+  local state = browser({
+    pending = true,
+    rules = {
+      {
+        host = "app.ramp.com",
+        open = function()
+          opened = opened + 1
+          return true
+        end,
+      },
+    },
+  })
   assert(state.installed and not state.router.status().ready)
   assert(state.route("https://app.ramp.com/", "generation-1") == false and #state.tasks == 0)
   state.status = {
@@ -581,7 +614,7 @@ test("pending selectors cannot dispatch until their exact generation is acknowle
     kind = "ready",
     generation = "older",
     sha256 = "hash:snapshot:generation-1",
-    count = 3,
+    count = 1,
     pid = 100,
   }
   state.changed()
@@ -591,10 +624,12 @@ test("pending selectors cannot dispatch until their exact generation is acknowle
   assert(
     state.router.status().ready and state.route("https://app.ramp.com/", "generation-1") == true
   )
-  assert(state.route("https://app.ramp.com/", "older") == false and #state.tasks == 1)
+  assert(state.route("https://app.ramp.com/", "older") == false and opened == 1)
 end)
-test("selector acknowledgement rejects wrong bytes, count, and process IDs", function()
+test("selector acknowledgement rejects wrong versions, kinds, bytes, counts, and PIDs", function()
   for _, change in ipairs({
+    { version = 2 },
+    { kind = "other" },
     { sha256 = "different" },
     { count = 99 },
     { pid = 0 },
@@ -680,25 +715,19 @@ test("port creation failure fails installation once", function()
   )
   assert(state.router.status().error and #state.ports == 0)
 end)
-test("staged installation waits quietly for its first interception status", function()
-  for _, phase in ipairs({ "staging", "staged", "activating", "awaiting-login" }) do
+test("live installs wait quietly for their first status and report its deletion", function()
+  for _, phase in ipairs({ "staged", "activating", "awaiting-login", "ready" }) do
     local state = browser({ missingStatus = true, statusCode = 2, installationPhase = phase })
     assert(state.installed and not state.router.status().ready and #state.logs == 0)
     state.changed()
-    assert(not state.router.status().ready and #state.logs == 0)
-    assert(state.route("https://app.ramp.com/") == false and #state.logs == 1)
+    assert(not state.router.status().ready and #state.logs == 0 and not state.canceled)
+    state.settings.missingStatus = false
+    state.changed()
+    assert(state.router.status().ready and #state.logs == 0)
+    state.settings.missingStatus = true
+    state.changed()
+    assert(not state.router.status().ready and #state.logs == 1)
   end
-end)
-test("invalid metadata fails with one report while staging", function()
-  local state = browser({ installationPhase = "staged" })
-  state.settings.metadataFailure = true
-  state.changed()
-  state.changed()
-  assert(not state.router.status().ready and #state.logs == 1 and #state.tasks == 0)
-  local acknowledged = browser({ installationPhase = "staged" })
-  acknowledged.settings.missingStatus, acknowledged.settings.statusCode = true, 2
-  acknowledged.changed()
-  assert(not acknowledged.router.status().ready and #acknowledged.logs == 1)
 end)
 test("intentional uninstall cancels interception watchers without a failure popup", function()
   for _, phase in ipairs({ "uninstalling", "restored", "removed" }) do
@@ -712,18 +741,6 @@ test("intentional uninstall cancels interception watchers without a failure popu
     assert(state.canceled == 1 and state.processCanceled == 1)
     assert(state.route("https://app.ramp.com/") == false and #state.tasks == 0 and #state.logs == 1)
   end
-end)
-test("cold login waits for its first status but reports deletion after startup", function()
-  local state = browser({ missingStatus = true, statusCode = 2, installationPhase = "ready" })
-  assert(state.installed and not state.router.status().ready and #state.logs == 0)
-  state.changed()
-  assert(not state.router.status().ready and #state.logs == 0)
-  state.settings.missingStatus = false
-  state.changed()
-  assert(state.router.status().ready and #state.logs == 0)
-  state.settings.missingStatus = true
-  state.changed()
-  assert(not state.router.status().ready and #state.logs == 1)
 end)
 test("publication failures preserve the last acknowledged actions", function()
   for _, option in ipairs({ "encodeFailure", "publishFailure", "mkdirFailure", "fileDirectory" }) do

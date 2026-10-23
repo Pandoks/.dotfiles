@@ -1,5 +1,5 @@
-local classify = require("lib.url_router.match")
 local logger = require("lib.logger")
+local match = require("lib.url_router.match")
 local router = {}
 
 ---@alias URLAction fun(url: string, report?: fun(message: string)): boolean
@@ -18,7 +18,7 @@ local router = {}
 local native = require("lib.utils").native("url_router") --[[@as URLRouterNative]]
 local directory = os.getenv("HOME") .. "/Library/Application Support/HammerspoonURLRouter"
 local selectors = directory .. "/selectors/rules.json"
----@type { generation: string, rules: URLRule[], sha256: string }?
+---@type { generation: string, sha256: string }?
 local current
 local ready, failure = false, nil
 ---@type fun()?
@@ -28,6 +28,16 @@ local cancelProcess
 ---@type fun(url?: string, expected?: string): boolean|string
 local route
 local port
+
+local function unwatch()
+  if cancel then
+    cancel()
+  end
+  if cancelProcess then
+    cancelProcess()
+  end
+  cancel, cancelProcess = nil, nil
+end
 
 local function fail(message)
   ready = false
@@ -43,17 +53,6 @@ local function pause(message)
     print("URL routing paused: " .. message)
   end
   ready, failure = false, nil
-end
-
----@param url string
----@return integer index -1 invalid, 0 unmatched
----@return string? error
-function router.match(url)
-  if not current then
-    return -1, "rules are not installed"
-  end
-  local parts = type(url) == "string" and hs.http.urlParts(url) or nil
-  return classify(current.rules, url, parts and parts.host, parts and parts.scheme)
 end
 
 ---@return { generation?: string, ready: boolean, error?: string }
@@ -95,6 +94,7 @@ end
 ---@param rules URLRule[]
 ---@return boolean
 function router.install(rules)
+  -- Validate and copy rules
   local actions, values = {}, {}
   if type(rules) ~= "table" then
     logger.error("Invalid URL rules: expected an ordered array")
@@ -122,10 +122,12 @@ function router.install(rules)
       logger.error("Invalid URL rule " .. index)
       return false
     end
-    actions[index] = { host = rule.host, pattern = rule.pattern, open = rule.open }
-    values[index] = { host = rule.host, pattern = rule.pattern }
+    local host = rule.host and rule.host:lower()
+    actions[index] = { host = host, pattern = rule.pattern, open = rule.open }
+    values[index] = { host = host, pattern = rule.pattern }
   end
 
+  -- Publish selectors for the hook
   local generation = hs.host.uuid()
   local encoded, contents =
     pcall(hs.json.encode, { version = 1, generation = generation, rules = values }, false)
@@ -151,23 +153,18 @@ function router.install(rules)
     logger.error("Could not publish URL selectors: " .. tostring(message))
     return false
   end
-  if cancel then
-    cancel()
-    cancel = nil
-  end
-  if cancelProcess then
-    cancelProcess()
-    cancelProcess = nil
-  end
-  current = { generation = generation, rules = actions, sha256 = hs.hash.SHA256(contents) }
+  unwatch()
+  current = { generation = generation, sha256 = hs.hash.SHA256(contents) }
   ready, failure = false, nil
 
+  -- Route links once this generation is ready
   function route(url, expected)
     if not ready or (expected and expected ~= generation) then
       logger.error("URL routing failed: selector generation is not ready")
       return false
     end
-    local index, error = router.match(url)
+    local parts = type(url) == "string" and hs.http.urlParts(url) or nil
+    local index, error = match(actions, url, parts and parts.host, parts and parts.scheme)
     if index < 0 then
       logger.error("URL routing failed: " .. (error or "rule classification failed"))
       return false
@@ -177,8 +174,8 @@ function router.install(rules)
     local reported = false
     local function report(cause)
       if not reported then
-        reported = true
         logger.error(cause)
+        reported = true
       end
     end
     local ok, result = xpcall(actions[index].open, debug.traceback, url, report)
@@ -191,6 +188,7 @@ function router.install(rules)
     return result
   end
 
+  -- Accept links from Hammerspoon and the helper
   RouteHTTPURL = route
   hs.urlevent.httpCallback = function(_, _, _, url)
     if route(url) ~= "native" then
@@ -237,6 +235,7 @@ function router.install(rules)
     port = result
   end
 
+  -- Find the hook's status file
   local document, reason = native.read(directory .. "/state.json")
   if not document then
     fail("Universal Link interception is not installed: " .. tostring(reason))
@@ -247,6 +246,7 @@ function router.install(rules)
     fail("invalid Universal Link installation state")
     return false
   end
+  -- Stop watching after an intentional uninstall
   local pid
   local function cleanup()
     local saved, issue, code = native.read(directory .. "/state.json")
@@ -263,17 +263,11 @@ function router.install(rules)
     end
     if ending then
       ready, failure, pid = false, nil, nil
-      if cancel then
-        cancel()
-        cancel = nil
-      end
-      if cancelProcess then
-        cancelProcess()
-        cancelProcess = nil
-      end
+      unwatch()
     end
     return ending
   end
+  -- Track the hook's acknowledgement and its swcd process
   local starting = true
   local function changed(error)
     if error then
