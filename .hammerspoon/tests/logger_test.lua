@@ -14,12 +14,15 @@ for _, failure in ipairs({ "mkdir", "open", "write", "close" }) do
           return nil, "mkdir failed"
         end,
       },
-      alert = {
-        show = function(message)
-          alerts[#alerts + 1] = message
-        end,
-      },
     },
+    require = function(name)
+      assert(name == "lib.toast")
+      return {
+        show = function(message, style)
+          alerts[#alerts + 1] = style .. ": " .. message
+        end,
+      }
+    end,
     io = {
       open = function()
         attempts = attempts + 1
@@ -48,7 +51,7 @@ for _, failure in ipairs({ "mkdir", "open", "write", "close" }) do
   environment.print("first")
   environment.print("second")
   assert(#alerts == 1 and #logs == 3 and attempts <= 1, failure)
-  assert(alerts[1]:find(failure .. " failed", 1, true))
+  assert(alerts[1]:find("^failure: ") and alerts[1]:find(failure .. " failed", 1, true))
   print("PASS file logger " .. failure .. " failure logs, alerts, and never retries")
 end
 print("RESULT 4 passed, 0 failed")

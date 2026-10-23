@@ -1,4 +1,5 @@
 require("lib.logger").install()
+require("lib.toast").install()
 require("hs.ipc") -- `hs` CLI access for debugging
 hs.loadSpoon("SpoonInstall")
 

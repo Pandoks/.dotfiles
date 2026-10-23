@@ -1,3 +1,5 @@
+local toast = require("lib.toast")
+
 ---@class Logger
 local logger = {}
 
@@ -9,7 +11,7 @@ logger.path = directory .. "/config.log"
 ---@param message string
 function logger.error(message)
   print(message)
-  hs.alert.show(message:match("^[^\n]+"), 5)
+  toast.show(message:match("^[^\n]+"), "failure", 5)
 end
 
 function logger.install()
