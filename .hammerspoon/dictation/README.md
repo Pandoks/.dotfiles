@@ -21,13 +21,14 @@ key cannot be used: macOS 26 always handles it itself.
 
 ## How it works
 
-`init.lua` drives a take: `recorder.lua` records the default input with ffmpeg and feeds the
-pill's equalizer (`overlay.lua`); at stop, `engine.lua` sends the wav to `server.py`, a resident
-Python process (JSON lines on stdin and stdout) that transcribes, fixes spellings, cleans up, and
-writes numbers as digits. Its guard aligns the cleaned words with what was heard: if the cleanup
-did more than fix misheard words and drop stalls, fillers, repeats, and self-corrections, the take
-types nothing, alerts, and keeps what was heard in `history.directory`. Otherwise, `history.lua`
-saves the text and `init.lua` types it into the focused field, spaced by `spacing.lua`.
+`init.lua` drives a take: `recorder.lua` records the default input with ffmpeg, which also streams
+it over a Unix socket (`lib/stream`) to the pill's equalizer (`overlay.lua`); at stop, `engine.lua`
+sends the wav to `server.py`, a resident Python process (JSON lines on stdin and stdout) that
+transcribes, fixes spellings, cleans up, and writes numbers as digits. Its guard aligns the cleaned
+words with what was heard: if the cleanup did more than fix misheard words and drop stalls,
+fillers, repeats, and self-corrections, the take types nothing, alerts, and keeps what was heard in
+`history.directory`. Otherwise, `history.lua` saves the text and `init.lua` types it into the
+focused field, spaced by `spacing.lua`.
 
 ## Speech models
 

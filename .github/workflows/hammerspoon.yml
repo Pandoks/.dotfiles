@@ -13,11 +13,12 @@ on:
 
 jobs:
   test:
-    # The tests stub Hammerspoon's APIs; they only need its LuaSkin framework and clang.
+    # The tests stub Hammerspoon's APIs; they only need its LuaSkin framework, clang, and ffmpeg.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
       - run: brew install --cask hammerspoon
+      - run: brew install ffmpeg
       - run: sh .hammerspoon/tests/run.sh
       - run: sh .hammerspoon/tests/previews_test.sh
       - name: Build native modules

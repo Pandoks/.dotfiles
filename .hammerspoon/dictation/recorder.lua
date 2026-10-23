@@ -1,7 +1,8 @@
 ---@class DictationRecording
 ---@field wav string
----@field pcm string raw copy read by poll()
----@field offset integer bytes of pcm read so far
+---@field close fun(): string, string? ends the PCM stream: its undelivered bytes, and any error
+---@field fresh string PCM streamed since the last analysis
+---@field offset integer bytes of PCM analyzed so far
 ---@field tail string the latest analysis window
 ---@field peak number loudest window so far (0..1)
 ---@field peaks number[] per-band slow-decaying maximum, for auto-gain
@@ -13,6 +14,12 @@
 ---@field done? fun(wav: string, peak: number, duration: number)
 
 local recorder = {}
+
+---@class StreamNative
+---@field listen fun(path: string, callback: fun(chunk?: string, problem?: string)): (fun(): string, string?)?, string?
+
+-- A socket, not hs.task's stream: it drops output that is not UTF-8.
+local stream = require("lib.utils").native("stream") --[[@as StreamNative]]
 
 local rate = 16000
 local size = 1024 -- FFT window, in samples
@@ -83,7 +90,7 @@ end
 function recorder.start(bands, onError)
   -- Per-user 0700 temp dir, not the shared /tmp.
   local base = hs.fs.temporaryDirectory() .. "dictation-" .. hs.host.uuid()
-  local wav, pcm = base .. ".wav", base .. ".pcm"
+  local wav, socket = base .. ".wav", base .. ".sock"
   -- High-pass only: denoise and silence trimming erase quiet speakers.
   local highpass = "highpass=f=90"
   ---@type DictationRecording
@@ -107,10 +114,12 @@ function recorder.start(bands, onError)
       failure("capture exited (code " .. tostring(code) .. ")")
     end
     -- The last chunk arrives after the final tick: count it in the duration and peak.
+    local rest, problem = recording.close()
+    failure(problem or "")
     if recording.done then
-      recorder.poll(recording)
+      recording.fresh = recording.fresh .. rest
+      recorder.analyze(recording)
     end
-    os.remove(pcm)
     if recording.discarded then
       os.remove(wav)
     end
@@ -149,7 +158,7 @@ function recorder.start(bands, onError)
     tostring(rate),
     "-flush_packets",
     "1",
-    pcm,
+    "unix:" .. socket,
   })
   -- Log-spaced bands from 80 Hz to just under Nyquist.
   local bins, nyquist = {}, rate / 2
@@ -157,9 +166,21 @@ function recorder.start(bands, onError)
     local hz = 80 * (nyquist * 0.98 / 80) ^ (i / bands)
     bins[i] = math.max(1, math.min(size // 2, math.floor(hz / nyquist * (size // 2))))
   end
+  -- Listening before ffmpeg starts, so it can connect.
+  local close, problem = stream.listen(socket, function(chunk, problem)
+    if chunk then
+      recording.fresh = recording.fresh .. chunk
+    else
+      failure(problem)
+    end
+  end)
+  if not close then
+    return nil, problem
+  end
   recording = {
     wav = wav,
-    pcm = pcm,
+    close = close,
+    fresh = "",
     offset = 0,
     tail = "",
     peak = 0,
@@ -168,6 +189,7 @@ function recorder.start(bands, onError)
     task = task,
   }
   if not task:start() then
+    close()
     return nil, "could not start capture task"
   end
   return recording
@@ -175,15 +197,9 @@ end
 
 ---@param recording DictationRecording
 ---@return number[]? bands each 0..1: auto-gained shape times loudness over the room
-function recorder.poll(recording)
-  -- A file, not hs.task's stream: it drops output that is not UTF-8.
-  local file = io.open(recording.pcm, "rb")
-  if not file then
-    return nil
-  end
-  file:seek("set", recording.offset)
-  local new = file:read("a") or ""
-  file:close()
+function recorder.analyze(recording)
+  local new = recording.fresh
+  recording.fresh = ""
   recording.offset = recording.offset + #new
   local data = recording.tail .. new
   recording.tail = data:sub(-size * 2)
@@ -243,8 +259,8 @@ function recorder.cleanup(recording)
     recording.task:terminate()
   end
   -- Now: a reload skips the exit callback (unlinking is safe while ffmpeg writes).
+  recording.close()
   os.remove(recording.wav)
-  os.remove(recording.pcm)
 end
 
 return recorder
