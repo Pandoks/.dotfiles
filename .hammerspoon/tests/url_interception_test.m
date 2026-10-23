@@ -29,6 +29,39 @@ static void await(dispatch_semaphore_t semaphore, NSMutableArray *events, NSLock
   }
 }
 
+#ifdef URL_ROUTER_FAKE_PLATFORM
+#import "platform.h"
+
+// Stand-ins for the private-API layer so the real hook installs without a registered helper.
+BOOL URLRouterCheckABI(NSError **error) { (void)error; return YES; }
+NSString *URLRouterBuild(void) { return @"test"; }
+
+@implementation URLRouterTarget
+- (instancetype)initWithPath:(NSString *)path identifier:(NSString *)identifier hash:(NSString *)hash error:(NSError **)error {
+  return [super init];
+}
+- (NSString *)applicationIdentifier { return @"test"; }
+- (BOOL)unchanged { return YES; }
+- (BOOL)isCaller:(id)token connection:(NSXPCConnection *)connection { return NO; }
+- (id)detailForURL:(NSURL *)url error:(NSError **)error { return @"detail"; }
+@end
+
+@interface Specifier : NSObject
+@end
+@implementation Specifier
+- (NSString *)serviceType { return @"applinks"; }
+@end
+
+@interface SWCManager : NSObject
+@end
+@implementation SWCManager
+- (void)getDetailsWithServiceSpecifier:(id)specifier URL:(NSURL *)url limit:(NSUInteger)limit
+    callerAuditToken:(id)token completionHandler:(void (^)(id, NSError *))completion {
+  completion(@"original", nil);
+}
+@end
+#endif
+
 static void sandbox(void) {
   NSString *profile = [NSString stringWithContentsOfFile:@"/System/Library/Sandbox/Profiles/com.apple.swcd.sb"
     encoding:NSUTF8StringEncoding error:nil];
@@ -61,6 +94,41 @@ int main(int argc, const char **argv) {
       else printf("error %ld\n", (long)error.code);
       return 0;
     }
+#ifdef URL_ROUTER_FAKE_PLATFORM
+    if (!strcmp(argv[3], "hook")) {
+      SWCManager *manager = [SWCManager new];
+      Specifier *specifier = [Specifier new];
+      id (^lookup)(NSString *) = ^id(NSString *url) {
+        __block id result; __block int calls = 0;
+        [manager getDetailsWithServiceSpecifier:specifier URL:[NSURL URLWithString:url] limit:1 callerAuditToken:nil
+          completionHandler:^(id details, NSError *error) { result = details ?: error.localizedDescription; calls++; }];
+        require(calls == 1, @"each lookup completes exactly once");
+        return result;
+      };
+      require([lookup(@"https://ramp.com/x") isEqual:@[@"detail"]] && [lookup(@"https://example.test/") isEqual:@"original"],
+        @"installed hook claims matched lookups only");
+      int directory = open(statusPath.stringByDeletingLastPathComponent.fileSystemRepresentation, O_EVTONLY | O_CLOEXEC);
+      dispatch_semaphore_t changed = dispatch_semaphore_create(0);
+      dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, (uintptr_t)directory,
+        DISPATCH_VNODE_WRITE, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+      dispatch_source_set_event_handler(source, ^{ dispatch_semaphore_signal(changed); });
+      dispatch_resume(source);
+      NSString *claimed = @(argv[1]);
+      require(rename(claimed.fileSystemRepresentation, [claimed stringByAppendingString:@".replaced"].fileSystemRepresentation) == 0,
+        @"replace selector directory");
+      for (;;) {
+        NSDictionary *row = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:statusPath] options:0 error:nil];
+        if ([row[@"stage"] isEqual:@"watch-invalidated"]) break;
+        require(!dispatch_semaphore_wait(changed, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)), @"watch-invalidated status timed out");
+      }
+      dispatch_source_cancel(source);
+      close(directory);
+      require([lookup(@"https://ramp.com/x") isEqual:@"original"] && [lookup(@"https://example.test/") isEqual:@"original"],
+        @"a replaced selector directory hands every lookup back to Apple");
+      puts("PASS real hook: replacing the selector directory hands matched and unmatched lookups back to Apple");
+      return 0;
+    }
+#endif
     if (!strcmp(argv[3], "sandbox")) {
       sandbox();
       int denied = open("/var/tmp/url-interception-sandbox-denied", O_WRONLY | O_CREAT | O_EXCL, 0600);

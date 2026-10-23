@@ -135,12 +135,18 @@ __attribute__((constructor)) static void install(void) {
       publish(@{@"stage": @"hook", @"error": @"Could not create selective interception"});
       return;
     }
+    // In-flight calls finish in the replacement, which is never freed.
+    void (^restore)(void) = ^{ atomic_store(&installed, NO); method_setImplementation(method, original); };
     store = [[URLSelectorStore alloc] initWithPath:selectors report:^(NSDictionary *event) {
+      // A replaced selector directory is never watched again, so lookups go back to Apple.
+      if ([event[@"stage"] isEqual:@"watch-invalidated"]) restore();
       if (atomic_load(&installed) || [event[@"kind"] isEqual:@"error"]) publish(event);
     }];
     if (!store) return;
     method_setImplementation(method, replacement);
     atomic_store(&installed, YES);
+    // The directory may have been replaced before the swap.
+    if ([store.snapshot[@"stage"] isEqual:@"watch-invalidated"]) restore();
     publish(nil);
   }
 }

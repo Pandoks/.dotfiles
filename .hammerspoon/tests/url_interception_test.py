@@ -40,6 +40,8 @@ with tempfile.TemporaryDirectory(prefix="url-interception-test.", dir="/var/tmp"
     hook = directory / "hook.dylib"
     subprocess.run(["clang", "-arch", "arm64", "-O2", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-dynamiclib", "-I", str(lua), "-I", str(directory), "-I", str(root / "url_router/interception"), str(root / "url_router/interception/hook.m"), *map(str, sources[1:]), *objects, "-framework", "Foundation", "-framework", "Security", "-lbsm", "-o", str(hook)], check=True)
     subprocess.run(["codesign", "--force", "--sign", "-", str(hook)], check=True)
+    hooked = directory / "hooked"
+    subprocess.run(["clang", "-arch", "arm64", "-O2", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-DURL_ROUTER_FAKE_PLATFORM", "-I", str(lua), "-I", str(directory), "-I", str(root / "url_router/interception"), str(sources[0]), str(root / "url_router/interception/hook.m"), *map(str, sources[1:3]), *objects, "-framework", "Foundation", "-o", str(hooked)], check=True)
     selectors = directory / "selectors"
     selectors.mkdir(mode=0o700)
     temporary = subprocess.check_output(["getconf", "DARWIN_USER_CACHE_DIR"], text=True).strip()
@@ -75,6 +77,15 @@ with tempfile.TemporaryDirectory(prefix="url-interception-test.", dir="/var/tmp"
         assert result.returncode == 0 and result.stdout.strip() == "loaded", result
         print("PASS probe status reader rejects FIFO promptly and accepts a regular acknowledgement")
         subprocess.run([str(binary), str(selectors), status, "normal"], check=True, timeout=30)
+        claimed = directory / "claimed"
+        claimed.mkdir(mode=0o700)
+        (claimed / "rules.json").write_text('{"version":1,"generation":"hook","rules":[{"host":"ramp.com"}]}')
+        hooking = Path(status) / "hook"
+        variables = {"STATUS_PATH": hooking / "status.json", "SELECTORS_PATH": claimed / "rules.json",
+                     "APP_PATH": "fake", "APPLICATION_IDENTIFIER": "fake", "CODE_HASH": "fake"}
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("URL_ROUTER_")}
+        environment.update({"URL_ROUTER_" + key: str(value) for key, value in variables.items()})
+        subprocess.run([str(hooked), str(claimed), str(hooking), "hook"], env=environment, check=True, timeout=30)
         (selectors / "rules.json").write_text('{"version":1,"generation":"sandbox","rules":[{"host":"ramp.com"}]}')
         cold = Path(status) / "cold-session"
         with subprocess.Popen([str(binary), str(selectors), str(cold), "sandbox"], stdout=subprocess.PIPE, text=True) as child:
