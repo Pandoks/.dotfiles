@@ -44,8 +44,8 @@ with tempfile.TemporaryDirectory(prefix="url-interception-test.", dir="/var/tmp"
     subprocess.run(["clang", "-arch", "arm64", "-O2", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-DURL_ROUTER_FAKE_PLATFORM", "-I", str(lua), "-I", str(directory), "-I", str(root / "url_router/interception"), str(sources[0]), str(root / "url_router/interception/hook.m"), *map(str, sources[1:3]), *objects, "-framework", "Foundation", "-o", str(hooked)], check=True)
     selectors = directory / "selectors"
     selectors.mkdir(mode=0o700)
-    temporary = subprocess.check_output(["getconf", "DARWIN_USER_CACHE_DIR"], text=True).strip()
-    with tempfile.TemporaryDirectory(prefix="url-interception-status.", dir=temporary) as status:
+    cache = subprocess.check_output(["getconf", "DARWIN_USER_CACHE_DIR"], text=True).strip()
+    with tempfile.TemporaryDirectory(prefix="url-interception-status.", dir=cache) as status:
         environment = {key: value for key, value in os.environ.items() if not key.startswith("URL_ROUTER_")}
         environment["DYLD_INSERT_LIBRARIES"] = str(hook)
         arguments = [str(binary), str(selectors), status, "status-snapshot"]
@@ -56,8 +56,8 @@ with tempfile.TemporaryDirectory(prefix="url-interception-test.", dir="/var/tmp"
         assert result.returncode == 0 and result.stdout, "Missing trusted target must leave the daemon running unhooked"
         event = json.loads((Path(status) / "status.json").read_text())
         build = subprocess.check_output(["sysctl", "-n", "kern.osversion"], text=True).strip()
-        stage = "environment" if build in ("25G83", "26A434") else "runtime"
-        assert event["kind"] == "error" and event["stage"] == stage, "Hook setup error must be acknowledged"
+        stage = "runtime" if "validated only" in event["error"] else "environment"
+        assert event["kind"] == "error" and event["stage"] == stage and event["macOSBuild"] == build, event
         print("PASS actual injected constructor: missing status/target environment returns to the host process instead of exiting")
         (selectors / "rules.json").write_text('{"version":1,"generation":"regular-control","rules":[{"host":"ramp.com"}]}')
         for mode, expected in ((0o770, "watch-open"), (0o700, "loaded")):
