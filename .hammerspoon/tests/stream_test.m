@@ -154,17 +154,22 @@ int main(int argc, char **argv) {
     socketPath(state, "refused", path);
     execute(state, "failures={}; close=assert(stream.listen(path,function(chunk,problem)"
       " assert(chunk==nil); failures[#failures+1]=problem; finish() end))");
-    // No descriptor left for accept().
+    // No descriptor left for accept(): earlier streams close theirs asynchronously, so fill any freed.
+    await(0.3, NO);
     int client = socket(AF_UNIX, SOCK_STREAM, 0);
     struct rlimit limits;
     assert(client >= 0 && getrlimit(RLIMIT_NOFILE, &limits) == 0);
     struct rlimit tight = { .rlim_cur = (rlim_t)client + 1, .rlim_max = limits.rlim_max };
     assert(setrlimit(RLIMIT_NOFILE, &tight) == 0);
+    int spare[256], spares = 0;
+    while (spares < 256 && (spare[spares] = dup(client)) >= 0) spares++;
+    assert(spares < 256 && errno == EMFILE);
     struct sockaddr_un address = { .sun_family = AF_UNIX };
     strlcpy(address.sun_path, path, sizeof address.sun_path);
     assert(connect(client, (struct sockaddr *)&address, sizeof address) == 0);
     await(3, YES);
     assert(setrlimit(RLIMIT_NOFILE, &limits) == 0);
+    while (spares) close(spare[--spares]);
     close(client);
     await(0.3, NO);
     execute(state, "assert(#failures==1 and failures[1]:find('accept'),failures[1]);"
