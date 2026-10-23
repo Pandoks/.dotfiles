@@ -37,10 +37,7 @@ end
 function chromium.url(profile)
   return function(url, report)
     report = report or logger.error
-    local path = hs.application.pathForBundleID(profile.bundleID)
-    local info = path and hs.application.infoForBundlePath(path) or nil --[[@as {CFBundleExecutable?: string}?]]
-    local executable = info and info.CFBundleExecutable
-    if not path or not executable then
+    if not hs.application.pathForBundleID(profile.bundleID) then
       report("Could not resolve Chromium browser " .. profile.bundleID)
       return false
     end
@@ -53,11 +50,12 @@ function chromium.url(profile)
       return false
     end
 
-    local task = hs.task.new(path .. "/Contents/MacOS/" .. executable, function(code, _, message)
+    -- LaunchServices owns the browser so reloads can't kill it; `-n` passes arguments to a running one.
+    local task = hs.task.new("/usr/bin/open", function(code, _, message)
       if code ~= 0 then
         report("Chromium URL routing failed: " .. message)
       end
-    end, { "--profile-directory=" .. directory, url })
+    end, { "-n", "-b", profile.bundleID, "--args", "--profile-directory=" .. directory, url })
     if not task or task:start() == false then
       report("Could not start Chromium URL handler")
       return false

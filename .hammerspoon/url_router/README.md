@@ -90,8 +90,10 @@ Actions may accept a second `report(message)` argument to supply failure details
 The router logs and displays each declined, thrown, or invalid action result once;
 Chromium actions retain their own reporting when called directly.
 `chromium.url({ bundleID = "net.imput.helium", profile = "Work" })` selects a
-Chromium profile by its display name from `Local State`; browser tab/window
-behavior remains under the browser's control.
+Chromium profile by its display name from `Local State` and launches the browser
+through `open -n -b`, so a cold-launched browser never belongs to Hammerspoon or
+dies on reload. A running browser takes the link and the extra instance exits;
+browser tab/window behavior remains under the browser's control.
 `router.by(adapter, { key = action }, default)` opens a URL with the action for the
 key its adapter finds. An adapter in `lib/url_adapters/` only finds the key and
 calls `done(key)` or `done(nil, error)`, now or later; an error is reported and

@@ -283,9 +283,13 @@ test("Ramp domains explicitly launch Work without window matching", function()
   }) do
     local state = browser()
     local url = "https://" .. host
-    assert(state.route(url) == true and #state.tasks == 1)
-    assert(state.tasks[1].arguments[1] == "--profile-directory=Profile 1")
-    assert(state.tasks[1].arguments[2] == url)
+    assert(
+      state.route(url) == true and #state.tasks == 1 and state.tasks[1].path == "/usr/bin/open"
+    )
+    assert(
+      table.concat(state.tasks[1].arguments, " ")
+        == "-n -b net.imput.helium --args --profile-directory=Profile 1 " .. url
+    )
   end
 end)
 test("lookalikes and embedded Ramp URLs remain native", function()
@@ -305,7 +309,7 @@ test("Notion links open in their workspace's browser profile", function()
   }) do
     local state = browser()
     assert(state.route(url) == true and #state.tasks == 1)
-    assert(state.tasks[1].arguments[1] == "--profile-directory=" .. directory)
+    assert(state.tasks[1].arguments[5] == "--profile-directory=" .. directory)
   end
 end)
 test("page-ID-only Notion links open in the workspace Notion reports", function()
@@ -325,8 +329,8 @@ test("page-ID-only Notion links open in the workspace Notion reports", function(
         :find('"blockId":"3382e03c-6a58-8036-8090-d9fa3b706f16"', 1, true)
     )
     lookup.callback(0, "notion:" .. domain, "")
-    assert(#state.tasks == 2 and state.tasks[2].arguments[1] == "--profile-directory=" .. directory)
-    assert(state.tasks[2].arguments[2] == url and #state.logs == 0)
+    assert(#state.tasks == 2 and state.tasks[2].arguments[5] == "--profile-directory=" .. directory)
+    assert(state.tasks[2].arguments[6] == url and #state.logs == 0)
   end
 end)
 test("router.by reports actions that finish later exactly once", function()
@@ -517,7 +521,7 @@ test("quotes and Unicode remain a single process argument", function()
   local state = browser()
   local url = 'https://app.ramp.com/path?quote="&value=\\&title=工作#test'
   assert(state.route(url) == true)
-  assert(#state.tasks[1].arguments == 2 and state.tasks[1].arguments[2] == url)
+  assert(#state.tasks[1].arguments == 6 and state.tasks[1].arguments[6] == url)
 end)
 test("direct Hammerspoon HTTP events invoke the native helper once", function()
   local state = browser()
@@ -530,7 +534,7 @@ end)
 test("direct matched HTTP events do not invoke native handling", function()
   local state = browser()
   state.callback("https", "app.ramp.com", {}, "https://app.ramp.com/")
-  assert(#state.tasks == 1 and state.tasks[1].arguments[1] == "--profile-directory=Profile 1")
+  assert(#state.tasks == 1 and state.tasks[1].arguments[5] == "--profile-directory=Profile 1")
 end)
 test("native helper failures log without reopening", function()
   for _, options in ipairs({
