@@ -3,7 +3,7 @@
 Ordered Lua rules choose an application or Helium profile. A selective hook in
 macOS `swcd` sends matching Universal Link lookups to the same background helper
 used for ordinary HTTP(S) URLs. The helper accepts URL events and browsing-web
-activities, then invokes Hammerspoon. Unmatched lookups call Apple's original
+activities, then sends them to Hammerspoon over a Mach message port. Unmatched lookups call Apple's original
 implementation unchanged.
 
 The helper remains the default HTTP and HTTPS application after activation.
@@ -102,10 +102,15 @@ only carry a page ID (3-second limit).
 The published JSON contains selectors only, not Lua action functions. The hook
 loads selectors into the same Lua version and acknowledges their UUID generation
 and SHA-256 bytes through an atomic status file. Filesystem notifications update
-both sides. The helper passes the acknowledged generation to
-`RouteHTTPURL(url, generation)`; Hammerspoon blocks actions until that generation
-is ready and belongs to a live `swcd`. Reload failures are explicit rather than
-silently mixing old selectors with new actions.
+both sides. The helper sends message 1 with `generation\nurl` to Hammerspoon's
+`local.pandoks.HammerspoonURLRouter.route` CFMessagePort, which replies `true`,
+`false`, or `native`. Hammerspoon blocks actions until that generation is ready
+and belongs to a live `swcd`. launchd stops an idle `swcd` and relaunches it on the
+next lookup, so its exit, or a ready status from an exited process, pauses routing
+with a log line and no popup until the relaunched hook republishes readiness.
+Reload failures are explicit rather than silently mixing old selectors with new
+actions. `RouteHTTPURL(url, generation)` remains for `hs -c` debugging and for
+helpers built before the port existed.
 
 Runtime files are under `~/Library/Application Support/HammerspoonURLRouter/`.
 `state.json` records restoration paths and the status location;
@@ -118,10 +123,10 @@ Both sides recreate the private status directory after a clean shutdown.
 Keep Hammerspoon's launch-at-login setting enabled.
 Hammerspoon failures go to `~/Library/Logs/Hammerspoon/config.log`; the helper
 and installer also use the system log and popups. The helper rejects dispatch
-when Hammerspoon is stopped, and bounds process exit and output completion to
-fifteen seconds. A background GCD queue drains output, retains at most 4 KiB of
-diagnostics, and force-terminates an unfinished CLI at the deadline, including
-while another failure popup occupies the main actor.
+when Hammerspoon is stopped or its port is missing. A background GCD queue sends
+each request with a 5-second send and 10-second reply timeout, so another failure
+popup on the main actor can't stall it. Hammerspoon may still act on a request
+after its reply deadline.
 
 ## Coverage and limits
 

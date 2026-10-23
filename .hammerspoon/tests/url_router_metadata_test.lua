@@ -40,6 +40,11 @@ local environment = setmetatable({
       end,
     },
     urlevent = {},
+    ipc = {
+      localPort = function()
+        return {}
+      end,
+    },
   },
 }, { __index = _G })
 
@@ -87,7 +92,10 @@ package.loaded["lib.utils"] = {
           end
         end
         weak.process = callback
-        local cancel = assert(native.process(process, "/bin/sleep", callback))
+        local cancel, issue = native.process(process, "/bin/sleep", callback)
+        if not cancel then
+          return cancel, issue
+        end
         return function()
           stopped = stopped + 1
           cancel()
@@ -104,13 +112,19 @@ end
 router = assert(loadfile(root .. "/url_router.lua", "t", environment))()
 local fixture = {}
 
-function fixture.start(value)
+function fixture.start(value, live)
   mode, generation = value, "metadata-" .. value
   events, canceled, stopped, quiescent, exiting = 0, 0, 0, false, false
   weak, logs = setmetatable({}, { __mode = "v" }), {}
   assert(native.publish(state, json.encode({ statusPath = status, phase = "ready" })))
-  receipt =
-    { version = 1, kind = "ready", generation = "older", sha256 = "older", count = 1, pid = pid }
+  receipt = {
+    version = 1,
+    kind = "ready",
+    generation = "older",
+    sha256 = "older",
+    count = 1,
+    pid = live or pid,
+  }
   if mode == "pending" then
     os.remove(status)
   else
@@ -140,7 +154,7 @@ end
 
 function fixture.change()
   local phase = mode == "restored" and "restored" or "uninstalling"
-  if mode == "unexpected" or mode == "pending" then
+  if mode == "unexpected" or mode == "pending" or mode == "idle" then
     phase = "ready"
   end
   assert(native.publish(
@@ -157,7 +171,7 @@ function fixture.change()
   elseif mode == "deniedState" then
     json.permissions(state, 0)
   end
-  if mode == "processCleanup" then
+  if mode == "processCleanup" or mode == "idle" then
     exiting = true
     return
   elseif mode == "deniedStatus" then
@@ -183,7 +197,7 @@ local function verify()
     assert(stopped == ((mode == "readyCleanup" or mode == "processCleanup") and 1 or 0))
     collectgarbage("collect")
     assert(not weak.watch and not weak.process)
-  elseif mode == "pending" then
+  elseif mode == "pending" or mode == "idle" then
     assert(not value.error and #logs == 0 and canceled == 0 and weak.watch)
   else
     assert(type(value.error) == "string" and #logs == 1 and canceled == 0 and weak.watch)
@@ -220,9 +234,15 @@ function fixture.repeated()
   print("PASS actual Lua vnode cleanup/control " .. mode)
 end
 
+function fixture.respawn(live)
+  exiting, quiescent, receipt.pid = false, false, live
+  assert(native.publish(status, json.encode(receipt)))
+end
+
 function fixture.close()
   quiescent = false
   assert(native.publish(state, json.encode({ statusPath = status, phase = "uninstalling" })))
+  os.remove(status)
   assert(native.publish(status .. ".signal", "final cleanup"))
 end
 

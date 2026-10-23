@@ -13,7 +13,7 @@ local router = {}
 ---@field publish fun(path: string, contents: string): boolean, string?
 ---@field read fun(path: string): string?, string?, integer?
 ---@field watch fun(path: string, changed: fun(error?: string)): fun()?, string?
----@field process fun(pid: integer, executable: string, stopped: fun(error: string)): fun()?, string?
+---@field process fun(pid: integer, executable: string, stopped: fun(error: string)): (fun()|false|nil), string? false when not running
 
 local native = require("lib.utils").native("url_router") --[[@as URLRouterNative]]
 local directory = os.getenv("HOME") .. "/Library/Application Support/HammerspoonURLRouter"
@@ -25,6 +25,9 @@ local ready, failure = false, nil
 local cancel
 ---@type fun()?
 local cancelProcess
+---@type fun(url?: string, expected?: string): boolean|string
+local route
+local port
 
 local function fail(message)
   ready = false
@@ -32,6 +35,14 @@ local function fail(message)
     logger.error("URL routing failed: " .. message)
   end
   failure = message
+end
+
+-- launchd stops idle swcd and relaunches it on demand, which republishes readiness.
+local function pause(message)
+  if ready then
+    print("URL routing paused: " .. message)
+  end
+  ready, failure = false, nil
 end
 
 ---@param url string
@@ -151,7 +162,7 @@ function router.install(rules)
   current = { generation = generation, rules = actions, sha256 = hs.hash.SHA256(contents) }
   ready, failure = false, nil
 
-  local function route(url, expected)
+  function route(url, expected)
     if not ready or (expected and expected ~= generation) then
       logger.error("URL routing failed: selector generation is not ready")
       return false
@@ -202,6 +213,28 @@ function router.install(rules)
     if not task or task:start() == false then
       logger.error("Could not start native URL handler")
     end
+  end
+
+  -- Reinstalls reuse the helper's port; reloads close the Lua state, which deletes it.
+  if not port then
+    local ok, result = pcall(
+      hs.ipc.localPort,
+      "local.pandoks.HammerspoonURLRouter.route",
+      function(_, id, request)
+        -- Message 1 carries "generation\nurl".
+        local expected, url = tostring(request):match("^([^\n]+)\n([^\n]+)$")
+        if id ~= 1 or not expected then
+          logger.error("URL routing failed: invalid route request")
+          return "false"
+        end
+        return tostring(route(url, expected))
+      end
+    )
+    if not ok then
+      fail("could not listen for routed links: " .. tostring(result))
+      return false
+    end
+    port = result
   end
 
   local document, reason = native.read(directory .. "/state.json")
@@ -290,18 +323,24 @@ function router.install(rules)
           if cancelProcess then
             cancelProcess()
           end
-          cancelProcess, readError = native.process(status.pid, "/usr/libexec/swcd", function(cause)
+          cancelProcess, pid = nil, nil
+          local watcher, watchError = native.process(status.pid, "/usr/libexec/swcd", function()
             pid = nil
             local ending, stateError = cleanup()
-            if not ending then
-              fail(stateError or cause)
+            if stateError then
+              fail(stateError)
+            elseif not ending then
+              pause("swcd exited")
             end
           end)
-          if not cancelProcess then
-            fail("could not watch interception process: " .. tostring(readError))
+          if watcher == false then
+            pause("interception status belongs to an exited swcd")
+            return
+          elseif not watcher then
+            fail("could not watch interception process: " .. tostring(watchError))
             return
           end
-          pid = status.pid
+          cancelProcess, pid = watcher, status.pid
         end
         ready, failure = true, nil
       end

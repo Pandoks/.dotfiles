@@ -1,14 +1,11 @@
-"""Exercise native URL dispatch and the real Swift process bridge without opening apps."""
+"""Exercise native URL dispatch and the real Swift Mach port bridge without opening apps."""
 
-import os
-import ctypes
-import signal
-import time
 import hashlib
 import json
-import re
+import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
@@ -128,22 +125,23 @@ do {
             assert "URL " + url in lines, (name, lines)
         print("PASS native " + name)
 
-    bridge = re.sub(r"guard let hsPath = \[.*?\]\.first", "guard let hsPath = [CommandLine.arguments[1]].first", main, count=1, flags=re.DOTALL)
+    bridge = main.replace('"local.pandoks.HammerspoonURLRouter.route" as CFString', 'ProcessInfo.processInfo.environment["URL_TEST_PORT"]! as CFString')
     bridge = bridge.replace("FileManager.default.homeDirectoryForCurrentUser", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
     bridge = bridge.replace("FileManager.default.temporaryDirectory", 'URL(fileURLWithPath: ProcessInfo.processInfo.environment["URL_TEST_HOME"]!)')
     bridge = bridge.replace('NSRunningApplication.runningApplications(withBundleIdentifier: "org.hammerspoon.Hammerspoon")', "mockRunningApplications()")
-    bridge = bridge.replace("private func route", "func route").replace("private var activeTasks", "var activeTasks").replace("private final class RouteTask", "final class RouteTask")
+    bridge = bridge.replace("private func route", "func route")
     bridge = bridge[:bridge.index("let application = NSApplication.shared")]
     bridge = bridge.replace("let alert = NSAlert()", "let alert = MockAlert()")
     bridge = bridge.replace("NSApplication.shared.setActivationPolicy(.accessory)", "")
     bridge = bridge.replace("NSApplication.shared.setActivationPolicy(.prohibited)", "")
     bridge = bridge.replace("NSApplication.shared.activate(ignoringOtherApps: true)", "")
     bridge = bridge.replace('NSLog("%@", message)', 'print("LOG " + message)')
-    bridge = re.sub(r'(if (?:finished\.terminationStatus|status) == 0 && response == "true" \{)',
-        r'\1 print("ACCEPTED"); if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) };', bridge)
+    bridge = bridge.replace('case .success("true"):\n                    return',
+        'case .success("true"):\n                    print("ACCEPTED"); if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }')
     bridge = bridge.replace('NSLog("URL routing failed for %@", url.host ?? "unknown host")',
         'print("REJECTED"); if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }')
-    bridge += r'''
+    assert bridge.count("URL_TEST_PORT") == 1 and bridge.count("ACCEPTED") == 1 and bridge.count("REJECTED") == 1
+    bridge += r"""
 @MainActor final class MockAlert {
     static var blocked = false
     var messageText = ""
@@ -170,8 +168,7 @@ func mockRunningApplications() -> [Int] {
     }
     if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }
 }
-func descriptors() -> Int { (0..<1024).filter { fcntl(Int32($0), F_GETFD) >= 0 }.count }
-let before = descriptors()
+setvbuf(stdout, nil, _IOLBF, 0)
 let delegate = AppDelegate()
 if let type = ProcessInfo.processInfo.environment["URL_TEST_ACTIVITY"] {
     let activity = NSUserActivity(activityType: type)
@@ -179,181 +176,161 @@ if let type = ProcessInfo.processInfo.environment["URL_TEST_ACTIVITY"] {
     if url != "none" { activity.webpageURL = URL(string: url) }
     let accepted = delegate.application(NSApplication.shared, continue: activity, restorationHandler: { _ in })
     print("ACTIVITY " + String(accepted))
+    if !accepted { exit(0) }
 } else {
-    delegate.route(URL(string: "https://app.ramp.com/")!)
-}
-if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] == "1" {
     if ProcessInfo.processInfo.environment["URL_TEST_MODAL"] == "1" {
         delegate.application(NSApplication.shared, open: [URL(string: "fixture://another-link")!])
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-        print("EARLY " + String(delegate.activeTasks.count))
-    }
-    let seconds: Double = ProcessInfo.processInfo.environment["URL_TEST_MODAL"] == "1" ? 19 : 16.3
-    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-        print("FINAL tasks=\(delegate.activeTasks.count) descriptors=\(descriptors()) before=\(before)")
-        exit(0)
-    }
-} else if delegate.activeTasks.isEmpty { exit(0) }
+    delegate.route(URL(string: "https://app.ramp.com/")!)
+}
+if let seconds = Double(ProcessInfo.processInfo.environment["URL_TEST_FINAL", default: ""]) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { print("FINAL"); exit(0) }
+}
 dispatchMain()
-'''
+"""
     path.write_text(bridge)
     binary = directory / "bridge"
     subprocess.run(compiler + [str(path), "-o", str(binary)], check=True)
-    cli = directory / "hs"
-    cli.write_text('#!/bin/sh\nprintf "call\\n" >> "$URL_TEST_CALLS"\nprintf "%s\\n" "$URL_TEST_REPLY"\nexit "$URL_TEST_STATUS"\n')
-    cli.chmod(0o700)
-    invalid = directory / "invalid"
-    invalid.write_text("not an executable")
-    invalid.chmod(0o700)
-    stalled = directory / "stalled"
-    stalled.write_text("#!/bin/sh\nexec /bin/sleep 60\n")
-    stalled.chmod(0o700)
-    calls = directory / "calls"
-    for name, target in [("selector FIFO", snapshot), ("status FIFO", acknowledgement)]:
-        contents = target.read_bytes()
-        target.unlink()
-        os.mkfifo(target, 0o600)
-        calls.write_text("")
-        result = subprocess.run([str(binary), str(cli)], env=dict(os.environ, URL_TEST_HOME=str(home), URL_TEST_CALLS=str(calls)),
-            capture_output=True, text=True, check=True, timeout=2)
-        assert result.stdout.count("POPUP ") == 1 and "regular" in result.stdout and calls.read_text() == "", (name, result.stdout)
-        target.unlink()
-        target.write_bytes(contents)
-        print("PASS URL bridge " + name + " fails promptly before action")
-    for name, executable, reply, status, native_fail, popups, accepted, rejected, native_count in [
-        ("matched success", cli, "true", 0, False, 0, 1, 0, 0),
-        ("matched failure does not fall back", cli, "false", 0, False, 0, 0, 1, 0),
-        ("unmatched dispatches natively", cli, "native", 0, False, 0, 0, 0, 1),
-        ("native failure reports once", cli, "native", 0, True, 1, 0, 0, 1),
-        ("nonzero native response is rejected", cli, "native", 69, False, 1, 0, 0, 0),
-        ("process failure", cli, "", 69, False, 1, 0, 0, 0),
-        ("unexpected response", cli, "error", 0, False, 1, 0, 0, 0),
-        ("missing CLI", directory / "missing", "", 0, False, 1, 0, 0, 0),
-        ("CLI cannot start", invalid, "", 0, False, 1, 0, 0, 0),
-        ("stalled CLI is terminated before fallback", stalled, "", 0, False, 1, 0, 0, 0),
-    ]:
-        calls = directory / "calls"
-        calls.write_text("")
-        environment = dict(os.environ, URL_TEST_REPLY=reply, URL_TEST_STATUS=str(status), URL_TEST_CALLS=str(calls), URL_TEST_NATIVE_FAIL=str(int(native_fail)), URL_TEST_HOME=str(home))
-        result = subprocess.run([str(binary), str(executable)], env=environment, capture_output=True, text=True, check=True, timeout=20 if executable == stalled else 10)
-        assert result.stdout.count("POPUP ") == popups, (name, result.stdout)
-        assert result.stdout.count("ACCEPTED") == accepted, (name, result.stdout)
-        assert result.stdout.count("REJECTED") == rejected, (name, result.stdout)
-        assert result.stdout.splitlines().count("NATIVE") == native_count, (name, result.stdout)
-        assert calls.read_text().count("call") == int(executable == cli), name
-        print("PASS URL bridge " + name)
 
-    fixture = directory / "lifecycle.c"
-    fixture.write_text(r'''
+    # A real CFMessagePort server standing in for Hammerspoon's router port.
+    (directory / "server.c").write_text(r"""
+#include <CoreFoundation/CoreFoundation.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-int main(void) {
- const char *mode=getenv("TEST_MODE");
- FILE *pid=fopen(getenv("TEST_PID"),"w");fprintf(pid,"%d",getpid());fclose(pid);
- if(!strcmp(mode,"ignore")){signal(SIGTERM,SIG_IGN);while(1)pause();}
- if(!strcmp(mode,"closed")){close(1);close(2);signal(SIGTERM,SIG_IGN);while(1)pause();}
- if(!strcmp(mode,"inherited")){if(fork()==0){sleep(60);_exit(0);}puts("true");return 0;}
- if(!strcmp(mode,"large")){char data[8192];memset(data,'X',sizeof(data));for(int i=0;i<128;i++)if(write(2,data,sizeof(data))<0)return 1;}
- puts(!strcmp(mode,"false")?"false":!strcmp(mode,"native")?"native":"true");return 0;
+#include <unistd.h>
+static const char *logPath, *reply;
+static unsigned delay;
+static CFDataRef respond(CFMessagePortRef port, SInt32 id, CFDataRef data, void *info) {
+  (void)port; (void)info;
+  FILE *log = fopen(logPath, "a");
+  fprintf(log, "%d:", (int)id);
+  fwrite(CFDataGetBytePtr(data), 1, (size_t)CFDataGetLength(data), log);
+  fputc(0, log); fclose(log);
+  sleep(delay);
+  return strcmp(reply, "none") ? CFDataCreate(NULL, (const UInt8 *)reply, (CFIndex)strlen(reply)) : NULL;
 }
-''')
-    lifecycle = directory / "lifecycle"
-    subprocess.run(["clang", "-O2", str(fixture), "-o", str(lifecycle)], check=True)
-    processes = []
-    library = ctypes.CDLL("/usr/lib/libproc.dylib")
+int main(int argc, char **argv) {
+  if (argc != 5) return 2;
+  logPath = argv[2]; reply = argv[3]; delay = (unsigned)atoi(argv[4]);
+  CFStringRef name = CFStringCreateWithCString(NULL, argv[1], kCFStringEncodingUTF8);
+  CFMessagePortRef port = CFMessagePortCreateLocal(NULL, name, respond, NULL, NULL);
+  if (!port) return 1;
+  CFRunLoopAddSource(CFRunLoopGetMain(), CFMessagePortCreateRunLoopSource(NULL, port, 0), kCFRunLoopCommonModes);
+  puts("READY"); fflush(stdout);
+  CFRunLoopRun();
+}
+""")
+    server = directory / "server"
+    subprocess.run(["clang", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundation", str(server) + ".c", "-o", str(server)], check=True)
+    servers = []
+
+    def serve(label, reply="true", delay=0):
+        name = f"local.pandoks.HammerspoonURLRouter.test.{os.getpid()}.{label}"
+        log = directory / (label + ".requests")
+        log.write_bytes(b"")
+        process = subprocess.Popen([str(server), name, str(log), reply, str(delay)], stdout=subprocess.PIPE, text=True)
+        servers.append(process)
+        assert process.stdout and process.stdout.readline() == "READY\n", label
+        return name, log
+
+    def requests(log):
+        return [entry for entry in log.read_bytes().split(b"\0") if entry]
+
+    expected = b"1:72929621-22a6-48c9-97ea-df69e0c45918\nhttps://app.ramp.com/"
+    base = dict(os.environ, URL_TEST_HOME=str(home))
     try:
-        for mode in ("normal", "false", "native", "ignore", "closed", "inherited", "large", "modal"):
-            log = directory / (mode + ".log")
-            output = log.open("w")
-            pidpath = directory / (mode + ".pid")
-            environment = dict(os.environ, URL_TEST_HOME=str(home), URL_TEST_KEEP_ALIVE="1",
-                TEST_MODE="ignore" if mode == "modal" else mode, TEST_PID=str(pidpath),
-                URL_TEST_MODAL=str(int(mode == "modal")), URL_TEST_NATIVE_FAIL=str(int(mode == "modal")))
-            process = subprocess.Popen([str(binary), str(lifecycle)], env=environment, stdout=output, stderr=output, start_new_session=True)
-            processes.append((mode, process, output, log, pidpath, time.monotonic()))
-        modal = processes[-1]
-        time.sleep(max(0, 16.3 - (time.monotonic() - modal[-1])))
-        mode, process, output, log, pidpath, _ = modal
-        child = int(pidpath.read_text())
-        try:
-            os.kill(child, 0)
-        except ProcessLookupError:
-            pass
-        else:
-            raise AssertionError("CLI deadline waited for a blocked modal")
-        output.flush()
-        assert "MODAL_BEGIN" in log.read_text() and "MODAL_END" not in log.read_text()
-        descriptors = ctypes.create_string_buffer(8192)
-        assert library.proc_pidinfo(process.pid, 1, 0, descriptors, len(descriptors)) // 8 == 3, "pipe retained while modal blocked the main actor"
-        for mode, process, output, log, pidpath, _ in processes:
-            process.wait(timeout=5)
-            output.flush()
-            lines = log.read_text().splitlines()
-            assert "FINAL tasks=0 descriptors=3 before=3" in lines, (mode, lines)
-            try:
-                os.kill(int(pidpath.read_text()), 0)
-            except ProcessLookupError:
-                pass
+        # Deadline checks run alongside the other cases; each takes about ten seconds.
+        name, slow = serve("timeout", delay=60)
+        started = time.monotonic()
+        timeout = subprocess.Popen([str(binary)], env=dict(base, URL_TEST_PORT=name), stdout=subprocess.PIPE, text=True)
+        servers.append(timeout)
+        name, blocked = serve("modal", delay=60)
+        modal = subprocess.Popen([str(binary)], env=dict(base, URL_TEST_PORT=name, URL_TEST_KEEP_ALIVE="1", URL_TEST_MODAL="1",
+            URL_TEST_NATIVE_FAIL="1", URL_TEST_FINAL="19.5"), stdout=subprocess.PIPE, text=True)
+        servers.append(modal)
+
+        for label, target in [("selector FIFO", snapshot), ("status FIFO", acknowledgement)]:
+            contents = target.read_bytes()
+            target.unlink()
+            os.mkfifo(target, 0o600)
+            name, log = serve(label.replace(" ", "-"))
+            result = subprocess.run([str(binary)], env=dict(base, URL_TEST_PORT=name), capture_output=True, text=True, check=True, timeout=2)
+            assert result.stdout.count("POPUP ") == 1 and "regular" in result.stdout and not requests(log), (label, result.stdout)
+            target.unlink()
+            target.write_bytes(contents)
+            print("PASS URL bridge " + label + " fails promptly before sending")
+
+        for name, reply, native_fail, popups, accepted, rejected, native_count, message in [
+            ("matched success", "true", False, 0, 1, 0, 0, None),
+            ("matched failure does not fall back", "false", False, 0, 0, 1, 0, None),
+            ("unmatched dispatches natively", "native", False, 0, 0, 0, 1, None),
+            ("native failure reports once", "native", True, 1, 0, 0, 1, None),
+            ("unexpected reply", "error", False, 1, 0, 0, 0, "Hammerspoon routing failed: error"),
+            ("empty reply", "none", False, 1, 0, 0, 0, "Hammerspoon routing failed: "),
+            ("missing port", None, False, 1, 0, 0, 0, "Hammerspoon URL router is not listening"),
+        ]:
+            if reply:
+                port, log = serve(name.replace(" ", "-"), reply)
             else:
-                raise AssertionError("CLI survived the deadline: " + mode)
-            popups = [line for line in lines if line.startswith("POPUP ")]
-            if mode in ("ignore", "closed", "inherited", "modal"):
-                assert sum("timed out after 15 seconds" in line for line in popups) == 1, (mode, lines)
-            if mode in ("normal", "false", "native", "large"):
-                assert "EARLY 0" in lines, (mode, lines)
-            if mode == "large":
-                assert len(popups) == 1 and "output truncated" in popups[0] and len(popups[0]) < 4300, lines
-            elif mode in ("normal", "false", "native"):
-                assert not popups, (mode, lines)
-                expected = {"normal": "ACCEPTED", "false": "REJECTED", "native": "NATIVE"}[mode]
-                assert lines.count(expected) == 1, (mode, lines)
-            print("PASS URL bridge complete process/pipe lifecycle: " + mode)
+                port, log = f"local.pandoks.HammerspoonURLRouter.test.{os.getpid()}.absent", None
+            environment = dict(base, URL_TEST_PORT=port, URL_TEST_NATIVE_FAIL=str(int(native_fail)))
+            result = subprocess.run([str(binary)], env=environment, capture_output=True, text=True, check=True, timeout=10)
+            assert result.stdout.count("POPUP ") == popups, (name, result.stdout)
+            assert result.stdout.count("ACCEPTED") == accepted, (name, result.stdout)
+            assert result.stdout.count("REJECTED") == rejected, (name, result.stdout)
+            assert result.stdout.splitlines().count("NATIVE") == native_count, (name, result.stdout)
+            assert not message or message in result.stdout, (name, result.stdout)
+            assert not log or requests(log) == [expected], (name, requests(log))
+            print("PASS URL bridge " + name)
+
+        name, log = serve("stopped")
+        result = subprocess.run([str(binary)], env=dict(base, URL_TEST_PORT=name, URL_TEST_RUNNING="0"),
+            capture_output=True, text=True, check=True, timeout=10)
+        assert result.stdout.count("POPUP ") == 1 and "Hammerspoon is not running" in result.stdout and not requests(log), result.stdout
+        print("PASS URL bridge missing Hammerspoon fails before sending")
+
+        for label, status_value in [
+            ("unacknowledged selectors", dict(ready, kind="error")),
+            ("stale selector generation", dict(ready, generation="0bb7b5f5-413a-4bc4-96b5-f6d1a0dddb6d")),
+            ("same generation edited bytes", dict(ready, sha256="0" * 64)),
+        ]:
+            acknowledgement.write_text(json.dumps(status_value))
+            result = subprocess.run([str(binary)], env=dict(base, URL_TEST_PORT=name), capture_output=True, text=True, check=True, timeout=10)
+            assert result.stdout.count("POPUP ") == 1 and not requests(log), (label, result.stdout)
+            print("PASS URL bridge " + label + " fails before sending")
+        acknowledgement.write_text(json.dumps(ready))
+
+        for label, activity_type, activity_url, accepted in [
+            ("browsing-web activity", "NSUserActivityTypeBrowsingWeb", "https://app.ramp.com/", True),
+            ("unrelated activity", "fixture.activity", "https://app.ramp.com/", False),
+            ("browsing activity without URL", "NSUserActivityTypeBrowsingWeb", "none", False),
+        ]:
+            name, log = serve(label.replace(" ", "-"))
+            result = subprocess.run([str(binary)], env=dict(base, URL_TEST_PORT=name, URL_TEST_ACTIVITY=activity_type,
+                URL_TEST_ACTIVITY_URL=activity_url), capture_output=True, text=True, check=True, timeout=10)
+            assert "ACTIVITY " + str(accepted).lower() in result.stdout, (label, result.stdout)
+            assert requests(log) == ([expected] if accepted else []), (label, requests(log))
+            assert result.stdout.count("ACCEPTED") == int(accepted), (label, result.stdout)
+            print("PASS URL delivery " + label)
+
+        output, _ = timeout.communicate(timeout=20)
+        elapsed = time.monotonic() - started
+        assert 9.5 < elapsed < 12 and output.count("POPUP ") == 1, (elapsed, output)
+        assert "did not reply within 10 seconds" in output and requests(slow) == [expected], output
+        print("PASS URL bridge unanswered request reports once at the 10-second reply deadline")
+        output, _ = modal.communicate(timeout=25)
+        lines = output.splitlines()
+        popups = [index for index, line in enumerate(lines) if "did not reply within 10 seconds" in line and line.startswith("POPUP ")]
+        assert len(popups) == 1 and lines.index("MODAL_BEGIN") < lines.index("MODAL_END") < popups[0] < lines.index("FINAL"), lines
+        assert requests(blocked) == [expected], lines
+        print("PASS URL bridge deadline runs while a popup blocks the main actor")
     finally:
-        for _, process, output, _, pidpath, _ in processes:
-            for pid in (int(pidpath.read_text()) if pidpath.exists() else None, process.pid):
-                if pid is not None:
-                    try:
-                        os.killpg(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+        for process in servers:
+            process.kill()
             process.wait()
-            output.close()
-
-    calls.write_text("")
-    result = subprocess.run([str(binary), str(cli)], env=dict(os.environ, URL_TEST_HOME=str(home), URL_TEST_CALLS=str(calls), URL_TEST_RUNNING="0"),
-        capture_output=True, text=True, check=True, timeout=10)
-    assert result.stdout.count("POPUP ") == 1 and "Hammerspoon is not running" in result.stdout and calls.read_text() == "", result.stdout
-    print("PASS URL bridge missing Hammerspoon fails before launching its CLI")
-
-    for name, status_value in [
-        ("unacknowledged selectors", dict(ready, kind="error")),
-        ("stale selector generation", dict(ready, generation="0bb7b5f5-413a-4bc4-96b5-f6d1a0dddb6d")),
-        ("same generation edited bytes", dict(ready, sha256="0" * 64)),
-    ]:
-        acknowledgement.write_text(json.dumps(status_value))
-        calls.write_text("")
-        result = subprocess.run([str(binary), str(cli)], env=dict(os.environ, URL_TEST_HOME=str(home), URL_TEST_CALLS=str(calls)),
-            capture_output=True, text=True, check=True, timeout=10)
-        assert result.stdout.count("POPUP ") == 1 and calls.read_text() == "", (name, result.stdout)
-        print("PASS URL bridge " + name + " fails before action")
-    acknowledgement.write_text(json.dumps(ready))
-
-    for name, activity_type, activity_url, accepted in [
-        ("browsing-web activity", "NSUserActivityTypeBrowsingWeb", "https://app.ramp.com/", True),
-        ("unrelated activity", "fixture.activity", "https://app.ramp.com/", False),
-        ("browsing activity without URL", "NSUserActivityTypeBrowsingWeb", "none", False),
-    ]:
-        calls.write_text("")
-        result = subprocess.run([str(binary), str(cli)], env=dict(os.environ, URL_TEST_HOME=str(home), URL_TEST_CALLS=str(calls),
-            URL_TEST_ACTIVITY=activity_type, URL_TEST_ACTIVITY_URL=activity_url, URL_TEST_REPLY="true", URL_TEST_STATUS="0"),
-            capture_output=True, text=True, check=True, timeout=10)
-        assert "ACTIVITY " + str(accepted).lower() in result.stdout, (name, result.stdout)
-        assert calls.read_text().count("call") == int(accepted), (name, result.stdout)
-        print("PASS URL delivery " + name)
+            if process.stdout:
+                process.stdout.close()
 
     path.write_text(main + r'''
 @MainActor func openNative(_ url: URL) async throws {
@@ -382,7 +359,7 @@ int main(void) {
         ("unknown command", ["--unknown", "https://example.com/"], False, 1),
     ]:
         environment = dict(os.environ, URL_TEST_NATIVE_FAIL=str(int(failed)))
-        result = subprocess.run([str(binary), *arguments], env=environment, capture_output=True, text=True, timeout=10)
+        result = subprocess.run([str(binary), *arguments], env=environment, capture_output=True, text=True, check=False, timeout=10)
         assert result.returncode == status, (name, result.stdout, result.stderr)
         assert result.stdout.count("NATIVE ") == int(name.startswith("native command")), (name, result.stdout)
         assert result.stdout.count("WARM") == int(name in ("warm command", "warm command failure")), (name, result.stdout)

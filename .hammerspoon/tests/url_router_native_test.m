@@ -146,12 +146,12 @@ int main(int argc, char **argv) {
     task.arguments = @[@"10"];
     assert([task launchAndReturnError:nil]);
     lua_pushinteger(state, task.processIdentifier); lua_setglobal(state, "pid");
-    execute(state, "assert(native.process(pid,'/bin/false',function() error('wrong executable callback') end)==nil); exited=false; cancel=assert(native.process(pid,'/bin/sleep',function(error) assert(type(error)=='string'); exited=true; finish() end))");
+    execute(state, "assert(native.process(pid,'/bin/false',function() error('wrong executable callback') end)==false); exited=false; cancel=assert(native.process(pid,'/bin/sleep',function(error) assert(type(error)=='string'); exited=true; finish() end))");
     [task terminate];
     awaitEvents();
     lua_getglobal(state, "exited"); assert(lua_toboolean(state, -1)); lua_pop(state, 1);
     [task waitUntilExit];
-    execute(state, "cancel(); assert(native.process(pid,'/bin/sleep',function() error('dead process callback') end)==nil)");
+    execute(state, "cancel(); assert(native.process(pid,'/bin/sleep',function() error('dead process callback') end)==false)");
     puts("PASS executable validation and process exit invalidate readiness without polling");
 
     execute(state, "cancel=assert(native.watch(path,function() error('old Lua callback') end)); assert(native.publish(path,'reload pending')); native=nil");
@@ -205,9 +205,24 @@ int main(int argc, char **argv) {
       dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ CFRunLoopStop(CFRunLoopGetMain()); });
       awaitEvents(); execute(state, "metadata.repeated()");
     }
+    NSTask *swcd = [NSTask new]; swcd.executableURL = [NSURL fileURLWithPath:@"/bin/sleep"]; swcd.arguments = @[@"30"];
+    assert([swcd launchAndReturnError:nil]);
+    lua_pushinteger(state, swcd.processIdentifier); lua_setglobal(state, "live");
+    execute(state, "metadata.start('idle', live); metadata.acknowledge()"); awaitEvents();
+    execute(state, "metadata.ready(); metadata.change()");
+    [swcd terminate]; awaitEvents(); [swcd waitUntilExit];
+    execute(state, "metadata.verify(); metadata.touch()");
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ CFRunLoopStop(CFRunLoopGetMain()); });
+    awaitEvents(); execute(state, "metadata.repeated()");
+    NSTask *relaunched = [NSTask new]; relaunched.executableURL = swcd.executableURL; relaunched.arguments = swcd.arguments;
+    assert([relaunched launchAndReturnError:nil]);
+    lua_pushinteger(state, relaunched.processIdentifier); lua_setglobal(state, "live");
+    execute(state, "metadata.respawn(live)"); awaitEvents(); execute(state, "metadata.ready()");
+    puts("PASS actual Lua readiness resumes quietly from the relaunched process");
     execute(state, "metadata.close()"); awaitEvents(); execute(state, "metadata.closed()");
     if (task.running) [task terminate]; [task waitUntilExit];
-    puts("RESULT 20 passed, 0 failed");
+    [relaunched terminate]; [relaunched waitUntilExit];
+    puts("RESULT 22 passed, 0 failed");
   }
   return 0;
 }

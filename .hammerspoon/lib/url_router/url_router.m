@@ -117,10 +117,10 @@ static int process(lua_State *state) {
   luaL_argcheck(state, pid > 0 && pid <= INT_MAX, 1, "invalid process ID");
   char executable[PROC_PIDPATHINFO_MAXSIZE];
   NSString *path = [skin toNSObjectAtIndex:2];
+  // Exited, or its ID was reused.
   if (kill((pid_t)pid, 0) != 0 || proc_pidpath((int)pid, executable, sizeof executable) <= 0 ||
       strcmp(executable, path.fileSystemRepresentation) != 0) {
-    lua_pushnil(state); lua_pushliteral(state, "interception process is missing or has a different executable");
-    return 2;
+    lua_pushboolean(state, NO); return 1;
   }
   dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC,
     (uintptr_t)pid, DISPATCH_PROC_EXIT, dispatch_get_main_queue());

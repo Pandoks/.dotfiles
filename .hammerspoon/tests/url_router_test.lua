@@ -8,9 +8,21 @@ end
 
 local function browser(options)
   local settings = options or {}
-  local state = { logs = {}, tasks = {}, reads = 0, lookups = 0, documents = {}, publications = {} }
+  local state = {
+    logs = {},
+    prints = {},
+    ports = {},
+    tasks = {},
+    reads = 0,
+    lookups = 0,
+    documents = {},
+    publications = {},
+  }
   local generation = 0
   local environment = setmetatable({
+    print = function(message)
+      state.prints[#state.prints + 1] = message
+    end,
     io = {
       open = function(path)
         local contents
@@ -129,6 +141,15 @@ local function browser(options)
         end,
       },
       urlevent = {},
+      ipc = {
+        localPort = function(name, callback)
+          if settings.portFailure then
+            error("local port name already in use")
+          end
+          state.ports[#state.ports + 1] = { name = name, callback = callback }
+          return {}
+        end,
+      },
       osascript = {
         javascript = function()
           error("URL routing must not use window matching")
@@ -192,11 +213,13 @@ local function browser(options)
             end
           end,
           process = function(pid, path, stopped)
-            assert(pid == 100 and path == "/usr/libexec/swcd")
+            assert(path == "/usr/libexec/swcd")
             if settings.deadProcess then
-              return nil, "process missing"
+              return false
+            elseif settings.processFailure then
+              return nil, "watch failed"
             end
-            state.stopped = stopped
+            state.watched, state.stopped = pid, stopped
             return function()
               state.processCanceled = (state.processCanceled or 0) + 1
             end
@@ -231,6 +254,10 @@ local function browser(options)
     state.installed = assert(loadfile(root .. "/../url_router/init.lua", "t", environment))()
   end
   state.route, state.callback = environment.RouteHTTPURL, environment.hs.urlevent.httpCallback
+  state.request = state.ports[1]
+    and function(data, id)
+      return state.ports[1].callback({}, id or 1, data)
+    end
   state.router, state.environment, state.settings = router, environment, settings
   return state
 end
@@ -579,11 +606,11 @@ test("selector acknowledgement rejects wrong bytes, count, and process IDs", fun
     assert(state.route("https://app.ramp.com/") == false and #state.tasks == 0)
   end
 end)
-test("readiness errors report once and process exit stops dispatch", function()
+test("readiness and process watch errors report once", function()
   for _, options in ipairs({
     { invalidStatus = true },
     { missingStatus = true },
-    { deadProcess = true },
+    { processFailure = true },
     { invalidState = true },
     { missingState = true },
     { watchFailure = true },
@@ -600,13 +627,54 @@ test("readiness errors report once and process exit stops dispatch", function()
   state.changed()
   state.changed()
   assert(not state.router.status().ready and #state.logs == 1)
-  local running = browser()
-  running.stopped("process exited")
-  assert(not running.router.status().ready and running.route("https://app.ramp.com/") == false)
-  assert(#running.tasks == 0)
-  running.settings.deadProcess = true
-  running.changed()
-  assert(not running.router.status().ready and #running.tasks == 0)
+end)
+test("idle swcd exit pauses quietly until launchd republishes readiness", function()
+  local state = browser()
+  assert(state.router.status().ready and state.watched == 100)
+  state.stopped("Universal Link interception process exited")
+  assert(not state.router.status().ready and not state.router.status().error)
+  assert(#state.logs == 0 and #state.prints == 1)
+  state.settings.deadProcess = true
+  state.changed()
+  assert(not state.router.status().ready and #state.logs == 0 and #state.prints == 1)
+  state.settings.deadProcess, state.status.pid = false, 101
+  state.changed()
+  assert(state.router.status().ready and state.watched == 101 and #state.logs == 0)
+  assert(state.request("generation-1\nhttps://app.ramp.com/") == "true" and #state.tasks == 1)
+end)
+test("a ready status from an exited or reused swcd ID waits quietly", function()
+  local state = browser({ deadProcess = true })
+  assert(state.installed and not state.router.status().ready and not state.router.status().error)
+  state.changed()
+  assert(#state.logs == 0 and #state.prints == 0)
+  assert(state.route("https://app.ramp.com/") == false and #state.tasks == 0)
+end)
+test("the helper port routes encoded requests with the current generation", function()
+  local state = browser()
+  assert(#state.ports == 1 and state.ports[1].name == "local.pandoks.HammerspoonURLRouter.route")
+  assert(state.request("generation-1\nhttps://app.ramp.com/") == "true" and #state.tasks == 1)
+  assert(state.request("generation-1\nhttps://example.com/") == "native" and #state.logs == 0)
+  assert(state.request("older\nhttps://app.ramp.com/") == "false" and #state.logs == 1)
+  for _, request in ipairs({
+    { "generation-1\nhttps://app.ramp.com/", 2 },
+    { nil, 1 },
+    { "https://app.ramp.com/", 1 },
+    { "generation-1\n", 1 },
+    { "\nhttps://app.ramp.com/", 1 },
+    { "generation-1\nhttps://app.ramp.com/\nhttps://example.com/", 1 },
+    { "generation-1\nfile:///var/tmp/test", 1 },
+  }) do
+    local logs = #state.logs
+    assert(state.request(request[1], request[2]) == "false" and #state.logs == logs + 1)
+  end
+  assert(#state.tasks == 1)
+end)
+test("port creation failure fails installation once", function()
+  local state = browser({ portFailure = true })
+  assert(
+    not state.installed and #state.logs == 1 and state.logs[1]:find("could not listen", 1, true)
+  )
+  assert(state.router.status().error and #state.ports == 0)
 end)
 test("staged installation waits quietly for its first interception status", function()
   for _, phase in ipairs({ "staging", "staged", "activating", "awaiting-login" }) do
@@ -712,7 +780,8 @@ test("reinstallation revokes old readiness and isolates rules from caller mutati
   }
   state.changed()
   assert(state.environment.RouteHTTPURL("https://example.com/", "generation-2") == true)
-  assert(old == 1 and new == 1)
+  assert(state.request("generation-2\nhttps://example.com/") == "true" and #state.ports == 1)
+  assert(old == 1 and new == 2)
 end)
 test("malformed pattern suffixes fail explicitly without poisoning valid routing", function()
   local state = browser({
