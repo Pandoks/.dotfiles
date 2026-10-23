@@ -43,7 +43,7 @@ static void push(lua_State *state, NSString *value) {
     if (_directory >= 0) close(_directory);
     _directory = -1;
     [self fail:@"watch-open" error:@"Selector directory must be owned by this user and not writable by others"];
-    return self;
+    return nil;
   }
   _queue = dispatch_queue_create("local.pandoks.url-router.selectors", DISPATCH_QUEUE_SERIAL);
   _source = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, (uintptr_t)_directory,
@@ -51,7 +51,7 @@ static void push(lua_State *state, NSString *value) {
   if (!_source) {
     close(_directory); _directory = -1;
     [self fail:@"watch-create" error:@"Could not watch selector directory"];
-    return self;
+    return nil;
   }
   __weak URLSelectorStore *weak = self;
   dispatch_source_set_event_handler(_source, ^{
@@ -203,10 +203,11 @@ static void push(lua_State *state, NSString *value) {
 - (int)classifyURL:(NSURL *)url snapshot:(NSDictionary **)snapshot {
   os_unfair_lock_lock(&_lock);
   if (snapshot) *snapshot = _snapshot;
-  if (!_state) { os_unfair_lock_unlock(&_lock); return -1; }
+  // Host-less URLs can't be app links.
+  int result = url.host.length ? -1 : 0;
+  if (!_state || !result) { os_unfair_lock_unlock(&_lock); return result; }
   lua_getglobal(_state, "classify"); lua_getglobal(_state, "rules");
   push(_state, url.absoluteString); push(_state, url.host); push(_state, url.scheme);
-  int result = -1;
   NSString *error;
   if (lua_pcall(_state, 4, 2, 0) == LUA_OK) {
     result = (int)lua_tointeger(_state, -2);

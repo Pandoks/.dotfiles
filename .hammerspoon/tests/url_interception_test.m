@@ -49,7 +49,8 @@ int main(int argc, const char **argv) {
       __block NSDictionary *result;
       URLSelectorStore *store = [[URLSelectorStore alloc] initWithPath:rules report:^(NSDictionary *event) { result = event; }];
       require(result != nil, @"snapshot reports its initial status synchronously");
-      require([store classifyURL:[NSURL URLWithString:@"https://ramp.com/"] snapshot:nil]
+      require((store == nil) == [result[@"stage"] hasPrefix:@"watch-"], @"only a watcher failure withholds the store");
+      require(!store || [store classifyURL:[NSURL URLWithString:@"https://ramp.com/"] snapshot:nil]
         == ([result[@"kind"] isEqual:@"loaded"] ? 1 : -1), @"snapshot result agrees with classifier readiness");
       puts([result[@"stage"] ?: result[@"kind"] UTF8String]);
       [store stop];
@@ -109,6 +110,7 @@ int main(int argc, const char **argv) {
     }];
     await(semaphore, events, lock, @"generation", @"initial");
     NSArray *cases = @[
+      @[@"http:foo", @0], @[@"https://user@/x", @0],
       @[@"https://ramp.com/pay", @1], @[@"https://cards.ramp.com/pay", @1], @[@"https://RAMP.COM./pay", @1],
       @[@"https://notramp.com/pay", @0], @[@"https://ramp.com.example/pay", @0],
       @[@"https://app.notion.com/p/sieve-data/page", @2], @[@"http://app.notion.com/p/sieve-data/page", @2],
@@ -124,7 +126,7 @@ int main(int argc, const char **argv) {
     NSData *ack = [NSData dataWithContentsOfFile:statusPath];
     NSDictionary *row = [NSJSONSerialization JSONObjectWithData:ack options:0 error:nil];
     require([row[@"generation"] isEqual:@"ordered"] && [row[@"count"] isEqual:@2], @"published generation ACK identifies active rules");
-    puts("PASS native ordered matcher, host boundaries, exact URL patterns, and atomic generation ACK");
+    puts("PASS native ordered matcher, host boundaries, exact URL patterns, host-less pass-through, and status writer ACK");
     NSArray *first = @[@{@"host": @"alpha.example"}, @{@"host": @"beta.example"}];
     NSArray *second = @[@{@"host": @"beta.example"}, @{@"host": @"alpha.example"}];
     publish(rules, @"before-concurrency", first); await(semaphore, events, lock, @"generation", @"before-concurrency");

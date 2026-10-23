@@ -55,15 +55,12 @@ with tempfile.TemporaryDirectory(prefix="url-interception-test.", dir="/var/tmp"
         event = json.loads((Path(status) / "status.json").read_text())
         assert event["kind"] == "error" and event["stage"] == "environment", "Hook setup error must be acknowledged"
         print("PASS actual injected constructor: missing status/target environment returns to the host process instead of exiting")
-        snapshot = selectors / "rules.json"
-        os.mkfifo(snapshot, 0o600)
-        result = subprocess.run([str(binary), str(selectors), status, "snapshot"], capture_output=True, text=True, timeout=2)
-        assert result.returncode == 0 and result.stdout.strip() == "snapshot-file", result
-        snapshot.unlink()
-        snapshot.write_text('{"version":1,"generation":"regular-control","rules":[{"host":"ramp.com"}]}')
-        result = subprocess.run([str(binary), str(selectors), status, "snapshot"], capture_output=True, text=True, timeout=2)
-        assert result.returncode == 0 and result.stdout.strip() == "loaded", result
-        print("PASS initial FIFO snapshot fails promptly while a regular snapshot loads")
+        (selectors / "rules.json").write_text('{"version":1,"generation":"regular-control","rules":[{"host":"ramp.com"}]}')
+        for mode, expected in ((0o770, "watch-open"), (0o700, "loaded")):
+            selectors.chmod(mode)
+            result = subprocess.run([str(binary), str(selectors), status, "snapshot"], capture_output=True, text=True, timeout=2)
+            assert result.returncode == 0 and result.stdout.strip() == expected, result
+        print("PASS an unsafe selector directory withholds the store while a regular snapshot loads")
         statusfile = Path(status) / "status.json"
         contents = statusfile.read_bytes()
         statusfile.unlink()

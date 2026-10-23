@@ -4,7 +4,10 @@ Ordered Lua rules choose an application or Helium profile. A selective hook in
 macOS `swcd` sends matching Universal Link lookups to the same background helper
 used for ordinary HTTP(S) URLs. The helper accepts URL events and browsing-web
 activities, then sends them to Hammerspoon over a Mach message port. Unmatched lookups call Apple's original
-implementation unchanged.
+implementation unchanged while the selectors are valid. Invalid selectors make matched
+and unmatched HTTP(S) Universal Links fail closed, so a routed link such as a Notion
+page never falls through to its native app. Matched links also fail until the hook
+acknowledges their selector generation.
 
 The helper remains the default HTTP and HTTPS application after activation.
 Unmatched links delivered to it use native Universal Link handling, then Helium
@@ -104,7 +107,7 @@ only carry a page ID, dashed or not (3-second limit). Reloading Hammerspoon duri
 that lookup stops it, so the link opens nothing and shows no popup.
 
 The published JSON contains selectors only, not Lua action functions. The hook
-loads selectors into the same Lua version and acknowledges their UUID generation
+loads selectors into an embedded Lua 5.4 and acknowledges their UUID generation
 and SHA-256 bytes through an atomic status file. Filesystem notifications update
 both sides. The helper sends message 1 with `generation\nurl` to Hammerspoon's
 `local.pandoks.HammerspoonURLRouter.route` CFMessagePort, which replies `true`,

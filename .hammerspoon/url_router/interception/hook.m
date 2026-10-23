@@ -138,6 +138,7 @@ __attribute__((constructor)) static void install(void) {
     store = [[URLSelectorStore alloc] initWithPath:selectors report:^(NSDictionary *event) {
       if (atomic_load(&installed) || [event[@"kind"] isEqual:@"error"]) publish(event);
     }];
+    if (!store) return;
     method_setImplementation(method, replacement);
     atomic_store(&installed, YES);
     publish(nil);
