@@ -36,9 +36,18 @@ end
 
 local dictation = {}
 
+---@param problem string
+local function disabled(problem)
+  fail(problem)
+  dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, function()
+    fail(problem)
+  end)
+  return dictation
+end
+
 local unprepared = history.prepare(config.history)
 if unprepared then
-  fail(unprepared)
+  return disabled(unprepared)
 end
 
 ---@type "idle"|"recording"|"thinking"
@@ -258,11 +267,7 @@ local engine, problem = Engine.new(config, {
   end,
 })
 if not engine then
-  fail(tostring(problem))
-  dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, function()
-    fail(tostring(problem))
-  end)
-  return dictation
+  return disabled(tostring(problem))
 end
 
 local function toggle()

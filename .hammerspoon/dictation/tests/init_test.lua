@@ -442,6 +442,34 @@ test("a copy made before the clipboard restore is kept", function()
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
+test("a history folder it can't secure leaves only a hotkey that says why", function()
+  local main, started = toggle, false
+  load("init", {
+    hs = hs,
+    print = function() end,
+    require = function(name)
+      if name == "dictation.history" then
+        return {
+          prepare = function()
+            return "could not create /x owner-only"
+          end,
+        }
+      elseif name == "dictation.engine" then
+        return {
+          new = function()
+            started = true
+          end,
+        }
+      end
+      return modules[name]
+    end,
+  })
+  local disabled = toggle
+  toggle, alerts = main, {}
+  disabled()
+  assert(not started and alerts[1] == "Dictation: could not create /x owner-only", alerts[1])
+end)
+
 -- Last: it tears everything down.
 test("shutdown puts the clipboard back and keeps the takes transcribing and recording", function()
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "x" })
