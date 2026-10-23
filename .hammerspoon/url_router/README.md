@@ -100,7 +100,8 @@ key its adapter finds. An adapter in `lib/url_adapters/` only finds the key and
 calls `done(key)` or `done(nil, error)`, now or later; an error is reported and
 opens nothing. `notion.workspace({ lookup = true })` finds the workspace domain;
 `lookup` asks Notion's undocumented `getPublicPageData` endpoint about links that
-only carry a page ID (3-second limit).
+only carry a page ID, dashed or not (3-second limit). Reloading Hammerspoon during
+that lookup stops it, so the link opens nothing and shows no popup.
 
 The published JSON contains selectors only, not Lua action functions. The hook
 loads selectors into the same Lua version and acknowledges their UUID generation

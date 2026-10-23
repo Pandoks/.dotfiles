@@ -114,6 +114,8 @@ local function browser(options)
           elseif contents:match("^notion:") then
             local domain = contents:sub(8)
             return { spaceDomain = domain ~= "" and domain or nil }
+          elseif contents ~= "browser" then
+            error("invalid JSON")
           end
           return {
             profile = {
@@ -302,10 +304,14 @@ end)
 test("Notion links open in their workspace's browser profile", function()
   for url, directory in pairs({
     ["https://app.notion.com/p/sieve-data/document"] = "Profile 1",
+    ["https://app.notion.com/p/Sieve-Data/document"] = "Profile 1",
     ["https://www.notion.so/sieve-data/Page-3382e03c6a5880368090d9fa3b706f16"] = "Profile 1",
+    ["https://notion.so/sieve-data/document"] = "Profile 1",
+    ["https://www.notion.com/sieve-data/document"] = "Profile 1",
     ["https://app.notion.com/p/pandoks/document"] = "Default",
     ["https://app.notion.com/p/kwok/document"] = "Default",
     ["https://www.notion.so/michelle/document"] = "Default",
+    ["https://notion.com/michelle/document"] = "Default",
   }) do
     local state = browser()
     assert(state.route(url) == true and #state.tasks == 1)
@@ -317,6 +323,8 @@ test("page-ID-only Notion links open in the workspace Notion reports", function(
     { "Codenames-3382e03c6a5880368090d9fa3b706f16", "sieve-data", "Profile 1" },
     { "Codenames-3382E03C6A5880368090D9FA3B706F16", "sieve-data", "Profile 1" },
     { "3382e03c6a5880368090d9fa3b706f16", "kwok", "Default" },
+    { "3382e03c-6a58-8036-8090-d9fa3b706f16", "sieve-data", "Profile 1" },
+    { "Codenames-3382E03C-6A58-8036-8090-D9FA3B706F16", "sieve-data", "Profile 1" },
   }) do
     local url, domain, directory = "https://app.notion.com/p/" .. case[1], case[2], case[3]
     local state = browser()
@@ -358,17 +366,18 @@ test("router.by reports actions that finish later exactly once", function()
   end
 end)
 test("failed Notion lookups report once without opening a profile", function()
-  local state = browser()
-  assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == true)
-  state.tasks[1].callback(28, "", "Operation timed out")
-  assert(#state.tasks == 1 and #state.logs == 1)
-  assert(state.logs[1] == "Notion workspace lookup failed: Operation timed out")
-  state = browser()
-  assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == true)
-  state.tasks[1].callback(0, "notion:", "")
-  assert(#state.tasks == 1 and #state.logs == 1)
-  assert(state.logs[1] == "Notion workspace lookup failed: no workspace for this page")
-  state = browser({ startFailure = true })
+  for _, case in ipairs({
+    { 28, "", "Operation timed out", "Operation timed out" },
+    { 0, "notion:", "", "no workspace for this page" },
+    { 0, "<html>", "", "invalid response" },
+  }) do
+    local state = browser()
+    assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == true)
+    state.tasks[1].callback(case[1], case[2], case[3])
+    assert(#state.tasks == 1 and #state.logs == 1)
+    assert(state.logs[1] == "Notion workspace lookup failed: " .. case[4])
+  end
+  local state = browser({ startFailure = true })
   assert(state.route("https://app.notion.com/p/3382e03c6a5880368090d9fa3b706f16") == false)
   assert(#state.tasks == 1 and #state.logs == 1)
   assert(state.logs[1] == "Could not start the Notion workspace lookup")

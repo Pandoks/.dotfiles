@@ -11,6 +11,6 @@ local notionLinks = router.by(workspace, { ["sieve-data"] = work }, personal)
 
 return router.install({
   { host = "ramp.com", open = work },
-  { host = "app.notion.com", open = notionLinks },
-  { host = "www.notion.so", open = notionLinks },
+  { host = "notion.so", open = notionLinks },
+  { host = "notion.com", open = notionLinks },
 })

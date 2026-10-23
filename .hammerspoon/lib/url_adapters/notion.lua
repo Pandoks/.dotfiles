@@ -5,9 +5,14 @@ local notion = {}
 ---@return fun(url: string, done: fun(workspace?: string, error?: string))
 function notion.workspace(options)
   return function(url, done)
-    local path = url:match("^%a[%w+.-]*://[^/?#]+(/[^?#]*)") or "/"
+    local path = (url:match("^%a[%w+.-]*://[^/?#]+(/[^?#]*)") or "/"):lower()
     local segment = (path:gsub("^/p/", "/")):match("^/([^/]+)")
-    local page = segment and segment:match("(" .. string.rep("%x", 32) .. ")$")
+    -- Page IDs are 32 hex digits, optionally dashed 8-4-4-4-12.
+    local pattern = string.rep("%x", 8)
+      .. string.rep("%-?%x%x%x%x", 3)
+      .. "%-?"
+      .. string.rep("%x", 12)
+    local page = segment and segment:match(pattern .. "$")
     if not page then
       done(segment)
       return
@@ -17,7 +22,7 @@ function notion.workspace(options)
     end
 
     -- Notion only resolves lowercase, dashed page IDs.
-    local id = page:lower():gsub("^(........)(....)(....)(....)", "%1-%2-%3-%4-")
+    local id = page:gsub("%-", ""):gsub("^(........)(....)(....)(....)", "%1-%2-%3-%4-")
     local task = hs.task.new("/usr/bin/curl", function(code, output, message)
       local decoded, data = pcall(hs.json.decode, output)
       if code ~= 0 or not decoded or type(data) ~= "table" then
