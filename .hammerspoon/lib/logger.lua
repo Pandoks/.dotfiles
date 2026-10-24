@@ -8,8 +8,9 @@ logger.path = directory .. "/config.log"
 
 ---@param message string
 function logger.error(message)
-  print(message)
   hs.alert.show(message:match("^[^\n]+"), 5)
+  -- After the alert: hs.ipc's print raises while a dead `hs` CLI is registered.
+  pcall(print, message)
 end
 
 function logger.install()
