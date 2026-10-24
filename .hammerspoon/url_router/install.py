@@ -250,13 +250,13 @@ def stage(directory):
         os.chmod(JOB, 0o644)
         state["phase"] = "staged"
         write(SUPPORT / "state.json", state)
-    except BaseException:
+    except BaseException as error:
         state["phase"] = "stage-failed"
         write(SUPPORT / "state.json", state)
         try:
             uninstall()
         except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as rollback:
-            print("Staging rollback failed: " + str(rollback) + "; run install.sh uninstall after resolving it", file=sys.stderr)
+            raise RuntimeError(f"{error}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
         raise
     print("Staged. Reload Hammerspoon, then run install.sh activate --warm or activate --login.")
 
@@ -416,13 +416,13 @@ def activate(warm):
         write(SUPPORT / "state.json", state)
         if warm:
             complete(state)
-    except BaseException:
+    except BaseException as error:
         state["phase"] = "activation-failed"
         write(SUPPORT / "state.json", state)
         try:
             uninstall()
         except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as rollback:
-            print("Activation rollback failed: " + str(rollback) + "; run install.sh uninstall after resolving it", file=sys.stderr)
+            raise RuntimeError(f"{error}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
         raise
     print("Ready. Verify a configured link and an unmatched native link." if warm else
           "Activation is staged for a clean login/reboot. After logging in, run install.sh finish. This script does not log out or restart the Mac.")
@@ -543,11 +543,11 @@ def main():
                 raise RuntimeError("Only an installation awaiting a clean login can be completed")
             try:
                 complete(state)
-            except BaseException:
+            except BaseException as error:
                 try:
                     uninstall()
                 except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as rollback:
-                    print("Completion rollback failed: " + str(rollback) + "; run install.sh uninstall after resolving it", file=sys.stderr)
+                    raise RuntimeError(f"{error}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
                 raise
         else:
             uninstall()

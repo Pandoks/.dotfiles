@@ -391,6 +391,8 @@ path.write_text(json.dumps(state))
                         except RuntimeError as error:
                             expected = {"stale-ack": "acknowledgement", "default-failure": "default handler", "retry-default-failure": "default handler", "admin-failure": "administrator"}[mode]
                             assert expected in str(error)
+                            # A failed rollback reaches the log and popup with the original error.
+                            assert ("; rollback failed: The saved http handler is unavailable" in str(error)) == (mode in ("retry-default-failure", "admin-failure")), error
                         else:
                             raise AssertionError("failed activation accepted")
                         if mode == "retry-default-failure":

@@ -77,7 +77,8 @@ Then follow the steps below.
    replacement service without opening a browser or replaying a user URL. Only
    then does it set the helper as the HTTP and HTTPS default. Already configured
    schemes skip redundant macOS prompts. A failed activation reverses the
-   installation.
+   installation. If that rollback fails, resolve its error and run
+   `install.sh uninstall`; `activate` refuses while the clone is loaded.
 5. Run `zsh ~/.hammerspoon/url_router/install.sh status` and verify a configured
    profile link plus an unmatched native link. A successful status reports
    `"acknowledged": true` for the current process, generation, and selector bytes.
