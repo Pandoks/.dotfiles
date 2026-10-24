@@ -226,7 +226,7 @@ path.write_text(json.dumps(state))
     actual_subprocess = installer.subprocess.run
     rules = json.dumps({"version": 1, "generation": "d0819922-4a5f-479a-9007-b73f80e37a4d", "rules": []})
     acknowledged = ["d0819922-4a5f-479a-9007-b73f80e37a4d", hashlib.sha256(rules.encode()).hexdigest()]
-    for mode in ("success", "preflight", "disabled-boolean", "disabled-word", "activation", "stale-ack", "default-failure", "admin-failure", "login", "login-default-failure", "restore-failure", "cleanup-failure", "without-helper", "job-removal-failure", "restored-reboot", "unsupported-build"):
+    for mode in ("success", "preflight", "disabled-boolean", "disabled-word", "activation", "stale-ack", "default-failure", "retry-default-failure", "admin-failure", "login", "login-default-failure", "restore-failure", "cleanup-failure", "without-helper", "job-removal-failure", "restored-reboot", "unsupported-build"):
         failure = mode == "preflight"
         home = temporary / mode
         support = home / "Library/Application Support/HammerspoonURLRouter"
@@ -306,7 +306,7 @@ path.write_text(json.dumps(state))
                     Path(arguments[2]).write_text(json.dumps(defaults))
                 elif arguments[1] == "--restore":
                     assert json.loads(Path(arguments[2]).read_text()) == defaults
-                    if mode in ("restore-failure", "admin-failure") and not service.get("refused"):
+                    if (mode in ("restore-failure", "admin-failure") and not service.get("refused")) or service.get("refusing"):
                         service["refused"] = True
                         raise RuntimeError("The saved http handler is unavailable")
                     live.update(defaults)
@@ -366,14 +366,27 @@ path.write_text(json.dumps(state))
                     snapshot = support / "selectors/rules.json"
                     snapshot.parent.mkdir()
                     snapshot.write_text(rules)
-                    if mode in ("stale-ack", "default-failure", "admin-failure"):
+                    if mode in ("stale-ack", "default-failure", "retry-default-failure", "admin-failure"):
+                        service["refusing"] = mode == "retry-default-failure"
                         try:
                             installer.activate(True)
                         except RuntimeError as error:
-                            expected = {"stale-ack": "acknowledgement", "default-failure": "default handler", "admin-failure": "administrator"}[mode]
+                            expected = {"stale-ack": "acknowledgement", "default-failure": "default handler", "retry-default-failure": "default handler", "admin-failure": "administrator"}[mode]
                             assert expected in str(error)
                         else:
                             raise AssertionError("failed activation accepted")
+                        if mode == "retry-default-failure":
+                            # The rollback stopped at the defaults, so the helper is default and its hook is loaded.
+                            assert installer.saved()["phase"] == "activation-failed" and service["replacement"] and live != defaults
+                            try:
+                                installer.activate(True)
+                            except RuntimeError as error:
+                                assert service["replacement"], "a retried activation removed the hook while the helper stayed default"
+                                assert "still loaded" in str(error), error
+                            else:
+                                raise AssertionError("activation retried over a loaded clone")
+                            service["refusing"] = False
+                            installer.uninstall()
                         if mode == "admin-failure":
                             assert service["original"] and not service["disabled"] and not service["replacement"], "failed activation left Apple's swcd retired"
                             # The rollback stopped at the defaults, leaving the clone disabled; a retry must still load it.
@@ -479,6 +492,7 @@ path.write_text(json.dumps(state))
                 assert not any(call[0] == "ADMIN" for call in calls)
         checks = {"stale-ack": "rejects an acknowledgement from another swcd process",
                   "default-failure": "rejects a partial HTTP(S) default change",
+                  "retry-default-failure": "refuses to retry over a loaded clone after the rollback's default restore fails",
                   "admin-failure": "keeps Apple's swcd running when a protected step fails and the rollback stops early, then a retry loads the disabled clone,",
                   "login": "loads a clone left disabled by an interrupted rollback, preserves readiness ordering,",
                   "login-default-failure": "rejects a partial HTTP(S) default change at login completion",

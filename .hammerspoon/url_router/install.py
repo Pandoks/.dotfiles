@@ -397,6 +397,8 @@ def activate(warm):
     state = saved()
     if state["phase"] not in ("staged", "activation-failed"):
         raise RuntimeError("Only a staged installation can be activated")
+    if subprocess.run(["/bin/launchctl", "print", f"gui/{os.getuid()}/" + LABEL], capture_output=True).returncode == 0:
+        raise RuntimeError("A previous activation is still loaded; run install.sh uninstall")
     validate(state)
     state["phase"] = "activating"
     state["activationMode"] = "warm" if warm else "login"
