@@ -233,7 +233,7 @@ path.write_text(json.dumps(state))
     actual_subprocess = installer.subprocess.run
     rules = json.dumps({"version": 1, "generation": "d0819922-4a5f-479a-9007-b73f80e37a4d", "rules": []})
     acknowledged = ["d0819922-4a5f-479a-9007-b73f80e37a4d", hashlib.sha256(rules.encode()).hexdigest()]
-    for mode in ("success", "preflight", "disabled-boolean", "disabled-word", "activation", "stale-ack", "default-failure", "retry-default-failure", "admin-failure", "login", "login-default-failure", "restore-failure", "cleanup-failure", "without-helper", "job-removal-failure", "restored-reboot", "unsupported-build"):
+    for mode in ("success", "preflight", "disabled-boolean", "disabled-word", "activation", "stale-ack", "default-failure", "retry-default-failure", "admin-failure", "login", "stage-login", "login-default-failure", "restore-failure", "cleanup-failure", "without-helper", "job-removal-failure", "restored-reboot", "unsupported-build"):
         failure = mode == "preflight"
         home = temporary / mode
         support = home / "Library/Application Support/HammerspoonURLRouter"
@@ -254,6 +254,10 @@ path.write_text(json.dumps(state))
         live = dict(defaults)
         service = {"original": True, "replacement": False, "disabled": False, "clone_disabled": False}
         calls = []
+
+        def login():
+            # A clean login loads only enabled jobs.
+            service.update(original=not service["disabled"], replacement=not service["clone_disabled"])
 
         def system(arguments, **kwargs):
             arguments = [str(item) for item in arguments]
@@ -276,19 +280,23 @@ path.write_text(json.dumps(state))
                         except SystemExit as error:
                             raise RuntimeError("administrator operation failed") from error
                     continue
-                operation = command[1]
-                if operation == "disable":
-                    service["clone_disabled" if str(command[-1]).endswith(installer.LABEL) else "disabled"] = True
-                elif operation == "enable":
-                    service["clone_disabled" if str(command[-1]).endswith(installer.LABEL) else "disabled"] = False
-                elif operation in ("bootout", "bootstrap"):
-                    name = "replacement" if str(command[-1]).endswith(installer.LABEL) or str(command[-1]) == str(jobpath) else "original"
-                    if operation == "bootstrap" and service["clone_disabled" if name == "replacement" else "disabled"]:
-                        raise RuntimeError("Bootstrap failed: 5: Input/output error")
-                    service[name] = operation == "bootstrap"
-                elif operation == "kickstart" and mode == "admin-failure" and not service.get("failed"):
-                    service["failed"] = True
-                    raise RuntimeError("administrator operation failed")
+                launchctl(command)
+
+        def launchctl(command):
+            operation = str(command[1])
+            if operation == "disable":
+                service["clone_disabled" if str(command[-1]).endswith(installer.LABEL) else "disabled"] = True
+            elif operation == "enable":
+                service["clone_disabled" if str(command[-1]).endswith(installer.LABEL) else "disabled"] = False
+            elif operation in ("bootout", "bootstrap"):
+                name = "replacement" if str(command[-1]).endswith(installer.LABEL) or str(command[-1]) == str(jobpath) else "original"
+                # launchd refuses disabled or already loaded jobs.
+                if operation == "bootstrap" and (service[name] or service["clone_disabled" if name == "replacement" else "disabled"]):
+                    raise RuntimeError("Bootstrap failed: 5: Input/output error")
+                service[name] = operation == "bootstrap"
+            elif operation == "kickstart" and mode == "admin-failure" and not service.get("failed"):
+                service["failed"] = True
+                raise RuntimeError("administrator operation failed")
 
         def transport(arguments, mode=mode, **kwargs):
             arguments = [str(item) for item in arguments]
@@ -308,6 +316,9 @@ path.write_text(json.dumps(state))
                 if not service[name]:
                     raise RuntimeError(name + " job not loaded")
                 return "pid = 2147483647"
+            if arguments[0] == "/bin/launchctl":
+                launchctl(arguments)
+                return ""
             if arguments[0].endswith("set-default"):
                 if arguments[1] == "--snapshot":
                     Path(arguments[2]).write_text(json.dumps(defaults))
@@ -402,13 +413,12 @@ path.write_text(json.dumps(state))
                             assert installer.saved()["phase"] == "ready" and service["replacement"]
                             installer.uninstall()
                     else:
-                        if mode == "login":
-                            service["clone_disabled"] = True  # Left by an interrupted rollback.
+                        if mode == "stage-login":
+                            login()
                         installer.activate(not mode.startswith("login"))
                         if mode.startswith("login"):
                             assert installer.saved()["phase"] == "awaiting-login" and live == defaults
-                            # A clean login loads only enabled jobs.
-                            service.update(original=not service["disabled"], replacement=not service["clone_disabled"])
+                            login()
                             with patch.object(installer.sys, "argv", ["install.py", "finish"]):
                                 if mode == "login-default-failure":
                                     try:
@@ -501,7 +511,8 @@ path.write_text(json.dumps(state))
                   "default-failure": "rejects a partial HTTP(S) default change",
                   "retry-default-failure": "refuses to retry over a loaded clone after the rollback's default restore fails",
                   "admin-failure": "keeps Apple's swcd running when a protected step fails and the rollback stops early, then a retry loads the disabled clone,",
-                  "login": "loads a clone left disabled by an interrupted rollback, preserves readiness ordering,",
+                  "login": "loads the clone that staging disabled, preserves readiness ordering,",
+                  "stage-login": "keeps a login before activation from loading the staged clone,",
                   "login-default-failure": "rejects a partial HTTP(S) default change at login completion",
                   "restore-failure": "preserves readiness ordering, keeps the hook and phase while a failed default restore leaves the helper default,"}
         print("PASS lifecycle " + ("rejects " + mode if mode.startswith("disabled-") else

@@ -242,6 +242,8 @@ def stage(directory):
             shutil.rmtree(displaced)
         run([REGISTER, "-f", APP])
         run([Path(paths["probePath"]), "--preflight", APP, IDENTIFIER, state["codeHash"]])
+        # A login before activation must not load the clone.
+        run(["/bin/launchctl", "disable", f"gui/{os.getuid()}/" + LABEL])
         JOB.parent.mkdir(parents=True, exist_ok=True)
         with JOB.open("xb") as file:
             plistlib.dump(clone, file)
@@ -407,7 +409,7 @@ def activate(warm):
         if warm:
             service("activate", JOB)
         else:
-            # An interrupted rollback leaves the clone disabled.
+            # Staging disabled the clone.
             admin([["/bin/launchctl", "enable", f"gui/{os.getuid()}/" + LABEL],
                    ["/bin/launchctl", "disable", f"gui/{os.getuid()}/com.apple.swcd"]])
         state["phase"] = "activated" if warm else "awaiting-login"
@@ -495,8 +497,7 @@ def uninstall():
         state["phase"] = "restored"
         write(SUPPORT / "state.json", state)
     JOB.unlink(missing_ok=True)
-    if state.get("activationMode"):
-        admin([["/bin/launchctl", "enable", f"gui/{os.getuid()}/" + LABEL]])
+    run(["/bin/launchctl", "enable", f"gui/{os.getuid()}/" + LABEL])
     Path(state["statusPath"]).unlink(missing_ok=True)
     for path in (SUPPORT / "runtime", SUPPORT / "original-helper.bundle", SUPPORT / "replacement-helper.bundle", SUPPORT / "displaced-helper.bundle", SUPPORT / "restored-helper.bundle"):
         if path.exists():

@@ -59,7 +59,7 @@ Then follow the steps below.
    change live settings.
 2. Run `zsh ~/.hammerspoon/url_router/install.sh stage /var/tmp/url-router-ready`.
    This saves the previous helper and each scheme's default, installs the new
-   files, registers the helper, and stages a per-user launch job. Existing
+   files, registers the helper, and stages a disabled per-user launch job. Existing
    defaults and the live `swcd` job are retained during this step.
 3. Reload Hammerspoon. Its router publishes an atomic selector snapshot and watches
    the pending status file. A pending installation does not execute rule actions.
