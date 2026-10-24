@@ -195,6 +195,10 @@ this toggle on. It's stored in the account's auth file, not in this repo.
 mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
 ```
 
+## Grok
+
+See [grok/README.md](grok/README.md).
+
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
