@@ -256,7 +256,7 @@ def stage(directory):
         try:
             uninstall()
         except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as rollback:
-            raise RuntimeError(f"{error}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
+            raise RuntimeError(f"{str(error) or type(error).__name__}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
         raise
     print("Staged. Reload Hammerspoon, then run install.sh activate --warm or activate --login.")
 
@@ -422,7 +422,7 @@ def activate(warm):
         try:
             uninstall()
         except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as rollback:
-            raise RuntimeError(f"{error}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
+            raise RuntimeError(f"{str(error) or type(error).__name__}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
         raise
     print("Ready. Verify a configured link and an unmatched native link." if warm else
           "Activation is staged for a clean login/reboot. After logging in, run install.sh finish. This script does not log out or restart the Mac.")
@@ -547,7 +547,7 @@ def main():
                 try:
                     uninstall()
                 except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as rollback:
-                    raise RuntimeError(f"{error}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
+                    raise RuntimeError(f"{str(error) or type(error).__name__}; rollback failed: {rollback}; run install.sh uninstall after resolving it") from error
                 raise
         else:
             uninstall()

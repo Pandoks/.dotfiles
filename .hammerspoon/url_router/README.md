@@ -37,9 +37,10 @@ requires the identifier's prefix to have ten characters when decoding an app lin
 
 Requires Hammerspoon, Helium, the Xcode command-line tools, Python 3, and the
 tested OS/SIP configuration. The protected `swcd` replacement and restoration
-run under the command-line tools' root-owned Python; `activate --login` and the
-final clone re-enable call `/bin/launchctl` directly. The installer never changes
-SIP or boot arguments, logs out, reboots, or commits files.
+run under the command-line tools' root-owned Python; `activate --login` calls
+`/bin/launchctl` directly. `stage` and `uninstall` disable and re-enable the clone
+without administrator rights. The installer never changes SIP or boot arguments,
+logs out, reboots, or commits files.
 `zsh ~/.hammerspoon/url_router/install.sh check` prints the macOS version, build,
 and SIP mask as JSON (`"csr": 70` is `0x46`), or fails naming the first unmet
 requirement: SIP mask, tested build, boot argument, or command-line tools'
@@ -165,8 +166,8 @@ one request at a time with a 5-second send and 10-second reply timeout, so anoth
 failure popup on the main actor can't stall it. Links in one batch wait their turn:
 if Hammerspoon stops replying, the links its port queues each wait out the
 10-second reply deadline and later ones fail their 5-second send, so the tenth of
-ten links reported after about 65 seconds in testing; one link waits at most 15
-seconds.
+ten links reported after about 65 seconds in testing; each request blocks at most
+15 seconds.
 Hammerspoon may still act on a request after its reply deadline.
 
 ## Coverage and limits
