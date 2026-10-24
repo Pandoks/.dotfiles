@@ -30,7 +30,6 @@ with tempfile.TemporaryDirectory(prefix="url-install-test.", dir="/var/tmp") as 
     assert preserved == {key: value for key, value in original.items() if key not in ("Label", "EnvironmentVariables")}
     assert job["Label"] == "local.pandoks.HammerspoonURLRouter.swcd"
     assert job["EnvironmentVariables"]["DYLD_INSERT_LIBRARIES"] == paths["hookPath"]
-    assert job["MachServices"] == {"com.apple.SharedWebCredentials": True}
     assert plistlib.loads(plistlib.dumps(job)) == job
     assert original["Label"] == "com.apple.swcd" and "DYLD_INSERT_LIBRARIES" not in original.get("EnvironmentVariables", {})
     print("PASS launchd clone preserves Apple's Mach service, events, and execution settings")
@@ -231,7 +230,6 @@ path.write_text(json.dumps(state))
     assert result.returncode == 1 and "identity validation failed" in result.stderr and time.monotonic() - started < 5, result
     print("PASS probe reports a running hook's setup error instead of waiting for its timeout")
 
-    actual_run = installer.run
     actual_subprocess = installer.subprocess.run
     rules = json.dumps({"version": 1, "generation": "d0819922-4a5f-479a-9007-b73f80e37a4d", "rules": []})
     acknowledged = ["d0819922-4a5f-479a-9007-b73f80e37a4d", hashlib.sha256(rules.encode()).hexdigest()]

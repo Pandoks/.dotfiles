@@ -69,14 +69,15 @@ Then follow the steps below.
    retiring process, and waits for its exit event before starting the replacement
    job. If any step fails, the same helper restores Apple's job once the retiring
    process exits. Retirement has a ten-second deadline and the restore gets ten
-   more, so a failed activation can take about 20 seconds. The installer performs one harmless native lookup,
-   waits for the hook's readiness acknowledgement without polling, and verifies
-   that acknowledgement belongs to the replacement process. It starts the helper
-   and verifies the running application's path. A native lookup from the helper
-   refreshes LaunchServices' connection to the replacement service without opening
-   a browser or replaying a user URL. Only then does it
-   set the helper as the HTTP and HTTPS default. Already configured schemes skip
-   redundant macOS prompts. A failed activation reverses the installation.
+   more, so a failed activation can take about 20 seconds. The installer performs
+   one harmless native lookup, waits for the hook's readiness acknowledgement
+   without polling, and verifies that acknowledgement belongs to the replacement
+   process. It starts the helper and verifies the running application's path. A
+   native lookup from the helper refreshes LaunchServices' connection to the
+   replacement service without opening a browser or replaying a user URL. Only
+   then does it set the helper as the HTTP and HTTPS default. Already configured
+   schemes skip redundant macOS prompts. A failed activation reverses the
+   installation.
 5. Run `zsh ~/.hammerspoon/url_router/install.sh status` and verify a configured
    profile link plus an unmatched native link. A successful status reports
    `"acknowledged": true` for the current process, generation, and selector bytes.
