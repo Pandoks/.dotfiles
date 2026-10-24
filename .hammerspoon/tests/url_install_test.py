@@ -97,7 +97,8 @@ path.write_text(json.dumps(state))
         children = []
         def spawn():
             # The timeout process exits only after the first deadline.
-            source = program if mode != "retirement timeout" else program.replace("time.sleep(0.3)", "time.sleep(12)")
+            source = {"retirement timeout": program.replace("time.sleep(0.3)", "time.sleep(12)"),
+                      "restore timeout": program.replace("lambda *_: (time.sleep(0.3), sys.exit(0))", "signal.SIG_IGN")}.get(mode, program)
             child = subprocess.Popen([sys.executable, "-c", source], stdout=subprocess.PIPE, text=True)
             children.append(child)
             assert child.stdout and child.stdout.readline().strip() == "ready"
@@ -122,11 +123,15 @@ path.write_text(json.dumps(state))
                         assert item.stat().st_uid == 0 and not item.stat().st_mode & 0o022, "replaceable privileged program: " + str(item)
                 assert command[source].count('"/bin/launchctl"') == 1
                 command[source] = command[source].replace('"/bin/launchctl"', '"' + str(wrapper) + '"')
+                if mode == "restore timeout":
+                    # Shorten both deadlines so a process that never exits fails quickly.
+                    assert command[source].count("time.monotonic() + 10") == 2
+                    command[source] = command[source].replace("time.monotonic() + 10", "time.monotonic() + 1")
                 actual_run(command)
         try:
             start = time.monotonic()
             with patch.object(installer, "admin", side_effect=authenticate):
-                if mode in ("retirement timeout", "restore failure"):
+                if mode in ("retirement timeout", "restore timeout", "restore failure"):
                     try:
                         installer.service("activate", temporary / "clone.plist")
                     except RuntimeError as error:
@@ -138,6 +143,9 @@ path.write_text(json.dumps(state))
                         assert "com.apple.swcd process did not exit" in message, message
                         assert state["loaded"], "Apple's job was not bootstrapped again after its process exited"
                         assert 11.8 <= time.monotonic() - start < 15
+                    elif mode == "restore timeout":
+                        assert "restoring com.apple.swcd also failed: The retiring gui/" in message and message.endswith("/com.apple.swcd process did not exit within 10 seconds"), message
+                        assert time.monotonic() - start < 5
                     else:
                         assert "kickstart failed; restoring com.apple.swcd also failed: bootout failed" in message, message
                         assert not state["disabled"], "Apple's job stayed disabled after retiring the clone failed"
@@ -153,9 +161,10 @@ path.write_text(json.dumps(state))
                 child.stdout.close()
         print("PASS retiring service exit boundary: " + {
             "retirement timeout": "a missed deadline bootstraps Apple's job again once its process exits",
+            "restore timeout": "a process that never exits fails the restore too, reporting both errors",
             "restore failure": "a failed restore keeps Apple's job enabled and reports both errors"}.get(mode, mode))
 
-    for mode in ("unchanged", "replaced during authentication", "started during authentication", "retirement timeout", "restore failure"):
+    for mode in ("unchanged", "replaced during authentication", "started during authentication", "retirement timeout", "restore timeout", "restore failure"):
         retirement(mode)
 
     payload = temporary / "payload"
