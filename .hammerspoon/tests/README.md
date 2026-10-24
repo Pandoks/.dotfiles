@@ -263,7 +263,10 @@ For a live check after reloading Hammerspoon:
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
 
-The logger Lua regressions also run with `tests/run.sh`.
+The logger Lua regressions also run with `tests/run.sh`, as does the toast suite: placement at
+the bottom right of each screen, stacking, repeats, dismissal, wrapping, themes, and every
+`hs.alert` call routed through `lib/toast.lua` with its screen, seconds, and id. Its look was
+checked with real `hs.canvas` renders.
 
 Audit checks (substitute the installed executable paths if needed):
 

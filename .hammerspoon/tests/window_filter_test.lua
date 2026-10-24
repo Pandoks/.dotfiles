@@ -257,11 +257,15 @@ local function setup(options)
       model.logs[#model.logs + 1] = message
     end,
   }, { __index = _G })
-  local logger = assert(loadfile(root .. "/logger.lua", "t", environment))()
+  local logger
   environment.require = function(name)
+    if name == "lib.toast" then
+      return { show = environment.hs.alert.show }
+    end
     assert(name == "lib.logger")
     return logger
   end
+  logger = assert(loadfile(root .. "/logger.lua", "t", environment))()
   model.module = assert(loadfile(root .. "/window_filter.lua", "t", environment))()
   model.filter = model.module.new()
   function model:emit(target, event, observer)
