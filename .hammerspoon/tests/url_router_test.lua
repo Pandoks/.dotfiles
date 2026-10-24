@@ -58,9 +58,6 @@ local function browser(options)
           return identifier == "local.pandoks.HammerspoonURLRouter" and "/Applications/Router.app"
             or "/Applications/Browser.app"
         end,
-        infoForBundlePath = function()
-          return { CFBundleExecutable = "Browser" }
-        end,
       },
       http = {
         urlParts = function(url)

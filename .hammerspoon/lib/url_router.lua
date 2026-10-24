@@ -310,7 +310,7 @@ function router.install(rules)
             cancelProcess()
           end
           cancelProcess, pid = nil, nil
-          -- Only uninstall exits stop routing; launchd relaunches idle swcd with these selectors.
+          -- An idle exit keeps routing; launchd relaunches swcd with these selectors.
           local watcher, watchError = native.process(status.pid, "/usr/libexec/swcd", function()
             pid = nil
             local _, stateError = cleanup()
