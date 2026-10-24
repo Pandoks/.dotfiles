@@ -159,10 +159,12 @@ leaves the status at `error`: reload, then restart the clone with
 Keep Hammerspoon's launch-at-login setting enabled.
 Hammerspoon failures go to `~/Library/Logs/Hammerspoon/config.log`; the helper
 and installer also use the system log and popups. The helper rejects dispatch
-when Hammerspoon is stopped or its port is missing. A background GCD queue sends
-each request with a 5-second send and 10-second reply timeout, so another failure
-popup on the main actor can't stall it. Hammerspoon may still act on a request
-after its reply deadline.
+when Hammerspoon is stopped or its port is missing. A background serial queue sends
+one request at a time with a 5-second send and 10-second reply timeout, so another
+failure popup on the main actor can't stall it. Links in one batch wait their turn:
+if Hammerspoon stops replying, each waits out its own deadline, so the tenth of ten
+links reports after about 100 seconds, or up to 150 if sends also time out.
+Hammerspoon may still act on a request after its reply deadline.
 
 ## Coverage and limits
 

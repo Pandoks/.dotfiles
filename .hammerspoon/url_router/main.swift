@@ -31,7 +31,7 @@ private func readSnapshot(_ path: URL) throws -> Data {
     return data
 }
 
-// Blocks up to 15 seconds; callers stay off the main actor so a popup can't stall the reply.
+// Blocks up to 15 seconds per request; callers stay off the main actor so a popup can't stall the reply.
 private func requestRoute(_ request: Data) throws -> String {
     guard let port = CFMessagePortCreateRemote(nil, "local.pandoks.HammerspoonURLRouter.route" as CFString) else {
         throw NSError(domain: "HammerspoonURLRouter", code: 1, userInfo: [
@@ -51,6 +51,9 @@ private func requestRoute(_ request: Data) throws -> String {
     }
     return data.map { String(decoding: $0 as Data, as: UTF8.self) } ?? ""
 }
+
+// CFMessagePort shares one remote and reply port per name, so requests run one at a time.
+private let routes = DispatchQueue(label: "HammerspoonURLRouter.route", qos: .userInitiated)
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -140,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             report("Could not open link: \(error.localizedDescription)")
             return
         }
-        DispatchQueue.global(qos: .userInitiated).async {
+        routes.async {
             let result = Result { try requestRoute(request) }
             DispatchQueue.main.async {
                 switch result {

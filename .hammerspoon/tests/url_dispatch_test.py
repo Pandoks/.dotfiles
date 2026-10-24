@@ -146,7 +146,7 @@ do {
     bridge = replace(bridge, "NSApplication.shared.activate(ignoringOtherApps: true)", "")
     bridge = replace(bridge, 'NSLog("%@", message)', 'print("LOG " + message)')
     bridge = replace(bridge, 'case .success("true"):\n                    return',
-        'case .success("true"):\n                    print("ACCEPTED"); if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }')
+        'case .success("true"):\n                    print("ACCEPTED"); mockAccepted()')
     bridge = replace(bridge, 'NSLog("URL routing failed for %@", url.host ?? "unknown host")',
         'print("REJECTED"); if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }')
     assert not any(name in bridge for name in ("NSAlert()", "NSWorkspace.shared", "NSRunningApplication", "FileManager.default", "NSApplication.shared"))
@@ -172,6 +172,12 @@ func mockConfstr(_ name: Int32, _ buffer: UnsafeMutablePointer<CChar>, _ size: I
     guard name == _CS_DARWIN_USER_CACHE_DIR else { return 0 }
     return ProcessInfo.processInfo.environment["URL_TEST_HOME"]!.withCString { strlcpy(buffer, $0, size) + 1 }
 }
+nonisolated(unsafe) var accepted = 0
+func mockAccepted() {
+    accepted += 1
+    let batch = Int(ProcessInfo.processInfo.environment["URL_TEST_BATCH", default: ""])
+    if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" || accepted == batch { exit(0) }
+}
 func mockRunningApplications() -> [Int] {
     ProcessInfo.processInfo.environment["URL_TEST_RUNNING"] == "0" ? [] : [1]
 }
@@ -191,6 +197,8 @@ if let type = ProcessInfo.processInfo.environment["URL_TEST_ACTIVITY"] {
     let accepted = delegate.application(NSApplication.shared, continue: activity, restorationHandler: { _ in })
     print("ACTIVITY " + String(accepted))
     if !accepted { exit(0) }
+} else if let count = Int(ProcessInfo.processInfo.environment["URL_TEST_BATCH", default: ""]) {
+    delegate.application(NSApplication.shared, open: (0..<count).map { URL(string: "https://app.ramp.com/\($0)")! })
 } else {
     if ProcessInfo.processInfo.environment["URL_TEST_MODAL"] == "1" {
         delegate.application(NSApplication.shared, open: [URL(string: "fixture://another-link")!])
@@ -221,7 +229,7 @@ static CFDataRef respond(CFMessagePortRef port, SInt32 id, CFDataRef data, void 
   fprintf(log, "%d:", (int)id);
   fwrite(CFDataGetBytePtr(data), 1, (size_t)CFDataGetLength(data), log);
   fputc(0, log); fclose(log);
-  sleep(delay);
+  usleep(delay * 1000);
   return strcmp(reply, "none") ? CFDataCreate(NULL, (const UInt8 *)reply, (CFIndex)strlen(reply)) : NULL;
 }
 int main(int argc, char **argv) {
@@ -255,11 +263,11 @@ int main(int argc, char **argv) {
     base = dict(os.environ, URL_TEST_HOME=str(home))
     try:
         # Deadline checks run alongside the other cases; each takes about ten seconds.
-        name, slow = serve("timeout", delay=60)
+        name, slow = serve("timeout", delay=60000)
         started = time.monotonic()
         timeout = subprocess.Popen([str(binary)], env=dict(base, URL_TEST_PORT=name), stdout=subprocess.PIPE, text=True)
         servers.append(timeout)
-        name, blocked = serve("modal", delay=60)
+        name, blocked = serve("modal", delay=60000)
         modal = subprocess.Popen([str(binary)], env=dict(base, URL_TEST_PORT=name, URL_TEST_KEEP_ALIVE="1", URL_TEST_MODAL="1",
             URL_TEST_NATIVE_FAIL="1", URL_TEST_FINAL="19.5"), stdout=subprocess.PIPE, text=True)
         servers.append(modal)
@@ -327,6 +335,14 @@ int main(int argc, char **argv) {
             assert requests(log) == ([expected] if accepted else []), (label, requests(log))
             assert result.stdout.count("ACCEPTED") == int(accepted), (label, result.stdout)
             print("PASS URL delivery " + label)
+
+        # CFMessagePort shares one remote per name, so concurrent waiters for 20 ms replies steal each other's.
+        name, log = serve("batch", delay=20)
+        result = subprocess.run([str(binary)], env=dict(base, URL_TEST_PORT=name, URL_TEST_BATCH="10", URL_TEST_KEEP_ALIVE="1",
+            URL_TEST_FINAL="2"), capture_output=True, text=True, check=True, timeout=10)
+        assert result.stdout.count("ACCEPTED") == 10 and "POPUP " not in result.stdout and "FINAL" not in result.stdout, result.stdout
+        assert sorted(requests(log)) == sorted(expected + b"%d" % index for index in range(10)), requests(log)
+        print("PASS URL delivery replies to every link in one open event within 2 seconds")
 
         output, _ = timeout.communicate(timeout=20)
         elapsed = time.monotonic() - started
