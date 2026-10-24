@@ -98,6 +98,7 @@ local function finish(job, ok, err)
   guard = nil
   if job.deadlineTimer then
     job.deadlineTimer:stop()
+    job.deadlineTimer = nil
   end
   if job.task then
     job.task:stop()

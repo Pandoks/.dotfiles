@@ -24,6 +24,33 @@ local function test(name, fn)
     print("FAIL " .. name .. "\n" .. err)
   end
 end
+-- hs.timer keeps a stopped timer's callback: count timers alive only through it.
+local function leaked(timers)
+  local here, registry = debug.getinfo(1, "S").source, {}
+  local weak = setmetatable({}, { __mode = "k" })
+  for i = #timers, 1, -1 do
+    local t = timers[i]
+    if not t.active then
+      table.remove(timers, i)
+      if debug.getinfo(t.callback, "S").source ~= here then
+        registry[#registry + 1], weak[t] = t.callback, true
+      end
+    end
+  end
+  local function alive()
+    local count = 0
+    for _ = 1, 3 do
+      collectgarbage()
+    end
+    for _ in pairs(weak) do
+      count = count + 1
+    end
+    return count
+  end
+  local held = alive()
+  registry = nil
+  return held - alive()
+end
 local function copy(value)
   if type(value) ~= "table" then
     return value
@@ -1969,6 +1996,16 @@ test("cancel never focuses and stops drawing", function()
   eq(h.menu.status().visible, false)
   eq(h:commandCount("focus"), 0)
   eq(h.menu.mouseTap:isEnabled(), false)
+end)
+test("cancelled menus and finished focus jobs release their timers", function()
+  local h = harness()
+  h:open()
+  h:key("keyDown", "escape", {})
+  h:open()
+  h:release()
+  h:advance(5)
+  eq(h.menu.status().busy, false)
+  eq(leaked(h.timers), 0)
 end)
 test("stopping during a focus job prevents late window focus", function()
   local h = harness({ replyDelay = 0.1 })

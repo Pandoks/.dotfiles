@@ -437,6 +437,7 @@ local function stopDrawing(current)
   if current then
     if current.delayTimer then
       current.delayTimer:stop()
+      current.delayTimer = nil
     end
     if current.renderTimer then
       current.renderTimer:stop()
@@ -455,6 +456,7 @@ local function finish(job, message)
     return
   end
   job.deadline:stop()
+  job.deadline = nil
   if job.watcher then
     job.watcher:stop()
     job.watcher = nil
@@ -1070,6 +1072,7 @@ function switcher.stop()
     local job = operation
     operation = nil
     job.deadline:stop()
+    job.deadline = nil
     if job.watcher then
       job.watcher:stop()
       job.watcher = nil
