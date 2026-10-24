@@ -101,9 +101,6 @@ do {
         }
     } else if arguments.count == 2 && arguments[0] == "--terminate" {
         try terminate(arguments[1])
-    } else if arguments == ["--current"] {
-        let data = try JSONSerialization.data(withJSONObject: current(), options: [.sortedKeys])
-        FileHandle.standardOutput.write(data + Data([10]))
     } else if arguments.count == 2 && arguments[0] == "--snapshot" {
         let data = try JSONSerialization.data(withJSONObject: current(), options: [.sortedKeys])
         try data.write(to: URL(fileURLWithPath: arguments[1]), options: .atomic)
@@ -120,7 +117,7 @@ do {
         try await configure(["http": arguments[0], "https": arguments[0]])
     } else {
         throw NSError(domain: "HammerspoonURLRouter", code: 1, userInfo: [
-            NSLocalizedDescriptionKey: "usage: set_default.swift APP | --current | --snapshot FILE | --restore FILE | --terminate APP | --launch APP",
+            NSLocalizedDescriptionKey: "usage: set_default.swift APP | --snapshot FILE | --restore FILE | --terminate APP | --launch APP",
         ])
     }
 } catch {
