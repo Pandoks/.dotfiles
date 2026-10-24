@@ -91,11 +91,11 @@ package.loaded["lib.utils"] = {
             finish()
           end
         end
-        weak.process = callback
         local cancel, issue = native.process(process, "/bin/sleep", callback)
         if not cancel then
           return cancel, issue
         end
+        weak.process = callback
         return function()
           stopped = stopped + 1
           cancel()
@@ -149,6 +149,7 @@ function fixture.acknowledge()
 end
 
 function fixture.ready()
+  collectgarbage("collect")
   assert(router.status().ready and #logs == 0 and weak.process)
 end
 
