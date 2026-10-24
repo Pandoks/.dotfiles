@@ -1,5 +1,6 @@
 require("lib.logger").install()
 require("hs.ipc") -- `hs` CLI access for debugging
+require("url_router")
 hs.loadSpoon("SpoonInstall")
 
 local install = spoon.SpoonInstall
