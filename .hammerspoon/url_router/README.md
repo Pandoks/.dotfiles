@@ -6,9 +6,11 @@ used for ordinary HTTP(S) URLs. The helper accepts URL events and browsing-web
 activities, then sends them to Hammerspoon over a Mach message port. Unmatched
 lookups call Apple's original implementation unchanged while the selectors are
 valid. Invalid selectors make matched and unmatched HTTP(S) Universal Links fail
-closed, so a routed link such as a Notion page never falls through to its native
+closed, so a routed link such as a Notion page doesn't fall through to its native
 app. Matched links also fail until the hook acknowledges their selector
-generation.
+generation. If the selector directory is removed or replaced while `swcd` runs,
+the hook instead hands every lookup back to Apple and reports the error, so routed
+links can open their native apps until `swcd` restarts.
 
 The helper remains the default HTTP and HTTPS application after activation.
 Unmatched links delivered to it use native Universal Link handling, then Helium
@@ -150,6 +152,9 @@ only its label and hook environment. Status lives in the user's Darwin cache
 directory because the `swcd` sandbox cannot write ordinary support directories,
 and dirhelper's daily cleanup skips it. The hook recreates the private status
 directory before each write; Hammerspoon creates it when it starts watching.
+After the selector directory is removed or replaced, a Hammerspoon reload alone
+leaves the status at `error`: reload, then restart the clone with
+`launchctl kickstart -k gui/$(id -u)/local.pandoks.HammerspoonURLRouter.swcd`.
 Keep Hammerspoon's launch-at-login setting enabled.
 Hammerspoon failures go to `~/Library/Logs/Hammerspoon/config.log`; the helper
 and installer also use the system log and popups. The helper rejects dispatch
