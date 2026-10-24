@@ -87,8 +87,8 @@ local toast = assert(loadfile(
           function canvas.show()
             canvas.visible = true
           end
-          function canvas.delete()
-            canvas.deleted = true
+          function canvas.delete(_, fade)
+            canvas.deleted, canvas.fade = true, fade
           end
           setmetatable(canvas, {
             __index = function()
@@ -258,7 +258,11 @@ test("an hs.alert with non-number seconds stays until closed by its id", functio
   alert.closeSpecific(id)
   assert(canvases[1].deleted and not canvases[2].deleted)
   alert.closeAll()
-  assert(canvases[2].deleted)
+  assert(canvases[2].deleted and canvases[2].fade == 0.25)
+  alert.closeSpecific(alert.show("now", "indefinite"), 0)
+  alert.show("all now", 5)
+  alert.closeAll(0)
+  assert(canvases[3].fade == 0 and canvases[4].fade == 0, "a close ignored its fade time")
   clear()
 end)
 
@@ -307,13 +311,15 @@ test("a failure and a plain toast with the same text are not repeats", function(
   clear()
 end)
 
-test("hs.alert.showWithImage shows its image as the icon", function()
+test("hs.alert.showWithImage shows its image as the icon, never repeated as plain", function()
   toast.install()
   local image = {}
   alert.showWithImage("Synced", image, 2)
   local icon = canvases[1].elements[3]
   assert(icon.type == "image" and icon.image == image and icon.frame.w == 16, "no image")
   assert(canvases[1].elements[4].frame.x == 14 + 16 + 10, "the text is not past the icon")
+  alert.show("Synced", 2)
+  assert(#canvases == 2 and canvases[2].elements[3].type == "text", "the plain one kept the icon")
   clear()
 end)
 

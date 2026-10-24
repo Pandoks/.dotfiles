@@ -35,6 +35,7 @@ local theme = themes.metal
 ---@field id integer
 ---@field text string
 ---@field failure boolean
+---@field image boolean
 ---@field canvas hs.canvas
 ---@field screen hs.screen
 ---@field timer? hs.timer
@@ -65,14 +66,15 @@ end
 
 -- By id, which is all the callbacks hold: one holding its own timer is never collected.
 ---@param id integer?
-function toast.close(id)
+---@param fade? number seconds, 0.25 by default
+function toast.close(id, fade)
   for i, entry in ipairs(shown) do
     if entry.id == id then
       table.remove(shown, i)
       if entry.timer then
         entry.timer:stop()
       end
-      entry.canvas:delete(0.25)
+      entry.canvas:delete(fade and math.max(fade, 0) or 0.25)
       layout()
       return
     end
@@ -147,7 +149,8 @@ function toast.show(text, options)
   -- The same timed toast again, on the same screen, restarts its time instead of stacking; one
   -- kept until closed is its caller's alone, closed by that caller.
   for _, entry in ipairs(shown) do
-    local same = entry.text == text and entry.failure == failure and not options.image
+    local plain = not options.image and not entry.image -- an icon is not repeated
+    local same = entry.text == text and entry.failure == failure and plain
     if seconds and entry.timer and same and entry.screen:id() == screen:id() then
       arm(entry, seconds)
       return entry.id
@@ -246,7 +249,14 @@ function toast.show(text, options)
   canvas:mouseCallback(function()
     toast.close(id)
   end)
-  local entry = { id = id, text = text, failure = failure, canvas = canvas, screen = screen }
+  local entry = {
+    id = id,
+    text = text,
+    failure = failure,
+    image = options.image ~= nil,
+    canvas = canvas,
+    screen = screen,
+  }
   arm(entry, seconds)
   shown[#shown + 1] = entry
   -- Past the cap, the screen's oldest timed toast before this one goes; one kept until closed
@@ -308,9 +318,9 @@ function toast.install(options)
     return toast.show(text, { seconds = time, screen = screen, image = image })
   end
   alert.closeSpecific = toast.close
-  alert.closeAll = function()
+  alert.closeAll = function(fade)
     while shown[1] do
-      toast.close(shown[1].id)
+      toast.close(shown[1].id, fade)
     end
   end
 end
