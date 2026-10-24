@@ -163,8 +163,10 @@ and installer also use the system log and popups. The helper rejects dispatch
 when Hammerspoon is stopped or its port is missing. A background serial queue sends
 one request at a time with a 5-second send and 10-second reply timeout, so another
 failure popup on the main actor can't stall it. Links in one batch wait their turn:
-if Hammerspoon stops replying, each waits out its own deadline, so the tenth of ten
-links reports after about 100 seconds, or up to 150 if sends also time out.
+if Hammerspoon stops replying, the links its port queues each wait out the
+10-second reply deadline and later ones fail their 5-second send, so the tenth of
+ten links reported after about 65 seconds in testing; one link waits at most 15
+seconds.
 Hammerspoon may still act on a request after its reply deadline.
 
 ## Coverage and limits
@@ -178,7 +180,7 @@ delivery with callers requiring a native app, real Work/Personal browser history
 live generation reload, stopped-Hammerspoon errors, and restoration of the old
 helper, default handlers, and Apple launch job. A clean reboot also passed first
 Work/Personal native-required links without a daemon warm-up query; browser
-history confirmed their profiles and Notion received the unmatched link.
+history confirmed their profiles and a native app received the unmatched link.
 
 App-targeted Apple Events and links opened internally by another app do not make
 an association lookup and remain outside the hook. The helper cannot recover the

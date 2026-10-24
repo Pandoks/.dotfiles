@@ -262,7 +262,7 @@ int main(int argc, char **argv) {
     expected = b"1:72929621-22a6-48c9-97ea-df69e0c45918\nhttps://app.ramp.com/"
     base = dict(os.environ, URL_TEST_HOME=str(home))
     try:
-        # Deadline checks run alongside the other cases; each takes about ten seconds.
+        # Deadline checks run alongside the other cases; they take about 10 and 20 seconds.
         name, slow = serve("timeout", delay=60000)
         started = time.monotonic()
         timeout = subprocess.Popen([str(binary)], env=dict(base, URL_TEST_PORT=name), stdout=subprocess.PIPE, text=True)

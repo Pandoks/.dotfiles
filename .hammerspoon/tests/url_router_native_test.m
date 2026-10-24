@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
     lua_getglobal(state, "exited"); assert(lua_toboolean(state, -1)); lua_pop(state, 1);
     [task waitUntilExit];
     execute(state, "cancel(); assert(native.process(pid,'/bin/sleep',function() error('dead process callback') end)==false)");
-    output("PASS executable validation and process exit callbacks fire without polling");
+    output("PASS executable validation and process exit callbacks fire");
 
     execute(state, "cancel=assert(native.watch(path,function() error('old Lua callback') end)); assert(native.publish(path,'reload pending')); native=nil");
     [skin resetLuaState];
