@@ -20,6 +20,7 @@ jobs:
       - run: brew install --cask hammerspoon
       - run: brew install ffmpeg
       - run: sh .hammerspoon/tests/run.sh
+      - run: sh .hammerspoon/dictation/tests/run.sh
       - run: sh .hammerspoon/tests/previews_test.sh
       - name: Build native modules
         run: |
@@ -29,3 +30,12 @@ jobs:
               -undefined dynamic_lookup -F"$frameworks" -I"$frameworks/LuaSkin.framework/Headers" \
               "$module" -o "$RUNNER_TEMP/$(basename "$module" .m).so"
           done
+
+  dictation-server:
+    # server.py's tests stub the models; they need its locked MLX environment and a 26 MB tokenizer.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - run: sh .hammerspoon/dictation/setup.sh
+      - run: .hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/server_test.py
