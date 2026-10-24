@@ -1,25 +1,29 @@
 local root = assert(arg[1])
 -- Two 1000x600 screens side by side below a 25 pt menu bar; text is 7 pt a character, 16 a line.
 local canvases, timers, logged, measured = {}, {}, {}, 0
-local screens, styled = {}, {}
-local function display(id, x)
-  return setmetatable({
-    id = function()
-      return id
-    end,
-    frame = function()
-      return { x = x, y = 25, w = 1000, h = 600 }
-    end,
-  }, screens)
+-- Screens and windows are userdata, as in Hammerspoon: file handles given their metatables.
+local screens, styled, at = {}, {}, {}
+screens.__index = {
+  id = function(self)
+    return at[self] / 1000 + 1
+  end,
+  frame = function(self)
+    return { x = at[self], y = 25, w = 1000, h = 600 }
+  end,
+}
+local function display(_, x)
+  local screen = debug.setmetatable(assert(io.open("/dev/null")), screens)
+  at[screen] = x
+  return screen
 end
 local main, side = display(1, 0), display(2, 1000)
 local focused = main
-local windows = {}
-local window = setmetatable({
+local windows = { __index = {
   screen = function()
     return side
   end,
-}, windows)
+} }
+local window = debug.setmetatable(assert(io.open("/dev/null")), windows)
 -- As hs.alert's: `show` and `hs.alert(...)` call `showWithImage`.
 local alert = {}
 function alert.show(message, ...)
@@ -59,7 +63,7 @@ local toast = assert(loadfile(
       canvas = {
         windowLevels = { status = 25 },
         new = function()
-          local canvas = { elements = {}, visible = false, deleted = false }
+          local canvas = { elements = {}, visible = false, deleted = false, calls = {} }
           function canvas.minimumTextSize(_, text)
             measured = measured + 1
             local w, lines = 0, 0
@@ -75,8 +79,10 @@ local toast = assert(loadfile(
           function canvas.topLeft(_, point)
             canvas.at = point
           end
-          function canvas.appendElements(_, element)
-            canvas.elements[#canvas.elements + 1] = element
+          function canvas.appendElements(_, ...)
+            for _, element in ipairs({ ... }) do
+              canvas.elements[#canvas.elements + 1] = element
+            end
           end
           function canvas.behaviorAsLabels(_, labels)
             canvas.labels = table.concat(labels, " ")
@@ -90,9 +96,14 @@ local toast = assert(loadfile(
           function canvas.delete(_, fade)
             canvas.deleted, canvas.fade = true, fade
           end
+          for _, method in ipairs({ "level", "clickActivating", "canvasMouseEvents" }) do
+            rawset(canvas, method, function(_, ...)
+              canvas.calls[method] = { ... }
+            end)
+          end
           setmetatable(canvas, {
-            __index = function()
-              return function() end
+            __index = function(_, key)
+              error("no hs.canvas method " .. key, 2)
             end,
           })
           canvases[#canvases + 1] = canvas
@@ -125,6 +136,20 @@ local function texts(canvas)
   end
   return table.concat(found, " | ")
 end
+local function find(canvas, kind)
+  for _, element in ipairs(canvas.elements) do
+    if element.type == kind then
+      return element
+    end
+  end
+end
+local function rim(canvas)
+  local levels = {}
+  for i, color in ipairs(find(canvas, "rectangle").fillGradientColors) do
+    levels[i] = color.white
+  end
+  return table.concat(levels, " ")
+end
 local function bottom(canvas)
   return canvas.at.y + canvas.frame.h
 end
@@ -141,9 +166,11 @@ test("a failure sits at the bottom right, titled by its source, with a red cross
   toast.show("Tiling: no focused window", { failure = true, seconds = 5 })
   local canvas = canvases[1]
   assert(texts(canvas) == "Tiling | No focused window", texts(canvas))
-  assert(canvas.elements[3].type == "circle" and canvas.visible and timers[1].seconds == 5)
+  assert(find(canvas, "circle") and canvas.visible and timers[1].seconds == 5)
   assert(canvas.at.x + canvas.frame.w == 1000 - 16 and bottom(canvas) == 609, "not bottom right")
-  assert(canvas.labels:find("fullScreenAuxiliary", 1, true), "hidden over full-screen apps")
+  assert(canvas.labels == "canJoinAllSpaces stationary fullScreenAuxiliary", canvas.labels)
+  assert(canvas.calls.canvasMouseEvents[1] == true, "a click is never delivered")
+  assert(canvas.calls.clickActivating[1] == false and canvas.calls.level[1] == 25)
   clear()
 end)
 
@@ -152,7 +179,10 @@ test("a newer toast stacks below the older, which drops back when it goes", func
   toast.show("second")
   local first, second = canvases[1], canvases[2]
   assert(bottom(second) == 609 and bottom(first) == second.at.y - 8)
-  assert(texts(first) == "first" and #first.elements == 3, "an info toast has no icon")
+  assert(
+    texts(first) == "first" and not find(first, "circle") and not find(first, "image"),
+    "an info toast has an icon"
+  )
   timers[2].fn()
   assert(second.deleted and not first.deleted and bottom(first) == 609)
   assert(second.fade == 0, "it faded while the toast above moved into its place")
@@ -167,6 +197,8 @@ test("a toast stays on its screen when focus and the stack change", function()
   toast.show("on side")
   assert(canvases[1].at.x < 1000 and canvases[2].at.x >= 1000, "a toast moved screens")
   assert(bottom(canvases[1]) == 609 and bottom(canvases[2]) == 609, "screens share one stack")
+  timers[2].fn()
+  assert(canvases[2].fade == 0.25, "the side screen's oldest did not fade")
   clear()
 end)
 
@@ -178,6 +210,15 @@ test("the same toast again restarts its time on its screen instead of stacking",
   toast.show("Window list unavailable", { seconds = 2 })
   assert(#canvases == 2 and canvases[2].at.x >= 1000, "the repeat stayed on the other screen")
   clear()
+  toast.show("old")
+  toast.show("new")
+  toast.show("old")
+  assert(#canvases == 2 and bottom(canvases[1]) == 609, "the repeat is not the newest")
+  for i = 1, 4 do
+    toast.show("more " .. i)
+  end
+  assert(not canvases[1].deleted and canvases[2].deleted, "the cap dropped the repeat")
+  clear()
 end)
 
 test("a click dismisses, and a sixth toast drops the oldest", function()
@@ -185,8 +226,9 @@ test("a click dismisses, and a sixth toast drops the oldest", function()
     toast.show("toast " .. i)
   end
   assert(canvases[1].deleted and timers[1].stopped and not canvases[2].deleted)
+  assert(canvases[1].fade == 0, "the dropped toast faded under the one moving into its place")
   canvases[4].click()
-  assert(canvases[4].deleted and bottom(canvases[5]) == canvases[6].at.y - 8)
+  assert(canvases[4].deleted and bottom(canvases[3]) == canvases[5].at.y - 8)
   clear()
 end)
 
@@ -196,6 +238,9 @@ test("long text wraps to three lines, measured once a word until then", function
   local lines = select(2, texts(canvases[1]):gsub("\n", "")) + 1
   assert(lines == 3 and canvases[1].frame.w <= 14 + 26 + 340 + 14, lines)
   assert(measured < 40, measured .. " measurements: the last line is measured again a word")
+  clear()
+  toast.show("Tiling: " .. ("word "):rep(600))
+  assert(select(2, texts(canvases[1]):gsub("\n", "")) == 2, texts(canvases[1]):sub(1, 80))
   clear()
 end)
 
@@ -210,20 +255,27 @@ test("a line break is kept, a blank one too, and a name keeps its case", functio
   assert(texts(canvases[2]) == "Title\n\nDetail", texts(canvases[2]))
   toast.show("Space focus: macOS refused it")
   assert(texts(canvases[3]) == "Space focus | macOS refused it", texts(canvases[3]))
+  toast.show("Could not write Hammerspoon file log: denied")
+  assert(texts(canvases[4]) == "Could not write Hammerspoon file log: denied", texts(canvases[4]))
+  toast.show("Синхронизация: готово") -- 13 letters, 26 bytes
+  assert(texts(canvases[5]) == "Синхронизация | готово", texts(canvases[5]))
   clear()
 end)
 
 test("install picks the theme, and an unknown one is logged and fails the load", function()
   toast.install({ theme = "edge" })
   toast.show("edged")
-  assert(canvases[1].elements[1].fillGradientColors[4].white == 0.3, "not the edge rim")
+  local edge = rim(canvases[1])
   clear()
+  for _, name in ipairs({ "metal", "edge", "flat" }) do
+    toast.install({ theme = name })
+  end
   local ok = pcall(toast.install, { theme = "chrome" })
   assert(not ok, "an unknown theme loaded")
   assert(logged[1] and logged[1]:find("no theme chrome", 1, true), tostring(logged[1]))
   toast.install()
   toast.show("metal")
-  assert(canvases[1].elements[1].fillGradientColors[3].white == 0.42, "not the metal rim")
+  assert(rim(canvases[1]) ~= edge, "the edge theme did not change the rim")
   clear()
 end)
 
@@ -277,12 +329,16 @@ test("each hs.alert kept until closed has its own id, and an old id closes nothi
   assert(first ~= second and #canvases == 2, "two callers share one alert")
   alert.closeSpecific(first)
   assert(canvases[1].deleted and not canvases[2].deleted, "closing one closed the other")
-  alert.closeSpecific(second)
+  alert.show("Working…", 2)
+  assert(#canvases == 3 and #timers == 1, "a timed repeat merged into a kept alert")
+  alert.show("Working…", "indefinite")
+  assert(#canvases == 4, "a kept alert merged into a timed one")
+  clear()
   local timed = alert.show("Done", 2)
   alert.closeSpecific(timed)
   local again = alert.show("Done", 2)
   alert.closeSpecific(timed)
-  assert(again ~= timed and not canvases[4].deleted, "an old id closed a later alert")
+  assert(again ~= timed and not canvases[2].deleted, "an old id closed a later alert")
   clear()
 end)
 
@@ -311,7 +367,7 @@ end)
 test("a failure and a plain toast with the same text are not repeats", function()
   toast.show("Window list unavailable")
   toast.show("Window list unavailable", { failure = true })
-  assert(#canvases == 2 and canvases[2].elements[3].type == "circle", "the failure merged")
+  assert(#canvases == 2 and find(canvases[2], "circle"), "the failure merged")
   clear()
 end)
 
@@ -319,11 +375,16 @@ test("hs.alert.showWithImage shows its image as the icon, never repeated as plai
   toast.install()
   local image = {}
   alert.showWithImage("Synced", image, 2)
-  local icon = canvases[1].elements[3]
-  assert(icon.type == "image" and icon.image == image and icon.frame.w == 16, "no image")
-  assert(canvases[1].elements[4].frame.x == 14 + 16 + 10, "the text is not past the icon")
+  local icon = find(canvases[1], "image")
+  assert(icon and icon.image == image, "no image")
+  assert(
+    find(canvases[1], "text").frame.x >= icon.frame.x + icon.frame.w,
+    "the text is not past the icon"
+  )
   alert.show("Synced", 2)
-  assert(#canvases == 2 and canvases[2].elements[3].type == "text", "the plain one kept the icon")
+  assert(#canvases == 2 and not find(canvases[2], "image"), "the plain one kept the icon")
+  alert.showWithImage("Synced", image, 2)
+  assert(#canvases == 3, "the image merged into the plain one")
   clear()
 end)
 

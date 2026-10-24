@@ -152,17 +152,20 @@ function toast.show(text, options)
   end
   local failure = options.failure == true
   -- The same timed toast again, on the same screen, restarts its time instead of stacking; one
-  -- kept until closed is its caller's alone, closed by that caller.
-  for _, entry in ipairs(shown) do
+  -- kept until closed is its caller's alone, closed by that caller or a click.
+  for i, entry in ipairs(shown) do
     local plain = not options.image and not entry.image -- an icon is not repeated
     local same = entry.text == text and entry.failure == failure and plain
     if seconds and entry.timer and same and entry.screen:id() == screen:id() then
       arm(entry, seconds)
+      -- Now the newest: at the bottom, and the last its screen's cap drops.
+      table.insert(shown, table.remove(shown, i))
+      layout()
       return entry.id
     end
   end
   local head, rest = text:match("^([^:\n]+): ([^\n]+)$")
-  if not head or #head > 24 then
+  if not head or utf8.len(head) > 24 then
     head, rest = text, nil
   end
   -- "no window" -> "No window", but "macOS" stays.
@@ -243,7 +246,7 @@ function toast.show(text, options)
     })
   end
   canvas:level(hs.canvas.windowLevels.status)
-  -- Every Space, full-screen apps' too.
+  -- Every Space, and over full-screen apps while Hammerspoon's Dock icon is hidden.
   canvas:behaviorAsLabels({ "canJoinAllSpaces", "stationary", "fullScreenAuxiliary" })
   canvas:clickActivating(false)
 
@@ -275,7 +278,7 @@ function toast.show(text, options)
   if #on > most then
     for i = 1, #on - 1 do
       if on[i].timer then
-        toast.close(on[i].id)
+        toast.close(on[i].id, 0) -- at once: the toast above moves into its place
         break
       end
     end

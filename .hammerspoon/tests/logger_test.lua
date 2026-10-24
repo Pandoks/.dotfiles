@@ -65,8 +65,9 @@ local logger = assert(loadfile(
     require = function(name)
       assert(name == "lib.toast")
       return {
-        show = function(message)
+        show = function(message, options)
           alerts[#alerts + 1] = message
+          assert(options.failure and options.seconds == 5, "not a 5 s failure toast")
         end,
       }
     end,
