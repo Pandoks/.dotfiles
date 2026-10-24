@@ -222,7 +222,7 @@ int main(int argc, char **argv) {
     assert([relaunched launchAndReturnError:nil]);
     lua_pushinteger(state, relaunched.processIdentifier); lua_setglobal(state, "live");
     execute(state, "metadata.respawn(live)"); awaitEvents(); execute(state, "metadata.ready()");
-    output("PASS actual Lua readiness resumes quietly from the relaunched process");
+    output("PASS actual Lua readiness survives an idle swcd exit and watches the relaunched process");
     execute(state, "metadata.close()"); awaitEvents(); execute(state, "metadata.closed()");
     if (task.running) [task terminate]; [task waitUntilExit];
     [relaunched terminate]; [relaunched waitUntilExit];
