@@ -126,16 +126,20 @@ test("cleanup deletes the recording and cancels a stop still waiting on ffmpeg",
 end)
 
 test("finalize waits for ffmpeg to finish the wav, signalling it once, for up to 2 s", function()
-  for _, case in ipairs({ { true, 3, true }, { false, 3, true }, { false, 1000, false } }) do
-    local stopped, running, finished = table.unpack(case)
+  for _, case in ipairs({
+    { stopped = true, running = 3, finished = true },
+    { stopped = false, running = 3, finished = true },
+    { stopped = false, running = 1000, finished = false },
+  }) do
+    local running = case.running
     local recording, sent = assert(recorder.start(8, error)), false
-    if stopped then
+    if case.stopped then
       recorder.stop(recording, function()
         sent = true
       end)
     end
     task.running, sleeps = running, 0
-    assert(recorder.finalize(recording) == finished, "finished")
+    assert(recorder.finalize(recording) == case.finished, "finished")
     task.exit(255, "", "")
     assert(task.interrupts == 1 and not sent, "signalled twice or sent")
     assert(sleeps == math.min(running, 200), ("%d sleeps"):format(sleeps))

@@ -12,12 +12,17 @@ local function folder(settings)
   )
 end
 
+-- Quoted for sh: it's -> 'it'\''s'.
+local function quote(text)
+  return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.prepare(settings)
   local directory = folder(settings)
-  local quoted = directory:gsub("'", "'\\''")
-  if not os.execute(("mkdir -p '%s' && chmod 700 '%s'"):format(quoted, quoted)) then
+  local quoted = quote(directory)
+  if not os.execute(("mkdir -p %s && chmod 700 %s"):format(quoted, quoted)) then
     return "could not create " .. directory .. " owner-only"
   end
 end
@@ -54,8 +59,11 @@ end
 ---@param settings DictationHistoryConfig
 ---@return string? failure
 function history.keep(wav, settings)
-  local _, problem = os.rename(wav, slot(settings, "wav"))
-  return problem
+  local path = slot(settings, "wav")
+  -- mv, not os.rename: the folder may be on another volume.
+  if not os.execute(("mv %s %s"):format(quote(wav), quote(path))) then
+    return "could not move it to " .. path
+  end
 end
 
 -- Delete the oldest transcripts over the cap, never the newest; sizes are du-style blocks.

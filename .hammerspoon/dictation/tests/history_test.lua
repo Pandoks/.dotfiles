@@ -54,6 +54,20 @@ local want = "2026-01-02_03-04-05 copy.txt 2026-01-02_03-04-06.txt 2026-01-02_03
   .. "2026-01-02_03-04-08.txt notes.txt"
 assert(list(directory) == want, list(directory))
 
+-- A recording reaches a folder on another volume, where os.rename can't.
+local image, volume = scratch .. "/volume.dmg", scratch .. "/volume"
+assert(
+  os.execute(("hdiutil create -quiet -size 2m -fs HFS+ -volname dictation '%s'"):format(image))
+)
+assert(os.execute(("hdiutil attach -quiet -nobrowse -mountpoint '%s' '%s'"):format(volume, image)))
+local other = { directory = volume .. "/history", maxMegabytes = 1 }
+local recording = scratch .. "/other.wav"
+io.open(recording, "w"):close()
+local moved = not history.prepare(other) and history.keep(recording, other)
+local kept = list(other.directory)
+os.execute(("hdiutil detach -quiet '%s'"):format(volume))
+assert(moved == nil and kept:match("%.wav$") and not fs.attributes(recording), tostring(moved))
+
 -- Pruning never deletes a kept recording.
 local wav = scratch .. "/take.wav"
 local file = assert(io.open(wav, "w"))
