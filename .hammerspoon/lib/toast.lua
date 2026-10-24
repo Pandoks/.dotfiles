@@ -66,15 +66,20 @@ end
 
 -- By id, which is all the callbacks hold: one holding its own timer is never collected.
 ---@param id integer?
----@param fade? number seconds, 0.25 by default
+---@param fade? number seconds, 0.25 by default; none unless it is its screen's oldest
 function toast.close(id, fade)
   for i, entry in ipairs(shown) do
     if entry.id == id then
+      -- It fades only as the oldest on its screen: otherwise the toasts above move into its place.
+      local oldest = true
+      for j = 1, i - 1 do
+        oldest = oldest and shown[j].screen:id() ~= entry.screen:id()
+      end
       table.remove(shown, i)
       if entry.timer then
         entry.timer:stop()
       end
-      entry.canvas:delete(fade and math.max(fade, 0) or 0.25)
+      entry.canvas:delete(oldest and (fade and math.max(fade, 0) or 0.25) or 0)
       layout()
       return
     end
@@ -282,21 +287,21 @@ end
 
 -- Pick the look, and make every hs.alert a toast: `show`, `hs.alert(...)`, a Spoon's, a hotkey
 -- message, with their screen, seconds (a non-number keeps it until closed), and ids.
----@param options? { theme?: ToastTheme } "metal" by default
+---@param options? { theme?: ToastTheme } "metal" by default; another name fails the load
 function toast.install(options)
   local name = options and options.theme or "metal"
-  theme = themes[name] or themes.metal
   if not themes[name] then
-    require("lib.logger").error(
-      "Toast: no theme " .. tostring(name) .. "; use metal, edge, or flat"
-    )
+    local message = "Toast: no theme " .. tostring(name) .. "; use metal, edge, or flat"
+    require("lib.logger").error(message)
+    error(message, 2)
   end
+  theme = themes[name]
   local styled = hs.getObjectMetatable("hs.styledtext")
   local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
   -- Both hs.alert.show and hs.alert(...) end here. As hs.alert reads its arguments: a screen, or
-  -- a window for its screen; a table is a style; anything else the seconds, none or false the
-  -- default, another non-number until closed.
+  -- a window for its screen; a table is a style; anything else the seconds, none or false its
+  -- 2 s default, another non-number until closed.
   alert.showWithImage = function(message, image, ...)
     local style, screen, seconds
     for i, value in ipairs(table.pack(...)) do
@@ -314,7 +319,7 @@ function toast.install(options)
       end
     end
     local text = getmetatable(message) == styled and message:getString() or tostring(message)
-    local time = not seconds and 3 or type(seconds) == "number" and seconds or false
+    local time = not seconds and 2 or type(seconds) == "number" and seconds or false
     return toast.show(text, { seconds = time, screen = screen, image = image })
   end
   alert.closeSpecific = toast.close
