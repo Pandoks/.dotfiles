@@ -175,7 +175,8 @@ def saved():
         raise RuntimeError("The installed router state is invalid")
     cache = Path(run(["/usr/bin/getconf", "DARWIN_USER_CACHE_DIR"])) / "HammerspoonURLRouter/status.json"
     if state.get("statusPath") != str(cache) or state.get("selectorsPath") != str(SUPPORT / "selectors/rules.json") or state.get("probePath") != str(SUPPORT / "runtime/hook.dylib.probe"):
-        raise RuntimeError("The installed router paths are invalid")
+        raise RuntimeError("The installed router paths are invalid. Uninstall an installation staged before the status file moved with its own copy: "
+                           + shlex.join([PYTHON, "-I", str(SUPPORT / "runtime/install.py"), "uninstall"]))
     return state
 
 

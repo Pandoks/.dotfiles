@@ -33,13 +33,21 @@ requires the identifier's prefix to have ten characters when decoding an app lin
 ## Setup
 
 Requires Hammerspoon, Helium, the Xcode command-line tools, Python 3, and the
-tested OS/SIP configuration. Protected steps run under the command-line tools'
-root-owned Python. The installer never changes SIP or boot arguments,
-logs out, reboots, or commits files.
+tested OS/SIP configuration. The protected `swcd` replacement and restoration
+run under the command-line tools' root-owned Python; `activate --login` and the
+final clone re-enable call `/bin/launchctl` directly. The installer never changes
+SIP or boot arguments, logs out, reboots, or commits files.
 `zsh ~/.hammerspoon/url_router/install.sh check` prints the macOS version, build,
-and SIP mask as JSON, or fails naming the first unmet requirement: SIP mask,
-tested build, boot argument, or command-line tools' Python. It changes nothing;
-`prepare`, `stage`, and `activate` repeat the same checks.
+and SIP mask as JSON (`"csr": 70` is `0x46`), or fails naming the first unmet
+requirement: SIP mask, tested build, boot argument, or command-line tools'
+Python. It changes nothing; `prepare`, `stage`, and `activate` repeat the same
+checks.
+
+To upgrade an installation staged before the status file moved to the cache
+directory, uninstall it with its own copy first, because this installer rejects
+its state:
+`/Library/Developer/CommandLineTools/usr/bin/python3 -I ~/Library/Application\ Support/HammerspoonURLRouter/runtime/install.py uninstall`.
+Then follow the steps below.
 
 1. Build an isolated payload with `zsh ~/.hammerspoon/url_router/install.sh prepare /var/tmp/url-router-ready`.
    The output directory must be new. This downloads Lua 5.4.9 from lua.org,
@@ -56,8 +64,9 @@ tested build, boot argument, or command-line tools' Python. It changes nothing;
    Protected launchd operations request administrator authentication if needed.
    After authentication, one protected helper disables respawning, observes the
    retiring process, and waits for its exit event before starting the replacement
-   job. If any step fails, the same helper restores Apple's job. This
-   operation has a ten-second deadline. The installer performs one harmless native lookup,
+   job. If any step fails, the same helper restores Apple's job once the retiring
+   process exits. Retirement has a ten-second deadline and the restore gets ten
+   more, so a failed activation can take about 20 seconds. The installer performs one harmless native lookup,
    waits for the hook's readiness acknowledgement without polling, and verifies
    that acknowledgement belongs to the replacement process. It starts the helper
    and verifies the running application's path. A native lookup from the helper
