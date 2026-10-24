@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import select
 import subprocess
 import tempfile
 import time
@@ -229,6 +230,7 @@ static CFDataRef respond(CFMessagePortRef port, SInt32 id, CFDataRef data, void 
   fprintf(log, "%d:", (int)id);
   fwrite(CFDataGetBytePtr(data), 1, (size_t)CFDataGetLength(data), log);
   fputc(0, log); fclose(log);
+  puts("REQUEST"); fflush(stdout);
   usleep(delay * 1000);
   return strcmp(reply, "none") ? CFDataCreate(NULL, (const UInt8 *)reply, (CFIndex)strlen(reply)) : NULL;
 }
@@ -265,12 +267,18 @@ int main(int argc, char **argv) {
         # Deadline checks run alongside the other cases; they take about 10 and 20 seconds.
         name, slow = serve("timeout", delay=60000)
         started = time.monotonic()
+        waiting = [servers[-1]]
         timeout = subprocess.Popen([str(binary)], env=dict(base, URL_TEST_PORT=name), stdout=subprocess.PIPE, text=True)
         servers.append(timeout)
         name, blocked = serve("modal", delay=60000)
+        waiting.append(servers[-1])
         modal = subprocess.Popen([str(binary)], env=dict(base, URL_TEST_PORT=name, URL_TEST_KEEP_ALIVE="1", URL_TEST_MODAL="1",
             URL_TEST_NATIVE_FAIL="1", URL_TEST_FINAL="19.5"), stdout=subprocess.PIPE, text=True)
         servers.append(modal)
+        # Both deadline helpers must read the router files before the FIFO cases replace them.
+        for listener, helper in zip(waiting, (timeout, modal)):
+            assert select.select([listener.stdout], [], [], 5)[0] and listener.stdout.readline() == "REQUEST\n", \
+                helper.kill() or helper.communicate()[0]
 
         for label, target in [("selector FIFO", snapshot), ("status FIFO", acknowledgement)]:
             contents = target.read_bytes()
