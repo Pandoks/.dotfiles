@@ -1,5 +1,5 @@
 local root, scratch = arg[1], arg[3]
-local passed, rest = 0, ""
+local passed, rest, sleeps = 0, "", 0
 local task, receive
 
 local function test(name, callback)
@@ -27,18 +27,29 @@ local hs = {
     end,
     pathToAbsolute = function() end,
   },
+  timer = {
+    usleep = function()
+      sleeps = sleeps + 1
+    end,
+  },
   host = {
     uuid = function()
       return "take"
     end,
   },
   task = {
-    new = function(_, exit)
-      task = { exit = exit }
+    new = function(_, exit, stream)
+      task = { exit = exit, stream = stream, interrupts = 0, polls = 0, running = 0 }
       function task.start()
         return true
       end
-      function task.interrupt() end
+      function task.interrupt()
+        task.interrupts = task.interrupts + 1
+      end
+      function task.isRunning()
+        task.polls = task.polls + 1
+        return task.polls <= task.running
+      end
       function task.terminate() end
       return task
     end,
@@ -100,6 +111,46 @@ test("audio still unread when ffmpeg exits counts in the duration and peak", fun
   end)
   task.exit(255, "", "")
   assert(peak == 1 and duration == 17024 / 16000, ("%s %s"):format(peak, duration))
+end)
+
+test("cleanup deletes the recording and cancels a stop still waiting on ffmpeg", function()
+  local recording, sent = assert(recorder.start(8, error)), false
+  assert(io.open(recording.wav, "w")):close()
+  recorder.stop(recording, function()
+    sent = true
+  end)
+  recorder.cleanup(recording)
+  assert(not io.open(recording.wav), "the recording is left") -- a reload skips the exit callback
+  task.exit(255, "", "")
+  assert(not sent, "the cancelled take was sent")
+end)
+
+test("finalize waits for ffmpeg to finish the wav, signalling it once, for up to 2 s", function()
+  for _, case in ipairs({ { true, 3, true }, { false, 3, true }, { false, 1000, false } }) do
+    local stopped, running, finished = table.unpack(case)
+    local recording, sent = assert(recorder.start(8, error)), false
+    if stopped then
+      recorder.stop(recording, function()
+        sent = true
+      end)
+    end
+    task.running, sleeps = running, 0
+    assert(recorder.finalize(recording) == finished, "finished")
+    task.exit(255, "", "")
+    assert(task.interrupts == 1 and not sent, "signalled twice or sent")
+    assert(sleeps == math.min(running, 200), ("%d sleeps"):format(sleeps))
+  end
+end)
+
+test("ffmpeg's output after it exits fails nothing", function()
+  local failed
+  local recording = assert(recorder.start(8, function(problem)
+    failed = problem
+  end))
+  recorder.stop(recording, function() end)
+  task.exit(255, "", "")
+  task.stream(nil, "", "Broken pipe\n")
+  assert(failed == nil, tostring(failed))
 end)
 
 test("a stream failure fails the take through onError", function()

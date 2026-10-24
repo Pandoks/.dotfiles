@@ -89,13 +89,16 @@ return function(text, value, range)
   local first, final = utf8.char(utf8.codepoint(text, 1)), text:sub(utf8.offset(text, -1))
   if
     not starts(before)
+    and not slashes[before]
     and not (quotes[before] and starts(prior))
     and not joined
     and not (within(before, unspaced) and within(first, unspaced))
   then
     text = " " .. text
   end
-  local opens = quotes[after] and starts(last ~= "" and last or before) and wordy(beyond)
+  -- A quote opening a word, or a dash opening a flag: "ls |-la".
+  local opens = (quotes[after] and wordy(beyond) or after == "-")
+    and starts(last ~= "" and last or before)
   -- A "/" after is a path going on ("/usr/share/bin"), not an opener.
   if
     (wordy(after) or (openers[after] and after ~= "/") or opens)

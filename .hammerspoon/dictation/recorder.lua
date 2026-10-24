@@ -127,7 +127,10 @@ function recorder.start(bands, onError)
       recording.done(wav, recording.peak, recording.offset / (2 * rate))
     end
   end, function(_, _, errors)
-    failure(errors or "") -- streaming keeps stdin open for the watchdog
+    -- Streaming keeps stdin open for the watchdog. Output after the exit fails nothing.
+    if recording.task then
+      failure(errors or "")
+    end
     return true
   end, {
     "-c",
@@ -247,6 +250,26 @@ end
 function recorder.stop(recording, done)
   recording.stopping, recording.done = true, done
   assert(recording.task):interrupt()
+end
+
+-- Lets ffmpeg finish the wav, for up to 2 s: a second signal would make it skip the trailer.
+---@param recording DictationRecording
+---@return boolean finished
+function recorder.finalize(recording)
+  recording.done = nil
+  local task = recording.task
+  if task and not recording.stopping then
+    recording.stopping = true
+    task:interrupt()
+  end
+  -- Polled: waitUntilExit has no timeout, and a stuck ffmpeg would hang the reload.
+  for _ = 1, 200 do
+    if not (task and task:isRunning()) then
+      return true
+    end
+    hs.timer.usleep(10000)
+  end
+  return false
 end
 
 ---@param recording? DictationRecording

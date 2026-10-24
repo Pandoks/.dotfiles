@@ -348,9 +348,11 @@ local function toggle()
   end
 end
 
-dictation.hotkey = hs.hotkey.bind(config.hotkey.mods, config.hotkey.key, toggle)
+-- A key hs.hotkey doesn't know raises; the backend must not stay running without a hotkey.
+local bound, hotkey = pcall(hs.hotkey.bind, config.hotkey.mods, config.hotkey.key, toggle)
+dictation.hotkey = bound and hotkey or nil
 if not dictation.hotkey then
-  fail("could not register the hotkey; another app or macOS already uses it")
+  fail(bound and "could not register the hotkey; another app or macOS uses it" or tostring(hotkey))
   engine:stop()
 end
 dictation.cancel = hs.hotkey.new({}, "escape", finish)
@@ -361,11 +363,15 @@ hs.shutdownCallback = function()
   if restore then
     restore.timer:fire()
   end
-  -- A take still recording is kept: nothing will transcribe it.
-  if recording and hs.fs.attributes(recording.wav) then
-    keep(recording.wav)
+  -- A take still recording is kept once ffmpeg has finished it: nothing will transcribe it.
+  if recording then
+    if not recorder.finalize(recording) then
+      fail("ffmpeg did not finish the recording in 2 s; the kept wav may be cut short")
+    end
+    if hs.fs.attributes(recording.wav) then
+      keep(recording.wav)
+    end
   end
-  finish()
   engine:stop()
   -- No transcript will come back for these.
   for id in pairs(wavs) do
@@ -374,6 +380,8 @@ hs.shutdownCallback = function()
   if shutdown then
     shutdown()
   end
+  -- Last: unbinding Escape logs, and hs.ipc's print raises while a dead `hs` CLI is registered.
+  finish()
 end
 
 return dictation

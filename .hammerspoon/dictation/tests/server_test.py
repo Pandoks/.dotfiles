@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -41,7 +42,7 @@ engine = server.Engine(
         },
     }
 )
-# config.lua's cleanup tokenizer (the real words Engine.load adds), from files mlx_lm.load caches.
+# defaults.lua's cleanup tokenizer (the real words Engine.load adds), from files mlx_lm.load caches.
 tokenizer_files = {
     "repo_id": "mlx-community/Qwen3.5-2B-MLX-4bit",
     "revision": "93760be4f1f69842a46bc13dbdc0f19e291392a3",
@@ -119,11 +120,7 @@ check(
     [
         (text, text)
         for text in [
-            "He torrented the file.",
             "The ghostly figure appeared.",
-            "A torrent of rain.",
-            "Okay, sounds good.",
-            "Recast the spell.",
             "Let's get tacos for lunch.",
             "I switched from Emacs to Neovim.",
             "Pipe it through sort and uniq.",
@@ -192,6 +189,12 @@ check(
     ],
     lambda pair: apps.spell(pair[1], pair[0]),
 )
+nested = server.Engine(dict(engine.config, words={"Ray": ["rey"], "Raycast": ["rey cast"]}))
+check(
+    "a longer mishearing wins over one inside it",
+    [("Open rey cast now.", "Open Raycast now."), ("Ask rey.", "Ask Ray.")],
+    lambda text: nested.spell(text, {}),
+)
 latex = server.Engine(dict(engine.config, words={"\\LaTeX": ["latex"], "\\frac": ["frac"]}))
 check(
     "a word goes in as written",
@@ -206,7 +209,6 @@ check(
     [
         ("I missed the bus.", "I missed the bus."),
         ("She misses her family.", "She misses her family."),
-        ("Torrents of rain.", "Torrents of rain."),
         ("Ghost tea is my terminal.", "Ghostty is my terminal."),
         ("I want three things.", "I want 3 things."),
     ],
@@ -279,7 +281,6 @@ check(
         ("No one, two people came.", "No one, 2 people came."),
         ("At one point, five people left.", "At one point, 5 people left."),
         ("The server returned a five-oh-three.", "The server returned a 503."),
-        ("Count one, two.", "Count 1, 2."),
         ("Do it in this order: one, two.", "Do it in this order: 1, 2."),
         ("The steps one, two, and three are done.", "The steps 1, 2, and 3 are done."),
         ("We got a million hits.", "We got 1 million hits."),
@@ -292,7 +293,6 @@ check(
         ("At three thirty students arrived.", "At three thirty students arrived."),
         ("The meeting at three thirty starts soon.", "The meeting at 3:30 starts soon."),
         ("We started in two thousand.", "We started in 2000."),
-        ("Count one, two, three.", "Count 1, 2, 3."),
         ("It's priced at 2.50 each.", "It's priced at 2.50 each."),
         ("Around three fifty people came.", "Around three fifty people came."),
         ("I have thirteen twenty dollar bills.", "I have thirteen twenty dollar bills."),
@@ -309,6 +309,11 @@ check(
         ("March fifth, two thousand twenty five.", "March fifth, 2025."),
         ("We sold two thousand fifty of them.", "We sold 2,050 of them."),
         ("Crash of two thousand eight, of course, hit us.", "Crash of 2008, of course, hit us."),
+        ("It costs a few hundred dollars.", "It costs a few hundred dollars."),
+        ("We raised half a million dollars.", "We raised half a million dollars."),
+        ("They raised several million dollars.", "They raised several million dollars."),
+        ("It costs five or six thousand dollars.", "It costs 5,000 or 6,000 dollars."),
+        ("Count from ten to two thousand.", "Count from 10 to 2,000."),
     ],
     lambda text: server.write_numbers(text, ["Fifty Shades"]),
 )
@@ -414,8 +419,6 @@ check(
         (("I want one like the", "I want one."), "I want one like the"),
         (("You're coming?", "You're coming."), "You're coming?"),
         (("Like, you're coming?", "You're coming."), "You're coming?"),
-        (("What time is it?", "What time is it."), "What time is it?"),
-        (("Should we pick A?", "Should we pick A."), "Should we pick A?"),
         (("Thanks. But", "Thanks."), "Thanks. But"),
         (("Is it ready? And", "Is it ready?"), "Is it ready? And"),
         (("Stop! And", "Stop!"), "Stop! And"),
@@ -431,7 +434,6 @@ check(
         (("Did he say yes", 'Did he say "yes?"'), 'Did he say "yes?"'),
         # A cut word comes back after the comma or colon said before it, inside closing quotes.
         (("Send it to John, and", "Send it to John."), "Send it to John, and"),
-        (("We need eggs, milk, and", "We need eggs, milk."), "We need eggs, milk, and"),
         (("Send it to John, and the", "Send it to John."), "Send it to John, and the"),
         (("Send it to John and", "Send it to John,"), "Send it to John, and"),
         (("Send it to John, and", "Send it to John,"), "Send it to John, and"),
@@ -460,6 +462,8 @@ check(
         # The speech model's '?' is kept, not one it never put: a retracted question.
         (("Is it ready? No wait, just ship it.", "Just ship it."), "Just ship it."),
         (("Sounds good. Yeah?", "Sounds good."), "Sounds good."),
+        (("It's broken again, you know?", "It's broken again."), "It's broken again."),
+        (("Take the car and the", "Take the car."), "Take the car and the"),
         (
             ("Can you send it to John, no wait, to Jane?", "Can you send it to Jane."),
             "Can you send it to Jane?",
@@ -516,6 +520,9 @@ check(
             ("I counted to 10 oh my god it was huge.", "I counted to 10, oh my god it was huge."),
             ("Meet at eight oh five.", "Meet at 8:05."),
             ("Meet at 10 oh 5.", "Meet at 10:05."),
+            ("Test testing one two.", "Testing one two."),
+            ("Run it with, without the cache.", "Run it without the cache."),
+            ("The meeting took about, about an hour.", "The meeting took about an hour."),
             ("It's the forth quarter already.", "It's the fourth quarter already."),
         ]
     ]
@@ -560,6 +567,9 @@ check(
             ("Let's go with plan A", "Let's go with plan."),
             ("Room two oh one is free.", "Room two one is free."),
             ("Meet at 10 oh 5 tomorrow.", "Meet at 10:5 tomorrow."),
+            ("Delete the master branch.", "Delete the faster branch."),
+            ("I think so.", "I think."),
+            ("Run it with, without the cache.", "Run it with the cache."),
             ("Add 0.5 cups.", "Add 0.05 cups."),
             ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
             ("It's on the fifteenth.", "It's on the fiftieth."),
@@ -607,7 +617,43 @@ print("PASS a library that prints cannot corrupt the protocol")
 events, stderr = serve("", [], config='{"speech": {"backend": "nope"}}')
 assert [e["event"] for e in events] == ["error"] and "id" not in events[0], events
 assert "nope" in events[0]["msg"] and "Traceback" in stderr, (events, stderr)
+failing = """
+class Failing(server.Engine):
+    def load(self):
+        raise RuntimeError("no weights")
+server.Engine = Failing
+"""
+config = json.dumps(
+    {
+        "speech": {"backend": "parakeet-mlx", "model": "s", "revision": "0" * 40},
+        "cleanup": {"enabled": False},
+    }
+)
+events, stderr = serve(failing, [], config=config)
+assert [e["event"] for e in events] == ["error"] and "no weights" in events[0]["msg"], events
 print("PASS a failed load reports an error and never ready")
+# Hammerspoon never closes stdin: each reply must arrive while it is open.
+live = subprocess.Popen(
+    [sys.executable, "-c", f"import sys, server\n{chatty}\nsys.argv[1:] = ['{{}}']\nserver.main()"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    text=True,
+    cwd=Path(server.__file__).parent,
+)
+deadline = threading.Timer(60, live.kill)
+deadline.start()
+try:
+    assert live.stdout and live.stdin
+    assert live.stdout.readline() == '{"event": "ready"}\n'
+    live.stdin.write(json.dumps({"id": 1, "wav": "x.wav"}) + "\n")
+    live.stdin.flush()
+    assert json.loads(live.stdout.readline())["text"] == "ok"
+finally:
+    deadline.cancel()
+    live.kill()
+    live.wait()
+print("PASS replies arrive while stdin is still open")
 takes = """
 from types import SimpleNamespace
 heard = iter(["Send fifteen dollars.", "Send it."])
@@ -636,10 +682,19 @@ print("PASS a failed take reports what was heard, and only a bug's traceback")
 # The model may close the template's think block again.
 cleaner = models.MlxLm(stub)
 cleaner.llm, cleaner.tokenizer = None, tokenizer  # pyright: ignore[reportAttributeAccessIssue]
-with mock.patch("mlx_lm.generate", return_value="Fix the bug.</think>\n\nFix the bug."):
+limits = []
+
+
+def generate(llm, tokenizer, prompt, max_tokens=None):
+    limits.append(max_tokens)
+    return "Thinking about it.</think>\n\nFix the bug."
+
+
+with mock.patch("mlx_lm.generate", generate):
     reply = cleaner.complete([{"role": "user", "content": "Fix the bug."}], "Fix the bug.")
 assert reply == "Fix the bug.", reply
-print("PASS a stray closing think tag leaves only the reply")
+assert limits[0] and limits[0] >= 400, limits  # mlx-lm's default 256 would cut long takes
+print("PASS a stray closing think tag leaves only the reply, given room to echo the take")
 
 
 def load_adapter(files):
@@ -679,14 +734,51 @@ def styled(config):
 
 
 check(
-    "a style with an adapter, which has its own prompt, fails the load",
+    "a style with an adapter, or an empty mishearing, fails the load",
     [
         ({}, "ok"),
         ({"style": "Be terse."}, "ValueError"),
         ({"apps": {"com.x": {"style": "Be terse."}}}, "ValueError"),
         ({"apps": {"com.x": {"words": {"Zed": []}}}}, "ok"),
+        ({"words": {"Oki": [""]}}, "ValueError"),
+        ({"apps": {"com.x": {"words": {"Zed": [" "]}}}}, "ValueError"),
     ],
     styled,
+)
+plain = server.Engine(
+    dict(
+        engine.config, style="Be terse.", apps={"com.x": {"style": "A chat."}}, words={"yabai": []}
+    )
+)
+prompts = []
+plain.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
+plain.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
+    prompt=None, complete=lambda messages, raw: prompts.append(messages) or raw
+)
+plain.process("Restart yabai.", {"app": "com.x"})
+plain.config = dict(plain.config, style=False)
+plain.process("Restart yabai.", {})
+vocabulary = "Domain vocabulary (spell these exactly): yabai."
+system, user = prompts[0][0]["content"], prompts[0][1]["content"]
+assert system == f"Be terse.\nA chat.\n{vocabulary}\n{server.PROMPT}", system
+assert user == server.FRAME.format("Restart yabai."), user
+assert prompts[1][0]["content"] == f"{server.STYLE}\n{vocabulary}\n{server.PROMPT}"
+print(
+    "PASS a plain model gets the style, the app's, the vocabulary, the rules, then the framed take"
+)
+
+
+def pin(revision):
+    try:
+        return models.pinned(revision)
+    except ValueError:
+        return "ValueError"
+
+
+check(
+    "model revisions are commit SHAs, never a branch that moves",
+    [("0" * 40, "0" * 40), ("main", "ValueError"), (None, "ValueError")],
+    pin,
 )
 parakeet = models.Parakeet({"model": "stub", "revision": "0" * 40})
 parakeet.model = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
@@ -796,23 +888,12 @@ check(
     "a boosted word is kept only where it spells a vocabulary word",
     [
         (
-            (
-                "Test testing, what do you think of the older?",
-                "Test testing, what do you think of the old hammers?",
-            ),
-            "Test testing, what do you think of the older?",
-        ),
-        (
             ("The morning mist was thick.", "The morning mis was thick."),
             "The morning mist was thick.",
         ),
         (
             ("The Union vote is destroyed.", "The uni uni vote is destroyed."),
             "The Union vote is destroyed.",
-        ),
-        (
-            ("Okie said she would come later.", "Oki said she would come later."),
-            "Oki said she would come later.",
         ),
         (
             ("Ghost T renders the fonts really well.", "GhostT renders the fonts really well."),

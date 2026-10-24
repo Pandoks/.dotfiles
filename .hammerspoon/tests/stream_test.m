@@ -23,6 +23,8 @@ extern char **environ;
 @end
 
 static const char *binary, *ffmpeg, *directory;
+// LuaSkin holds its delegate weakly: without this, errors in callbacks are logged nowhere and pass.
+static StreamTestLog *logger;
 static int passed;
 
 static void execute(lua_State *state, const char *code) {
@@ -113,11 +115,11 @@ int main(int argc, char **argv) {
     char reference[1024], path[1024];
     snprintf(reference, sizeof reference, "%s/reference.pcm", directory);
     assert(reap(sine(reference, NO)) == 0);
-    LuaSkin *skin = [LuaSkin sharedWithDelegate:[StreamTestLog new]];
+    logger = [StreamTestLog new];
+    LuaSkin *skin = [LuaSkin sharedWithDelegate:logger];
     lua_State *state = prepare(skin);
     struct stat info;
 
-    socketPath(state, "existing", path);
     execute(state, "local long=directory..'/'..string.rep('x',120);"
       " local close,problem=stream.listen(long,error); assert(close==nil and problem:find('too long'),problem);"
       " close,problem=stream.listen(directory..'/reference.pcm',error);"

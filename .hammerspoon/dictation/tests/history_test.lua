@@ -31,6 +31,12 @@ local settings = { directory = directory, maxMegabytes = 3 * 4096 / 1024 / 1024 
 
 os.execute(("mkdir -m 755 '%s'"):format(directory))
 assert(not history.prepare(settings) and fs.attributes(directory, "permissions") == "rwx------")
+io.open(scratch .. "/file", "w"):close()
+local unmade = scratch .. "/file/history"
+assert(history.prepare({ directory = unmade }) == "could not create " .. unmade .. " owner-only")
+local quoted = scratch .. "/it's"
+assert(not history.prepare({ directory = quoted }))
+assert(fs.attributes(quoted, "permissions") == "rwx------")
 clock = os.time({ year = 2026, month = 1, day = 2, hour = 3, min = 4, sec = 5 })
 assert(not history.save("one", settings) and not history.save("two", settings))
 assert(list(directory) == "2026-01-02_03-04-05.txt 2026-01-02_03-04-05_2.txt", list(directory))

@@ -1,7 +1,7 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 local passed, alerts, strokes, timers, changes, takes, serial = 0, {}, {}, {}, 0, 0, 0
-local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead, settings
+local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead, settings, take
 local frame, broken
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
@@ -30,7 +30,9 @@ end
 
 local config = load("defaults", {})
 local mine = load("config", {})
+mine.words = { "Slack", Raycast = { "ray cast" } }
 mine.apps = { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } } }
+mine.cleanup = { enabled = false }
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
 local hs = {
   fs = fs,
@@ -40,7 +42,8 @@ local hs = {
     end,
   },
   hotkey = {
-    bind = function(_, _, callback)
+    bind = function(_, key, callback)
+      assert(key ~= "bogus", "Invalid key: bogus")
       toggle = callback
       return stub()
     end,
@@ -140,7 +143,8 @@ local modules = {
       takes = takes + 1
       recorded = ("%s/take%d.wav"):format(scratch, takes)
       assert(io.open(recorded, "w")):close()
-      return { wav = recorded }
+      take = { wav = recorded }
+      return take
     end,
     stop = function(capture, callback)
       capture.done = callback
@@ -155,6 +159,10 @@ local modules = {
         capture.done = nil
         os.remove(capture.wav)
       end
+    end,
+    finalize = function(capture)
+      capture.done, capture.finalized = nil, fs.attributes(capture.wav) ~= nil
+      return not capture.stuck
     end,
     analyze = function() end,
   },
@@ -192,11 +200,11 @@ local function app(bundle)
 end
 
 -- `deaf` takes writes but keeps its value (Chromium); `fixed` takes none (a terminal).
-local function field(before, deaf, fixed)
+local function field(before, deaf, fixed, role)
   local element = { value = before }
   function element:attributeValue(name)
     return ({
-      AXRole = "AXTextArea",
+      AXRole = role or "AXTextArea",
       AXValue = self.value,
       AXSelectedText = "",
       AXSelectedTextRange = { location = utf8.len(self.value), length = 0 },
@@ -367,7 +375,8 @@ end)
 test("config.lua's settings replace the defaults, its words sent as one map", function()
   local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
   local sent = json.decode(assert(json.encode(settings)))
-  assert(sent.speech.model and next(sent.words.Slack) == nil, json.encode(sent.words))
+  assert(sent.speech.model and sent.cleanup.model == nil, "a setting merged, not replaced")
+  assert(next(sent.words.Slack) == nil, json.encode(sent.words))
   assert(sent.words.Raycast[1] == "ray cast", json.encode(sent.words))
   local app = sent.apps["com.x"].words
   assert(next(app.Zed) == nil and app.Neovim[1] == "neo vim", json.encode(app))
@@ -442,42 +451,110 @@ test("a copy made before the clipboard restore is kept", function()
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
-test("a history folder it can't secure leaves only a hotkey that says why", function()
-  local main, started = toggle, false
+test("Mail's compose page is pasted into; a slider gets nothing and says so", function()
+  local page = field("Hi", false, false, "AXWebArea")
+  handlers.onFinal({ id = dictate(page), text = "you" })
+  assert(strokes[1] == "cmd+v" and not page.written, tostring(strokes[1]))
+  timers[#timers]()
+  local slider = field("50", false, false, "AXSlider")
+  handlers.onFinal({ id = dictate(slider), text = "you" })
+  assert(not slider.written and #strokes == 0, "wrote into a slider")
+  assert(alerts[1] == "Dictation: no text field is focused", tostring(alerts[1]))
+end)
+
+test("past the history cap a saved take prunes the oldest", function()
+  config.history.maxMegabytes = 0
+  handlers.onFinal({ id = dictate(field("Hi")), text = "newest" })
+  config.history.maxMegabytes = 10
+  local texts = 0
+  for entry in fs.dir(directory) do
+    texts = texts + (entry:match("%.txt$") and 1 or 0)
+  end
+  assert(texts == 1, texts)
+end)
+
+-- init.lua loaded again with `swapped` modules; its hotkey is returned, the first load's kept.
+local function reload(swapped)
+  local main, cancel, shutdown = toggle, escape, hs.shutdownCallback
   load("init", {
     hs = hs,
     print = function() end,
     require = function(name)
-      if name == "dictation.history" then
-        return {
-          prepare = function()
-            return "could not create /x owner-only"
-          end,
-        }
-      elseif name == "dictation.engine" then
-        return {
-          new = function()
-            started = true
-          end,
-        }
-      end
-      return modules[name]
+      return swapped[name] or modules[name]
     end,
   })
-  local disabled = toggle
-  toggle, alerts = main, {}
-  disabled()
+  local bound = toggle
+  toggle, escape, hs.shutdownCallback = main, cancel, shutdown
+  return bound
+end
+
+local function unprepared(problem)
+  return {
+    prepare = function()
+      return problem
+    end,
+  }
+end
+
+test("a history folder it can't secure leaves only a hotkey that says why", function()
+  local started = false
+  local hotkey = reload({
+    ["dictation.history"] = unprepared("could not create /x owner-only"),
+    ["dictation.engine"] = {
+      new = function()
+        started = true
+      end,
+    },
+  })
+  alerts = {}
+  hotkey()
   assert(not started and alerts[1] == "Dictation: could not create /x owner-only", alerts[1])
 end)
 
+test("an unknown setting in config.lua alerts", function()
+  alerts = {}
+  reload({
+    ["dictation.defaults"] = load("defaults", {}),
+    ["dictation.config"] = { bogus = true },
+    ["dictation.history"] = unprepared("stop"),
+  })
+  assert(alerts[1] == "Dictation: config.lua: unknown setting bogus", tostring(alerts[1]))
+end)
+
+test("a hotkey macOS can't bind stops the backend and says why", function()
+  local stopped = false
+  alerts = {}
+  reload({
+    ["dictation.defaults"] = load("defaults", {}),
+    ["dictation.config"] = { hotkey = { mods = {}, key = "bogus" } },
+    ["dictation.history"] = { prepare = function() end },
+    ["dictation.engine"] = {
+      new = function()
+        return {
+          stop = function()
+            stopped = true
+          end,
+        }
+      end,
+    },
+  })
+  assert(stopped and tostring(alerts[1]):find("Invalid key: bogus", 1, true), tostring(alerts[1]))
+end)
+
 -- Last: it tears everything down.
-test("shutdown puts the clipboard back and keeps the takes transcribing and recording", function()
+test("shutdown puts the clipboard back and keeps every take, even if a log line raises", function()
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "x" })
   local count = wavs()
   dictate(field("Hi"))
   escape() -- still transcribing, no longer waited on
   toggle()
-  hs.shutdownCallback()
+  local recording = take
+  recording.stuck, alerts = true, {}
+  dead = true -- unbinding Escape raises: every take is kept first
+  pcall(hs.shutdownCallback)
+  dead = false
+  assert(recording.finalized, "the recording was kept before ffmpeg finished it")
+  assert(tostring(alerts[1]):find("may be cut short", 1, true), tostring(alerts[1]))
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
   assert(wavs() == count + 2 and not fs.attributes(recorded), "a recording is not kept")
 end)

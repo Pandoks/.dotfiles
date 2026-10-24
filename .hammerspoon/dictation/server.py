@@ -156,9 +156,17 @@ def write_numbers(text, names):
             if first <= 12 and 10 <= second < 60:
                 return f"{first}:{second}" if timed and not counted else group
             return f"{first}{second}" if first < 30 and second >= 10 and not counted else group
-        bare = words[0] in SCALES and (before[-2:-1].isdigit() or not (len(words) > 1 or plural))
+        # Only "a" starts a number at a scale: not "few hundred", "half a million", "2.5 million".
+        article = group[:2].lower() == "a " and previous not in ("half", "quarter")
+        bare = words[0] in SCALES and (not article or not (len(words) > 1 or plural))
         if len(numbers) > 1 or bare:
-            return group  # "two three four", "2.5 million", "a billion dollar company", "hundreds"
+            return group  # "two three four", "a billion dollar company"
+        # The scale said once for both: "five or six thousand" -> "5,000 or 6,000".
+        scale = r"(hundred|thousand)\b(?! (?:thousand|million|billion)\b)"
+        shared = re.match(rf"(?i) (?:or|to) ((?:(?:{WORD})[ -])+?){scale}", after)
+        second = shared and [w for w in re.split(r"[ -]+", shared[1].lower()) if w]
+        if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
+            return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
         listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
         if words == ["one"] and (previous in DETERMINERS or not listed):
             return group  # "one of them", "no one"
@@ -228,7 +236,13 @@ def looks_rewritten(raw, out):
         if spoken[k] in VALUE or spoken[k].isdecimal() or spoken[k] in ("dash", "dot", "slash"):
             return False  # said twice on purpose: "seven seventeen", "dash dash save"
         nearby = [i for i in range(k - reach, k + reach + 1) if i in kept]
-        return any(alike(spoken[k], spoken[i]) or alike(spoken[i], spoken[k]) for i in nearby)
+        # A negating form said after it is a correction, not a repeat: "with, without".
+        negates = spoken[k].endswith(("out", "les"))  # "harmless" without its plural "s"
+        return any(
+            (alike(spoken[k], spoken[i]) or alike(spoken[i], spoken[k]))
+            and not (negates and i < k and spoken[i] != spoken[k])
+            for i in nearby
+        )
 
     def filler(k):  # its word count, if set off by a comma or opening or ending a sentence
         found = match(k, FILLER)
@@ -361,8 +375,8 @@ def ensure_question(raw, text):
     """The speech model's closing '?' survives the cleanup's end mark, unless it moved."""
     if not re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) or "?" in text:
         return text
-    # Not when the question was left out: "Sounds good. Yeah?" -> "Sounds good."
-    asked = {fold(w) for w in re.split(r"[.!]\s+", raw.strip())[-1].split()}
+    # Not when the question was left out: "Sounds good, yeah?" -> "Sounds good."
+    asked = {fold(w) for w in re.split(r"[.!,;:]\s+", raw.strip())[-1].split()}
     if not asked & {fold(w) for w in re.split(r"[.!?]\s+", text.strip())[-1].split()}:
         return text
     return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
@@ -402,6 +416,11 @@ class Engine:
         styles = [app.get("style") for app in (config.get("apps") or {}).values()]
         if self.cleaner and self.cleaner.adapter and (config.get("style") or any(styles)):
             raise ValueError("style needs cleanup.adapter = nil: the adapter has its own prompt")
+        apps = (config.get("apps") or {}).values()
+        lists = [config.get("words"), *(app.get("words") for app in apps)]
+        for word, heard in [item for words in lists if words for item in words.items()]:
+            if not all(form.strip() for form in [word, *heard]):
+                raise ValueError(f"words: {word!r} has an empty spelling or mishearing")
 
     def load(self):
         print(f"loading {self.speech.repo}", file=sys.stderr)
@@ -426,7 +445,8 @@ class Engine:
     def spell(self, text, request):
         """Mishearings in any case ("ghost tea") and 4+ letter near-misses ("yabay" -> "yabai")."""
         spellings = {word: [word, *heard] for word, heard in self.spellings(request).items()}
-        for word, forms in spellings.items():
+        # Longest first: "rey" inside "rey cast" is Raycast, not Ray.
+        for word, forms in sorted(spellings.items(), key=lambda item: -max(map(len, item[1]))):
             forms = "|".join(map(re.escape, sorted(forms, key=len, reverse=True)))
             # Never inside a name (ALONE) or a contraction ("it's"); "\LaTeX" as written.
             pattern = rf"{ALONE[0]}(?<!\w['’])(?:{forms}){ALONE[1]}"

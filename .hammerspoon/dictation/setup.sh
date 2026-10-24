@@ -12,4 +12,4 @@ dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # uv's arm64 CPython, even when an x86_64 uv runs under Rosetta (the lock is arm64-only).
 uv sync --project "$dir" --locked --python cpython-3.12-macos-aarch64-none
 "$dir/.venv/bin/python" -c 'import parakeet_mlx, mlx_audio, mlx_whisper, mlx_lm'
-echo "Done. Reload Hammerspoon; its first start downloads the models pinned in config.lua."
+echo "Done. Reload Hammerspoon; its first start downloads the models pinned in defaults.lua."
