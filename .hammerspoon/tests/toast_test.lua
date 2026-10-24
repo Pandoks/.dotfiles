@@ -259,6 +259,8 @@ test("a line break is kept, a blank one too, and a name keeps its case", functio
   assert(texts(canvases[4]) == "Could not write Hammerspoon file log: denied", texts(canvases[4]))
   toast.show("Синхронизация: готово") -- 13 letters, 26 bytes
   assert(texts(canvases[5]) == "Синхронизация | готово", texts(canvases[5]))
+  assert(pcall(toast.show, "caf\xe9: done"), "a title that isn't UTF-8 raised") -- Latin-1
+  assert(texts(canvases[6]) == "caf\xe9 | Done", texts(canvases[6]))
   clear()
 end)
 

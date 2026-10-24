@@ -165,7 +165,8 @@ function toast.show(text, options)
     end
   end
   local head, rest = text:match("^([^:\n]+): ([^\n]+)$")
-  if not head or utf8.len(head) > 24 then
+  -- Characters, or bytes if it isn't valid UTF-8 (hs.styledtext shows that too).
+  if not head or (utf8.len(head) or #head) > 24 then
     head, rest = text, nil
   end
   -- "no window" -> "No window", but "macOS" stays.
