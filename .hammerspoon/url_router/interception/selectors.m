@@ -94,6 +94,7 @@ static void push(lua_State *state, NSString *value) {
 }
 
 - (void)reload {
+  if (dispatch_source_testcancel(_source)) return;
   int file = openat(_directory, _name.fileSystemRepresentation, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
   if (file < 0) {
     _bytes = nil;
