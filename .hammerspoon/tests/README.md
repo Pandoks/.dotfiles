@@ -7,19 +7,19 @@ Set `HAMMERSPOON_APP` if Hammerspoon is installed outside `/Applications`.
 The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
-tracking failures with popups and no retries, and shutdown. Quit apps release their
-observers. The switcher suite
-checks that explicit action failures still log and show popups.
+tracking failures with popups and no retries, and shutdown. It also checks that quit
+apps release their observers. The switcher suite checks that explicit action failures
+still log and show popups.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
 checks the frames it requests: longer-side splits for new windows, the app
 allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that never
 falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
-that a Space jump posts all its swipes at once and reports once on arrival, and that
-a press during a jump continues from that jump's target, and that finished jumps release their
-timers. It also checks that loading starts
-one background window search, so the first Cmd-Tab finds windows on other Spaces cached.
+that a Space jump posts all its swipes at once and reports once on arrival, that a press
+during a jump continues from that jump's target, and that finished jumps release their timers.
+It also checks that loading starts one background window search, so the first Cmd-Tab finds
+windows on other Spaces cached.
 Neither touches the real window server; the native gesture, focus, and Accessibility calls in
 `lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
 
