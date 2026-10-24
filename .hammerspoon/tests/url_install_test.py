@@ -95,7 +95,7 @@ path.write_text(json.dumps(state))
     def retirement(mode):
         children = []
         def spawn():
-            # The timeout process exits only after the first deadline.
+            # The retirement timeout process exits after the first deadline; the restore timeout one never does.
             source = {"retirement timeout": program.replace("time.sleep(0.3)", "time.sleep(12)"),
                       "restore timeout": program.replace("lambda *_: (time.sleep(0.3), sys.exit(0))", "signal.SIG_IGN")}.get(mode, program)
             child = subprocess.Popen([sys.executable, "-c", source], stdout=subprocess.PIPE, text=True)
@@ -144,6 +144,7 @@ path.write_text(json.dumps(state))
                         assert 11.8 <= time.monotonic() - start < 15
                     elif mode == "restore timeout":
                         assert "restoring com.apple.swcd also failed: The retiring gui/" in message and message.endswith("/com.apple.swcd process did not exit within 10 seconds"), message
+                        assert not state["disabled"], "Apple's job stayed disabled after the restore missed its deadline"
                         assert time.monotonic() - start < 5
                     else:
                         assert "kickstart failed; restoring com.apple.swcd also failed: bootout failed" in message, message
