@@ -2,6 +2,7 @@ import functools
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -472,7 +473,7 @@ check(
     lambda pair: dictate(*pair),
 )
 check(
-    "the guard accepts these cleanups and rejects these rewrites",
+    "the guard accepts these cleanups and changes or rejects these rewrites",
     [
         ((raw, out), False)
         for raw, out in [
@@ -576,7 +577,95 @@ check(
             ("It's the seventh.", "It's the seventy."),
         ]
     ],
-    lambda pair: server.looks_rewritten(*pair),
+    lambda pair: server.restore(*pair) != pair[1],
+)
+check(
+    "what a cleanup left out or changed beyond its rules is typed as said",
+    [
+        (
+            (
+                "Can we have the styles as configs, um, with that?",
+                "Can we have the styles as configs?",
+            ),
+            "Can we have the styles as configs with that?",
+        ),
+        (("You know the drill.", "The drill."), "You know the drill."),
+        (("Uh, honestly, just ship it.", "Just ship it."), "Honestly, just ship it."),
+        (("Send it to Bob.", "Please send it to Bob."), "Send it to Bob."),
+        (("Send it to Bob.", "Send it to Bob now."), "Send it to Bob."),
+        (
+            ("You shouldn't deploy on Friday with that.", "You should deploy on Friday."),
+            "You shouldn't deploy on Friday with that.",
+        ),
+        (("Call at eight oh oh tomorrow.", "Call at eight oh tomorrow."), None),
+        # The marks, capitals, and apostrophes said, not the cleanup's, around what comes back.
+        (
+            ("Oh, like the here? Can you print these?", "Can you print these?"),
+            "Oh, like the here? Can you print these?",
+        ),
+        (
+            ("Is it done? I think it is. Ship it.", "Is it done? Ship it."),
+            "Is it done? I think it is. Ship it.",
+        ),
+        (("I think so.", "Yes, I think so."), "I think so."),
+        (("Okay. Um, the build broke. Fix it.", "Okay. Fix it."), "Okay. The build broke. Fix it."),
+        (("Fix it. Um. Thanks for that.", "Fix it."), "Fix it. Thanks for that."),
+        (("Yeah, 'cause I need it.", "Yeah, because I need it."), "Yeah, 'cause I need it."),
+        (
+            (
+                "Then put it in one of the corners, probably bottom left or bottom right, and.",
+                "Then put it in one of the corners.",
+            ),
+            "Then put it in one of the corners, probably bottom left or bottom right, and",
+        ),
+        (("Room one oh one point five.", "Room one oh point five."), None),
+        (
+            ("I'm done. Is it done? Ship it.", "I'm done. Ship it."),
+            "I'm done. Is it done? Ship it.",
+        ),
+        (("Take 1.5 one hour breaks.", "Take one hour breaks."), "Take 1.5 one hour breaks."),
+        (
+            ("Can you fix it? Ship it.", "Can you fix it? Sure. Ship it."),
+            "Can you fix it? Ship it.",
+        ),
+        (
+            ("Check the logs first. Then restart it.", "Check the logs, then restart it."),
+            "Check the logs first. Then restart it.",
+        ),
+        (
+            ("How do we fix it? Can you fix it? Just fix it.", "How do we fix it? Can you fix it?"),
+            "How do we fix it? Can you fix it? Just fix it.",
+        ),
+        (
+            (
+                "Make it discreet and friendly, I guess? Then put it in a corner.",
+                "Make it discreet and friendly? Then put it in a corner.",
+            ),
+            "Make it discreet and friendly, I guess? Then put it in a corner.",
+        ),
+        (
+            (
+                "We're facing a lot of like something being written.",
+                "We're facing a lot of something being written.",
+            ),
+            "We're facing a lot of like something being written.",
+        ),
+        (
+            ("Did you also restart T Through?", "Did you also restart T?"),
+            "Did you also restart T Through?",
+        ),
+        (
+            ("You shouldn't deploy on Friday.", "You should deploy on Friday."),
+            "You shouldn't deploy on Friday.",
+        ),
+        (("What's the capital of France?", "Paris."), "What's the capital of France?"),
+        (
+            ("Um, so I think we should ship it.", "I think we should ship it."),
+            "I think we should ship it.",
+        ),
+        (("It costs 1,000 dollars.", "It costs 1.00 dollars."), None),
+    ],
+    lambda pair: dictate(*pair),
 )
 check(
     "any script's letters or digits count as speech",
@@ -656,7 +745,7 @@ finally:
 print("PASS replies arrive while stdin is still open")
 takes = """
 from types import SimpleNamespace
-heard = iter(["Send fifteen dollars.", "Send it."])
+heard = iter(["It costs 1,000 dollars.", "Send it."])
 def transcribe(wav, hint):
     for text in heard:
         return text
@@ -666,18 +755,25 @@ class Stub(server.Engine):
         self.config, self.heard = config, None
         self.speech = SimpleNamespace(transcribe=transcribe, boost=0)
         self.cleaner = SimpleNamespace(prompt="p")
-        self.cleaner.complete = lambda m, raw: raw.replace("fifteen", "50")
+        self.cleaner.complete = lambda m, raw: raw.replace("1,000", "1.00")
     def load(self):
         pass
 server.Engine = Stub
 """
 events, stderr = serve(takes, [{"id": i, "wav": "x.wav", "app": "x"} for i in (1, 2, 3)])
 assert [e["event"] for e in events] == ["ready", "error", "final", "error"], (events, stderr)
-assert events[1]["heard"] == "Send fifteen dollars." and "rewrote" in events[1]["msg"], events
+assert events[1]["heard"] == "It costs 1,000 dollars." and "rewrote" in events[1]["msg"], events
 assert events[2] == {"event": "final", "id": 2, "text": "Send it.", "heard": "Send it."}, events
 assert events[3]["heard"] is None and "speech model failed" in events[3]["msg"], events
 assert stderr.count("Traceback") == 1, stderr
 print("PASS a failed take reports what was heard, and only a bug's traceback")
+
+# A take needing words put back trusts none of the cleanup's moved-up corrections: a shuffle of
+# the said words through one would type them in another order.
+said = "We need eggs, milk, and bread, no wait, eggs and bread."
+got = dictate(said, "We need and milk, bread. no eggs, and bread, wait, eggs")
+assert got and re.findall(r"[\w']+", got.lower()) == re.findall(r"[\w']+", said.lower()), got
+print("PASS words put back keep the order said")
 
 # The model may close the template's think block again.
 cleaner = models.MlxLm(stub)

@@ -25,9 +25,11 @@ key cannot be used: macOS 26 always handles it itself.
 it over a Unix socket (`lib/stream`) to the pill's equalizer (`overlay.lua`); at stop, `engine.lua`
 sends the wav to `server.py`, a resident Python process (JSON lines on stdin and stdout) that
 transcribes, fixes spellings, cleans up, and writes numbers as digits. Its guard aligns the cleaned
-words with what was heard: if the cleanup did more than fix misheard words and drop stalls,
-fillers, repeats, and self-corrections, the take types nothing, alerts, and keeps what was heard in
-`history.directory`. Otherwise, `history.lua` saves the text and `init.lua` types it into the
+words with what was heard: the cleanup may fix misheard words and drop stalls, fillers, repeats,
+and self-corrections, and whatever else it changed or left out is put back as said ("Can you fix
+it?" for "Can you fix it? Just fix it." is typed whole). A change that can't be put back cleanly,
+such as one inside a written number ("1,000" as "1.00"), types nothing, alerts, and keeps what was
+heard in `history.directory`. Otherwise `history.lua` saves the text and `init.lua` types it into the
 focused field, spaced by `spacing.lua`.
 
 ## Speech models

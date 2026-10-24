@@ -192,8 +192,10 @@ LEADS = {"is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm"
 LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
 
 
-def looks_rewritten(raw, out):
-    """True unless `out` is `raw` less stalls, fillers, repeats, and self-corrections."""
+def restore(raw, out):
+    """`out` with each change from `raw`, other than a left-out stall, filler, repeat, or
+    self-correction, put back as said: "Just fix it." left out comes back. None if a change can't
+    be put back cleanly: inside a written word ("1,000" -> "1.00"), or an "oh" comes back twice."""
 
     # (word, start, end): lowercased, "2" as "two", no plural "s", no stalls ("ER" is a name).
     def tokens(text):
@@ -213,9 +215,10 @@ def looks_rewritten(raw, out):
         return found
 
     # "İ" lowercases to two characters, which would shift every later word's position.
+    said, written = raw, out  # as written, to put changes back
     raw, out = (text.replace("’", "'").replace("İ", "I") for text in (raw, out))
-    spans = tokens(raw)
-    spoken, typed = [w for w, _, _ in spans], [w for w, _, _ in tokens(out)]
+    spans, outs = tokens(raw), tokens(out)
+    spoken, typed = [w for w, _, _ in spans], [w for w, _, _ in outs]
     raw, total = raw.lower(), len(spoken)  # cues and fillers said in any case
 
     def match(k, pattern):  # `pattern` said from spoken word k on
@@ -263,8 +266,11 @@ def looks_rewritten(raw, out):
             return False  # "15000" -> "150000", "fifteenth" -> "fiftieth" is another number
         return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
 
-    def unexplained(ops):  # whether a change isn't a left-out stall, filler, repeat, or correction
+    # Changes that aren't a left-out stall, filler, repeat, or correction; corrections the cleanup
+    # moved up to the words they replace aren't `trusted` in a take that has others.
+    def unexplained(ops, trusted=True):
         kept = {i for tag, i1, i2, _, _ in ops if tag == "equal" for i in range(i1, i2)}
+        bad = []
 
         def cues(start, end):  # (first, past) of each left-out correction cue in spoken[start:end]
             found = []
@@ -288,7 +294,8 @@ def looks_rewritten(raw, out):
         for tag, i1, i2, j1, j2 in ops:
             run, new = spoken[i1:i2], typed[j1:j2]
             if tag == "insert":
-                return True
+                bad.append((i1, i2, j1, j2))
+                continue
             if tag == "replace":
                 # Respaced ("e mail" -> "email", not "14.99" -> "1499"), or one misheard word.
                 respaced = "".join(run) == "".join(new)
@@ -297,8 +304,10 @@ def looks_rewritten(raw, out):
                     continue
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
                 listed = re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[i2 - 1][2]])
-                if listed or not any(set(new) <= set(spoken[e:]) for _, e in cues(i2, total)):
-                    return True
+                said_later = any(set(new) <= set(spoken[e:]) for _, e in cues(i2, total))
+                if listed or not trusted or not said_later:
+                    bad.append((i1, i2, j1, j2))
+                    continue
                 moved += new
                 continue
             if tag != "delete":
@@ -322,8 +331,8 @@ def looks_rewritten(raw, out):
             first = [cue for cue in cues(i1, i2) if cue[0] == i1]
             if moved and first and set(spoken[first[0][1] : i2]) <= set(typed):
                 continue
-            return True
-        return False
+            bad.append((i1, i2, j1, j2))
+        return bad
 
     # Aligned from both ends, so either copy of a repeated word may be the kept one.
     forward = difflib.SequenceMatcher(None, spoken, typed, autojunk=False).get_opcodes()
@@ -332,7 +341,58 @@ def looks_rewritten(raw, out):
     backward = [
         (tag, total - i2, total - i1, size - j2, size - j1) for tag, i1, i2, j1, j2 in reverse[::-1]
     ]
-    return unexplained(forward) and unexplained(backward)
+    bad, text = unexplained(forward), written
+    if not bad or not unexplained(backward):
+        return text
+    # Back to front, so the positions before each change hold. A left-out run comes back whole:
+    # with the gap said around it if that has a mark ("friendly, I guess? Then"), else before the
+    # next word kept ("like " before "something").
+    for i1, i2, j1, j2 in reversed(unexplained(forward, trusted=False)):
+        # A run before a kept copy of its first word may be the one after: "done. Is it done?"
+        while j1 == j2 and 0 < j1 < size - 1 and i2 + 1 < total and spoken[i1] == spoken[i2]:
+            marked = re.search(r"[^\w\s]", said[spans[i2 - 1][2] : spans[i2][1]])
+            # Not if the gap said after its first word would become the cleanup's: "1.5 one".
+            gap = said[spans[i1][2] : spans[i1 + 1][1]]
+            ends = re.search(r"[^\w\s]", said[spans[i2][2] : spans[i2 + 1][1]])
+            lost = gap.split() != written[outs[j1][2] : outs[j1 + 1][1]].split() and not ends
+            if spoken[i2 + 1] != typed[j1 + 1] or marked or lost or not re.search(r"\s", gap):
+                break
+            i1, i2, j1, j2 = i1 + 1, i2 + 1, j1 + 1, j2 + 1
+        if j1 < j2:  # words changed, or added: as said, up to the next word kept
+            last = j2 == size and i2 == total
+            start = outs[j1 - 1][2] if i1 == i2 and j1 else outs[j1][1]
+            end = len(text) if last else outs[j2 - 1][2] if i1 == i2 and j1 else outs[j2][1]
+            quoted = i1 < i2 and said[spans[i1][1] - 1 : spans[i1][1]] in ("'", "’")  # "'cause"
+            piece = said[spans[i1][1] - quoted : None if last else spans[i2][1]] if i1 < i2 else ""
+            if i1 == i2 and last:  # added at the end: taken out, keeping the end mark said
+                piece = said[spans[i1 - 1][2] :] if i1 else ""
+            elif i1 == i2 and j1:  # added mid-text: out, with the gap said there ("it? Ship")
+                start, end = outs[j1 - 1][2], outs[j2][1]
+                piece = said[spans[i1 - 1][2] : spans[i1][1]]
+        elif not j1:  # left out at the start: through the first word kept, as said
+            start, end = 0, outs[0][2] if size else len(text)
+            piece = said[: spans[i2][2] if size else len(said)]
+        elif j1 == size:  # left out at the end: with what was said after it
+            start, end, piece = outs[j1 - 1][2], len(text), said[spans[i1 - 1][2] :]
+        elif re.search(r"[^\w\s]", said[spans[i2 - 1][2] : spans[i2][1]]):
+            start, end = outs[j1 - 1][2], outs[j1][1]  # the gap as said: "here? Can"
+            piece = said[spans[i1 - 1][2] : spans[i2][1]]
+        else:
+            start = end = outs[j1][1]
+            piece = said[spans[i1][1] : spans[i2][1]]
+        rest = piece + text[end:]
+        if i2 < total and re.search(r"[.!?]\s+$", piece) and said[spans[i2][1]].isupper():
+            rest = piece + text[end : end + 1].upper() + text[end + 1 :]
+        # A sentence the cleanup started keeps its capital: "send it" for "Please send it".
+        if re.search(r"(?:^|[.!?]\s+)$", text[:start]) and text[start : start + 1].isupper():
+            rest = re.sub(r"^(\s*)([a-z]+)(?!\w)", lambda m: m[1] + m[2].capitalize(), rest)
+        text = text[:start] + rest
+    text = strip_stalls(text)  # the cleanup's text has none: only what was put back
+    # Words the alignment skips can't come back twice: "one oh one oh point five".
+    skipped = lambda t: len(re.findall(rf"(?i)\b(?:{HESITATIONS})\b", t))
+    if skipped(text) > max(skipped(said), skipped(written)):
+        return None
+    return text if text != written.strip() else None
 
 
 # Words no finished sentence ends on; enforced here since the model adds a period anyway.
@@ -519,9 +579,13 @@ class Engine:
         # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
         said = strip_stalls(raw)
         text = end_policy(said, ensure_question(said, text))
-        if looks_rewritten(raw, text):
+        # What the cleanup changed beyond its rules is typed as said.
+        restored = restore(raw, text)
+        if restored is None or restore(raw, restored) != restored:
             raise Rewritten("the cleanup rewrote what was said, so nothing was typed")
-        return write_numbers(text, names)
+        if restored != text:
+            print("put back what the cleanup changed beyond its rules", file=sys.stderr)
+        return write_numbers(end_policy(said, restored), names)
 
 
 def main():
