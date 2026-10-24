@@ -7,17 +7,19 @@ Set `HAMMERSPOON_APP` if Hammerspoon is installed outside `/Applications`.
 The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
-tracking failures with popups and no retries, and shutdown. The switcher suite
-checks that explicit action failures still log and show popups.
+tracking failures with popups and no retries, and shutdown. It also checks that quit
+apps release their observers. The switcher suite checks that explicit action failures
+still log and show popups.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
 checks the frames it requests: longer-side splits for new windows, the app
 allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that never
 falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
-that a Space jump posts all its swipes at once and reports once on arrival, and that
-a press during a jump continues from that jump's target. It also checks that loading starts
-one background window search, so the first Cmd-Tab finds windows on other Spaces cached.
+that a Space jump posts all its swipes at once and reports once on arrival, that a press
+during a jump continues from that jump's target, and that finished jumps release their timers.
+It also checks that loading starts one background window search, so the first Cmd-Tab finds
+windows on other Spaces cached.
 Neither touches the real window server; the native gesture, focus, and Accessibility calls in
 `lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
 
@@ -83,7 +85,8 @@ Hammerspoon, send input, or focus windows.
 
 The suite covers pointer boundaries, gaps, incomplete rows, scrolling and clipping,
 keyboard navigation, clicks, focus-first ordering, stale replies, timeouts,
-concurrent requests, and unavailable or reused windows.
+concurrent requests, and unavailable or reused windows. Cancelled menus and finished
+focus jobs release their timers.
 
 Menu layout responds to both dimensions of the usable frame of the focused Space's display,
 resolved through `hs.spaces.spaceDisplay(hs.spaces.focusedSpace())` because
@@ -108,6 +111,7 @@ The Space-focus suite also checks numbered/Ctrl-arrow shortcuts, Space arrival
 before or after the `window_manager.space` reply, arrival timeouts, superseded requests,
 direct Space notifications, late PiP focus, per-Space window identity, empty desktop fallback,
 explicit mouse intent, superseded replies, shutdown, and idle snapshot activity.
+Finished jobs release their timers.
 It also checks PiP activation redirects, display boundaries, repeated presses during
 a pending switch, and Mission Control key passthrough and focus suppression. Its window
 model keeps untracked, minimized, hidden, layer-3, and other-display windows out of the

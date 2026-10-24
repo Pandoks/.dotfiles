@@ -24,6 +24,33 @@ local function test(name, fn)
   passed = passed + 1
   print("PASS " .. name)
 end
+-- hs.timer keeps a stopped timer's callback: count timers alive only through it.
+local function leaked(timers)
+  local here, registry = debug.getinfo(1, "S").source, {}
+  local weak = setmetatable({}, { __mode = "k" })
+  for i = #timers, 1, -1 do
+    local t = timers[i]
+    if not t.active then
+      table.remove(timers, i)
+      if debug.getinfo(t.callback, "S").source ~= here then
+        registry[#registry + 1], weak[t] = t.callback, true
+      end
+    end
+  end
+  local function alive()
+    local count = 0
+    for _ = 1, 3 do
+      collectgarbage()
+    end
+    for _ in pairs(weak) do
+      count = count + 1
+    end
+    return count
+  end
+  local held = alive()
+  registry = nil
+  return held - alive()
+end
 local function harness(options)
   local o = options or {}
   local h = {
@@ -1056,6 +1083,16 @@ test("rapid relative shortcuts advance from the pending destination", function()
   eq(h.space, 303)
   eq(h.focused, nil)
   eq(h:countFocus(), 0)
+end)
+test("finished and superseded jobs release their timers", function()
+  local h = harness()
+  h.module.switchSpace(2)
+  h:advance(0.3)
+  h.module.switchSpace(3)
+  h.module.switchSpace(1)
+  h:advance(2)
+  eq(h.module.status().busy, false)
+  eq(leaked(h.timers), 0)
 end)
 test("invalid request does not leave the controller busy", function()
   local h = harness()

@@ -34,6 +34,7 @@ local function finish(ok, err)
   local job = assert(jump)
   jump = nil
   assert(job.timer):stop()
+  job.timer = nil
   job.done(ok, err)
 end
 

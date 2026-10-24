@@ -19,9 +19,37 @@ local function eq(actual, expected, label)
   end
 end
 
+-- hs.timer keeps a stopped timer's callback: count timers alive only through it.
+local function leaked(timers)
+  local here, registry = debug.getinfo(1, "S").source, {}
+  local weak = setmetatable({}, { __mode = "k" })
+  for i = #timers, 1, -1 do
+    local t = timers[i]
+    if not t.active then
+      table.remove(timers, i)
+      if debug.getinfo(t.callback, "S").source ~= here then
+        registry[#registry + 1], weak[t] = t.callback, true
+      end
+    end
+  end
+  local function alive()
+    local count = 0
+    for _ = 1, 3 do
+      collectgarbage()
+    end
+    for _ in pairs(weak) do
+      count = count + 1
+    end
+    return count
+  end
+  local held = alive()
+  registry = nil
+  return held - alive()
+end
+
 -- Four Spaces on one display; the Dock lands each batch of swipes and reports once.
 local function harness()
-  local h = { current = 100, steps = 0, inflight = {}, results = {} }
+  local h = { current = 100, steps = 0, inflight = {}, results = {}, timers = {} }
   local spaces = {}
   for i = 1, 4 do
     spaces[i] = { ManagedSpaceID = i * 100, display = "d" }
@@ -60,8 +88,13 @@ local function harness()
         end,
       },
       timer = {
-        doAfter = function()
-          return { stop = function() end }
+        doAfter = function(_, callback)
+          local t = { callback = callback, active = true }
+          function t:stop()
+            self.active = false
+          end
+          h.timers[#h.timers + 1] = t
+          return t
         end,
       },
     },
@@ -131,6 +164,14 @@ test("presses during a jump wait for its swipes to land, then continue from ther
     eq(h.results[2], "superseded")
     eq(h.results[case.second], "ok")
   end
+end)
+
+test("finished jumps release their timers", function()
+  local h = harness()
+  h:space(2)
+  h:settle()
+  eq(h.results[2], "ok")
+  eq(leaked(h.timers), 0)
 end)
 
 test("an unreadable Space layout fails at once instead of waiting for the timeout", function()
