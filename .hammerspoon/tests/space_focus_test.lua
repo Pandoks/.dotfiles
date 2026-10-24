@@ -24,28 +24,32 @@ local function test(name, fn)
   passed = passed + 1
   print("PASS " .. name)
 end
--- hs.timer keeps a callback until its timer is collected: a stopped timer its own callback reaches leaks.
+-- hs.timer keeps a stopped timer's callback: count timers alive only through it.
 local function leaked(timers)
-  local count, here = 0, debug.getinfo(1, "S").source
-  for _, t in ipairs(timers) do
-    for i = 1, math.huge do
-      local name, value = debug.getupvalue(t.callback, i)
-      if not name or t.active or debug.getinfo(t.callback, "S").source == here then
-        break
-      end
-      local held = value == t
-      if type(value) == "table" and name ~= "_ENV" then
-        for _, field in pairs(value) do
-          held = held or field == t
-        end
-      end
-      if held then
-        count = count + 1
-        break
+  local here, registry = debug.getinfo(1, "S").source, {}
+  local weak = setmetatable({}, { __mode = "k" })
+  for i = #timers, 1, -1 do
+    local t = timers[i]
+    if not t.active then
+      table.remove(timers, i)
+      if debug.getinfo(t.callback, "S").source ~= here then
+        registry[#registry + 1], weak[t] = t.callback, true
       end
     end
   end
-  return count
+  local function alive()
+    local count = 0
+    for _ = 1, 3 do
+      collectgarbage()
+    end
+    for _ in pairs(weak) do
+      count = count + 1
+    end
+    return count
+  end
+  local held = alive()
+  registry = nil
+  return held - alive()
 end
 local function harness(options)
   local o = options or {}
@@ -1087,6 +1091,7 @@ test("finished and superseded jobs release their timers", function()
   h.module.switchSpace(3)
   h.module.switchSpace(1)
   h:advance(2)
+  eq(h.module.status().busy, false)
   eq(leaked(h.timers), 0)
 end)
 test("invalid request does not leave the controller busy", function()

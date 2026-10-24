@@ -5,6 +5,33 @@ local function test(name, callback)
   passed = passed + 1
   print("PASS " .. name)
 end
+-- hs.axuielement.observer keeps a stopped observer's callback: count observers alive only through it.
+local function leaked(observers)
+  local here, registry = debug.getinfo(1, "S").source, {}
+  local weak = setmetatable({}, { __mode = "k" })
+  for i = #observers, 1, -1 do
+    local observer = observers[i]
+    if not observer.active then
+      table.remove(observers, i)
+      if debug.getinfo(observer.fn, "S").source ~= here then
+        registry[#registry + 1], weak[observer] = observer.fn, true
+      end
+    end
+  end
+  local function alive()
+    local count = 0
+    for _ = 1, 3 do
+      collectgarbage()
+    end
+    for _ in pairs(weak) do
+      count = count + 1
+    end
+    return count
+  end
+  local held = alive()
+  registry = nil
+  return held - alive()
+end
 
 local function setup(options)
   options = options or {}
@@ -768,6 +795,13 @@ test("app termination clears windows and rejects stale PID callbacks", function(
   end)
   model:emit(model:window(300), "AXWindowCreated", observer)
   assert(created == 0 and #model.filter:getWindows() == 1)
+end)
+
+test("terminated apps release their observers", function()
+  local model = setup()
+  model.appCallback("Browser", 3, model.app)
+  assert(#model.observers == 1 and not model.observers[1].active)
+  assert(leaked(model.observers) == 0)
 end)
 
 test("subscriber failure reports without starving another subscriber", function()

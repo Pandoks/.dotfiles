@@ -123,6 +123,7 @@ end
 local function retire(app)
   if app.observer then
     app.observer:stop()
+    app.observer = nil
   end
   for _, record in ipairs(app.windows) do
     if not record.failed then
@@ -175,6 +176,10 @@ end
 ---@param element hs.axuielement
 ---@return WindowRecord?
 local function track(app, element)
+  -- Retired mid-scan.
+  if not app.observer then
+    return
+  end
   for _, record in ipairs(app.windows) do
     if record.element == element then
       return record.window and not record.failed and record or nil
