@@ -492,6 +492,11 @@ local function harness(options)
       end,
     },
     printf = function(format, ...)
+      -- hs.ipc's print raises while a dead CLI is registered.
+      if desktop.printRaises then
+        desktop.printRaises = false
+        error("ipc port is no longer valid")
+      end
       desktop.logs[#desktop.logs + 1] = string.format(format, ...)
     end,
     alert = {
@@ -1663,6 +1668,45 @@ test("an unresolved focused display fails once without opening the menu", functi
   assertEqual(desktop.menu.status().visible, false)
   assertEqual(desktop.logs[1], "Window switcher: focused display unavailable")
   assertEqual(#desktop.alerts, 1)
+end)
+test("cycle start failures alert even when print raises", function()
+  for _, failure in ipairs({ "display", "list" }) do
+    local desktop = harness({
+      intercept = function(_, name, done)
+        if failure == "list" and name == "windows" then
+          done(false, "unavailable")
+          return true
+        end
+      end,
+    })
+    desktop.displayMissing = failure == "display"
+    desktop.printRaises = true
+    -- Hammerspoon logs callback errors and keeps running.
+    pcall(function()
+      desktop:key("keyDown", "tab", { cmd = true })
+      desktop:advance(1)
+    end)
+    assertEqual(#desktop.alerts, 1, failure)
+    assertEqual(desktop.menu.isBusy(), false, failure)
+  end
+end)
+test("a focus failure alerts and frees the switcher even when print raises", function()
+  local desktop = harness()
+  desktop:open()
+  desktop.windows[2].pid = 9999
+  desktop.printRaises = true
+  pcall(function()
+    desktop:release()
+    desktop:advance(1)
+  end)
+  desktop:advance(1)
+  assertEqual(#desktop.alerts, 1)
+  assertEqual(desktop.menu.isBusy(), false)
+  desktop.windows[2].pid = 102
+  desktop:open()
+  desktop:release()
+  desktop:advance(1)
+  assertEqual(desktop.windows[2]["has-focus"], true)
 end)
 test("closed or reused window is rejected before focus", function()
   local desktop = harness()

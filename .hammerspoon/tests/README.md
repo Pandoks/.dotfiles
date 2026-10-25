@@ -10,7 +10,8 @@ registration failures, silent accessory/nonstandard-window exclusion, logged
 tracking failures with popups and no retries, and shutdown. It also checks that quit
 apps release their observers, and that a Space change re-scans apps with windows in front
 of a window titled "Dock". The switcher suite checks that explicit action failures
-still log and show popups.
+still log and show popups, even when `print` raises. The window profiles suite checks
+that failed launches log with a popup and successful ones stay silent.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
 checks the frames it requests: longer-side splits for new windows, the app

@@ -456,11 +456,12 @@ local function finish(job, message)
     job.watcher:stop()
     job.watcher = nil
   end
-  if message then
-    hs.printf("Window switcher: %s", message)
-    hs.alert.show("Could not switch to that window")
-  end
   operation = nil
+  if message then
+    hs.alert.show("Could not switch to that window")
+    -- hs.ipc's print raises while a dead CLI is registered.
+    pcall(hs.printf, "Window switcher: %s", message)
+  end
   if queuedWindow and not stopped then
     local window = queuedWindow
     queuedWindow = nil
@@ -634,8 +635,8 @@ local function step(direction)
   -- The main screen can stay on another display while a fullscreen app has focus.
   local display = hs.screen.find(hs.spaces.spaceDisplay(hs.spaces.focusedSpace()))
   if not display then
-    hs.printf("Window switcher: focused display unavailable")
     hs.alert.show("Focused display unavailable")
+    pcall(hs.printf, "Window switcher: focused display unavailable")
     return
   end
   local current = {
@@ -659,8 +660,8 @@ local function step(direction)
     end
     if not ok then
       cancel()
-      hs.printf("Window switcher: %s", err or "window list unavailable")
       hs.alert.show("Window list unavailable")
+      pcall(hs.printf, "Window switcher: %s", err or "window list unavailable")
       return
     end
     local rows = describe(found)
