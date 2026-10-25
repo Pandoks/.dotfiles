@@ -1,5 +1,5 @@
 require("lib.logger").install()
--- Notifications as toasts at the bottom right; theme: "metal", "edge", or "flat".
+-- Notifications as toasts at the bottom right; theme: "metal", "edge", "flat", or "glass" (macOS 26+).
 require("lib.toast").install({ theme = "metal" })
 require("hs.ipc") -- `hs` CLI access for debugging
 hs.loadSpoon("SpoonInstall")

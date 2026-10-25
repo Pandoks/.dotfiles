@@ -1,6 +1,8 @@
 local root = assert(arg[1])
 -- Two 1000x600 screens side by side below a 25 pt menu bar; text is 7 pt a character, 16 a line.
 local canvases, timers, logged, measured = {}, {}, {}, 0
+-- Liquid Glass from lib/toast/toast.m, unless the build fails.
+local glasses, unbuilt = {}, false
 -- Screens and windows are userdata, as in Hammerspoon: file handles given their metatables.
 local screens, styled, at = {}, {}, {}
 screens.__index = {
@@ -112,6 +114,23 @@ local toast = assert(loadfile(
       },
     },
     require = function(name)
+      if name == "lib.utils" then
+        return {
+          native = function(module)
+            assert(module == "toast" and not unbuilt, "toast: native build failed")
+            return {
+              glass = function(canvas)
+                local glass = { canvas = canvas }
+                function glass.hide(_, fade)
+                  glass.fade = fade
+                end
+                glasses[#glasses + 1] = glass
+                return glass
+              end,
+            }
+          end,
+        }
+      end
       assert(name == "lib.logger")
       return {
         error = function(message)
@@ -159,7 +178,7 @@ local function clear()
       canvas.click()
     end
   end
-  canvases, timers, focused = {}, {}, main
+  canvases, timers, glasses, focused = {}, {}, {}, main
 end
 
 test("a failure sits at the bottom right, titled by its source, with a red cross", function()
@@ -278,6 +297,30 @@ test("install picks the theme, and an unknown one is logged and fails the load",
   toast.install()
   toast.show("metal")
   assert(rim(canvases[1]) ~= edge, "the edge theme did not change the rim")
+  clear()
+end)
+
+test("glass that can't be built fails the load, as an unknown theme does", function()
+  unbuilt = true
+  local ok, problem = pcall(toast.install, { theme = "glass" })
+  assert(not ok and tostring(problem):find("native build failed", 1, true), tostring(problem))
+  unbuilt = false
+  toast.show("still metal")
+  assert(find(canvases[1], "rectangle") and #glasses == 0, "a failed build changed the theme")
+  clear()
+end)
+
+test("glass: each toast has its own, hidden with the toast's fade", function()
+  toast.install({ theme = "glass" })
+  toast.show("first")
+  toast.show("second", { failure = true })
+  local first, second = canvases[1], canvases[2]
+  assert(not find(first, "rectangle") and not find(second, "rectangle"), "a rim over the glass")
+  assert(#glasses == 2 and glasses[1].canvas == first and glasses[2].canvas == second)
+  second.click()
+  alert.closeAll()
+  assert(glasses[2].fade == second.fade and glasses[1].fade == first.fade, "a glass stayed")
+  toast.install()
   clear()
 end)
 

@@ -1,4 +1,5 @@
--- Raycast-style toasts at the bottom right: the dictation pill's dark face, in a choice of rims.
+-- Raycast-style toasts at the bottom right: the dictation pill's dark face in a choice of rims, or
+-- Liquid Glass.
 local toast = {}
 
 local limit = 340 -- widest line of text, in points
@@ -16,7 +17,13 @@ local detail = {
 }
 local red = { red = 1, green = 0.27, blue = 0.23 }
 
----@alias ToastTheme "metal"|"edge"|"flat"
+---@alias ToastTheme "metal"|"edge"|"flat"|"glass"
+
+---@class ToastGlass
+---@field hide fun(self: ToastGlass, fade: number)
+
+---@class ToastNative
+---@field glass fun(canvas: hs.canvas, radius: number, fade: number): ToastGlass
 
 -- Gray levels of each look: the rim is a gradient at `angle` under the face inset 1 pt, as canvas
 -- strokes take no gradient; the face is lit from above.
@@ -26,8 +33,13 @@ local themes = {
   -- Only the top left catches the light, with a faint rim at the bottom right.
   edge = { rim = { 0.62, 0.2, 0.14, 0.3 }, angle = 45, face = { 0.17, 0.11 } },
   flat = { rim = { 0.24, 0.24 }, angle = 90, face = { 0.13, 0.13 } },
+  -- macOS's own Liquid Glass, in a window under the text (lib/toast/toast.m); lighter over a white
+  -- window, so its detail is brighter.
+  glass = { glass = true, detail = 0.8 },
 }
 local theme = themes.metal
+---@type ToastNative?
+local native -- loaded for the glass theme
 
 ---@alias ToastSize { w: number, h: number }
 
@@ -39,6 +51,7 @@ local theme = themes.metal
 ---@field canvas hs.canvas
 ---@field screen hs.screen
 ---@field timer? hs.timer
+---@field glass? ToastGlass
 
 ---@type ToastEntry[]
 local shown = {} -- oldest first; each screen's newest sits at its bottom
@@ -79,7 +92,11 @@ function toast.close(id, fade)
       if entry.timer then
         entry.timer:stop()
       end
-      entry.canvas:delete(oldest and (fade and math.max(fade, 0) or 0.25) or 0)
+      local seconds = oldest and (fade and math.max(fade, 0) or 0.25) or 0
+      entry.canvas:delete(seconds)
+      if entry.glass then
+        entry.glass:hide(seconds)
+      end
       layout()
       return
     end
@@ -186,23 +203,25 @@ function toast.show(text, options)
   local left = padding + ((failure or options.image) and icon + 10 or 0)
   local size, radius = { w = left + width + padding, h = height }, math.min(height / 2, 20)
   canvas:size(size)
-  canvas:appendElements({
-    type = "rectangle",
-    action = "fill",
-    roundedRectRadii = { xRadius = radius, yRadius = radius },
-    fillGradient = "linear",
-    fillGradientColors = grays(theme.rim),
-    fillGradientAngle = theme.angle,
-  })
-  canvas:appendElements({
-    type = "rectangle",
-    action = "fill",
-    frame = { x = 1, y = 1, w = size.w - 2, h = size.h - 2 },
-    roundedRectRadii = { xRadius = radius - 1, yRadius = radius - 1 },
-    fillGradient = "linear",
-    fillGradientColors = grays(theme.face),
-    fillGradientAngle = 90,
-  })
+  if not theme.glass then
+    canvas:appendElements({
+      type = "rectangle",
+      action = "fill",
+      roundedRectRadii = { xRadius = radius, yRadius = radius },
+      fillGradient = "linear",
+      fillGradientColors = grays(theme.rim),
+      fillGradientAngle = theme.angle,
+    })
+    canvas:appendElements({
+      type = "rectangle",
+      action = "fill",
+      frame = { x = 1, y = 1, w = size.w - 2, h = size.h - 2 },
+      roundedRectRadii = { xRadius = radius - 1, yRadius = radius - 1 },
+      fillGradient = "linear",
+      fillGradientColors = grays(theme.face),
+      fillGradientAngle = 90,
+    })
+  end
   if options.image then
     canvas:appendElements({
       type = "image",
@@ -286,6 +305,9 @@ function toast.show(text, options)
   end
   layout()
   canvas:show(0.15)
+  if theme.glass then
+    entry.glass = assert(native).glass(canvas, radius, 0.15)
+  end
   return id
 end
 
@@ -295,11 +317,16 @@ end
 function toast.install(options)
   local name = options and options.theme or "metal"
   if not themes[name] then
-    local message = "Toast: no theme " .. tostring(name) .. "; use metal, edge, or flat"
+    local message = "Toast: no theme " .. tostring(name) .. "; use metal, edge, flat, or glass"
     require("lib.logger").error(message)
     error(message, 2)
   end
+  if name == "glass" then
+    -- Built on first use; utils.native logs a failed build, which fails the load.
+    native = native or require("lib.utils").native("toast")
+  end
   theme = themes[name]
+  detail.color = { white = theme.detail or 0.62 }
   local styled = hs.getObjectMetatable("hs.styledtext")
   local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
