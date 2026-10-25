@@ -60,7 +60,6 @@ action=/usr/bin/systemd-cat -t laptop-panel /usr/local/libexec/laptop-panel open
 '''
 notify = ["acpid"]
 
-# crit forces journald to sync immediately, so a power blip right before a freeze still lands on disk.
 [bootstrap.files."/etc/acpi/events/power-log"]
 content = '''
 event=^(ac_adapter|battery)
