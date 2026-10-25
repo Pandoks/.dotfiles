@@ -84,6 +84,7 @@ local function harness(options)
     draws = {},
     applications = {},
     unhides = 0,
+    raisedPrints = 0,
   }
   for i = 1, options.count or 9 do
     desktop.windows[i] = {
@@ -348,6 +349,14 @@ local function harness(options)
     end
     return true
   end
+  -- hs.ipc's print raises while a dead CLI is registered; hs.printf calls print.
+  local function log(message)
+    if desktop.printRaises then
+      desktop.raisedPrints = desktop.raisedPrints + 1
+      error("ipc port is no longer valid")
+    end
+    desktop.logs[#desktop.logs + 1] = message
+  end
   local hsMock = {
     configdir = "/config",
     timer = {
@@ -492,12 +501,7 @@ local function harness(options)
       end,
     },
     printf = function(format, ...)
-      -- hs.ipc's print raises while a dead CLI is registered.
-      if desktop.printRaises then
-        desktop.printRaises = false
-        error("ipc port is no longer valid")
-      end
-      desktop.logs[#desktop.logs + 1] = string.format(format, ...)
+      return log(string.format(format, ...))
     end,
     alert = {
       show = function(message)
@@ -508,9 +512,7 @@ local function harness(options)
   desktop.hs = hsMock
   local environment = setmetatable({
     hs = hsMock,
-    print = function(message)
-      desktop.logs[#desktop.logs + 1] = message
-    end,
+    print = log,
   }, { __index = _G })
   local modules = {
     ["lib.window_filter"] = filter,
@@ -1688,25 +1690,31 @@ test("cycle start failures alert even when print raises", function()
     end)
     assertEqual(#desktop.alerts, 1, failure)
     assertEqual(desktop.menu.isBusy(), false, failure)
+    assertEqual(desktop.raisedPrints, 1, failure)
   end
 end)
 test("a focus failure alerts and frees the switcher even when print raises", function()
-  local desktop = harness()
-  desktop:open()
-  desktop.windows[2].pid = 9999
-  desktop.printRaises = true
-  pcall(function()
-    desktop:release()
-    desktop:advance(1)
-  end)
-  desktop:advance(1)
-  assertEqual(#desktop.alerts, 1)
-  assertEqual(desktop.menu.isBusy(), false)
-  desktop.windows[2].pid = 102
+  local desktop = harness({
+    intercept = function(model, name, done, id)
+      if name == "focus" and id == 2 then
+        model.hs.timer.doAfter(0.5, function()
+          done(false, "focus rejected")
+        end)
+        return true
+      end
+    end,
+  })
   desktop:open()
   desktop:release()
-  desktop:advance(1)
-  assertEqual(desktop.windows[2]["has-focus"], true)
+  desktop:open()
+  desktop:select(3)
+  desktop:release()
+  desktop.printRaises = true
+  pcall(desktop.advance, desktop, 1)
+  assertEqual(#desktop.alerts, 1)
+  assertEqual(desktop.raisedPrints, 1)
+  assertEqual(desktop.windows[3]["has-focus"], true, "queued selection")
+  assertEqual(desktop.menu.isBusy(), false)
 end)
 test("closed or reused window is rejected before focus", function()
   local desktop = harness()
