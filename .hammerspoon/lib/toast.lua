@@ -77,12 +77,13 @@ end
 function toast.close(id, fade)
   for i, entry in ipairs(shown) do
     if entry.id == id then
+      local seconds = fade and math.max(fade, 0) or 0.25
       -- Only its screen's oldest fades: the toasts above any other move into its place.
-      local oldest = true
       for j = 1, i - 1 do
-        oldest = oldest and shown[j].screen:id() ~= entry.screen:id()
+        if shown[j].screen:id() == entry.screen:id() then
+          seconds = 0
+        end
       end
-      local seconds = oldest and (fade and math.max(fade, 0) or 0.25) or 0
       table.remove(shown, i)
       if entry.timer then
         entry.timer:stop()

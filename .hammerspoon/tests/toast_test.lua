@@ -187,7 +187,7 @@ test("a failure sits at the bottom right, titled by its source, with a red cross
   assert(canvas.labels == "canJoinAllSpaces stationary fullScreenAuxiliary", canvas.labels)
   assert(canvas.calls.canvasMouseEvents[1] == true, "a click is never delivered")
   assert(canvas.calls.clickActivating[1] == false)
-  assert(canvas.calls.level[1] > 0 and canvas.calls.level[1] < 20, "not between windows and Dock")
+  assert(canvas.calls.level[1] == 19, "not just below the Dock")
   clear()
 end)
 
@@ -363,10 +363,11 @@ test("an hs.alert with non-number seconds stays until closed by its id", functio
   alert.show("all now", 5)
   alert.closeAll(0)
   assert(canvases[4].fade == 0 and canvases[5].fade == 0, "a close ignored its fade time")
+  alert.show("above", "indefinite")
   local stuck = alert.show("stuck?", "indefinite")
   assert(not pcall(alert.closeSpecific, stuck, true), "a fade of true was taken")
   alert.closeAll()
-  assert(canvases[6].deleted, "a failed close left a toast nothing can close")
+  assert(canvases[7].deleted, "a failed close left a toast nothing can close")
   clear()
 end)
 
