@@ -164,9 +164,10 @@ Focus restoration reads the Space synchronously in-process: `hs.window.list()` f
 WindowServer's front-to-back on-screen windows, limited to those centered in the Space
 display's `fullFrame()`, plus `hs.window.focusedWindow()` and
 `lib.window_filter.windowsOf` for tracked windows. Candidates are tracked layer-0
-windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
-This never waits behind a busy app; it measured about 2-3 ms. A Space whose display
-cannot be found fails once with a popup.
+windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point, and
+so does a Hammerspoon window above them, such as a toast, which takes clicks. This never waits
+behind a busy app; it measured about 2-3 ms. A Space whose display cannot be found fails once
+with a popup.
 
 Space information, including each Space's display UUID, comes from one native snapshot
 per lookup. Cmd-Tab and Space
@@ -263,11 +264,12 @@ The logger Lua regressions also run with `tests/run.sh`, as does the toast suite
 the bottom right of each screen, stacking, repeats, dismissal, wrapping, themes, and every
 `hs.alert` call routed through `lib/toast.lua` with its screen, seconds, and id. It also checks
 that the glass theme gives each toast its own glass, hidden with the toast's fade, and that a
-`lib/toast/toast.m` that can't be built fails the load. Its look was checked with real
+failed build of `lib/toast/toast.m` (stubbed) fails the load. Its look was checked with real
 `hs.canvas` renders. The glass window was checked live on macOS 27.0.1: it refracts what is behind
-it (lensing at the edges, a lit rim) though its panel is never key, it moves with its toast,
-clicks still reach the toast, a glass collected during its fade stays until the fade ends, and no
-window is left after a toast times out or its glass is collected.
+it, another app's window too (lensing at the edges, a rim highlight), though its panel is never
+key; it moves with its toast, clicks still reach the toast, a glass collected during its fade
+stays until the fade ends, and no window is left after a toast times out or its glass is
+collected.
 
 Audit checks (substitute the installed executable paths if needed):
 

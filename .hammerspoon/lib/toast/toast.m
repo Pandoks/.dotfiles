@@ -15,8 +15,9 @@ static BOOL keepImageLoaded(void) {
   return handle != NULL;
 }
 
-// Full Liquid Glass (edge lensing, a lit rim) without key focus, as AppKit's own menus get it: a
-// window without an active appearance gets a subdued blur, and only a key window has one.
+// Full Liquid Glass (edge lensing, a rim highlight) without key focus, as AppKit's own menus get
+// it: a window without an active appearance gets a subdued blur, and only the active app's key or
+// main window has one.
 @interface ToastPanel : NSPanel
 @end
 

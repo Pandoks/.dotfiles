@@ -920,6 +920,23 @@ test("no desktop click is issued through a covering window", function()
   eq(#h.clicks, 0)
   eq(h.module.status().last.ok, false)
 end)
+test("the desktop click misses a toast, which takes clicks above the windows", function()
+  local h = harness()
+  local frame = { x = 300, y = 380, w = 100, h = 40 }
+  h:add({
+    id = 92,
+    pid = 920,
+    app = "Hammerspoon",
+    space = 0,
+    layer = 25,
+    untracked = true,
+    frame = frame,
+  })
+  h.module.switchSpace(3)
+  h:advance(0.3)
+  eq(#h.clicks, 1)
+  assert(outside(h.clicks[1], frame) and outside(h.clicks[1], h:row(50).frame))
+end)
 test("a Space change from outside the shortcuts moves focus from PiP", function()
   local h = harness()
   h:arrive(202, true)

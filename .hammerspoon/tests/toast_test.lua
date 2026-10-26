@@ -222,8 +222,8 @@ test("a toast stays on its screen when focus and the stack change", function()
 end)
 
 test("the same toast again restarts its time on its screen instead of stacking", function()
-  toast.show("Window list unavailable", { seconds = 2 })
-  toast.show("Window list unavailable", { seconds = 2 })
+  local id = toast.show("Window list unavailable", { seconds = 2 })
+  assert(toast.show("Window list unavailable", { seconds = 2 }) == id, "a repeat lost its id")
   assert(#canvases == 1 and timers[1].stopped and timers[2].seconds == 2)
   focused = side
   toast.show("Window list unavailable", { seconds = 2 })
@@ -291,8 +291,8 @@ test("install picks the theme, and an unknown one is logged and fails the load",
   for _, name in ipairs({ "metal", "edge", "flat" }) do
     toast.install({ theme = name })
   end
-  local ok = pcall(toast.install, { theme = "chrome" })
-  assert(not ok, "an unknown theme loaded")
+  local ok, problem = pcall(toast.install, { theme = "chrome" })
+  assert(not ok and tostring(problem):find("no theme chrome", 1, true), tostring(problem))
   assert(logged[1] and logged[1]:find("no theme chrome", 1, true), tostring(logged[1]))
   toast.install()
   toast.show("metal")
@@ -358,12 +358,13 @@ test("an hs.alert with non-number seconds stays until closed by its id", functio
   assert(#timers == 1, "the indefinite one got a timer")
   alert.closeSpecific(id)
   assert(canvases[1].deleted and not canvases[2].deleted)
+  alert.show("another", 1)
   alert.closeAll()
-  assert(canvases[2].deleted and canvases[2].fade == 0.25)
+  assert(canvases[2].fade == 0.25 and canvases[3].deleted and canvases[3].fade == 0.25)
   alert.closeSpecific(alert.show("now", "indefinite"), 0)
   alert.show("all now", 5)
   alert.closeAll(0)
-  assert(canvases[3].fade == 0 and canvases[4].fade == 0, "a close ignored its fade time")
+  assert(canvases[4].fade == 0 and canvases[5].fade == 0, "a close ignored its fade time")
   clear()
 end)
 

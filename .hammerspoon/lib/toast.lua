@@ -331,8 +331,9 @@ function toast.install(options)
   local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
   -- Both hs.alert.show and hs.alert(...) end here. As hs.alert reads its arguments: a screen, or
-  -- a window for its screen; a table is a style; anything else the seconds, none or false its
-  -- 2 s default, another non-number until closed.
+  -- a window, here for its screen (hs.alert centers on the window); a table is a style; anything
+  -- else the seconds, none or false its 2 s default, another non-number until closed. Styled text
+  -- keeps its words, not its styles.
   alert.showWithImage = function(message, image, ...)
     local style, screen, seconds
     for i, value in ipairs(table.pack(...)) do

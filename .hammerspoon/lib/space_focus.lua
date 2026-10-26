@@ -66,6 +66,9 @@ local function snapshot(frame)
       if id == focusedID then
         focused = row
       end
+    elseif inside and info.kCGWindowOwnerName == "Hammerspoon" then
+      -- Its toasts sit higher but take clicks, so a desktop click must miss them too.
+      cover[#cover + 1] = { frame = { x = b.X, y = b.Y, w = b.Width, h = b.Height } }
     end
   end
   return rows, focused, cover
