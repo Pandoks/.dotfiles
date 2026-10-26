@@ -40,9 +40,8 @@ local function snapshot(frame)
   local focusedWindow = hs.window.focusedWindow()
   local focusedID = focusedWindow and focusedWindow:id()
   local rows, cover, tracked, focused = {}, {}, {}, nil
-  -- `true`: no cut at the Dock, which would drop toasts.
   for _, info in
-    ipairs(hs.window.list(true) --[[@as table[] ]])
+    ipairs(hs.window.list() --[[@as table[] ]])
   do
     local id, pid, layer, b =
       info.kCGWindowNumber, info.kCGWindowOwnerPID, info.kCGWindowLayer, info.kCGWindowBounds
@@ -67,9 +66,6 @@ local function snapshot(frame)
       if id == focusedID then
         focused = row
       end
-    elseif inside and info.kCGWindowOwnerName == "Hammerspoon" then
-      -- Toasts take clicks.
-      cover[#cover + 1] = { frame = { x = b.X, y = b.Y, w = b.Width, h = b.Height } }
     end
   end
   return rows, focused, cover

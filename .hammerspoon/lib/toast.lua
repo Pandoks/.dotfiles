@@ -15,8 +15,6 @@ local detail = {
 }
 local red = { red = 1, green = 0.27, blue = 0.23 }
 
----@alias ToastTheme "metal"|"edge"|"flat"|"glass"
-
 ---@class ToastGlass
 ---@field hide fun(self: ToastGlass, fade: number)
 
@@ -80,11 +78,11 @@ function toast.close(id, fade)
       for j = 1, i - 1 do
         oldest = oldest and shown[j].screen:id() ~= entry.screen:id()
       end
+      local seconds = oldest and (fade and math.max(fade, 0) or 0.25) or 0
       table.remove(shown, i)
       if entry.timer then
         entry.timer:stop()
       end
-      local seconds = oldest and (fade and math.max(fade, 0) or 0.25) or 0
       entry.canvas:delete(seconds)
       if entry.glass then
         entry.glass:hide(seconds)
@@ -131,7 +129,6 @@ local function wrap(canvas, text, style, lines)
     end
   end
   out[#out + 1] = line
-  out[1] = out[1] or ""
   local joined = table.concat(out, "\n")
   return hs.styledtext.new(joined, style), size(joined)
 end
@@ -145,7 +142,7 @@ end
 -- "Tiling: no window" shows "Tiling" over "No window".
 ---@param text string
 ---@param options? ToastOptions
----@return integer?
+---@return integer
 function toast.show(text, options)
   options = options or {}
   local seconds = options.seconds
@@ -153,9 +150,6 @@ function toast.show(text, options)
     seconds = 3
   end
   local screen = options.screen or hs.screen.mainScreen()
-  if not screen then
-    return nil
-  end
   local failure = options.failure == true
   -- A timed repeat on the same screen restarts instead of stacking.
   for i, entry in ipairs(shown) do
@@ -251,7 +245,7 @@ function toast.show(text, options)
       frame = { x = left, y = 12 + top.h + 2, w = width + 1, h = below.h },
     })
   end
-  canvas:level(hs.canvas.windowLevels.status)
+  canvas:level(hs.canvas.windowLevels.dock - 1)
   canvas:behaviorAsLabels({ "canJoinAllSpaces", "stationary", "fullScreenAuxiliary" })
   canvas:clickActivating(false)
 
@@ -295,7 +289,7 @@ function toast.show(text, options)
 end
 
 -- Sets the theme and makes every hs.alert a toast.
----@param options? { theme?: ToastTheme } "metal" by default
+---@param options? { theme?: "metal"|"edge"|"flat"|"glass" } "metal" by default
 function toast.install(options)
   local name = options and options.theme or "metal"
   if not themes[name] then
@@ -304,7 +298,7 @@ function toast.install(options)
     error(message, 2)
   end
   if name == "glass" then
-    native = native or require("lib.utils").native("toast")
+    native = require("lib.utils").native("toast")
   end
   theme = themes[name]
   detail.color = { white = theme.detail or 0.62 }
@@ -316,9 +310,9 @@ function toast.install(options)
     local style, screen, seconds
     for i, value in ipairs(table.pack(...)) do
       local kind = getmetatable(value)
-      if kind and kind == screens and not screen then
+      if kind == screens and not screen then
         screen = value
-      elseif kind and kind == windows and not screen then
+      elseif kind == windows and not screen then
         screen = value:screen()
       elseif type(value) == "userdata" and not screen then
         error(("no screen or window for argument %d"):format(i + 1), 2)

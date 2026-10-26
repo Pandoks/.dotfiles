@@ -11,12 +11,12 @@ screens.__index = {
     return { x = at[self], y = 25, w = 1000, h = 600 }
   end,
 }
-local function display(_, x)
+local function display(x)
   local screen = debug.setmetatable(assert(io.open("/dev/null")), screens)
   at[screen] = x
   return screen
 end
-local main, side = display(1, 0), display(2, 1000)
+local main, side = display(0), display(1000)
 local focused = main
 local windows = { __index = {
   screen = function()
@@ -60,7 +60,7 @@ local toast = assert(loadfile(
         end,
       },
       canvas = {
-        windowLevels = { status = 25 },
+        windowLevels = { dock = 20, status = 25 },
         new = function()
           local canvas = { elements = {}, visible = false, deleted = false, calls = {} }
           function canvas.minimumTextSize(_, text)
@@ -186,7 +186,8 @@ test("a failure sits at the bottom right, titled by its source, with a red cross
   assert(canvas.at.x + canvas.frame.w == 1000 - 16 and bottom(canvas) == 609, "not bottom right")
   assert(canvas.labels == "canJoinAllSpaces stationary fullScreenAuxiliary", canvas.labels)
   assert(canvas.calls.canvasMouseEvents[1] == true, "a click is never delivered")
-  assert(canvas.calls.clickActivating[1] == false and canvas.calls.level[1] == 25)
+  assert(canvas.calls.clickActivating[1] == false)
+  assert(canvas.calls.level[1] > 0 and canvas.calls.level[1] < 20, "not between windows and Dock")
   clear()
 end)
 
@@ -362,6 +363,10 @@ test("an hs.alert with non-number seconds stays until closed by its id", functio
   alert.show("all now", 5)
   alert.closeAll(0)
   assert(canvases[4].fade == 0 and canvases[5].fade == 0, "a close ignored its fade time")
+  local stuck = alert.show("stuck?", "indefinite")
+  assert(not pcall(alert.closeSpecific, stuck, true), "a fade of true was taken")
+  alert.closeAll()
+  assert(canvases[6].deleted, "a failed close left a toast nothing can close")
   clear()
 end)
 

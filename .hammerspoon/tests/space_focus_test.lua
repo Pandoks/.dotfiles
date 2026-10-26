@@ -97,16 +97,6 @@ local function harness(options)
     { id = 1, pid = 101, app = "Editor", title = "Source", space = 101 },
     { id = 2, pid = 102, app = "Terminal", title = "Shell", space = 202 },
     { id = 3, pid = 103, app = "Browser", title = "Docs", space = 202 },
-    {
-      id = 93,
-      pid = 910,
-      app = "Dock",
-      title = "Dock",
-      space = 0,
-      layer = 20,
-      untracked = true,
-      frame = { x = 0, y = 740, w = 1000, h = 60 },
-    },
     -- Full-screen overlay above the Dock and wallpaper below windows.
     {
       id = 90,
@@ -501,7 +491,7 @@ local function harness(options)
         read("focused")
         return window(h.focused)
       end,
-      -- On-screen, front to back; without `all`, only what is below a window titled "Dock".
+      -- WindowServer on-screen list, front to back; `all` adds off-screen windows.
       list = function(all)
         h.lists = h.lists + 1
         if h.listing then
@@ -512,7 +502,7 @@ local function harness(options)
         local rows, order = {}, {}
         for index, r in ipairs(h.rows) do
           local shown = r.space == 0 or h:current(display(r.space)) == r.space
-          if shown and not r.minimized and not r.hidden then
+          if all or (shown and not r.minimized and not r.hidden) then
             rows[#rows + 1], order[r] = r, index
           end
         end
@@ -520,14 +510,6 @@ local function harness(options)
           local left, right = a.layer or 0, b.layer or 0
           return left > right or (left == right and order[a] < order[b])
         end)
-        if not all and not o.noTitles then
-          for i, r in ipairs(rows) do
-            if r.title == "Dock" then
-              rows = { table.unpack(rows, i + 1) }
-              break
-            end
-          end
-        end
         local entries = {}
         for i, r in ipairs(rows) do
           local f = r.frame
@@ -937,23 +919,6 @@ test("no desktop click is issued through a covering window", function()
   h:advance(0.3)
   eq(#h.clicks, 0)
   eq(h.module.status().last.ok, false)
-end)
-test("the desktop click misses a toast, which takes clicks above the windows", function()
-  local h = harness()
-  local frame = { x = 300, y = 380, w = 100, h = 40 }
-  h:add({
-    id = 92,
-    pid = 920,
-    app = "Hammerspoon",
-    space = 0,
-    layer = 25,
-    untracked = true,
-    frame = frame,
-  })
-  h.module.switchSpace(3)
-  h:advance(0.3)
-  eq(#h.clicks, 1)
-  assert(outside(h.clicks[1], frame) and outside(h.clicks[1], h:row(50).frame))
 end)
 test("a Space change from outside the shortcuts moves focus from PiP", function()
   local h = harness()

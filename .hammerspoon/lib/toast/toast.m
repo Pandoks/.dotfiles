@@ -2,7 +2,6 @@
 #import <LuaSkin/LuaSkin.h>
 #include <dlfcn.h>
 
-static LSRefTable refTable = LUA_NOREF;
 static const char *tag = "toast.glass";
 
 // A reload dlcloses this while a fade's completion block may still run.
@@ -33,6 +32,9 @@ static int glass(lua_State *state) {
   luaL_argcheck(state, canvas != nil, 1, "canvas has no window");
   CGFloat radius = lua_tonumber(state, 2);
   NSTimeInterval fade = lua_tonumber(state, 3);
+  void **pointer = lua_newuserdata(state, sizeof(void *));
+  *pointer = NULL;
+  luaL_setmetatable(state, tag);
   NSPanel *panel = [[ToastPanel alloc] initWithContentRect:canvas.frame
                                                   styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
                                                     backing:NSBackingStoreBuffered
@@ -61,9 +63,7 @@ static int glass(lua_State *state) {
     panel.animator.alphaValue = 1;
   }];
 
-  void **pointer = lua_newuserdata(state, sizeof(void *));
   *pointer = (__bridge_retained void *)panel;
-  luaL_setmetatable(state, tag);
   return 1;
 }
 
@@ -88,15 +88,6 @@ static int hide(lua_State *state) {
   return 0;
 }
 
-static int collect(lua_State *state) {
-  void **pointer = luaL_checkudata(state, 1, tag);
-  NSPanel *panel = (__bridge_transfer NSPanel *)*pointer;
-  *pointer = NULL;
-  [panel.parentWindow removeChildWindow:panel];
-  [panel close];
-  return 0;
-}
-
 static const luaL_Reg functions[] = {
   { "glass", glass },
   { NULL, NULL },
@@ -113,10 +104,10 @@ int luaopen_toast(lua_State *state) {
   lua_pushcfunction(state, hide);
   lua_setfield(state, -2, "hide");
   lua_setfield(state, -2, "__index");
-  lua_pushcfunction(state, collect);
+  lua_pushcfunction(state, hide);
   lua_setfield(state, -2, "__gc");
   lua_pop(state, 1);
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  refTable = [skin registerLibrary:"toast" functions:functions metaFunctions:nil];
+  [skin registerLibrary:"toast" functions:functions metaFunctions:nil];
   return 1;
 }

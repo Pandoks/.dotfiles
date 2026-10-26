@@ -1,6 +1,6 @@
 require("lib.logger").install()
-require("lib.toast").install({ theme = "metal" })
 require("hs.ipc") -- `hs` CLI access for debugging
+require("lib.toast").install({ theme = "metal" })
 hs.loadSpoon("SpoonInstall")
 
 local install = spoon.SpoonInstall
