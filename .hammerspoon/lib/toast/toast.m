@@ -53,7 +53,7 @@ static int glass(lua_State *state) {
   view.cornerRadius = radius;
   // Smoked so light text reads over white.
   view.style = NSGlassEffectViewStyleClear;
-  view.tintColor = [NSColor colorWithWhite:0 alpha:0.45];
+  view.tintColor = [NSColor colorWithWhite:0 alpha:0.6];
   panel.contentView = view;
 
   panel.alphaValue = 0;

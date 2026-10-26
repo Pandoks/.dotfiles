@@ -25,7 +25,11 @@ local themes = {
   metal = { rim = { 0.62, 0.2, 0.42, 0.16 }, angle = 45, face = { 0.2, 0.1 } },
   edge = { rim = { 0.62, 0.2, 0.14, 0.3 }, angle = 45, face = { 0.17, 0.11 } },
   flat = { rim = { 0.24, 0.24 }, angle = 90, face = { 0.13, 0.13 } },
-  glass = { glass = true, detail = 0.8 },
+  glass = {
+    glass = true,
+    detail = 0.9,
+    shadow = { offset = { h = 0, w = 0 }, blurRadius = 4, color = { white = 0, alpha = 0.8 } },
+  },
 }
 local theme = themes.metal
 ---@type ToastNative?
@@ -302,6 +306,7 @@ function toast.install(options)
   end
   theme = themes[name]
   detail.color = { white = theme.detail or 0.62 }
+  title.shadow, detail.shadow = theme.shadow, theme.shadow
   local styled = hs.getObjectMetatable("hs.styledtext")
   local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
