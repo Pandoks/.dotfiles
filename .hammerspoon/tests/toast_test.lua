@@ -46,7 +46,11 @@ local toast = assert(loadfile(
       },
       styledtext = {
         new = function(text, style)
-          return { text = text, style = style }
+          local copy = {}
+          for key, value in pairs(style) do
+            copy[key] = value
+          end
+          return { text = text, style = copy }
         end,
       },
       timer = {
@@ -311,10 +315,12 @@ end)
 test("glass: each toast has its own, hidden with the toast's fade, under shadowed text", function()
   toast.install({ theme = "glass" })
   toast.show("first")
-  toast.show("second", { failure = true })
+  toast.show("Second: detail", { failure = true })
   local first, second = canvases[1], canvases[2]
   assert(not find(first, "rectangle") and not find(second, "rectangle"), "a rim over the glass")
-  assert(find(first, "text").text.style.shadow, "glass text has no shadow")
+  for _, element in ipairs(second.elements) do
+    assert(element.type ~= "text" or element.text.style.shadow, "glass text has no shadow")
+  end
   assert(#glasses == 2 and glasses[1].canvas == first and glasses[2].canvas == second)
   second.click()
   alert.closeAll()
