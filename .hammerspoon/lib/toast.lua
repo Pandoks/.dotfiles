@@ -330,10 +330,11 @@ function toast.install(options)
   local styled = hs.getObjectMetatable("hs.styledtext")
   local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
-  -- Both hs.alert.show and hs.alert(...) end here. As hs.alert reads its arguments: a screen, or
-  -- a window, here for its screen (hs.alert centers on the window); a table is a style; anything
-  -- else the seconds, none or false its 2 s default, another non-number until closed. Styled text
-  -- keeps its words, not its styles.
+  -- Both hs.alert.show and hs.alert(...) end here. As hs.alert reads its arguments: the first
+  -- userdata is the screen, a window here for its screen (hs.alert centers on the window), any
+  -- other an error (hs.alert uses a canvas's frame and fails without one); a table is a style;
+  -- anything else the seconds, none or false its 2 s default, another non-number until closed.
+  -- Styled text keeps its words, not its styles.
   alert.showWithImage = function(message, image, ...)
     local style, screen, seconds
     for i, value in ipairs(table.pack(...)) do
@@ -342,6 +343,8 @@ function toast.install(options)
         screen = value
       elseif kind and kind == windows and not screen then
         screen = value:screen()
+      elseif type(value) == "userdata" and not screen then
+        error(("no screen or window for argument %d"):format(i + 1), 2)
       elseif type(value) == "table" and not style then
         style = value
       elseif seconds == nil then

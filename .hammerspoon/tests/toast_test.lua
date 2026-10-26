@@ -438,6 +438,11 @@ test("an argument hs.alert would not take is an error, as in hs.alert", function
   toast.install()
   local ok, problem = pcall(alert.show, "x", {}, side, 2, 3)
   assert(not ok and tostring(problem):find("unexpected number", 1, true), tostring(problem))
+  ok, problem = pcall(alert.show, "x", io.stdout) -- a userdata that is no screen or window
+  assert(not ok and tostring(problem):find("argument 2", 1, true), tostring(problem))
+  assert(#canvases == 0, "a toast was shown")
+  alert.show("kept", side, io.stdout) -- after the screen, a userdata is the seconds
+  assert(#canvases == 1 and #timers == 0, "a userdata after the screen was no seconds")
   clear()
 end)
 
