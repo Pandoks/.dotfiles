@@ -1,10 +1,8 @@
--- Raycast-style toasts at the bottom right: the dictation pill's dark face in a choice of rims, or
--- Liquid Glass.
 local toast = {}
 
-local limit = 340 -- widest line of text, in points
+local limit = 340 -- widest text line, pt
 local margin, gap, padding, icon = 16, 8, 14, 16
-local most = 5 -- toasts on a screen; a sixth drops its oldest timed one
+local most = 5 -- toasts per screen
 local title = {
   font = { name = ".AppleSystemUIFontMedium", size = 13 },
   color = { white = 0.976 },
@@ -25,21 +23,15 @@ local red = { red = 1, green = 0.27, blue = 0.23 }
 ---@class ToastNative
 ---@field glass fun(canvas: hs.canvas, radius: number, fade: number): ToastGlass
 
--- Gray levels of each look: the rim is a gradient at `angle` under the face inset 1 pt, as canvas
--- strokes take no gradient; the face is lit from above.
 local themes = {
-  -- A glint at the top left and another lower down, like brushed metal.
   metal = { rim = { 0.62, 0.2, 0.42, 0.16 }, angle = 45, face = { 0.2, 0.1 } },
-  -- Only the top left catches the light, with a faint rim at the bottom right.
   edge = { rim = { 0.62, 0.2, 0.14, 0.3 }, angle = 45, face = { 0.17, 0.11 } },
   flat = { rim = { 0.24, 0.24 }, angle = 90, face = { 0.13, 0.13 } },
-  -- macOS's own Liquid Glass, in a window under the text (lib/toast/toast.m); lighter over a white
-  -- window, so its detail is brighter.
   glass = { glass = true, detail = 0.8 },
 }
 local theme = themes.metal
 ---@type ToastNative?
-local native -- loaded for the glass theme
+local native
 
 ---@alias ToastSize { w: number, h: number }
 
@@ -54,8 +46,8 @@ local native -- loaded for the glass theme
 ---@field glass? ToastGlass
 
 ---@type ToastEntry[]
-local shown = {} -- oldest first; each screen's newest sits at its bottom
-local count = 0 -- the last toast's id
+local shown = {} -- oldest first
+local count = 0
 
 local function grays(levels)
   local colors = {}
@@ -77,13 +69,13 @@ local function layout()
   end
 end
 
--- By id, which is all the callbacks hold: one holding its own timer is never collected.
+-- By id, as a callback holding its own timer is never collected.
 ---@param id integer?
----@param fade? number seconds, 0.25 by default; none unless it is its screen's oldest
+---@param fade? number seconds, 0.25 by default
 function toast.close(id, fade)
   for i, entry in ipairs(shown) do
     if entry.id == id then
-      -- It fades only as the oldest on its screen: otherwise the toasts above move into its place.
+      -- Only its screen's oldest fades: the toasts above any other move into its place.
       local oldest = true
       for j = 1, i - 1 do
         oldest = oldest and shown[j].screen:id() ~= entry.screen:id()
@@ -115,8 +107,6 @@ local function arm(entry, seconds)
   end) or nil
 end
 
--- `text` in lines of at most `limit` points, breaking at its own line breaks too, and its size;
--- past `lines`, the rest goes on the last, cut with "…".
 ---@param canvas hs.canvas
 ---@param text string
 ---@param style table
@@ -129,14 +119,13 @@ local function wrap(canvas, text, style, lines)
   for paragraph in (text:gsub("\n+$", "") .. "\n"):gmatch("([^\n]*)\n") do
     for word in paragraph:gmatch("%S+") do
       local longer = line and line .. " " .. word or word
-      -- Measured only while the line may still break: the last one would grow quadratically.
+      -- Not measured on the last line, which would be quadratic.
       if line and #out < lines - 1 and size(longer).w > limit then
         out[#out + 1], line = line, word
       else
         line = longer
       end
     end
-    -- A line break ends the line, a blank one too, until the last line takes the rest.
     if #out < lines - 1 then
       out[#out + 1], line = line or "", nil
     end
@@ -148,12 +137,12 @@ local function wrap(canvas, text, style, lines)
 end
 
 ---@class ToastOptions
----@field failure? boolean a red cross
----@field seconds? number|false 3 by default; false keeps it until closed
----@field screen? hs.screen the focused window's by default
----@field image? hs.image an icon in place of the red cross
+---@field failure? boolean
+---@field seconds? number|false 3 by default; false until closed
+---@field screen? hs.screen
+---@field image? hs.image
 
--- Show `text`, titled "Tiling" for "Tiling: no window", and return its id for `close`.
+-- "Tiling: no window" shows "Tiling" over "No window".
 ---@param text string
 ---@param options? ToastOptions
 ---@return integer?
@@ -168,25 +157,22 @@ function toast.show(text, options)
     return nil
   end
   local failure = options.failure == true
-  -- The same timed toast again, on the same screen, restarts its time instead of stacking; one
-  -- kept until closed is its caller's alone, closed by that caller or a click.
+  -- A timed repeat on the same screen restarts instead of stacking.
   for i, entry in ipairs(shown) do
-    local plain = not options.image and not entry.image -- an icon is not repeated
+    local plain = not options.image and not entry.image
     local same = entry.text == text and entry.failure == failure and plain
     if seconds and entry.timer and same and entry.screen:id() == screen:id() then
       arm(entry, seconds)
-      -- Now the newest: at the bottom, and the last its screen's cap drops.
       table.insert(shown, table.remove(shown, i))
       layout()
       return entry.id
     end
   end
   local head, rest = text:match("^([^:\n]+): ([^\n]+)$")
-  -- Characters, or bytes if it isn't valid UTF-8 (hs.styledtext shows that too).
   if not head or (utf8.len(head) or #head) > 24 then
     head, rest = text, nil
   end
-  -- "no window" -> "No window", but "macOS" stays.
+  -- Capitalized, but "macOS" stays.
   rest = rest
     and rest:gsub("^(%l)(%l*%f[^%w])", function(first, others)
       return first:upper() .. others
@@ -252,7 +238,7 @@ function toast.show(text, options)
       })
     end
   end
-  -- 1 pt of slack: the measured width wraps a line exactly that wide.
+  -- +1 pt: a line exactly as wide as its frame wraps.
   canvas:appendElements({
     type = "text",
     text = heading,
@@ -266,11 +252,9 @@ function toast.show(text, options)
     })
   end
   canvas:level(hs.canvas.windowLevels.status)
-  -- Every Space, and over full-screen apps while Hammerspoon's Dock icon is hidden.
   canvas:behaviorAsLabels({ "canJoinAllSpaces", "stationary", "fullScreenAuxiliary" })
   canvas:clickActivating(false)
 
-  -- A click dismisses it.
   canvas:canvasMouseEvents(true, false, false, false)
   count = count + 1
   local id = count
@@ -287,8 +271,7 @@ function toast.show(text, options)
   }
   arm(entry, seconds)
   shown[#shown + 1] = entry
-  -- Past the cap, the screen's oldest timed toast before this one goes; one kept until closed
-  -- stays.
+  -- Past the cap, the screen's oldest timed toast goes.
   local on = {}
   for _, other in ipairs(shown) do
     if other.screen:id() == screen:id() then
@@ -298,7 +281,7 @@ function toast.show(text, options)
   if #on > most then
     for i = 1, #on - 1 do
       if on[i].timer then
-        toast.close(on[i].id, 0) -- at once: the toast above moves into its place
+        toast.close(on[i].id, 0) -- at once: the stack shifts into its place
         break
       end
     end
@@ -311,9 +294,8 @@ function toast.show(text, options)
   return id
 end
 
--- Pick the look, and make every hs.alert a toast: `show`, `hs.alert(...)`, a Spoon's, a hotkey
--- message, with their screen, seconds (a non-number keeps it until closed), and ids.
----@param options? { theme?: ToastTheme } "metal" by default; another name fails the load
+-- Sets the theme and makes every hs.alert a toast.
+---@param options? { theme?: ToastTheme } "metal" by default
 function toast.install(options)
   local name = options and options.theme or "metal"
   if not themes[name] then
@@ -322,7 +304,6 @@ function toast.install(options)
     error(message, 2)
   end
   if name == "glass" then
-    -- Built on first use; utils.native logs a failed build, which fails the load.
     native = native or require("lib.utils").native("toast")
   end
   theme = themes[name]
@@ -330,11 +311,7 @@ function toast.install(options)
   local styled = hs.getObjectMetatable("hs.styledtext")
   local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
-  -- Both hs.alert.show and hs.alert(...) end here. As hs.alert reads its arguments: the first
-  -- userdata is the screen, a window here for its screen (hs.alert centers on the window), any
-  -- other an error (hs.alert uses a canvas's frame and fails without one); a table is a style;
-  -- anything else the seconds, none or false its 2 s default, another non-number until closed.
-  -- Styled text keeps its words, not its styles.
+  -- Parsed as hs.alert does, but a window means its screen and styled text loses its styles.
   alert.showWithImage = function(message, image, ...)
     local style, screen, seconds
     for i, value in ipairs(table.pack(...)) do

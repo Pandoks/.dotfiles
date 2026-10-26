@@ -60,7 +60,7 @@ local logger = assert(loadfile(
   "t",
   setmetatable({
     print = function()
-      error("ipc port is no longer valid") -- hs.ipc's, with a dead `hs` CLI registered
+      error("ipc port is no longer valid")
     end,
     require = function(name)
       assert(name == "lib.toast")

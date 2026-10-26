@@ -5,7 +5,7 @@
 static LSRefTable refTable = LUA_NOREF;
 static const char *tag = "toast.glass";
 
-// Lua closes loadlib handles on reload while a fade's completion block may still run.
+// A reload dlcloses this while a fade's completion block may still run.
 static BOOL keepImageLoaded(void) {
   static void *handle;
   if (handle) return YES;
@@ -15,20 +15,17 @@ static BOOL keepImageLoaded(void) {
   return handle != NULL;
 }
 
-// Full Liquid Glass (edge lensing, a rim highlight) without key focus, as AppKit's own menus get
-// it: a window without an active appearance gets a subdued blur, and only the active app's key or
-// main window has one.
+// Full glass without key focus, as AppKit's menus do; otherwise it's a subdued blur.
 @interface ToastPanel : NSPanel
 @end
 
 @implementation ToastPanel
-- (BOOL)_hasActiveAppearanceIgnoringKeyFocus { // private
+- (BOOL)_hasActiveAppearanceIgnoringKeyFocus {
   return YES;
 }
 @end
 
-// glass(canvas, radius, fade): Liquid Glass under a shown canvas, fading in with it. A child window
-// below the canvas's, it moves and orders with the canvas and lets its clicks through.
+// glass(canvas, radius, fade)
 static int glass(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TUSERDATA, "hs.canvas", LS_TNUMBER, LS_TNUMBER, LS_TBREAK];
@@ -52,7 +49,7 @@ static int glass(lua_State *state) {
 
   NSGlassEffectView *view = [[NSGlassEffectView alloc] initWithFrame:panel.contentView.bounds];
   view.cornerRadius = radius;
-  // Clear glass, smoked so the toast's light text reads over a white window too.
+  // Smoked so light text reads over white.
   view.style = NSGlassEffectViewStyleClear;
   view.tintColor = [NSColor colorWithWhite:0 alpha:0.45];
   panel.contentView = view;
@@ -70,7 +67,7 @@ static int glass(lua_State *state) {
   return 1;
 }
 
-// glass:hide(fade): fade out with the canvas, held by the fade so a collection can't cut it short.
+// glass:hide(fade). The fade holds the panel, so a collection can't cut it short.
 static int hide(lua_State *state) {
   void **pointer = luaL_checkudata(state, 1, tag);
   NSTimeInterval fade = luaL_optnumber(state, 2, 0);

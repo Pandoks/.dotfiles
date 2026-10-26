@@ -1,9 +1,7 @@
 local root = assert(arg[1])
--- Two 1000x600 screens side by side below a 25 pt menu bar; text is 7 pt a character, 16 a line.
 local canvases, timers, logged, measured = {}, {}, {}, 0
--- Liquid Glass from lib/toast/toast.m, unless the build fails.
 local glasses, unbuilt = {}, false
--- Screens and windows are userdata, as in Hammerspoon: file handles given their metatables.
+-- Userdata, as in Hammerspoon.
 local screens, styled, at = {}, {}, {}
 screens.__index = {
   id = function(self)
@@ -26,7 +24,6 @@ local windows = { __index = {
   end,
 } }
 local window = debug.setmetatable(assert(io.open("/dev/null")), windows)
--- As hs.alert's: `show` and `hs.alert(...)` call `showWithImage`.
 local alert = {}
 function alert.show(message, ...)
   return alert.showWithImage(message, nil, ...)
@@ -276,9 +273,9 @@ test("a line break is kept, a blank one too, and a name keeps its case", functio
   assert(texts(canvases[3]) == "Space focus | macOS refused it", texts(canvases[3]))
   toast.show("Could not write Hammerspoon file log: denied")
   assert(texts(canvases[4]) == "Could not write Hammerspoon file log: denied", texts(canvases[4]))
-  toast.show("Синхронизация: готово") -- 13 letters, 26 bytes
+  toast.show("Синхронизация: готово") -- 13 characters, 26 bytes
   assert(texts(canvases[5]) == "Синхронизация | готово", texts(canvases[5]))
-  assert(pcall(toast.show, "caf\xe9: done"), "a title that isn't UTF-8 raised") -- Latin-1
+  assert(pcall(toast.show, "caf\xe9: done"), "a title that isn't UTF-8 raised")
   assert(texts(canvases[6]) == "caf\xe9 | Done", texts(canvases[6]))
   clear()
 end)
@@ -342,7 +339,7 @@ test("every hs.alert is a toast, with its seconds and screen", function()
   end
   alert.show(message)
   assert(texts(canvases[4]) == "styled", texts(canvases[4]))
-  alert.show(io.stdout) -- a userdata that is not styled text
+  alert.show(io.stdout) -- not styled text
   assert(texts(canvases[5]):find("^file %("), texts(canvases[5]))
   alert.show("on the window's screen", window, 2)
   alert.show("false is the default", false)
@@ -438,10 +435,10 @@ test("an argument hs.alert would not take is an error, as in hs.alert", function
   toast.install()
   local ok, problem = pcall(alert.show, "x", {}, side, 2, 3)
   assert(not ok and tostring(problem):find("unexpected number", 1, true), tostring(problem))
-  ok, problem = pcall(alert.show, "x", io.stdout) -- a userdata that is no screen or window
+  ok, problem = pcall(alert.show, "x", io.stdout)
   assert(not ok and tostring(problem):find("argument 2", 1, true), tostring(problem))
   assert(#canvases == 0, "a toast was shown")
-  alert.show("kept", side, io.stdout) -- after the screen, a userdata is the seconds
+  alert.show("kept", side, io.stdout)
   assert(#canvases == 1 and #timers == 0, "a userdata after the screen was no seconds")
   clear()
 end)

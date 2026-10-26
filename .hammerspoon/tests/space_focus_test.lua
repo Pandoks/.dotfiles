@@ -501,8 +501,7 @@ local function harness(options)
         read("focused")
         return window(h.focused)
       end,
-      -- WindowServer on-screen list, front to back. Without `all`, Hammerspoon 1.1.1 keeps only the
-      -- windows below the one titled "Dock", a title it reads with Screen Recording.
+      -- On-screen, front to back; without `all`, only what is below a window titled "Dock".
       list = function(all)
         h.lists = h.lists + 1
         if h.listing then
