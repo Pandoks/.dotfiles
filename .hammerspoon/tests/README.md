@@ -160,14 +160,14 @@ window has focus. Switcher busy checks do
 not inspect screen-recording permission. Focus validation checks the current Space after the
 other state checks, so a Space change during those checks cannot focus an old window.
 
-Focus restoration reads the Space synchronously in-process: `hs.window.list()` for the
-WindowServer's front-to-back on-screen windows, limited to those centered in the Space
-display's `fullFrame()`, plus `hs.window.focusedWindow()` and
-`lib.window_filter.windowsOf` for tracked windows. Candidates are tracked layer-0
-windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point, and
-so does a Hammerspoon window above them, such as a toast, which takes clicks. This never waits
-behind a busy app; it measured about 2-3 ms. A Space whose display cannot be found fails once
-with a popup.
+Focus restoration reads the Space synchronously in-process: `hs.window.list(true)` for the
+WindowServer's front-to-back on-screen windows (without `true`, it keeps only the windows below
+the Dock once Screen Recording shows the Dock's title), limited to those centered in the Space
+display's `fullFrame()`, plus `hs.window.focusedWindow()` and `lib.window_filter.windowsOf` for
+tracked windows. Candidates are tracked layer-0 windows; any layer 0-19 window, including a
+layer-3 PiP, blocks the desktop-click point, and so does a Hammerspoon window above them, such as
+a toast, which takes clicks. This never waits behind a busy app; it measured about 2-3 ms. A
+Space whose display cannot be found fails once with a popup.
 
 Space information, including each Space's display UUID, comes from one native snapshot
 per lookup. Cmd-Tab and Space

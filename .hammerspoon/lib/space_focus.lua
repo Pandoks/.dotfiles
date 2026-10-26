@@ -40,8 +40,9 @@ local function snapshot(frame)
   local focusedWindow = hs.window.focusedWindow()
   local focusedID = focusedWindow and focusedWindow:id()
   local rows, cover, tracked, focused = {}, {}, {}, nil
+  -- `true`: no cut at the Dock (made with Screen Recording), which would hide the toasts above it.
   for _, info in
-    ipairs(hs.window.list() --[[@as table[] ]])
+    ipairs(hs.window.list(true) --[[@as table[] ]])
   do
     local id, pid, layer, b =
       info.kCGWindowNumber, info.kCGWindowOwnerPID, info.kCGWindowLayer, info.kCGWindowBounds

@@ -97,6 +97,16 @@ local function harness(options)
     { id = 1, pid = 101, app = "Editor", title = "Source", space = 101 },
     { id = 2, pid = 102, app = "Terminal", title = "Shell", space = 202 },
     { id = 3, pid = 103, app = "Browser", title = "Docs", space = 202 },
+    {
+      id = 93,
+      pid = 910,
+      app = "Dock",
+      title = "Dock",
+      space = 0,
+      layer = 20,
+      untracked = true,
+      frame = { x = 0, y = 740, w = 1000, h = 60 },
+    },
     -- Full-screen overlay above the Dock and wallpaper below windows.
     {
       id = 90,
@@ -491,7 +501,8 @@ local function harness(options)
         read("focused")
         return window(h.focused)
       end,
-      -- WindowServer on-screen list, front to back; `all` adds off-screen windows.
+      -- WindowServer on-screen list, front to back. Without `all`, Hammerspoon 1.1.1 keeps only the
+      -- windows below the one titled "Dock", a title it reads with Screen Recording.
       list = function(all)
         h.lists = h.lists + 1
         if h.listing then
@@ -502,7 +513,7 @@ local function harness(options)
         local rows, order = {}, {}
         for index, r in ipairs(h.rows) do
           local shown = r.space == 0 or h:current(display(r.space)) == r.space
-          if all or (shown and not r.minimized and not r.hidden) then
+          if shown and not r.minimized and not r.hidden then
             rows[#rows + 1], order[r] = r, index
           end
         end
@@ -510,6 +521,14 @@ local function harness(options)
           local left, right = a.layer or 0, b.layer or 0
           return left > right or (left == right and order[a] < order[b])
         end)
+        if not all and not o.noTitles then
+          for i, r in ipairs(rows) do
+            if r.title == "Dock" then
+              rows = { table.unpack(rows, i + 1) }
+              break
+            end
+          end
+        end
         local entries = {}
         for i, r in ipairs(rows) do
           local f = r.frame
