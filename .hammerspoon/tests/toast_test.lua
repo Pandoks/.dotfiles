@@ -45,8 +45,8 @@ local toast = assert(loadfile(
         end,
       },
       styledtext = {
-        new = function(text)
-          return { text = text }
+        new = function(text, style)
+          return { text = text, style = style }
         end,
       },
       timer = {
@@ -308,17 +308,20 @@ test("glass that can't be built fails the load, as an unknown theme does", funct
   clear()
 end)
 
-test("glass: each toast has its own, hidden with the toast's fade", function()
+test("glass: each toast has its own, hidden with the toast's fade, under shadowed text", function()
   toast.install({ theme = "glass" })
   toast.show("first")
   toast.show("second", { failure = true })
   local first, second = canvases[1], canvases[2]
   assert(not find(first, "rectangle") and not find(second, "rectangle"), "a rim over the glass")
+  assert(find(first, "text").text.style.shadow, "glass text has no shadow")
   assert(#glasses == 2 and glasses[1].canvas == first and glasses[2].canvas == second)
   second.click()
   alert.closeAll()
   assert(glasses[2].fade == second.fade and glasses[1].fade == first.fade, "a glass stayed")
   toast.install()
+  toast.show("metal")
+  assert(not find(canvases[3], "text").text.style.shadow, "the glass shadow stayed")
   clear()
 end)
 
@@ -366,6 +369,7 @@ test("an hs.alert with non-number seconds stays until closed by its id", functio
   alert.show("above", "indefinite")
   local stuck = alert.show("stuck?", "indefinite")
   assert(not pcall(alert.closeSpecific, stuck, true), "a fade of true was taken")
+  assert(not pcall(alert.closeSpecific, 999, true), "a fade of true was taken for an unknown id")
   alert.closeAll()
   assert(canvases[7].deleted, "a failed close left a toast nothing can close")
   clear()

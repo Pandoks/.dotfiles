@@ -75,9 +75,9 @@ end
 ---@param id integer?
 ---@param fade? number seconds, 0.25 by default
 function toast.close(id, fade)
+  local seconds = fade and math.max(fade, 0) or 0.25
   for i, entry in ipairs(shown) do
     if entry.id == id then
-      local seconds = fade and math.max(fade, 0) or 0.25
       -- Only its screen's oldest fades: the toasts above any other move into its place.
       for j = 1, i - 1 do
         if shown[j].screen:id() == entry.screen:id() then
