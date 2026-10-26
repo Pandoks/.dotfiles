@@ -154,7 +154,10 @@ function toast.show(text, options)
   if seconds == nil then
     seconds = 3
   end
-  local screen = options.screen or hs.screen.mainScreen()
+  -- The main screen can lag a fullscreen app's display, but a toast must never raise.
+  local screen = options.screen
+    or hs.screen.find(hs.spaces.spaceDisplay(hs.spaces.focusedSpace()))
+    or hs.screen.mainScreen()
   local failure = options.failure == true
   -- A timed repeat on the same screen restarts instead of stacking.
   for i, entry in ipairs(shown) do

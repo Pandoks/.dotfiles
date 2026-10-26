@@ -17,6 +17,7 @@ local function display(x)
   return screen
 end
 local main, side = display(0), display(1000)
+---@type file*?
 local focused = main
 local windows = { __index = {
   screen = function()
@@ -40,8 +41,24 @@ local toast = assert(loadfile(
         return kinds[name]
       end,
       screen = {
+        -- Can stay on another display while a fullscreen app has focus.
         mainScreen = function()
-          return focused
+          return main
+        end,
+        find = function(uuid)
+          return ({ ["0"] = main, ["1000"] = side })[uuid]
+        end,
+      },
+      spaces = {
+        focusedSpace = function()
+          return 7
+        end,
+        spaceDisplay = function(space)
+          assert(space == 7, "not the focused Space")
+          if not focused then
+            return nil, "space not found in managed displays"
+          end
+          return tostring(at[focused])
         end,
       },
       styledtext = {
@@ -220,6 +237,13 @@ test("a toast stays on its screen when focus and the stack change", function()
   assert(bottom(canvases[1]) == 609 and bottom(canvases[2]) == 609, "screens share one stack")
   timers[2].fn()
   assert(canvases[2].fade == 0.25, "the side screen's oldest did not fade")
+  clear()
+end)
+
+test("a toast without a focused display goes to the main screen", function()
+  focused = nil
+  assert(pcall(toast.show, "lost"), "a toast without a focused display raised")
+  assert(canvases[1].at.x < 1000, "the toast without a focused display went elsewhere")
   clear()
 end)
 
