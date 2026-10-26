@@ -15,6 +15,17 @@ static BOOL keepImageLoaded(void) {
   return handle != NULL;
 }
 
+// Full Liquid Glass (edge lensing, a lit rim) without key focus, as AppKit's own menus get it: a
+// window without an active appearance gets a subdued blur, and only a key window has one.
+@interface ToastPanel : NSPanel
+@end
+
+@implementation ToastPanel
+- (BOOL)_hasActiveAppearanceIgnoringKeyFocus { // private
+  return YES;
+}
+@end
+
 // glass(canvas, radius, fade): Liquid Glass under a shown canvas, fading in with it. A child window
 // below the canvas's, it moves and orders with the canvas and lets its clicks through.
 static int glass(lua_State *state) {
@@ -24,10 +35,10 @@ static int glass(lua_State *state) {
   luaL_argcheck(state, canvas != nil, 1, "canvas has no window");
   CGFloat radius = lua_tonumber(state, 2);
   NSTimeInterval fade = lua_tonumber(state, 3);
-  NSPanel *panel = [[NSPanel alloc] initWithContentRect:canvas.frame
-                                              styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
-                                                backing:NSBackingStoreBuffered
-                                                  defer:NO];
+  NSPanel *panel = [[ToastPanel alloc] initWithContentRect:canvas.frame
+                                                  styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+                                                    backing:NSBackingStoreBuffered
+                                                      defer:NO];
   panel.releasedWhenClosed = NO;
   panel.opaque = NO;
   panel.backgroundColor = NSColor.clearColor;
@@ -96,6 +107,9 @@ static const luaL_Reg functions[] = {
 int luaopen_toast(lua_State *state) {
   if (!keepImageLoaded()) return luaL_error(state, "could not retain toast library");
   if (!NSClassFromString(@"NSGlassEffectView")) return luaL_error(state, "Liquid Glass needs macOS 26");
+  if (![NSPanel instancesRespondToSelector:@selector(_hasActiveAppearanceIgnoringKeyFocus)]) {
+    return luaL_error(state, "Liquid Glass: AppKit has no _hasActiveAppearanceIgnoringKeyFocus");
+  }
   luaL_newmetatable(state, tag);
   lua_newtable(state);
   lua_pushcfunction(state, hide);
