@@ -32,7 +32,8 @@ end
 local config = load("defaults", {})
 local mine = load("config", {})
 mine.words = { "Slack", Raycast = { "ray cast" } }
-mine.apps = { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } } }
+mine.apps =
+  { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } }, ["com.y"] = { style = "terse" } }
 mine.cleanup, mine.speech = false, { model = "mine" }
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
 local hs = {
@@ -187,7 +188,7 @@ local modules = {
     cleanup = function(capture, kept)
       if capture then
         capture.done, capture.ended = nil, true
-        if not kept then
+        if not kept or capture.silent then
           os.remove(capture.wav)
         end
       end
@@ -533,7 +534,7 @@ test("Escape while recording deletes the take", function()
   assert(not fs.attributes(recorded), "the recording is left")
 end)
 
-test("a recorder that fails keeps the take and says why; the next press starts anew", function()
+test("a failed capture keeps its audio and says why; the next press starts anew", function()
   local count = wavs()
   alerts, focus = {}, field("Hi")
   toggle()
@@ -541,9 +542,12 @@ test("a recorder that fails keeps the take and says why; the next press starts a
   assert(alerts[1] == "Dictation: recorder: device lost", tostring(alerts[1]))
   assert(wavs() == count + 1 and not fs.attributes(recorded), "not kept")
   local started = takes
+  alerts = {}
   toggle()
   assert(takes == started + 1, "the next press did not start a take")
-  escape()
+  take.silent = true -- caught no audio
+  take.fail("capture exited (code 0)")
+  assert(#alerts == 1 and wavs() == count + 1, "kept no audio: " .. tostring(alerts[2]))
 end)
 
 test("a capture that can't start says why and leaves the hotkey working", function()

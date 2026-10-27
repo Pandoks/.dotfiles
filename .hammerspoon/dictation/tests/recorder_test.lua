@@ -138,6 +138,7 @@ test("cleanup kills ffmpeg, cancels a stop, and deletes the wav unless kept with
     end
     assert(io.open(recording.wav, "w")):close()
     receive(audio)
+    recorder.analyze(recording)
     recorder.stop(recording, function()
       sent = true
     end)

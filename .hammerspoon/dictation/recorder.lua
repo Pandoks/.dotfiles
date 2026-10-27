@@ -260,7 +260,7 @@ function recorder.cleanup(recording, kept)
   end
   -- Now: a reload skips the exit callback (unlinking is safe while ffmpeg writes).
   local rest = recording.close()
-  -- Nothing streamed: the wav holds ffmpeg's header alone.
+  -- Nothing streamed: the wav is empty.
   if not kept or recording.offset + #recording.fresh + #rest == 0 then
     os.remove(recording.wav)
   end
