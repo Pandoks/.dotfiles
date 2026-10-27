@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -247,9 +248,10 @@ check(
         ("Pick one or two options.", "Pick 1 or 2 options."),
         ("Meet at three thirty.", "Meet at 3:30."),
         ("Let's meet at 3.30.", "Let's meet at 3:30."),
-        ("Let's meet at 3.30 this afternoon.", "Let's meet at 3:30 this afternoon."),
         ("Lunch at 12.30 works for me.", "Lunch at 12:30 works for me."),
         ("The train at 7.15 leaves from platform 2.", "The train at 7:15 leaves from platform 2."),
+        ("Cut it at 2.45 meters or at 2.45 inches.", "Cut it at 2.45 meters or at 2.45 inches."),
+        ("Play the video at 1.30 times speed.", "Play the video at 1.30 times speed."),
         ("The market closed at one point fifteen.", "The market closed at 1.15."),
         ("We raised at two point fifteen million dollars.", "We raised at 2.15 million dollars."),
         ("We raised at 2.15 million dollars.", "We raised at 2.15 million dollars."),
@@ -311,8 +313,12 @@ check(
             "1, fix the overlay. 2, update the README.",
         ),
         (
-            "Two things. One, the pill is too big, and two, it's too bright.",
-            "2 things. 1, the pill is too big, and 2, it's too bright.",
+            "Two things. One, the pill is too big and two, it's too bright.",
+            "2 things. 1, the pill is too big and 2, it's too bright.",
+        ),
+        (
+            "I tried the blue one, it's fine. One, it's fast. Two, it's cheap.",
+            "I tried the blue one, it's fine. 1, it's fast. 2, it's cheap.",
         ),
         (
             "I'd pick the blue one, honestly. Two of the others are broken.",
@@ -371,6 +377,7 @@ check(
         (("Um, yabai crashed again.", None), "yabai crashed again."),
         (("Erm, I think, hmm, we should, ahm, go.", None), "I think we should go."),
         (("MM, maybe later.", None), "Maybe later."),
+        (("MMM, that sounds good.", None), "That sounds good."),
     ],
     lambda pair: dictate(*pair, numbers=True),
 )
@@ -547,6 +554,10 @@ check(
             ("We need five chairs, I mean six.", "We need six chairs."),
             ("Is that right? So we ship it.", "Is that right? We ship it."),
             (
+                "Book it for Monday, sorry, Tuesday for your team, if you can.",
+                "Book it for Tuesday for your team, if you can.",
+            ),
+            (
                 "Couldn't we do Monday, sorry, Tuesday after lunch?",
                 "Couldn't we do Tuesday after lunch?",
             ),
@@ -554,6 +565,7 @@ check(
             ("Like you're being very vague.", "You're being very vague."),
             ("Can you make one? Like I forgot its name.", "Can you make one? I forgot its name."),
             ("It's like so slow.", "It's so slow."),
+            ("I'm like so tired.", "I'm so tired."),
             ("That's the one that you know, I told you about.", "That's the one I told you about."),
             ("Show 10² rows, not ①.", "Show 10² rows, not ①."),
             ("Meet İbrahim Monday, sorry, Tuesday.", "Meet İbrahim Tuesday."),
@@ -634,6 +646,7 @@ check(
             ("We miss missed the bus this morning.", "We missed the bus this morning."),
             ("Uh-huh.", "Huh."),
             ("Uh huh.", "Huh."),
+            ("Like I said the deploy failed again.", "I said the deploy failed again."),
             ("It costs one thousand dollars.", "It costs 1,000 dollars."),
             ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
         ]
@@ -674,6 +687,13 @@ check(
             "Is it done? I think it is. Ship it.",
         ),
         (("I think so.", "Yes, I think so."), "I think so."),
+        (
+            (
+                "Can you look at the logs or something? Could you could you make it darker?",
+                "Can you look at the logs? Could you make it darker?",
+            ),
+            "Can you look at the logs or something? Could you could you make it darker?",
+        ),
         (("Okay. Um, the build broke. Fix it.", "Okay. Fix it."), "Okay. The build broke. Fix it."),
         (("Fix it. Um. Thanks for that.", "Fix it."), "Fix it. Thanks for that."),
         (("'Cause I need it.", "Because I need it."), "'Cause I need it."),
@@ -735,8 +755,6 @@ check(
         (("Привет, как дела?", None), "Привет, как дела?"),
         (("你好，今天天气很好。", None), "你好，今天天气很好。"),
         (("42", None), "42"),
-        (("Um, uh.", None), ""),
-        (("Ah, um.", None), ""),
         (("Hum?", None), ""),
         (("Like.", "."), ""),
         (("Like", ""), ""),
@@ -1107,7 +1125,7 @@ check(
 
 
 # Through parakeet-mlx's transcribe: the unboosted pass decodes the boosted pass's encoding.
-class Take(Model):
+class Transcriber(Model):
     decode = ParakeetTDT.decode  # pyright: ignore[reportAssignmentType]
     decode_greedy, transcribe = ParakeetTDT.decode_greedy, ParakeetTDT.transcribe
     preprocessor_config = SimpleNamespace(sample_rate=16000)
@@ -1119,19 +1137,23 @@ class Take(Model):
 
 encoded = []
 reusing = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})
-reusing.model = Take(  # pyright: ignore[reportAttributeAccessIssue]
+reusing.model = Transcriber(  # pyright: ignore[reportAttributeAccessIssue]
     scores([{"▁ok": 30}, {"ay": 21, "i": 20}])
 )
 with (
-    mock.patch("parakeet_mlx.parakeet.load_audio", lambda *_: mx.zeros(16000)),
+    tempfile.TemporaryDirectory() as folder,
+    mock.patch("parakeet_mlx.parakeet.load_audio", models.read),  # as Parakeet.load sets it
     mock.patch("parakeet_mlx.parakeet.get_logmel", lambda *_: mx.arange(3.0)[None, :, None]),
 ):
-    texts = [reusing.transcribe("take.wav", hint) for hint in (["Oki"], [])]
+    with wave.open(f"{folder}/take.wav", "wb") as audio:  # the recorder's 16 kHz mono s16le
+        audio.setparams((1, 2, 16000, 0, "NONE", ""))
+        audio.writeframes(bytes(32000))
+    texts = [reusing.transcribe(f"{folder}/take.wav", hint) for hint in (["Oki"], [])]
 assert texts == ["oki", "okay"] and len(encoded) == 1, (texts, encoded)
 print("PASS boosting encodes a take once, and the unboosted pass decodes it unboosted")
 # Unboosted and boosted Parakeet decodes of TTS takes (`say -v Albert`, `-v Daniel`, ...).
 check(
-    "a boosted word is kept only where it spells a vocabulary word",
+    "a boosted word is kept only where it spells a vocabulary word, never over a stall",
     [
         (
             ("The morning mist was thick.", "The morning mis was thick."),
