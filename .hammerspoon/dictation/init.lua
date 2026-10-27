@@ -309,6 +309,7 @@ local function toggle()
     overlay, state = pill, "recording"
     local capture, failure = recorder.start(Overlay.bands, function(message)
       fail("recorder: " .. message)
+      salvage()
       finish()
     end)
     if not capture then
@@ -403,8 +404,6 @@ hs.shutdownCallback = function()
   if shutdown then
     shutdown()
   end
-  -- Last: unbinding Escape logs, and hs.ipc's print raises while a dead `hs` CLI is registered.
-  finish()
 end
 
 return dictation

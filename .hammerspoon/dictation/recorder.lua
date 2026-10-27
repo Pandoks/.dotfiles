@@ -11,7 +11,6 @@ local utils = require("lib.utils")
 ---@field floor? number room loudness (0..1): falls instantly, rises slowly
 ---@field bins integer[] band edges in FFT bins, 0..bands
 ---@field task? hs.task nil once ffmpeg exits
----@field stopping? boolean
 ---@field discarded? boolean cancelled or failed
 ---@field done? fun(wav: string, peak: number, duration: number)
 
@@ -121,7 +120,7 @@ function recorder.start(bands, onError)
     recording.task = nil -- frees the task, which holds these callbacks
     failure(errors)
     -- Stopping, SIGINT exits ffmpeg 255, or 2 if it came before ffmpeg set its handler.
-    if not recording.stopping or (code ~= 0 and code ~= 255 and code ~= 2) then
+    if not recording.done or (code ~= 0 and code ~= 255 and code ~= 2) then
       failure("capture exited (code " .. code .. ")")
     end
     -- The last chunk arrives after the final tick: count it in the duration and peak.
@@ -244,7 +243,7 @@ end
 ---@param recording DictationRecording
 ---@param done fun(wav: string, peak: number, duration: number)
 function recorder.stop(recording, done)
-  recording.stopping, recording.done = true, done
+  recording.done = done
   assert(recording.task):interrupt()
 end
 

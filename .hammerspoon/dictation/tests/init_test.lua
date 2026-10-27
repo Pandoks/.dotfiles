@@ -441,6 +441,7 @@ test("a stop ffmpeg doesn't finish in 2 s, slow apps aside, keeps the take and s
   local system = hs.axuielement.systemWideElement
   -- An app slow to answer: every timer started by then comes due first.
   hs.axuielement.systemWideElement = function()
+    assert(take.done, "a slow app kept the take recording")
     for index = before + 1, #timers do
       timers[index]()
     end
@@ -539,14 +540,16 @@ test("Escape while recording deletes the take", function()
   assert(not fs.attributes(recorded), "the recording is left")
 end)
 
-test("a recorder that fails ends the take and says why; the next press starts anew", function()
+test("a recorder that fails keeps the take and says why; the next press starts anew", function()
+  local count = wavs()
   alerts, focus = {}, field("Hi")
   toggle()
   take.fail("device lost")
   assert(alerts[1] == "Dictation: recorder: device lost", tostring(alerts[1]))
-  local count = takes
+  assert(wavs() == count + 1 and not fs.attributes(recorded), "not kept")
+  local started = takes
   toggle()
-  assert(takes == count + 1, "the next press did not start a take")
+  assert(takes == started + 1, "the next press did not start a take")
   escape()
 end)
 
@@ -678,30 +681,28 @@ test("a hotkey key hs.hotkey doesn't know stops the backend and says why", funct
   assert(stopped and tostring(alerts[1]):find("Invalid key: bogus", 1, true), tostring(alerts[1]))
 end)
 
-test("a reload that can't move a take into history leaves it where the alert says", function()
+test("a take that can't move into history is left where the alert says", function()
   alerts, focus = {}, field("Hi")
   toggle()
+  toggle()
   os.execute("chmod 500 " .. directory)
-  local ok, problem = pcall(hs.shutdownCallback)
+  local ok, problem = pcall(timers[#timers]) -- the stop deadline
   os.execute("chmod 700 " .. directory)
   assert(ok, problem)
-  assert(tostring(alerts[1]):find("could not keep " .. recorded, 1, true), tostring(alerts[1]))
+  assert(tostring(alerts[2]):find("could not keep " .. recorded, 1, true), tostring(alerts[2]))
   assert(fs.attributes(recorded), "the recording was deleted")
 end)
 
 -- Last: it tears everything down.
-test("shutdown puts the clipboard back and keeps every take, even if a log line raises", function()
+test("shutdown puts the clipboard back and keeps every take", function()
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "x" })
   local count = wavs()
   dictate(field("Hi"))
   escape() -- still transcribing, no longer waited on
   toggle()
-  local recording = take
   chained = false
-  dead = true -- unbinding Escape raises: every take is kept first
-  pcall(hs.shutdownCallback)
-  dead = false
-  assert(recording.ended, "ffmpeg left running")
+  hs.shutdownCallback()
+  assert(take.ended, "ffmpeg left running")
   assert(chained, "the shutdown before it was skipped")
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
   assert(wavs() == count + 2 and not fs.attributes(recorded), "a recording is not kept")

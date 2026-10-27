@@ -86,12 +86,18 @@ test("a frame shows bands only once a full window has streamed, and only for new
   assert(recorder.analyze(recording) == nil, "bands with nothing new")
 end)
 
-test("a steady quiet room leaves the bars flat, and quiet speech over it moves them", function()
+test("the bars follow the room: flat once it is steady, up for quiet speech over it", function()
   local recording = assert(recorder.start(8, error))
   receive(pcm(0.01, 1024))
   for _, band in ipairs(assert(recorder.analyze(recording), "no bands")) do
     assert(band == 0, band)
   end
+  receive(pcm(0.005, 1024)) -- a quieter moment: the floor falls to it
+  for _ = 1, 150 do -- 5 s of frames in the room: the floor rises back
+    recorder.analyze(recording)
+    receive(pcm(0.01, 1024))
+  end
+  assert(recorder.analyze(recording)[4] == 0, "the bars stayed up in a steady room")
   receive(pcm(0.02, 1024)) -- 6 dB over the room
   assert(recorder.analyze(recording)[4] > 0, "quiet speech left the bars flat")
 end)
