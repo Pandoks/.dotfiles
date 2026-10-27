@@ -86,13 +86,13 @@ return function(text, value, range)
     or wordy(before) and (slashes[after] or joiners[after] and wordy(beyond))
     -- Part of a word replaced: "fo[ob]ar" + "baz" is "fobazar".
     or (before .. last .. after):match("^%w%w%w$") ~= nil
-  local first, final = utf8.char(utf8.codepoint(text, 1)), text:sub(utf8.offset(text, -1))
+  local head, tail = utf8.char(utf8.codepoint(text, 1)), text:sub(utf8.offset(text, -1))
   if
     not starts(before)
     and not slashes[before]
     and not (quotes[before] and starts(prior))
     and not joined
-    and not (within(before, unspaced) and within(first, unspaced))
+    and not (within(before, unspaced) and within(head, unspaced))
   then
     text = " " .. text
   end
@@ -103,7 +103,7 @@ return function(text, value, range)
   if
     (wordy(after) or (openers[after] and after ~= "/") or opens)
     and not joined
-    and not (within(final, unspaced) and within(after, unspaced))
+    and not (within(tail, unspaced) and within(after, unspaced))
   then
     text = text .. " "
   end

@@ -1,5 +1,6 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
+package.path = root .. "/../?.lua;" .. package.path
 local date, clock = os.date, 0
 -- os.date reads a clock the tests set, so take names are known.
 local history = assert(loadfile(
@@ -65,8 +66,16 @@ local recording = scratch .. "/other.wav"
 io.open(recording, "w"):close()
 local moved = not history.prepare(other) and history.keep(recording, other)
 local kept = list(other.directory)
-os.execute(("hdiutil detach -quiet '%s'"):format(volume))
+-- A full disk: the save says so, and leaves no partial transcript or open file.
+local full = history.save(("x"):rep(3 * 1024 * 1024), other)
+local left = list(other.directory)
+local detached = os.execute(("hdiutil detach -quiet '%s'"):format(volume))
+if not detached then
+  os.execute(("hdiutil detach -quiet -force '%s'"):format(volume))
+end
 assert(moved == nil and kept:match("%.wav$") and not fs.attributes(recording), tostring(moved))
+assert(full and full:find("could not write", 1, true) and not left:find("txt"), tostring(full))
+assert(detached, "a failed save left its file open")
 
 -- Pruning never deletes a kept recording.
 local wav = scratch .. "/take.wav"

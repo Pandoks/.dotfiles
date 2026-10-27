@@ -1,3 +1,5 @@
+local quote = require("lib.utils").quote
+
 local history = {}
 
 -- Transcripts are <timestamp>.txt; the folder's other files are never counted or deleted.
@@ -5,19 +7,14 @@ local take = "^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d_?%d*%.txt$"
 -- Bytes of transcripts once prune() has counted them: it lists the folder again only past the cap.
 local total
 
----@param settings DictationHistoryConfig
+---@param settings DictationHistory
 local function folder(settings)
   return (
     settings.directory:gsub("^~", os.getenv("HOME") --[[@as string]])
   )
 end
 
--- Quoted for sh: it's -> 'it'\''s'.
-local function quote(text)
-  return "'" .. text:gsub("'", "'\\''") .. "'"
-end
-
----@param settings DictationHistoryConfig
+---@param settings DictationHistory
 ---@return string? failure
 function history.prepare(settings)
   local directory = folder(settings)
@@ -27,7 +24,7 @@ function history.prepare(settings)
   end
 end
 
----@param settings DictationHistoryConfig
+---@param settings DictationHistory
 ---@param extension string
 local function slot(settings, extension)
   local directory = folder(settings)
@@ -41,13 +38,14 @@ local function slot(settings, extension)
 end
 
 ---@param text string
----@param settings DictationHistoryConfig
+---@param settings DictationHistory
 ---@return string? failure
 function history.save(text, settings)
   local path = slot(settings, "txt")
-  -- A full disk surfaces only at close.
+  -- Closed even after a failed write; a full disk may surface only at close.
   local file = io.open(path, "w")
-  if not (file and file:write(text, "\n") and file:close()) then
+  local written = file and file:write(text, "\n")
+  if not (file and file:close() and written) then
     os.remove(path)
     return "could not write " .. path
   end
@@ -56,7 +54,7 @@ end
 
 -- Never pruned: it is the only copy of what was said.
 ---@param wav string
----@param settings DictationHistoryConfig
+---@param settings DictationHistory
 ---@return string? failure
 function history.keep(wav, settings)
   local path = slot(settings, "wav")
@@ -67,7 +65,7 @@ function history.keep(wav, settings)
 end
 
 -- Delete the oldest transcripts over the cap, never the newest; sizes are du-style blocks.
----@param settings DictationHistoryConfig
+---@param settings DictationHistory
 ---@return string? failure
 function history.prune(settings)
   local limit = settings.maxMegabytes * 1024 * 1024

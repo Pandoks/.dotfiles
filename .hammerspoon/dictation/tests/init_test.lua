@@ -1,8 +1,9 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
+package.path = root .. "/../?.lua;" .. package.path
 local passed, alerts, strokes, timers, changes, takes, serial = 0, {}, {}, {}, 0, 0, 0
 local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead, settings, take
-local frame, broken
+local frame, broken, armed, shown, chained
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
 local directory = scratch .. "/init-history"
@@ -50,17 +51,24 @@ local hs = {
     -- hs.hotkey logs on enable/disable; hs.ipc's print raises while a dead `hs` CLI is registered.
     new = function(_, _, callback)
       escape = callback
-      local function log()
-        assert(not dead, "ipc port is no longer valid")
-        return true
+      local function log(on)
+        return function()
+          assert(not dead, "ipc port is no longer valid")
+          armed = on
+          return true
+        end
       end
-      return { enable = log, disable = log }
+      return { enable = log(true), disable = log(false) }
     end,
   },
   timer = {
     doEvery = function(_, callback)
       frame = callback
-      return stub()
+      return stub({
+        stop = function()
+          frame = nil
+        end,
+      })
     end,
     doAfter = function(_, callback)
       timers[#timers + 1] = callback
@@ -114,6 +122,9 @@ local hs = {
       strokes[#strokes + 1] = mods[1] .. "+" .. key
     end,
   },
+  shutdownCallback = function()
+    chained = true
+  end,
 }
 
 local modules = {
@@ -130,8 +141,13 @@ local modules = {
   ["dictation.history"] = load("history", { hs = { fs = fs } }),
   ["dictation.overlay"] = {
     new = function()
+      shown = true
       return stub({
-        canvas = stub(),
+        canvas = stub({
+          delete = function()
+            shown = false
+          end,
+        }),
         update = function()
           assert(not broken, "broken frame")
         end,
@@ -139,11 +155,11 @@ local modules = {
     end,
   },
   ["dictation.recorder"] = {
-    start = function()
+    start = function(_, onError)
       takes = takes + 1
       recorded = ("%s/take%d.wav"):format(scratch, takes)
       assert(io.open(recorded, "w")):close()
-      take = { wav = recorded }
+      take = { wav = recorded, fail = onError }
       return take
     end,
     stop = function(capture, callback)
@@ -167,8 +183,8 @@ local modules = {
     analyze = function() end,
   },
   ["dictation.engine"] = {
-    new = function(config, callbacks)
-      handlers, settings = callbacks, config
+    new = function(merged, callbacks)
+      handlers, settings = callbacks, merged
       return {
         ready = true,
         stop = function() end,
@@ -207,7 +223,7 @@ local function field(before, deaf, fixed, role)
       AXRole = role or "AXTextArea",
       AXValue = self.value,
       AXSelectedText = "",
-      AXSelectedTextRange = { location = utf8.len(self.value), length = 0 },
+      AXSelectedTextRange = { location = self.caret or utf8.len(self.value), length = 0 },
     })[name]
   end
   function element.isAttributeSettable()
@@ -257,25 +273,51 @@ test("a field that takes the write gets the text spaced, saved, its recording de
   assert(element.value == "Hello there." and #strokes == 0 and #alerts == 0, element.value)
   assert(saved("there.") and not saved("there"), "not the text saved")
   assert(not fs.attributes(sent.wav) and wavs() == 0, "the recording is left")
+  assert(not shown and not frame and not armed, "the pill, its frames, or Escape outlived the take")
 end)
 
 test("a write the field ignores (Chromium) is pasted, then the clipboard put back", function()
+  local types = hs.pasteboard.allContentTypes
+  hs.pasteboard.allContentTypes = function()
+    return { {}, {} }
+  end
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "you" })
+  hs.pasteboard.allContentTypes = types
   assert(strokes[1] == "cmd+v" and clipboard["public.utf8-plain-text"] == " you", strokes[1])
   assert(clipboard[transient] == "", "clipboard managers record the dictation")
+  timers[#timers]()
+  assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
+  assert(clipboard[transient] == "", "clipboard managers record the restore")
+  assert(
+    alerts[1] == "Dictation: restored only the first of 2 clipboard items",
+    tostring(alerts[1])
+  )
+end)
+
+test("a ⌘V that raises (a layout without v) still puts the clipboard back", function()
+  local stroke = hs.eventtap.keyStroke
+  hs.eventtap.keyStroke = function()
+    error("Invalid key: v", 0)
+  end
+  handlers.onFinal({ id = dictate(field("Hi", true)), text = "you" })
+  hs.eventtap.keyStroke = stroke
+  assert(alerts[1] == "Dictation: Invalid key: v", tostring(alerts[1]))
   timers[#timers]()
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
 end)
 
 test("a terminal's or a Gecko app's field is pasted into, never written", function()
+  local screen = field("Last login: Mon\n$ ", false, true)
+  screen.caret = 0 -- Ghostty's value is its whole screen, its range {0, 0}
   for _, case in ipairs({
-    { field("$ ", false, true), "com.mitchellh.ghostty" },
-    { field("Hi"), "org.mozilla.firefox" }, -- applies writes late
+    { screen, "com.mitchellh.ghostty", "ls" },
+    { field("Hi"), "org.mozilla.firefox", " ls" }, -- applies writes late
   }) do
-    local element, bundle = table.unpack(case)
+    local element, bundle, want = table.unpack(case)
     front = app(bundle)
     handlers.onFinal({ id = dictate(element), text = "ls" })
     assert(element.written == nil and strokes[1] == "cmd+v", bundle)
+    assert(clipboard["public.utf8-plain-text"] == want, clipboard["public.utf8-plain-text"])
     timers[#timers]()
   end
   front = nil
@@ -374,12 +416,12 @@ end)
 
 test("config.lua's settings replace the defaults, its words sent as one map", function()
   local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
-  local sent = json.decode(assert(json.encode(settings)))
-  assert(sent.speech.model and sent.cleanup.model == nil, "a setting merged, not replaced")
-  assert(next(sent.words.Slack) == nil, json.encode(sent.words))
-  assert(sent.words.Raycast[1] == "ray cast", json.encode(sent.words))
-  local app = sent.apps["com.x"].words
-  assert(next(app.Zed) == nil and app.Neovim[1] == "neo vim", json.encode(app))
+  local decoded = json.decode(assert(json.encode(settings)))
+  assert(decoded.speech.model and decoded.cleanup.model == nil, "a setting merged, not replaced")
+  assert(next(decoded.words.Slack) == nil, json.encode(decoded.words))
+  assert(decoded.words.Raycast[1] == "ray cast", json.encode(decoded.words))
+  local words = decoded.apps["com.x"].words
+  assert(next(words.Zed) == nil and words.Neovim[1] == "neo vim", json.encode(words))
 end)
 
 test("a take too short or too quiet is never sent, and is deleted", function()
@@ -431,6 +473,17 @@ test("Escape while recording deletes the take", function()
   toggle()
   escape()
   assert(not fs.attributes(recorded), "the recording is left")
+end)
+
+test("a recorder that fails ends the take and says why; the next press starts anew", function()
+  alerts, focus = {}, field("Hi")
+  toggle()
+  take.fail("device lost")
+  assert(alerts[1] == "Dictation: recorder: device lost", tostring(alerts[1]))
+  local count = takes
+  toggle()
+  assert(takes == count + 1, "the next press did not start a take")
+  escape()
 end)
 
 test("a frame that raises ends the take and says so", function()
@@ -521,7 +574,7 @@ test("an unknown setting in config.lua alerts", function()
   assert(alerts[1] == "Dictation: config.lua: unknown setting bogus", tostring(alerts[1]))
 end)
 
-test("a hotkey macOS can't bind stops the backend and says why", function()
+test("a hotkey key hs.hotkey doesn't know stops the backend and says why", function()
   local stopped = false
   alerts = {}
   reload({
@@ -554,9 +607,10 @@ test("shutdown puts the clipboard back and keeps every take, even if a log line 
   pcall(hs.shutdownCallback)
   dead = false
   assert(recording.finalized, "the recording was kept before ffmpeg finished it")
+  assert(chained, "the shutdown before it was skipped")
   assert(tostring(alerts[1]):find("may be cut short", 1, true), tostring(alerts[1]))
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
   assert(wavs() == count + 2 and not fs.attributes(recorded), "a recording is not kept")
 end)
 
-print(passed .. " init tests passed")
+print("RESULT " .. passed .. " passed, 0 failed")

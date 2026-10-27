@@ -1,6 +1,7 @@
 local root, frameworks = assert(arg[1], "pass the dictation directory"), arg[2]
 local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
 local passed, alerts, output, exit, printed, inputs, dead = 0, {}, nil, nil, {}, {}, false
+local terminated
 
 local function test(name, callback)
   local ok, failure = pcall(callback)
@@ -39,7 +40,9 @@ local environment = setmetatable({
           setInput = function(_, data)
             inputs[#inputs + 1] = json.decode(data)
           end,
-          terminate = function() end,
+          terminate = function()
+            terminated = true
+          end,
         }
       end,
     },
@@ -79,7 +82,7 @@ test("a handler's error is reported and later results are still read", function(
   assert(alerts[2] and alerts[2]:find("no window", 1, true), tostring(alerts[2]))
 end)
 
-test("what the backend prints once ready reaches the console", function()
+test("load chatter stays out of the console; what the backend prints once ready goes in", function()
   assert(engine.new({}, { onFinal = function() end, onError = function() end }))
   local feed = assert(output, "no backend task")
   printed = {}
@@ -118,7 +121,8 @@ test("a long reply is read in one pass", function()
   }))
   local line = '{"event":"final","id":1,"text":"' .. ("word "):rep(40000) .. '"}\n'
   local feed, start = assert(output, "no backend task"), os.clock()
-  feed(nil, '{"event":"ready"}\n' .. line:sub(1, 100000), "")
+  feed(nil, '{"event":"ready"}\n', "")
+  feed(nil, line:sub(1, 100000), "")
   feed(nil, line:sub(100001), "")
   assert(finals[1] == 200000 and os.clock() - start < 0.5, ("%.2f s"):format(os.clock() - start))
 end)
@@ -132,6 +136,7 @@ test("a take waits for the one before it, never written over it", function()
   local second = assert(backend:transcribe("/tmp/b.wav"))
   local third = assert(backend:transcribe("/tmp/c.wav"))
   assert(#inputs == 1 and inputs[1].id == first, "a second request written before an answer")
+  assert(first ~= second and second ~= third, "two takes share an id")
   local keys = {}
   for key in pairs(inputs[1]) do
     keys[#keys + 1] = key
@@ -160,6 +165,7 @@ test("a backend that fails, dies, or says something unknown fails once and says 
   }) do
     local said, why, code = table.unpack(case)
     local failures = {}
+    terminated = nil
     local backend = assert(engine.new({}, {
       onFinal = function() end,
       onError = function(message, id)
@@ -176,6 +182,7 @@ test("a backend that fails, dies, or says something unknown fails once and says 
     die(1, "", "")
     assert(#failures == 1 and tostring(failures[1]):find(why, 1, true), tostring(failures[1]))
     assert(not backend:transcribe("/tmp/x.wav"), "a dead backend took a take")
+    assert(terminated, "the failed backend was left running")
   end
 end)
 
@@ -184,4 +191,4 @@ test("a config JSON cannot encode starts no backend and says why", function()
   assert(not backend and tostring(problem):find("JSON", 1, true), tostring(problem))
 end)
 
-print(passed .. " engine tests passed")
+print("RESULT " .. passed .. " passed, 0 failed")

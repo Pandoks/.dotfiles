@@ -77,7 +77,6 @@ local function focused()
   )
 end
 
--- The app's own ⌘V, then the clipboard put back; macOS never says when the app read it.
 ---@param text string
 local function paste(text)
   -- A paste before the last one's restore keeps the clipboard from before that one.
@@ -91,7 +90,6 @@ local function paste(text)
     restore.timer:stop()
   end
   local count = hs.pasteboard.changeCount()
-  hs.eventtap.keyStroke({ "cmd" }, "v", 0)
   -- 1 s lets a busy app (Slack, VS Code) read it; any later write cancels the restore.
   restore = {
     count = count,
@@ -113,6 +111,8 @@ local function paste(text)
       end
     end),
   }
+  -- Last: a layout without "v" raises, and the clipboard must still be put back.
+  hs.eventtap.keyStroke({ "cmd" }, "v", 0)
 end
 
 ---@param element hs.axuielement
@@ -147,8 +147,12 @@ local function insert(text)
   local role = read(element, "AXRole")
   local value = read(element, "AXValue")
   local range = read(element, "AXSelectedTextRange")
-  -- A field hiding its text (a terminal) gets the text as dictated.
-  text = type(value) == "string" and spaced(text, value, range) or text
+  local app = hs.application.frontmostApplication()
+  local bundle = app and app:bundleID()
+  -- As dictated where the text is hidden, or is Ghostty's whole screen with the range at {0, 0}.
+  if type(value) == "string" and bundle ~= "com.mitchellh.ghostty" then
+    text = spaced(text, value, range)
+  end
   -- Mail's compose body is an editable page: its value is settable, its selection is not.
   if role == "AXWebArea" and read(element, "AXValue", true) then
     return paste(text)
@@ -157,9 +161,8 @@ local function insert(text)
   if role ~= "AXTextField" and role ~= "AXTextArea" and role ~= "AXComboBox" then
     error("no text field is focused", 0)
   end
-  local app = hs.application.frontmostApplication()
   -- Terminals and Messages take no writes; read-only views look alike and ignore ⌘V.
-  if not read(element, "AXSelectedText", true) or (app and gecko[app:bundleID()]) then
+  if not read(element, "AXSelectedText", true) or gecko[bundle] then
     return paste(text)
   end
   if type(value) ~= "string" then
@@ -241,7 +244,7 @@ local engine, problem = Engine.new(config, {
       end
       finish(text)
     end
-    -- After delivery: past the cap it lists the folder.
+    -- After delivery: pruning past the cap lists the folder.
     local unpruned = saved and history.prune(config.history)
     if unpruned then
       fail(unpruned)
@@ -287,7 +290,7 @@ local function toggle()
       return
     end
     -- New each take: a reused one can drop off the spaces it joined.
-    local pill = Overlay.new(config.overlayHeight)
+    local pill = Overlay.new()
     overlay, state = pill, "recording"
     local capture, failure = recorder.start(Overlay.bands, function(message)
       fail("recorder: " .. message)

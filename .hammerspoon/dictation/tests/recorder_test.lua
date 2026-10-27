@@ -1,5 +1,5 @@
 local root, scratch = arg[1], arg[3]
-local passed, rest, sleeps = 0, "", 0
+local passed, rest, slept = 0, "", 0
 local task, receive
 
 local function test(name, callback)
@@ -28,8 +28,8 @@ local hs = {
     pathToAbsolute = function() end,
   },
   timer = {
-    usleep = function()
-      sleeps = sleeps + 1
+    usleep = function(microseconds)
+      slept = slept + microseconds
     end,
   },
   host = {
@@ -38,8 +38,8 @@ local hs = {
     end,
   },
   task = {
-    new = function(_, exit, stream)
-      task = { exit = exit, stream = stream, interrupts = 0, polls = 0, running = 0 }
+    new = function(_, exit, output)
+      task = { exit = exit, stream = output, interrupts = 0, polls = 0, running = 0 }
       function task.start()
         return true
       end
@@ -50,7 +50,9 @@ local hs = {
         task.polls = task.polls + 1
         return task.polls <= task.running
       end
-      function task.terminate() end
+      function task.terminate()
+        task.terminated = true
+      end
       return task
     end,
   },
@@ -90,27 +92,22 @@ test("a frame shows bands only once a full window has streamed, and only for new
   for _, band in ipairs(bands) do
     assert(band >= 0 and band <= 1, band)
   end
+  -- 440 Hz fills its band (437-781 Hz) and leaves the highest dim.
+  assert(bands[4] > 0.9 and bands[8] < 0.2, table.concat(bands, " "))
   assert(recorder.analyze(recording) == nil, "bands with nothing new")
 end)
 
-test("every window streamed between frames counts toward the peak", function()
-  local recording = assert(recorder.start(8, error))
-  receive(pcm(0.5, 1024) .. pcm(0, 3072))
-  recorder.analyze(recording)
-  assert(recording.peak == 1, recording.peak)
-end)
-
-test("audio still unread when ffmpeg exits counts in the duration and peak", function()
+test("every window since the last frame, and audio unread at exit, counts", function()
   local recording = assert(recorder.start(8, error))
   local peak, duration
   receive(pcm(0, 16000))
   recorder.analyze(recording)
-  rest = pcm(0.5, 1024)
+  rest = pcm(0.5, 1024) .. pcm(0, 3072)
   recorder.stop(recording, function(_, loudest, seconds)
     peak, duration = loudest, seconds
   end)
   task.exit(255, "", "")
-  assert(peak == 1 and duration == 17024 / 16000, ("%s %s"):format(peak, duration))
+  assert(peak == 1 and duration == 20096 / 16000, ("%s %s"):format(peak, duration))
 end)
 
 test("cleanup deletes the recording and cancels a stop still waiting on ffmpeg", function()
@@ -122,7 +119,7 @@ test("cleanup deletes the recording and cancels a stop still waiting on ffmpeg",
   recorder.cleanup(recording)
   assert(not io.open(recording.wav), "the recording is left") -- a reload skips the exit callback
   task.exit(255, "", "")
-  assert(not sent, "the cancelled take was sent")
+  assert(not sent and task.terminated, "the cancelled take was sent, or ffmpeg left recording")
 end)
 
 test("finalize waits for ffmpeg to finish the wav, signalling it once, for up to 2 s", function()
@@ -138,11 +135,30 @@ test("finalize waits for ffmpeg to finish the wav, signalling it once, for up to
         sent = true
       end)
     end
-    task.running, sleeps = running, 0
+    task.running, slept = running, 0
     assert(recorder.finalize(recording) == case.finished, "finished")
     task.exit(255, "", "")
     assert(task.interrupts == 1 and not sent, "signalled twice or sent")
-    assert(sleeps == math.min(running, 200), ("%d sleeps"):format(sleeps))
+    assert(slept == math.min(running, 200) * 10000, ("%d us asleep"):format(slept))
+  end
+end)
+
+test("ffmpeg failing or ending unasked fails the take once and deletes its wav", function()
+  for _, case in ipairs({
+    { "No such device\n", 1, "", "No such device" }, -- while recording
+    { "", 1, "Error opening input\n", "Error opening input" }, -- as it exits
+    { "", 0, "", "capture exited (code 0)" },
+  }) do
+    local live, code, last, want = table.unpack(case)
+    local failures = {}
+    local recording = assert(recorder.start(8, function(problem)
+      failures[#failures + 1] = problem
+    end))
+    assert(io.open(recording.wav, "w")):close()
+    task.stream(nil, "", live)
+    task.exit(code, "", last)
+    assert(#failures == 1 and failures[1] == want, table.concat(failures, "; "))
+    assert(not io.open(recording.wav), "the recording is left")
   end
 end)
 
@@ -166,4 +182,15 @@ test("a stream failure fails the take through onError", function()
   assert(message == "could not read the stream: Broken pipe", tostring(message))
 end)
 
-print(passed .. " recorder tests passed")
+test("a socket it can't listen on fails the take before an ffmpeg task exists", function()
+  local listen, created = stream.listen, task
+  stream.listen = function()
+    return nil, "socket path too long"
+  end
+  local recording, problem = recorder.start(8, error)
+  stream.listen = listen
+  assert(not recording and problem == "socket path too long", tostring(problem))
+  assert(task == created, "an unstarted ffmpeg task leaks its pipes")
+end)
+
+print("RESULT " .. passed .. " passed, 0 failed")

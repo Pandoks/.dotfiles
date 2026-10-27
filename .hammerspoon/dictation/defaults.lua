@@ -3,15 +3,14 @@
 ---@class DictationConfig
 ---@field hotkey? { mods: string[], key: string } Starts and stops a take; Escape cancels it.
 ---@field words? DictationWords Names and jargon, spelled as written here.
----@field apps? table<string, { words?: DictationWords, style?: string }> By bundle id.
+---@field apps? table<string, { words?: DictationWords, style?: string }> By bundle id, plus global.
 ---@field style? string|false Instructions for a plain cleanup model; an `adapter` has its own.
 ---@field speech? DictationSpeech
 ---@field cleanup? DictationCleanup
----@field history? DictationHistoryConfig
+---@field history? DictationHistory
 ---@field insert? "direct"|"clipboard" Type into the field focused at stop, or only copy.
 ---@field minLevel? number Peak loudness (0..1) below which a take is silence.
 ---@field minDuration? number Seconds below which a take is an accidental tap.
----@field overlayHeight? number In points.
 
 ---@class DictationSpeech
 ---@field backend "parakeet-mlx"|"mlx-audio"|"mlx-whisper" The runtime `model` needs (README.md).
@@ -20,16 +19,16 @@
 ---@field boost? number Parakeet TDT only: pull toward `words`; 0 = off.
 
 ---@class DictationCleanup
----@field backend? "mlx-lm" The runtime `model` needs; nil = "mlx-lm".
+---@field backend "mlx-lm" The runtime `model` needs.
 ---@field enabled boolean false = the speech model's text, spelled, numbers as digits.
 ---@field model string Hugging Face repo of an MLX model; the base when `adapter` is set.
 ---@field revision string Its commit SHA.
----@field adapter? string LoRA repo trained on cleanup; nil = a plain model, with `style`.
+---@field adapter? string Cleanup LoRA, prompt in system_v2.txt; nil = a plain model, with `style`.
 ---@field adapterRevision? string Its commit SHA.
 
----@class DictationHistoryConfig
+---@class DictationHistory
 ---@field directory string Every transcript goes here first; unanswered takes keep their wav.
----@field maxMegabytes number Disk cap; the oldest transcripts go first.
+---@field maxMegabytes number Transcripts cap, oldest first; kept wavs are never counted or deleted.
 
 -- A key in config.lua replaces its default whole, not field by field.
 ---@type DictationConfig
@@ -48,6 +47,7 @@ return {
   },
 
   cleanup = {
+    backend = "mlx-lm",
     enabled = true,
     model = "mlx-community/Qwen3.5-2B-MLX-4bit",
     revision = "93760be4f1f69842a46bc13dbdc0f19e291392a3",
@@ -60,5 +60,4 @@ return {
   insert = "direct",
   minLevel = 0.25,
   minDuration = 0.35,
-  overlayHeight = 44,
 }

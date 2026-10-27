@@ -18,8 +18,9 @@ local recorder = {}
 ---@class StreamNative
 ---@field listen fun(path: string, callback: fun(chunk?: string, problem?: string)): (fun(): string, string?)?, string?
 
+local utils = require("lib.utils")
 -- A socket, not hs.task's stream: it drops output that is not UTF-8.
-local stream = require("lib.utils").native("stream") --[[@as StreamNative]]
+local stream = utils.native("stream") --[[@as StreamNative]]
 
 local rate = 16000
 local size = 1024 -- FFT window, in samples
@@ -32,7 +33,7 @@ end
 
 -- mise's own binary, through its ffmpeg shim (a symlink): resolved once, as the shim adds ~15 ms.
 local mise = hs.fs.pathToAbsolute(os.getenv("HOME") .. "/.local/share/mise/shims/ffmpeg")
-local which = mise and hs.execute(("cd / && '%s' which ffmpeg"):format(mise)) --[[@as string?]]
+local which = mise and hs.execute("cd / && " .. utils.quote(mise) .. " which ffmpeg") --[[@as string?]]
 recorder.ffmpeg = which and which:match("^(/.*/ffmpeg)%s*$")
 
 -- In-place iterative radix-2 FFT.
@@ -96,46 +97,49 @@ function recorder.start(bands, onError)
   ---@type DictationRecording
   local recording
   local function failure(message)
-    message = message:gsub("%s+$", "")
+    message = (message or ""):gsub("%s+$", "")
     if message == "" or recording.discarded then
       return
     end
     recording.discarded, recording.done = true, nil
     onError(message)
   end
-  -- sh execs ffmpeg; its child SIGINTs ffmpeg when stdin closes (Hammerspoon exited). Owner-only.
-  local watchdog =
-    'umask 077; exec 3<&0; (read _ <&3; kill -INT $$) >/dev/null 2>&1 & exec "$0" "$@" 3<&-'
-  local task = hs.task.new("/bin/sh", function(code, _, errors)
+  -- Listening before ffmpeg starts, so it can connect.
+  local close, reason = stream.listen(socket, function(chunk, problem)
+    if chunk then
+      recording.fresh = recording.fresh .. chunk
+    else
+      failure(problem)
+    end
+  end)
+  if not close then
+    return nil, reason
+  end
+  -- If Hammerspoon dies, ffmpeg's socket writes fail and it exits.
+  local task = hs.task.new(recorder.ffmpeg, function(code, _, errors)
     recording.task = nil -- frees the task, which holds these callbacks
-    failure(errors or "")
+    failure(errors)
     -- Stopping, SIGINT exits ffmpeg 255, or 2 if it came before ffmpeg set its handler.
     if not recording.stopping or (code ~= 0 and code ~= 255 and code ~= 2) then
       failure("capture exited (code " .. tostring(code) .. ")")
     end
     -- The last chunk arrives after the final tick: count it in the duration and peak.
     local rest, problem = recording.close()
-    failure(problem or "")
+    failure(problem)
     if recording.done then
       recording.fresh = recording.fresh .. rest
       recorder.analyze(recording)
-    end
-    if recording.discarded then
+      recording.done(wav, recording.peak, recording.offset / (2 * rate))
+    elseif recording.discarded then
       os.remove(wav)
     end
-    if recording.done then
-      recording.done(wav, recording.peak, recording.offset / (2 * rate))
-    end
   end, function(_, _, errors)
-    -- Streaming keeps stdin open for the watchdog. Output after the exit fails nothing.
+    -- Output after the exit fails nothing.
     if recording.task then
-      failure(errors or "")
+      failure(errors)
     end
     return true
   end, {
-    "-c",
-    watchdog,
-    recorder.ffmpeg,
     "-hide_banner",
     "-loglevel",
     "error",
@@ -168,17 +172,6 @@ function recorder.start(bands, onError)
   for i = 0, bands do
     local hz = 80 * (nyquist * 0.98 / 80) ^ (i / bands)
     bins[i] = math.max(1, math.min(size // 2, math.floor(hz / nyquist * (size // 2))))
-  end
-  -- Listening before ffmpeg starts, so it can connect.
-  local close, problem = stream.listen(socket, function(chunk, problem)
-    if chunk then
-      recording.fresh = recording.fresh .. chunk
-    else
-      failure(problem)
-    end
-  end)
-  if not close then
-    return nil, problem
   end
   recording = {
     wav = wav,

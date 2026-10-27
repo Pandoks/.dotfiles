@@ -25,7 +25,6 @@ rawset(hs, "shutdownCallback", function()
   end
 end)
 
--- Gitignored, so only where it was set up.
 if hs.fs.attributes(hs.configdir .. "/secrets.lua") then
   require("secrets")
 end

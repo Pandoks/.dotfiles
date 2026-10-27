@@ -3,22 +3,19 @@ overlay.__index = overlay
 -- Equalizer bands, mirrored into 2n - 1 bars; the spacing below is tuned for 15.
 overlay.bands = 15
 
+local height = 44 -- points
 local aspect = 3.32
 local stroke = 1
 local thickness = 0.038 -- bar width as a fraction of height
 local spread = 0.80 -- fraction of width the bars occupy
 local peak = 0.34 -- tallest bar as a fraction of height
 local fade = 12 -- frames (~0.4 s at 30 fps) from the ripple intro to the live equalizer
+local width, barWidth = height * aspect, height * thickness
 
----@param height number
-function overlay.new(height)
-  local width, barWidth = height * aspect, height * thickness
+function overlay.new()
   local canvas = hs.canvas.new({ x = 0, y = 0, w = width, h = height }) --[[@as hs.canvas]]
   local self = setmetatable({
     canvas = canvas,
-    height = height,
-    width = width,
-    barWidth = barWidth,
     baseline = {}, -- an idle pill's diamond envelope, like Raycast's
     bars = {},
     thinking = false,
@@ -69,7 +66,6 @@ function overlay.new(height)
 end
 
 function overlay:layout()
-  local height, width, barWidth = self.height, self.width, self.barWidth
   local count = #self.bars
   local span = width * spread
   local pitch = span / (count - 1)
