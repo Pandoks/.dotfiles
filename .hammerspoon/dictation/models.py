@@ -115,18 +115,20 @@ class Parakeet(Speech):
 
         model, boosting = self.model, bool(self.boost and hint)
 
-        def generate(mel, *, decoding_config):  # TDT's, encoding each chunk once per take
+        def generate(mel, *, decoding_config):  # ParakeetTDT's, encoding each chunk once per take
             key = np.asarray(mel).tobytes()
             features = self.encoded.pop(key, None) or model.encoder(mel)
             if boosting:
                 self.encoded[key] = features
-            tokens = model.decode(*features, config=decoding_config)[0][0]  # pyright: ignore[reportOptionalCall]
+            tokens = model.decode(  # pyright: ignore[reportOptionalCall]
+                *features, config=decoding_config
+            )[0][0]
             return [sentences_to_result(tokens_to_sentences(tokens, decoding_config.sentence))]
 
-        # Boosting swaps in a biased greedy decoder on this model instance only.
-        model.__dict__.pop("decode_greedy", None)
         if self.boost:  # a TDT model (load checks); the unboosted pass reuses the encodings
             model.generate = generate  # pyright: ignore[reportAttributeAccessIssue]
+        # Boosting swaps in a biased greedy decoder on this model instance only.
+        model.__dict__.pop("decode_greedy", None)
         if boosting:
             self.encoded = {}
             boosted = Boosted(model, hint, self.boost)

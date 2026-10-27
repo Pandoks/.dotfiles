@@ -57,8 +57,10 @@ def fold(word):  # "José" -> "jose"
     return "".join(c for c in unicodedata.normalize("NFKD", word.lower()) if c.isalnum())
 
 
-# Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "uh huh", "hm.com" stay.
-STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+)(?![\w/@-]|\.\w| [Hh]uh\b)"
+# A stall alone, not in a path, address, or word: "~/um", "hm.com", "uh-huh", "uh huh".
+LONE = r"(?<![\w./~@'-])(?:{})(?![\w/@-]|\.\w| [Hh]uh\b)"
+# Stalls removed mechanically (the model is inconsistent); "ER" stays, Parakeet's "MM" doesn't.
+STALL = LONE.format(r"[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+|MM")
 # Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
 START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
 # A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
@@ -99,6 +101,7 @@ def ensure_question(raw, text):
 
 
 HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+m*|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, ahm, oh
+HESITATION_RE = re.compile(LONE.format(HESITATIONS), re.IGNORECASE)
 CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
 CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
 FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
@@ -169,9 +172,10 @@ def tokens(text):
         number = rf"(?:\b(?:{WORD}|oh)\b|\d)"
         zero = word == "oh" and re.search(rf"(?i){number}[ -]$", text[: token.start()])
         zero = zero and re.match(rf"(?i)[ -]{number}", text[token.end() :])
-        joined = "-" in text[max(token.start() - 1, 0) : token.end() + 1]
-        # Stalls out, but not a name ("ER"), a zero, or one joined to a word ("uh-huh").
-        if token[0].isupper() or zero or joined or not re.fullmatch(HESITATIONS, word):
+        # Stalls out, but not a name ("ER"; Parakeet's "MM" is "Mm"), a zero, or one STALL keeps.
+        name = token[0].isupper() and word != "mm"
+        stall = HESITATION_RE.match(text, token.start())
+        if name or zero or not (stall and stall.end() == token.end()):
             found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end(), word))
     return found
 
@@ -235,6 +239,12 @@ def restore(raw, out):
         likes &= not re.match(r"\s+(?:th(?:at|is)(?: ones?)?\s*(?:[^\w\s]|$)|(?:the|an?)\s)", rest)
         return len(found[0].split()) if commas or opens or ends or likes else 0
 
+    def dropped(k, end, kept):  # spoken[k:end] is fillers and repeats
+        reach = end - k
+        while k < end and (step := filler(k) or repeated(k, kept, reach)):
+            k += step
+        return k == end
+
     # Changes that aren't a left-out stall, filler, repeat, or correction; corrections the cleanup
     # moved up to the words they replace aren't `trusted` in a take that has others.
     def unexplained(ops, trusted=True):
@@ -249,7 +259,8 @@ def restore(raw, out):
                     continue
                 # A "sorry" after a "not" or before a "you" apologises, unless a question follows.
                 after = raw[spans[c][2] :]
-                apology = re.search(r"\b(not|never|no)\b|n't", before(c)) or " you" in after
+                apology = re.search(r"\b(not|never|no)\b|n't", before(c))
+                apology = apology or " you" in re.split(r"[.!?]", after)[0]  # "sorry, thank you."
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
                 past = c + len(cue[0].split())
@@ -281,11 +292,10 @@ def restore(raw, out):
                 continue
             if tag != "delete":
                 continue
-            # A deleted run: fillers and repeats from its start...
-            k = i1
-            while k < i2 and (step := filler(k) or repeated(k, kept, i2 - i1)):
-                k += step
-            if k == i2:
+            # A deleted run: fillers and repeats, from its start or, if the word before it is its
+            # last too, from that word ("that, you know, you have": the second "you" kept)...
+            shift = i1 and spoken[i1 - 1] == spoken[i2 - 1]
+            if dropped(i1, i2, kept) or shift and dropped(i1 - 1, i2 - 1, kept):
                 continue
             # ...what a cue takes back, its own words or those before the run, not a list's item:
             # "Monday, sorry, Tuesday" or "four, sorry, four"...
@@ -410,9 +420,9 @@ def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen
 def digits(text, names):
     """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
     hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
-    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million|billion|thousand|dollar"
-    # Nor before a plural: "at 3.30 tasks", not "this", "unless", "works".
-    clock += rf"|(?!(?:{'|'.join(VERBS)})\b)\w{{3,}}[^\Ws']s\b))"
+    # Not before a unit ("at 3.30 percent", "at 1.15 seconds"); a verb may follow: "at 7.15 leaves".
+    units = "|".join([*MEASURES, "percent", "point", "million", "billion", "thousand"])
+    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:{units}|hour|minute|second)s?\b)"
     span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
     at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
     pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
@@ -477,7 +487,7 @@ def digits(text, names):
         if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
             return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
         listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
-        listed = listed or re.match(r"(?i),[^?!]*?[,.] two\b", after)  # "One, fix it. Two, ..."
+        listed = listed or re.match(r"(?i),[^?!]*?[,.] (?:and )?two,", after)  # "One, …, and two,"
         if words == ["one"] and (previous in DETERMINERS or not listed):
             return group  # "one of them", "no one"
         if previous == "the" and re.match(r"(?i) of (?:us|you|them)\b", after):
@@ -572,7 +582,9 @@ class Engine:
         out = []
         for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
             gained = set(b[j1:j2]) - set(a[i1:i2])
-            out += boosted[j1:j2] if op != "equal" and gained & names else plain[i1:i2]
+            # Never for a stall: "Mm-hmm" -> "mise".
+            hums = a[i1:i2] and all(re.fullmatch(f"(?:{HESITATIONS})+", w) for w in a[i1:i2])
+            out += boosted[j1:j2] if op != "equal" and gained & names and not hums else plain[i1:i2]
         return " ".join(out)
 
     def process(self, wav, request):

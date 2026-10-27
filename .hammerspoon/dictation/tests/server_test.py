@@ -212,7 +212,7 @@ check(
 off = server.Engine(engine.config)
 off.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
 check(
-    "cleanup off fixes spellings, numbers, stalls, and unfinished ends, keeping real words; marks"
+    "cleanup off fixes spellings, numbers, stalls, and unfinished ends, keeping real words; stalls"
     " alone are no speech",
     [
         ("I missed the bus.", "I missed the bus."),
@@ -221,7 +221,7 @@ check(
         ("I want three things.", "I want 3 things."),
         ("Um, yabai is, uh, open.", "yabai is open."),
         ("Send it to.", "Send it to"),
-        ("—–…", ""),
+        ("Ah, um.", ""),
     ],
     lambda text: off.process(text, {}),
 )
@@ -249,6 +249,7 @@ check(
         ("Let's meet at 3.30.", "Let's meet at 3:30."),
         ("Let's meet at 3.30 this afternoon.", "Let's meet at 3:30 this afternoon."),
         ("Lunch at 12.30 works for me.", "Lunch at 12:30 works for me."),
+        ("The train at 7.15 leaves from platform 2.", "The train at 7:15 leaves from platform 2."),
         ("The market closed at one point fifteen.", "The market closed at 1.15."),
         ("We raised at two point fifteen million dollars.", "We raised at 2.15 million dollars."),
         ("We raised at 2.15 million dollars.", "We raised at 2.15 million dollars."),
@@ -294,7 +295,7 @@ check(
         ("Room one oh one point five.", "Room 101.5."),
         ("Call at eight oh oh tomorrow.", "Call at 8:00 tomorrow."),
         ("The server returned five oh oh.", "The server returned 500."),
-        ("Productivity is at 3.30 tasks per hour.", "Productivity is at 3.30 tasks per hour."),
+        ("The latency peaked at 1.15 seconds.", "The latency peaked at 1.15 seconds."),
         ("Use port eight oh eight oh.", "Use port 8080."),
         ("Dial two oh two point oh five oh.", "Dial 202.050."),
         ("The site throws four oh four a lot.", "The site throws 404 a lot."),
@@ -308,6 +309,14 @@ check(
         (
             "One, fix the overlay. Two, update the README.",
             "1, fix the overlay. 2, update the README.",
+        ),
+        (
+            "Two things. One, the pill is too big, and two, it's too bright.",
+            "2 things. 1, the pill is too big, and 2, it's too bright.",
+        ),
+        (
+            "I'd pick the blue one, honestly. Two of the others are broken.",
+            "I'd pick the blue one, honestly. 2 of the others are broken.",
         ),
         ("The steps one, two, and three are done.", "The steps 1, 2, and 3 are done."),
         ("We got a million hits.", "We got 1 million hits."),
@@ -361,6 +370,7 @@ check(
         (("Um, send three copies.", None), "Send 3 copies."),
         (("Um, yabai crashed again.", None), "yabai crashed again."),
         (("Erm, I think, hmm, we should, ahm, go.", None), "I think we should go."),
+        (("MM, maybe later.", None), "Maybe later."),
     ],
     lambda pair: dictate(*pair, numbers=True),
 )
@@ -510,6 +520,14 @@ check(
             ("I need one ticket, no, two.", "I need two tickets."),
             ("I need two tickets, no, no, three.", "I need three tickets."),
             ("Book two rooms, no, sorry, three.", "Book three rooms."),
+            (
+                "Book two rooms, sorry, three rooms for Tuesday. Can you do that?",
+                "Book three rooms for Tuesday. Can you do that?",
+            ),
+            (
+                "I keep telling the team that, you know, you have to test it.",
+                "I keep telling the team that you have to test it.",
+            ),
             ("Don't merge it, scratch that, merge it.", "Merge it."),
             ("I'll take the blue one actually.", "I'll take the blue one."),
             (
@@ -615,6 +633,7 @@ check(
             ("I guess so.", "I guessed so."),
             ("We miss missed the bus this morning.", "We missed the bus this morning."),
             ("Uh-huh.", "Huh."),
+            ("Uh huh.", "Huh."),
             ("It costs one thousand dollars.", "It costs 1,000 dollars."),
             ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
         ]
@@ -1050,15 +1069,18 @@ print("PASS boosted decoder with no bonus matches parakeet-mlx")
 blank = len(Model.vocabulary)
 
 
-def speak(frames, words, bonus):
+def scores(frames):
     rows = mx.full((len(frames) + 1, width), -20.0).at[-1, blank].add(30).at[:, blank + 2].add(30)
     for step, frame in enumerate(frames):
         if not frame:
             rows = rows.at[step, blank].add(30)
         for piece, score in frame.items():
             rows = rows.at[step, Model.vocabulary.index(piece)].add(score)
-    greedy = boosted(words, bonus)
-    tokens = Model(mx.broadcast_to(rows, (contexts, *rows.shape))).decode(greedy, len(frames) + 1)
+    return mx.broadcast_to(rows, (contexts, *rows.shape))
+
+
+def speak(frames, words, bonus):
+    tokens = Model(scores(frames)).decode(boosted(words, bonus), len(frames) + 1)
     return "".join(token[3] for token in tokens[0])
 
 
@@ -1082,6 +1104,31 @@ check(
     ],
     lambda case: speak(*case),
 )
+
+
+# Through parakeet-mlx's transcribe: the unboosted pass decodes the boosted pass's encoding.
+class Take(Model):
+    decode = ParakeetTDT.decode  # pyright: ignore[reportAssignmentType]
+    decode_greedy, transcribe = ParakeetTDT.decode_greedy, ParakeetTDT.transcribe
+    preprocessor_config = SimpleNamespace(sample_rate=16000)
+
+    def encoder(self, mel):
+        encoded.append(mel)
+        return mel, mx.array([mel.shape[1]])
+
+
+encoded = []
+reusing = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})
+reusing.model = Take(  # pyright: ignore[reportAttributeAccessIssue]
+    scores([{"▁ok": 30}, {"ay": 21, "i": 20}])
+)
+with (
+    mock.patch("parakeet_mlx.parakeet.load_audio", lambda *_: mx.zeros(16000)),
+    mock.patch("parakeet_mlx.parakeet.get_logmel", lambda *_: mx.arange(3.0)[None, :, None]),
+):
+    texts = [reusing.transcribe("take.wav", hint) for hint in (["Oki"], [])]
+assert texts == ["oki", "okay"] and len(encoded) == 1, (texts, encoded)
+print("PASS boosting encodes a take once, and the unboosted pass decodes it unboosted")
 # Unboosted and boosted Parakeet decodes of TTS takes (`say -v Albert`, `-v Daniel`, ...).
 check(
     "a boosted word is kept only where it spells a vocabulary word",
@@ -1107,17 +1154,13 @@ check(
         ),
         (("", "Oki."), "Oki."),
         (("", "Hammers."), ""),
+        (("Mm-hmm.", "Mise."), "Mm-hmm."),
     ],
     lambda case: engine.merge(case[0], case[1], {}),
 )
 # Boosting decodes the take twice, once with no vocabulary to boost.
-boosting = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})
-boosting.model = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
-    transcribe=lambda wav, chunk_duration: SimpleNamespace(
-        text=wav[bool(boosting.model.__dict__.get("decode_greedy"))]
-    )
-)
-engine.speech, engine.cleaner = boosting, None
+engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav[bool(hint)], boost=4.5)
+engine.cleaner = None
 check(
     "boosting keeps the unboosted decode unless a vocabulary word is gained",
     [
