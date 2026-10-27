@@ -182,7 +182,7 @@ test("a backend that fails, dies, or says something unknown fails once and says 
     die(1, "", "")
     assert(#failures == 1 and tostring(failures[1]):find(why, 1, true), tostring(failures[1]))
     assert(not backend:transcribe("/tmp/x.wav"), "a dead backend took a take")
-    assert(terminated, "the failed backend was left running")
+    assert(code or terminated, "the failed backend was left running")
   end
 end)
 

@@ -1,4 +1,4 @@
-local quote = require("lib.utils").quote
+local utils = require("lib.utils")
 
 local history = {}
 
@@ -18,7 +18,7 @@ end
 ---@return string? failure
 function history.prepare(settings)
   local directory = folder(settings)
-  local quoted = quote(directory)
+  local quoted = utils.quote(directory)
   if not os.execute(("mkdir -p %s && chmod 700 %s"):format(quoted, quoted)) then
     return "could not create " .. directory .. " owner-only"
   end
@@ -59,7 +59,7 @@ end
 function history.keep(wav, settings)
   local path = slot(settings, "wav")
   -- mv, not os.rename: the folder may be on another volume.
-  if not os.execute(("mv %s %s"):format(quote(wav), quote(path))) then
+  if not os.execute(("mv %s %s"):format(utils.quote(wav), utils.quote(path))) then
     return "could not move it to " .. path
   end
 end

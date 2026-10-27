@@ -23,19 +23,6 @@ local marks = {
   { 0xFF3B, 0xFF40 },
   { 0xFF5B, 0xFF65 },
 }
--- Chinese, Japanese, Thai, and the like put no space between words: "你好|世界" + "漂亮".
-local unspaced = {
-  { 0x0E00, 0x0EFF }, -- Thai, Lao
-  { 0x1000, 0x109F }, -- Myanmar
-  { 0x1780, 0x17FF }, -- Khmer
-  { 0x2E80, 0x2FDF }, -- CJK radicals
-  { 0x3000, 0x31FF }, -- CJK punctuation, kana, Bopomofo
-  { 0x3400, 0x9FFF }, -- CJK ideographs
-  { 0xF900, 0xFAFF },
-  { 0xFF00, 0xFFEF }, -- fullwidth and halfwidth forms
-  { 0x20000, 0x3FFFF },
-}
-
 local function within(char, blocks)
   local code = char ~= "" and utf8.codepoint(char) or 0
   for _, block in ipairs(blocks) do
@@ -63,9 +50,11 @@ return function(text, value, range)
   if type(range) ~= "table" or not range.location then
     return text
   end
+  -- Units are code points until a 4-byte character: skip to the two before the selection.
+  local skip = value:find("[\240-\244]") and 0 or math.max(0, range.location - 2)
   -- Two characters on each side of the selection and its last one (AX ranges count UTF-16 units).
-  local prior, before, last, after, beyond, units = "", "", "", "", "", 0
-  for _, codepoint in utf8.codes(value) do
+  local prior, before, last, after, beyond, units = "", "", "", "", "", skip
+  for _, codepoint in utf8.codes(value:sub(utf8.offset(value, skip + 1) or #value + 1)) do
     -- Browsers store a typed trailing space in a contenteditable as U+00A0.
     local char = codepoint == 0xA0 and " " or utf8.char(codepoint)
     if units >= range.location + (range.length or 0) then
@@ -86,13 +75,11 @@ return function(text, value, range)
     or wordy(before) and (slashes[after] or joiners[after] and wordy(beyond))
     -- Part of a word replaced: "fo[ob]ar" + "baz" is "fobazar".
     or (before .. last .. after):match("^%w%w%w$") ~= nil
-  local head, tail = utf8.char(utf8.codepoint(text, 1)), text:sub(utf8.offset(text, -1))
   if
     not starts(before)
     and not slashes[before]
     and not (quotes[before] and starts(prior))
     and not joined
-    and not (within(before, unspaced) and within(head, unspaced))
   then
     text = " " .. text
   end
@@ -100,11 +87,7 @@ return function(text, value, range)
   local opens = (quotes[after] and wordy(beyond) or after == "-")
     and starts(last ~= "" and last or before)
   -- A "/" after is a path going on ("/usr/share/bin"), not an opener.
-  if
-    (wordy(after) or (openers[after] and after ~= "/") or opens)
-    and not joined
-    and not (within(tail, unspaced) and within(after, unspaced))
-  then
+  if (wordy(after) or (openers[after] and after ~= "/") or opens) and not joined then
     text = text .. " "
   end
   return text

@@ -6,7 +6,7 @@ local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 
 ---@param config DictationConfig
 ---@param handlers {
----  onFinal: fun(result: { id: integer, text: string, heard?: string }),
+---  onFinal: fun(result: { id: integer, text: string }),
 ---  onError: fun(message: string, id?: integer, heard?: string),
 ---}
 function engine.new(config, handlers)
@@ -64,7 +64,7 @@ function engine.new(config, handlers)
     for line in (lines or ""):gmatch("[^\n]+") do
       local event = hs.json.decode(line)
       if type(event) ~= "table" then
-        failure("invalid backend response: " .. line)
+        failure("invalid response: " .. line)
         return true
       elseif event.event == "ready" then
         -- Load chatter (HF warnings, progress bars) is no crash reason.
@@ -83,7 +83,7 @@ function engine.new(config, handlers)
         end
       else
         -- Not one this client knows: a take waiting on it would never end.
-        failure("unknown backend event: " .. line)
+        failure("unknown event: " .. line)
         return true
       end
     end
@@ -93,7 +93,7 @@ function engine.new(config, handlers)
     output(nil, stdout, stderr)
     -- The last stderr line goes in the popup: an exception's, or whatever was printed last.
     local reason = self.errors:match("([^\n]*%S)%s*$")
-    local exit = "backend exited (code " .. tostring(code) .. ")"
+    local exit = "exited (code " .. tostring(code) .. ")"
     failure(reason and exit .. "; last output: " .. reason .. "\n" .. self.errors or exit)
   end, output, { directory .. "server.py", settings })
   if not self.task:start() then

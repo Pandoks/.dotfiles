@@ -92,4 +92,4 @@ assert(list(directory) == want, list(directory))
 assert(not history.prune({ directory = directory, maxMegabytes = 0 }))
 want = "2026-01-02_03-04-05 copy.txt 2026-01-02_03-04-08.wav 2026-01-02_03-04-09.txt notes.txt"
 assert(list(directory) == want, list(directory))
-print("history tests passed")
+print("RESULT 1 passed, 0 failed")

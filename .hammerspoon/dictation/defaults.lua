@@ -4,9 +4,9 @@
 ---@field hotkey? { mods: string[], key: string } Starts and stops a take; Escape cancels it.
 ---@field words? DictationWords Names and jargon, spelled as written here.
 ---@field apps? table<string, { words?: DictationWords, style?: string }> By bundle id, plus global.
----@field style? string|false Instructions for a plain cleanup model; an `adapter` has its own.
+---@field style? string|false Instructions for a plain cleanup model; fails with an `adapter`.
 ---@field speech? DictationSpeech
----@field cleanup? DictationCleanup
+---@field cleanup? DictationCleanup|false false = the heard text, spelled, stalls out, digits.
 ---@field history? DictationHistory
 ---@field insert? "direct"|"clipboard" Type into the field focused at stop, or only copy.
 ---@field minLevel? number Peak loudness (0..1) below which a take is silence.
@@ -20,7 +20,6 @@
 
 ---@class DictationCleanup
 ---@field backend "mlx-lm" The runtime `model` needs.
----@field enabled boolean false = the speech model's text, spelled, stalls out, numbers as digits.
 ---@field model string Hugging Face repo of an MLX model; the base when `adapter` is set.
 ---@field revision string Its commit SHA.
 ---@field adapter? string Cleanup LoRA, prompt in system_v2.txt; nil = a plain model, with `style`.
@@ -48,7 +47,6 @@ return {
 
   cleanup = {
     backend = "mlx-lm",
-    enabled = true,
     model = "mlx-community/Qwen3.5-2B-MLX-4bit",
     revision = "93760be4f1f69842a46bc13dbdc0f19e291392a3",
     adapter = "ReFyneLabs/simplewords-dictation-cleanup-v3-adapter",

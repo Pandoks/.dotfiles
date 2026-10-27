@@ -3,7 +3,7 @@ local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_l
 package.path = root .. "/../?.lua;" .. package.path
 local passed, alerts, strokes, timers, changes, takes, serial = 0, {}, {}, {}, 0, 0, 0
 local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead, settings, take
-local frame, broken, armed, shown, chained
+local frame, broken, armed, shown, chained, unstartable
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
 local directory = scratch .. "/init-history"
@@ -33,7 +33,7 @@ local config = load("defaults", {})
 local mine = load("config", {})
 mine.words = { "Slack", Raycast = { "ray cast" } }
 mine.apps = { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } } }
-mine.cleanup = { enabled = false }
+mine.cleanup = false
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
 local hs = {
   fs = fs,
@@ -50,11 +50,14 @@ local hs = {
     end,
     -- hs.hotkey logs on enable/disable; hs.ipc's print raises while a dead `hs` CLI is registered.
     new = function(_, _, callback)
-      escape = callback
+      escape = function()
+        assert(armed, "Escape is not bound")
+        callback()
+      end
       local function log(on)
         return function()
-          assert(not dead, "ipc port is no longer valid")
           armed = on
+          assert(not dead, "ipc port is no longer valid")
           return true
         end
       end
@@ -157,6 +160,9 @@ local modules = {
   ["dictation.recorder"] = {
     ffmpeg = "/usr/bin/ffmpeg",
     start = function(_, onError)
+      if unstartable then
+        return nil, "could not start capture task"
+      end
       takes = takes + 1
       recorded = ("%s/take%d.wav"):format(scratch, takes)
       assert(io.open(recorded, "w")):close()
@@ -269,7 +275,7 @@ end
 test("a field that takes the write gets the text spaced, saved, its recording deleted", function()
   local element = field("Hello")
   front = app("com.apple.Notes")
-  handlers.onFinal({ id = dictate(element), text = "there.", heard = "there" })
+  handlers.onFinal({ id = dictate(element), text = "there." })
   assert(sent.app == "com.apple.Notes", tostring(sent.app))
   assert(element.value == "Hello there." and #strokes == 0 and #alerts == 0, element.value)
   assert(saved("there.") and not saved("there"), "not the text saved")
@@ -302,7 +308,7 @@ test("a ⌘V that raises (a layout without v) still puts the clipboard back", fu
   end
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "you" })
   hs.eventtap.keyStroke = stroke
-  assert(alerts[1] == "Dictation: Invalid key: v", tostring(alerts[1]))
+  assert(alerts[1] == "Dictation: Invalid key: v (the text is in history)", tostring(alerts[1]))
   timers[#timers]()
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
 end)
@@ -338,7 +344,7 @@ test("focus moved while transcribing writes nothing, says so, and saves the text
   handlers.onFinal({ id = id, text = "moved" })
   assert(not element.written and not focus.written and #strokes == 0, "written")
   assert(alerts[1] and alerts[1]:find("focus moved", 1, true), tostring(alerts[1]))
-  assert(saved("moved"), "not saved")
+  assert(alerts[1]:find("in history", 1, true) and saved("moved"), "not saved, or not told")
 end)
 
 test("a reply to a cancelled take is saved; the next take still gets its own", function()
@@ -382,13 +388,25 @@ test("a take with no transcript keeps its recording in history", function()
     {
       "the backend dying",
       function()
-        handlers.onError("backend exited (code 1)")
+        handlers.onError("exited (code 1)")
       end,
     },
     {
       "the backend refusing it",
       function() end,
       true,
+    },
+    {
+      "a transcript it can't save",
+      function(id)
+        local history = modules["dictation.history"]
+        local save = history.save
+        history.save = function()
+          return "disk full"
+        end
+        handlers.onFinal({ id = id, text = "lost" })
+        history.save = save
+      end,
     },
   }) do
     local name, reply, refuse = table.unpack(case)
@@ -405,7 +423,7 @@ test("a take recording when the backend dies goes on, and is kept", function()
   local count = wavs()
   focus = field("Hi")
   toggle()
-  handlers.onError("backend exited (code 1)")
+  handlers.onError("exited (code 1)")
   refused = true
   toggle()
   done()
@@ -416,7 +434,7 @@ end)
 test("config.lua's settings replace the defaults, its words sent as one map", function()
   local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
   local decoded = json.decode(assert(json.encode(settings)))
-  assert(decoded.speech.model and decoded.cleanup.model == nil, "a setting merged, not replaced")
+  assert(decoded.speech.model and decoded.cleanup == false, "a setting merged, not replaced")
   assert(next(decoded.words.Slack) == nil, json.encode(decoded.words))
   assert(decoded.words.Raycast[1] == "ray cast", json.encode(decoded.words))
   local words = decoded.apps["com.x"].words
@@ -438,9 +456,10 @@ end)
 
 test("a take of only stalls deletes its recording and saves nothing", function()
   local count = wavs()
-  handlers.onFinal({ id = dictate(field("Hi")), text = "", heard = "Um." }) -- cleanup off
+  handlers.onFinal({ id = dictate(field("Hi")), text = "" })
   assert(alerts[1] == "Dictation: no speech recognized", tostring(alerts[1]))
-  assert(wavs() == count and not fs.attributes(recorded) and not saved("Um."), "kept the take")
+  assert(wavs() == count and not fs.attributes(recorded), "kept the recording")
+  assert(not saved("Um.") and not saved(""), "saved a transcript")
 end)
 
 test("a log line raising as Escape is bound or unbound leaves no take half done", function()
@@ -485,6 +504,16 @@ test("a recorder that fails ends the take and says why; the next press starts an
   escape()
 end)
 
+test("a capture that can't start says why and leaves the hotkey working", function()
+  alerts, focus, unstartable = {}, field("Hi"), true
+  toggle()
+  unstartable = nil
+  assert(alerts[1] == "Dictation: could not start capture task" and not shown, tostring(alerts[1]))
+  toggle()
+  assert(shown and armed, "the next press did not start a take")
+  escape()
+end)
+
 test("a frame that raises ends the take and says so", function()
   alerts, focus = {}, field("Hi")
   toggle()
@@ -511,7 +540,10 @@ test("Mail's compose page is pasted into; a slider gets nothing and says so", fu
   local slider = field("50", false, false, "AXSlider")
   handlers.onFinal({ id = dictate(slider), text = "you" })
   assert(not slider.written and #strokes == 0, "wrote into a slider")
-  assert(alerts[1] == "Dictation: no text field is focused", tostring(alerts[1]))
+  assert(
+    alerts[1] == "Dictation: no text field is focused (the text is in history)",
+    tostring(alerts[1])
+  )
 end)
 
 test("past the history cap a saved take prunes the oldest", function()
@@ -548,25 +580,25 @@ local function unprepared(problem)
   }
 end
 
-test("an unsecured history folder or no ffmpeg leaves only a hotkey that says why", function()
+test("an unsecured history folder, no ffmpeg, or no venv leaves a hotkey that says why", function()
   for _, case in ipairs({
     {
       "could not create /x owner-only",
       { ["dictation.history"] = unprepared("could not create /x owner-only") },
     },
     { "ffmpeg not found; run mise install", { ["dictation.recorder"] = {} } },
+    { "backend venv missing", {} },
   }) do
     local problem, swapped = table.unpack(case)
-    local started = false
     swapped["dictation.engine"] = {
       new = function()
-        started = true
+        return nil, "backend venv missing"
       end,
     }
     local hotkey = reload(swapped)
     alerts = {}
     hotkey()
-    assert(not started and alerts[1] == "Dictation: " .. problem, tostring(alerts[1]))
+    assert(alerts[1] == "Dictation: " .. problem, tostring(alerts[1]))
   end
 end)
 

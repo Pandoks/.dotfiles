@@ -39,7 +39,7 @@ local hs = {
   },
   task = {
     new = function(_, exit, output)
-      task = { exit = exit, stream = output, interrupts = 0, polls = 0, running = 0 }
+      task = { exit = exit, stream = output, interrupts = 0, running = 0 }
       function task.start()
         return true
       end
@@ -47,11 +47,10 @@ local hs = {
         task.interrupts = task.interrupts + 1
       end
       function task.isRunning()
-        task.polls = task.polls + 1
-        return task.polls <= task.running
+        return slept < task.running
       end
       function task.terminate()
-        task.terminated = true
+        os.execute("kill -TERM " .. task:pid())
       end
       return task
     end,
@@ -83,10 +82,10 @@ local function pcm(amplitude, count)
 end
 
 test("a frame shows bands only once a full window has streamed, and only for new audio", function()
-  local recording = assert(recorder.start(8, error))
-  receive(pcm(0.5, 512))
+  local recording, sine = assert(recorder.start(8, error)), pcm(0.5, 1024)
+  receive(sine:sub(1, 1024))
   assert(recorder.analyze(recording) == nil, "bands before a full window")
-  receive(pcm(0.5, 1024))
+  receive(sine:sub(1025))
   local bands = assert(recorder.analyze(recording), "no bands for a full window")
   assert(#bands == 8, #bands)
   for _, band in ipairs(bands) do
@@ -95,6 +94,14 @@ test("a frame shows bands only once a full window has streamed, and only for new
   -- 440 Hz fills its band (437-781 Hz) and leaves the highest dim.
   assert(bands[4] > 0.9 and bands[8] < 0.2, table.concat(bands, " "))
   assert(recorder.analyze(recording) == nil, "bands with nothing new")
+end)
+
+test("a steady quiet room leaves the bars flat", function()
+  local recording = assert(recorder.start(8, error))
+  receive(pcm(0.002, 1024))
+  for _, band in ipairs(assert(recorder.analyze(recording), "no bands")) do
+    assert(band == 0, band)
+  end
 end)
 
 test("every window since the last frame, and audio unread at exit, counts", function()
@@ -110,8 +117,15 @@ test("every window since the last frame, and audio unread at exit, counts", func
   assert(peak == 1 and duration == 20096 / 16000, ("%s %s"):format(peak, duration))
 end)
 
-test("cleanup deletes the recording and cancels a stop still waiting on ffmpeg", function()
+test("cleanup kills ffmpeg, deletes its recording, and cancels a stop still waiting", function()
   local recording, sent = assert(recorder.start(8, error)), false
+  -- ffmpeg whose input stopped delivering: it ignores SIGINT and SIGTERM.
+  local deaf = assert(io.popen("trap '' INT TERM; sleep 5 & echo $!; wait $! 2>/dev/null; echo $?"))
+  local pid = deaf:read("l")
+  function task.pid()
+    return pid
+  end
+  task.running = math.huge
   assert(io.open(recording.wav, "w")):close()
   recorder.stop(recording, function()
     sent = true
@@ -119,14 +133,15 @@ test("cleanup deletes the recording and cancels a stop still waiting on ffmpeg",
   recorder.cleanup(recording)
   assert(not io.open(recording.wav), "the recording is left") -- a reload skips the exit callback
   task.exit(255, "", "")
-  assert(not sent and task.terminated, "the cancelled take was sent, or ffmpeg left recording")
+  assert(not sent, "the cancelled take was sent")
+  assert(deaf:read("l") == "137" and deaf:close(), "ffmpeg left recording") -- 128 + SIGKILL
 end)
 
 test("finalize waits for ffmpeg to finish the wav, signalling it once, for up to 2 s", function()
   for _, case in ipairs({
-    { stopped = true, running = 3, finished = true },
-    { stopped = false, running = 3, finished = true },
-    { stopped = false, running = 1000, finished = false },
+    { stopped = true, running = 30000, finished = true }, -- microseconds
+    { stopped = false, running = 30000, finished = true },
+    { stopped = false, running = math.huge, finished = false },
   }) do
     local running = case.running
     local recording, sent = assert(recorder.start(8, error)), false
@@ -139,7 +154,7 @@ test("finalize waits for ffmpeg to finish the wav, signalling it once, for up to
     assert(recorder.finalize(recording) == case.finished, "finished")
     task.exit(255, "", "")
     assert(task.interrupts == 1 and not sent, "signalled twice or sent")
-    assert(slept == math.min(running, 200) * 10000, ("%d us asleep"):format(slept))
+    assert(slept == math.min(running, 2000000), ("%d us asleep"):format(slept))
   end
 end)
 

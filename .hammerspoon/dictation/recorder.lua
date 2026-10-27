@@ -1,3 +1,5 @@
+local utils = require("lib.utils")
+
 ---@class DictationRecording
 ---@field wav string
 ---@field close fun(): string, string? ends the PCM stream: its undelivered bytes, and any error
@@ -18,7 +20,6 @@ local recorder = {}
 ---@class StreamNative
 ---@field listen fun(path: string, callback: fun(chunk?: string, problem?: string)): (fun(): string, string?)?, string?
 
-local utils = require("lib.utils")
 -- A socket, not hs.task's stream: it drops output that is not UTF-8.
 local stream = utils.native("stream") --[[@as StreamNative]]
 
@@ -33,7 +34,7 @@ end
 
 -- mise's own binary, through its ffmpeg shim (a symlink): resolved once, as the shim adds ~15 ms.
 local mise = hs.fs.pathToAbsolute(os.getenv("HOME") .. "/.local/share/mise/shims/ffmpeg")
-local which = mise and hs.execute("cd / && " .. utils.quote(mise) .. " which ffmpeg") --[[@as string?]]
+local which = mise and hs.execute("cd / && " .. utils.quote(mise) .. " which ffmpeg")
 recorder.ffmpeg = which and which:match("^(/.*/ffmpeg)%s*$")
 
 -- In-place iterative radix-2 FFT.
@@ -271,8 +272,9 @@ function recorder.cleanup(recording)
     return
   end
   recording.discarded, recording.done = true, nil
-  if recording.task then
-    recording.task:terminate()
+  -- SIGKILL: ffmpeg ignores 3 signals once its input stops delivering (an unplugged mic).
+  if recording.task and recording.task:isRunning() then
+    os.execute("kill -KILL " .. recording.task:pid())
   end
   -- Now: a reload skips the exit callback (unlinking is safe while ffmpeg writes).
   recording.close()

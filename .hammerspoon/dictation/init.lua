@@ -182,7 +182,8 @@ local function insert(text)
 end
 
 ---@param text string?
-local function finish(text)
+---@param saved boolean?
+local function finish(text, saved)
   if text and config.insert == "clipboard" then
     if not hs.pasteboard.setContents(text) then
       fail("could not write clipboard")
@@ -190,7 +191,7 @@ local function finish(text)
   elseif text then
     local ok, problem = pcall(insert, text)
     if not ok then
-      fail(tostring(problem))
+      fail(tostring(problem) .. (saved and " (the text is in history)" or ""))
     end
   end
   if overlay then
@@ -244,7 +245,7 @@ local engine, problem = Engine.new(config, {
       if not text then
         fail("no speech recognized")
       end
-      finish(text)
+      finish(text, saved)
     end
     -- After delivery: pruning past the cap lists the folder.
     local unpruned = saved and history.prune(config.history)
@@ -324,13 +325,16 @@ local function toggle()
     recorder.stop(recording, function(wav, peak, duration)
       -- Too short is an accidental tap; too quiet is a mic problem worth showing.
       if duration < config.minDuration then
-        pcall(print, ("Dictation: discarded (%.2fs < %.2fs)"):format(duration, config.minDuration))
+        pcall(
+          print,
+          ("Dictation: discarded (%.2fs < minDuration %.2fs)"):format(duration, config.minDuration)
+        )
         return finish()
       elseif peak < config.minLevel then
         -- Named: a Bluetooth headset delivers silence while it switches modes.
         local input = hs.audiodevice.defaultInputDevice()
         fail(
-          ("no speech from %s (peak %.2f < %.2f)"):format(
+          ("no speech from %s (peak %.2f < minLevel %.2f)"):format(
             input and input:name() or "the default input",
             peak,
             config.minLevel
