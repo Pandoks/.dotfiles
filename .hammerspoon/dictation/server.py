@@ -57,133 +57,76 @@ def fold(word):  # "José" -> "jose"
     return "".join(c for c in unicodedata.normalize("NFKD", word.lower()) if c.isalnum())
 
 
-UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
-UNITS += ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen"]
-UNITS += ["eighteen", "nineteen"]
-TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
-SCALES = {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
-VALUE = {w: n for n, w in enumerate(UNITS)} | {w: 20 + 10 * n for n, w in enumerate(TENS)}
-VALUE |= SCALES | {"oh": 0}  # "oh" is a zero digit: "four oh four"
-ORDINAL = {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight"}
-ORDINAL |= {"ninth": "nine", "twelfth": "twelve"} | {w[:-1] + "ieth": w for w in TENS}
-ORDINAL |= {w + "th": w for w in UNITS[4:] + [*SCALES] if w not in ORDINAL.values()}
-DECADE = {w[:-1] + "ies": VALUE[w] for w in TENS}  # "nineteen eighties" -> "1980s"
-WORD = "|".join(sorted(VALUE.keys() - {"oh"}, key=len, reverse=True))
-ENDS = "|".join(sorted([*ORDINAL, *DECADE], key=len, reverse=True))
-AND = r"(?:(?<=hundred)|(?<=thousand)|(?<=million)|(?<=billion)) and"  # "two hundred and five"
-OH = rf"(?P<oh>(?:[ -]oh\b)+)(?=[ -](?:{WORD})\b)|(?:[ -]oh\b){{2,}}"  # "four oh four"
-RUN = re.compile(  # a run of number words, never in a path or name ("~/two", "three.js")
-    rf"(?i)(?<![\w./~@#$-])(?:a (?=(?:{'|'.join(SCALES)})\b))?(?:{WORD})(?:(?:{AND})? (?:{WORD})\b"
-    rf"|-(?:{WORD})\b|{OH}| point(?:(?: oh\b)+|(?= (?:{WORD})\b)))*"
-    rf"(?(oh)(?:[ -]oh\b)?)(?:(?:{AND})?[ -](?:{ENDS}))?\b(?![/@#]|\.\w)"
-)
-DETERMINERS = {"no", "the", "a", "this", "that", "each", "every", "any", "some", "which", "another"}
-VERBS = {"starts", "ends", "begins", "works", "opens", "closes", "comes", "happens", "means"}
-MEASURES = {"dollar", "inch", "foot", "pound", "euro", "cent", "mile", "page"}  # "20 dollar bills"
+# Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
+STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+)(?![\w/@-]|\.\w)"
+# Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
+START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
+# A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
+LEAD_STALL_RE = re.compile(rf"(?:{START})([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
+# Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
+STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
 
 
-def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen" -> [2019]
-    out = []  # [total, part under the last scale, last value, last scale]
-    for v in (VALUE[w] for w in words):
-        last = out[-1][2] if out else 0
-        # Part of the number so far: a hundred or scale, anything after one, or a tens' unit.
-        joins = v and (v >= 100 or last >= 100 or last in range(20, 100, 10) and v < 10)
-        if not (out and joins):
-            out.append([0, 0, 0, 0])
-        total, part, _, scale = out[-1]
-        if v > 100:  # past the last scale it multiplies: "a thousand million"
-            total = ((total + part) or 1) * v if v > scale else total + (part or 1) * v
-            part, scale = 0, v
-        elif v == 100:
-            part = (part or 1) * 100
-        else:
-            part += v
-        out[-1] = [total, part, v, scale]
-    return [total + part for total, part, *_ in out]
+def strip_stalls(text):
+    # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
+    out = LEAD_STALL_RE.sub(
+        lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
+        text,
+    )
+    out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", out))  # blank lines stay
+    out = re.sub(r"[^\S\n]+\n", "\n", out).strip()
+    return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
 
-def digits(text, names):
-    """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
-    hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
-    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million|billion|thousand"
-    clock += r"|dollars?|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
-    span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
-    at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
-    pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
-    text = re.sub(at, r"\1 \2:\3", re.sub(span, r"\1 \2:\3", text))
-    text = re.sub(rf"(?i)\b{hour}\.([0-5]\d){pm}", r"\1:\2", text)
-    named = (rf"(?<!\w){re.escape(name)}(?!\w)" for name in names)
-    kept = [found.span() for name in named for found in re.finditer(name, text, re.IGNORECASE)]
+def ensure_question(raw, text):
+    """The speech model's closing '?' survives the cleanup's end mark, unless it moved."""
+    asks = r"\?[!?]*[\"”’')\]]*$"
+    if not re.search(asks, raw.strip()) or re.search(asks, text.strip()):
+        return text
+    # Moved: "Is it done, I wonder?" -> "Is it done? I wonder."
+    if text.count("?") >= raw.count("?"):
+        return text
+    # Not when the question was left out: "Sounds good, yeah?" -> "Sounds good."
+    asked = {fold(w) for w in re.split(r"[.!,;:]\s+", raw.strip())[-1].split()}
+    if not asked & {fold(w) for w in re.split(r"[.!?]\s+", text.strip())[-1].split()}:
+        return text
+    return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
 
-    def convert(match):
-        group, before, after = match[0], text[: match.start()].lower(), text[match.end() :]
-        previous = (re.findall(r"[\w']+", before) or [""])[-1]
-        word = (re.findall(r"[\w']+", after) or [""])[0]
-        plural = word.lower() == "people" or re.fullmatch(r"\w{2,}[^s']s", word) is not None
-        counted = (plural and word.lower() not in VERBS) or word.lower() in MEASURES
-        words = [w for w in re.split(r"[ -]+", group.lower()) if w not in ("and", "a")]
-        numbers = chunks(w for w in words if w in VALUE)
-        number = numbers[0]
-        opens = re.search(r"(?:^|[.!?]\s+)$", before)  # a sentence starts here
-        title = group[0].isupper() and (not opens or word[:1].isupper())  # "Ocean's Eleven"
-        if title or any(a < match.end() and match.start() < b for a, b in kept):
-            return group
-        if words[-1] in DECADE:
-            if len(numbers) > 1 or not 10 <= number <= 99:
-                return group
-            return f"{number}{DECADE[words[-1]]}s"
-        if words[-1] in ORDINAL and "point" not in words:  # "twenty first" -> "21st"
-            if words[-1] == "second" and previous in ("a", "an"):
-                return group  # "a thirty-second timeout"
-            number, *rest = chunks(words[:-1] + [ORDINAL[words[-1]]])
-            if rest or words[0] == "one" and words[-1][:-2] in SCALES:
-                return group  # "third", "one hundredth"
-            teen = number % 100 in (11, 12, 13)  # "11th", not "11st"
-            suffix = {1: "st", 2: "nd", 3: "rd"}.get(0 if teen else number % 10, "th")
-            return f"{number:,}{suffix}"
-        timed = previous in ("at", "by", "until", "till") or re.match(r"(?i) ?[ap]\.?m\b", after)
-        if "point" in words:  # "one point oh five" -> "1.05", "two point five million"
-            *rest, big = words if words[-1] in SCALES else [*words, ""]
-            parts = [p.split() for p in " ".join(rest).split("point")]
-            bad = not all(parts) or {*rest} & {*SCALES} or {*words} - {*VALUE, "point"}
-            if bad or len(chunks(parts[0])) > 1 and "oh" not in parts[0]:
-                return group  # "one point two hundred thousand"
-            decimal = ".".join("".join(map(str, chunks(p))) for p in parts)
-            return decimal + (f" {big}" if big else "")
-        if "oh" in words:  # "four oh four" -> "404", "at eight oh oh" -> "at 8:00"
-            tail = "".join(map(str, numbers[1:]))
-            clock = timed and number <= 12 and len(tail) == 2  # not "a hundred oh five"
-            return group if number > 99 else f"{number}:{tail}" if clock else f"{number}{tail}"
-        if len(numbers) == 2:  # a time, a year, or "one eighty two"; not "twenty four seven"
-            first, second = numbers
-            if first <= 12 and 10 <= second < 60:
-                return f"{first}:{second}" if timed and not counted else group
-            return f"{first}{second}" if first < 30 and second >= 10 and not counted else group
-        # Only "a" starts a number at a scale: not "few hundred", "half a million", "2.5 million".
-        article = group[:2].lower() == "a " and previous not in ("half", "quarter")
-        bare = words[0] in SCALES and (not article or not (len(words) > 1 or plural))
-        if len(numbers) > 1 or bare:
-            return group  # "two three four", "a billion dollar company"
-        # The scale said once for both: "five or six thousand" -> "5,000 or 6,000".
-        scale = r"(hundred|thousand)\b(?! (?:thousand|million|billion)\b)"
-        shared = re.match(rf"(?i) (?:or|to) ((?:(?:{WORD})[ -])+?){scale}", after)
-        second = [w for w in re.split(r"[ -]+", shared[1].lower()) if w] if shared else []
-        if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
-            return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
-        listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
-        if words == ["one"] and (previous in DETERMINERS or not listed):
-            return group  # "one of them", "no one"
-        scale = VALUE[words[-1]]
-        if words[-1] in ("million", "billion") and number < 1000 * scale:
-            return f"{number // scale:,} {words[-1]}"  # "a hundred million" -> "100 million"
-        # "in 2000", "class of 2008"; not "2,000 people", "2,050 of them"
-        dated = previous in ("in", "since", "until", "during", "by")
-        dated |= previous == "year" and not counted  # "the year 2000", not "last year 2,000 people"
-        named = number % 1000 and not counted and not re.match(r"(?i) of\b", after)
-        year = 2000 <= number < 2100 and (dated or named)
-        return str(number) if year else f"{number:,}"
 
-    return RUN.sub(convert, text)
+# Words no finished sentence ends on; enforced here since the model adds a period anyway.
+CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
+CONTINUATION |= {"nor", "because", "although", "whereas", "whether", "unless", "if", "than", "via"}
+CONTINUATION |= {"versus", "per"}
+# Prepositions that end a sentence unfinished only after an object pronoun ("Send it to").
+DIRECTED = {"to", "with", "into", "onto", "from", "toward", "towards", "for"}
+
+
+def ending(raw, text):
+    """No end mark on a dictation that stops mid-thought ("I want to go to the")."""
+    words = re.sub(r"[.!?,;:…—–\"”’')\]]+$", "", raw.strip()).split()
+    if not words or re.search(r"[?!]\W*$", raw):
+        return text  # "What if?" and "Oh my!" are complete
+    last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
+    if last in DIRECTED:
+        if previous not in ("it", "this", "that", "them", "these", "those"):
+            return text
+    elif last not in CONTINUATION or (previous and words[-1].isupper()):
+        return text  # an all-caps one after others is a name: "plan A", "the OR"
+    unmarked = re.sub(r"\s*[.!?…—]+(?=[\"”’')\]]*$)", "", text.rstrip())
+    # Words the cleanup cut come back ("go to the" -> "go."), after the mark said before them.
+    said = [fold(w) for w in words]
+    end = fold((unmarked.split() or [""])[-1])
+    cut = next((n for n in (1, 2, 3) if n < len(said) and said[-n - 1] == end), 0)
+    if not cut or end == said[-1]:
+        return unmarked
+    tail, before = " ".join(words[-cut:]), words[-cut - 1]
+    if before.endswith(","):  # "thinking, you know, and" -> "and"; "I think so, but" keeps "so"
+        tail = re.sub(rf"(?i)^(?:(?:{FILLER}|{HESITATIONS}),\s+)+", "", tail)
+    if re.search(r"[.!?]\W*$", before):
+        return f"{text.rstrip()} {tail}"  # a new sentence: "Thanks. But"
+    if before[-1] in ",;:" and not unmarked.endswith((",", ";", ":")):
+        unmarked += before[-1]  # "Send it to John, and"
+    return f"{unmarked} {tail}"
 
 
 HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, oh
@@ -196,28 +139,43 @@ LEADS = {"is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm"
 LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
 
 
+# (word, start, end, word with its plural): lowercased, "2" as "two", no plural "s", no stalls
+# ("ER" is a name).
+def tokens(text):
+    found = []
+    for token in re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text):
+        word = token[0].lower()
+        while word.isdecimal() and len(word) > 1 and word[0] == "0":  # "05" is "oh five"
+            found.append(("oh", token.start(), token.end(), "oh"))
+            word = word[1:]
+        word = UNITS[int(word)] if word.isdecimal() and int(word) < 13 else word
+        # An "oh" between numbers is a zero: "two oh one", not "10, oh my god".
+        number = rf"(?:\b(?:{WORD}|oh)\b|\d)"
+        zero = word == "oh" and re.search(rf"(?i){number}[ -]$", text[: token.start()])
+        zero = zero and re.match(rf"(?i)[ -]{number}", text[token.end() :])
+        if token[0].isupper() or zero or not re.fullmatch(HESITATIONS, word):
+            found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end(), word))
+    return found
+
+
+def alike(a, b):  # the same word, its contraction ("it's"), or a longer form ("testing")
+    if a == b:
+        return True
+    if "'" in b:  # "can't" says the opposite of "can"
+        return a == b.split("'")[0] and not b.endswith("'t")
+    return len(a) > 3 and b.startswith(a)
+
+
+def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
+    if re.search(r"\d", a + b) or a in VALUE or {a, b} <= VALUE.keys() | ORDINAL.keys():
+        return False  # "15000" -> "150000", "fifteenth" -> "fiftieth" is another number
+    return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
+
+
 def restore(raw, out):
     """`out` with each change from `raw`, other than a left-out stall, filler, repeat, or
     self-correction, put back as said: "Just fix it." left out comes back. None if a change can't
     be put back cleanly: inside a written word ("1,000" -> "1.00"), or an "oh" comes back twice."""
-
-    # (word, start, end, word with its plural): lowercased, "2" as "two", no plural "s", no stalls
-    # ("ER" is a name).
-    def tokens(text):
-        found = []
-        for token in re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text):
-            word = token[0].lower()
-            while word.isdecimal() and len(word) > 1 and word[0] == "0":  # "05" is "oh five"
-                found.append(("oh", token.start(), token.end(), "oh"))
-                word = word[1:]
-            word = UNITS[int(word)] if word.isdecimal() and int(word) < 13 else word
-            # An "oh" between numbers is a zero: "two oh one", not "10, oh my god".
-            number = rf"(?:\b(?:{WORD}|oh)\b|\d)"
-            zero = word == "oh" and re.search(rf"(?i){number}[ -]$", text[: token.start()])
-            zero = zero and re.match(rf"(?i)[ -]{number}", text[token.end() :])
-            if token[0].isupper() or zero or not re.fullmatch(HESITATIONS, word):
-                found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end(), word))
-        return found
 
     # "İ" lowercases to two characters, which would shift every later word's position.
     said, written = raw, out  # as written, to put changes back
@@ -232,13 +190,6 @@ def restore(raw, out):
     def before(k):  # the sentence said before spoken word k, stalls left out
         sentence = re.split(r"[.!?]", raw[: spans[k][1]])[-1]
         return re.sub(rf"\b(?:{HESITATIONS})\b", "", sentence).strip()
-
-    def alike(a, b):  # the same word, its contraction ("it's"), or a longer form ("testing")
-        if a == b:
-            return True
-        if "'" in b:  # "can't" says the opposite of "can"
-            return a == b.split("'")[0] and not b.endswith("'t")
-        return len(a) > 3 and b.startswith(a)
 
     def repeated(k, kept, reach):  # said again within `reach` words, that copy kept: "test testing"
         if spoken[k] in VALUE or spoken[k].isdecimal() or spoken[k] in ("dash", "dot", "slash"):
@@ -265,11 +216,6 @@ def restore(raw, out):
         likes = found[0] == "like" and (last in LEADS or not said)
         likes &= not re.match(r"\s+th(?:at|is)(?: ones?)?\s*(?:[^\w\s]|$)", rest)
         return len(found[0].split()) if commas or opens or ends or likes else 0
-
-    def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
-        if re.search(r"\d", a + b) or a in VALUE or {a, b} <= VALUE.keys() | ORDINAL.keys():
-            return False  # "15000" -> "150000", "fifteenth" -> "fiftieth" is another number
-        return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
 
     # Changes that aren't a left-out stall, filler, repeat, or correction; corrections the cleanup
     # moved up to the words they replace aren't `trusted` in a take that has others.
@@ -409,76 +355,133 @@ def restore(raw, out):
     return text if text != written.strip() else None
 
 
-# Words no finished sentence ends on; enforced here since the model adds a period anyway.
-CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
-CONTINUATION |= {"nor", "because", "although", "whereas", "whether", "unless", "if", "than", "via"}
-CONTINUATION |= {"versus", "per"}
-# Prepositions that end a sentence unfinished only after an object pronoun ("Send it to").
-DIRECTED = {"to", "with", "into", "onto", "from", "toward", "towards", "for"}
+UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+UNITS += ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen"]
+UNITS += ["eighteen", "nineteen"]
+TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+SCALES = {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
+VALUE = {w: n for n, w in enumerate(UNITS)} | {w: 20 + 10 * n for n, w in enumerate(TENS)}
+VALUE |= SCALES | {"oh": 0}  # "oh" is a zero digit: "four oh four"
+ORDINAL = {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight"}
+ORDINAL |= {"ninth": "nine", "twelfth": "twelve"} | {w[:-1] + "ieth": w for w in TENS}
+ORDINAL |= {w + "th": w for w in UNITS[4:] + [*SCALES] if w not in ORDINAL.values()}
+DECADE = {w[:-1] + "ies": VALUE[w] for w in TENS}  # "nineteen eighties" -> "1980s"
+WORD = "|".join(sorted(VALUE.keys() - {"oh"}, key=len, reverse=True))
+ENDS = "|".join(sorted([*ORDINAL, *DECADE], key=len, reverse=True))
+AND = r"(?:(?<=hundred)|(?<=thousand)|(?<=million)|(?<=billion)) and"  # "two hundred and five"
+OH = rf"(?P<oh>(?:[ -]oh\b)+)(?=[ -](?:{WORD})\b)|(?:[ -]oh\b){{2,}}"  # "four oh four"
+RUN = re.compile(  # a run of number words, never in a path or name ("~/two", "three.js")
+    rf"(?i)(?<![\w./~@#$-])(?:a (?=(?:{'|'.join(SCALES)})\b))?(?:{WORD})(?:(?:{AND})? (?:{WORD})\b"
+    rf"|-(?:{WORD})\b|{OH}| point(?:(?: oh\b)+|(?= (?:{WORD})\b)))*"
+    rf"(?(oh)(?:[ -]oh\b)?)(?:(?:{AND})?[ -](?:{ENDS}))?\b(?![/@#]|\.\w)"
+)
+DETERMINERS = {"no", "the", "a", "this", "that", "each", "every", "any", "some", "which", "another"}
+VERBS = {"starts", "ends", "begins", "works", "opens", "closes", "comes", "happens", "means"}
+MEASURES = {"dollar", "inch", "foot", "pound", "euro", "cent", "mile", "page"}  # "20 dollar bills"
 
 
-def ending(raw, text):
-    """No end mark on a dictation that stops mid-thought ("I want to go to the")."""
-    words = re.sub(r"[.!?,;:…—–\"”’')\]]+$", "", raw.strip()).split()
-    if not words or re.search(r"[?!]\W*$", raw):
-        return text  # "What if?" and "Oh my!" are complete
-    last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
-    if last in DIRECTED:
-        if previous not in ("it", "this", "that", "them", "these", "those"):
-            return text
-    elif last not in CONTINUATION or (previous and words[-1].isupper()):
-        return text  # an all-caps one after others is a name: "plan A", "the OR"
-    unmarked = re.sub(r"\s*[.!?…—]+(?=[\"”’')\]]*$)", "", text.rstrip())
-    # Words the cleanup cut come back ("go to the" -> "go."), after the mark said before them.
-    said = [fold(w) for w in words]
-    end = fold((unmarked.split() or [""])[-1])
-    cut = next((n for n in (1, 2, 3) if n < len(said) and said[-n - 1] == end), 0)
-    if not cut or end == said[-1]:
-        return unmarked
-    tail, before = " ".join(words[-cut:]), words[-cut - 1]
-    if before.endswith(","):  # "thinking, you know, and" -> "and"; "I think so, but" keeps "so"
-        tail = re.sub(rf"(?i)^(?:(?:{FILLER}|{HESITATIONS}),\s+)+", "", tail)
-    if re.search(r"[.!?]\W*$", before):
-        return f"{text.rstrip()} {tail}"  # a new sentence: "Thanks. But"
-    if before[-1] in ",;:" and not unmarked.endswith((",", ";", ":")):
-        unmarked += before[-1]  # "Send it to John, and"
-    return f"{unmarked} {tail}"
+def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen" -> [2019]
+    out = []  # [total, part under the last scale, last value, last scale]
+    for v in (VALUE[w] for w in words):
+        last = out[-1][2] if out else 0
+        # Part of the number so far: a hundred or scale, anything after one, or a tens' unit.
+        joins = v and (v >= 100 or last >= 100 or last in range(20, 100, 10) and v < 10)
+        if not (out and joins):
+            out.append([0, 0, 0, 0])
+        total, part, _, scale = out[-1]
+        if v > 100:  # past the last scale it multiplies: "a thousand million"
+            total = ((total + part) or 1) * v if v > scale else total + (part or 1) * v
+            part, scale = 0, v
+        elif v == 100:
+            part = (part or 1) * 100
+        else:
+            part += v
+        out[-1] = [total, part, v, scale]
+    return [total + part for total, part, *_ in out]
 
 
-def ensure_question(raw, text):
-    """The speech model's closing '?' survives the cleanup's end mark, unless it moved."""
-    asks = r"\?[!?]*[\"”’')\]]*$"
-    if not re.search(asks, raw.strip()) or re.search(asks, text.strip()):
-        return text
-    # Moved: "Is it done, I wonder?" -> "Is it done? I wonder."
-    if text.count("?") >= raw.count("?"):
-        return text
-    # Not when the question was left out: "Sounds good, yeah?" -> "Sounds good."
-    asked = {fold(w) for w in re.split(r"[.!,;:]\s+", raw.strip())[-1].split()}
-    if not asked & {fold(w) for w in re.split(r"[.!?]\s+", text.strip())[-1].split()}:
-        return text
-    return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
+def digits(text, names):
+    """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
+    hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
+    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million|billion|thousand"
+    clock += r"|dollars?|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
+    span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
+    at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
+    pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
+    text = re.sub(at, r"\1 \2:\3", re.sub(span, r"\1 \2:\3", text))
+    text = re.sub(rf"(?i)\b{hour}\.([0-5]\d){pm}", r"\1:\2", text)
+    named = (rf"(?<!\w){re.escape(name)}(?!\w)" for name in names)
+    kept = [found.span() for name in named for found in re.finditer(name, text, re.IGNORECASE)]
 
+    def convert(match):
+        group, before, after = match[0], text[: match.start()].lower(), text[match.end() :]
+        previous = (re.findall(r"[\w']+", before) or [""])[-1]
+        word = (re.findall(r"[\w']+", after) or [""])[0]
+        plural = word.lower() == "people" or re.fullmatch(r"\w{2,}[^s']s", word) is not None
+        counted = (plural and word.lower() not in VERBS) or word.lower() in MEASURES
+        words = [w for w in re.split(r"[ -]+", group.lower()) if w not in ("and", "a")]
+        numbers = chunks(w for w in words if w in VALUE)
+        number = numbers[0]
+        opens = re.search(r"(?:^|[.!?]\s+)$", before)  # a sentence starts here
+        title = group[0].isupper() and (not opens or word[:1].isupper())  # "Ocean's Eleven"
+        if title or any(a < match.end() and match.start() < b for a, b in kept):
+            return group
+        if words[-1] in DECADE:
+            if len(numbers) > 1 or not 10 <= number <= 99:
+                return group
+            return f"{number}{DECADE[words[-1]]}s"
+        if words[-1] in ORDINAL and "point" not in words:  # "twenty first" -> "21st"
+            if words[-1] == "second" and previous in ("a", "an"):
+                return group  # "a thirty-second timeout"
+            number, *rest = chunks(words[:-1] + [ORDINAL[words[-1]]])
+            if rest or words[0] == "one" and words[-1][:-2] in SCALES:
+                return group  # "third", "one hundredth"
+            teen = number % 100 in (11, 12, 13)  # "11th", not "11st"
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(0 if teen else number % 10, "th")
+            return f"{number:,}{suffix}"
+        timed = previous in ("at", "by", "until", "till") or re.match(r"(?i) ?[ap]\.?m\b", after)
+        if "point" in words:  # "one point oh five" -> "1.05", "two point five million"
+            *rest, big = words if words[-1] in SCALES else [*words, ""]
+            parts = [p.split() for p in " ".join(rest).split("point")]
+            bad = not all(parts) or {*rest} & {*SCALES} or {*words} - {*VALUE, "point"}
+            if bad or len(chunks(parts[0])) > 1 and "oh" not in parts[0]:
+                return group  # "one point two hundred thousand"
+            decimal = ".".join("".join(map(str, chunks(p))) for p in parts)
+            return decimal + (f" {big}" if big else "")
+        if "oh" in words:  # "four oh four" -> "404", "at eight oh oh" -> "at 8:00"
+            tail = "".join(map(str, numbers[1:]))
+            clock = timed and number <= 12 and len(tail) == 2  # not "a hundred oh five"
+            return group if number > 99 else f"{number}:{tail}" if clock else f"{number}{tail}"
+        if len(numbers) == 2:  # a time, a year, or "one eighty two"; not "twenty four seven"
+            first, second = numbers
+            if first <= 12 and 10 <= second < 60:
+                return f"{first}:{second}" if timed and not counted else group
+            return f"{first}{second}" if first < 30 and second >= 10 and not counted else group
+        # Only "a" starts a number at a scale: not "few hundred", "half a million", "2.5 million".
+        article = group[:2].lower() == "a " and previous not in ("half", "quarter")
+        bare = words[0] in SCALES and (not article or not (len(words) > 1 or plural))
+        if len(numbers) > 1 or bare:
+            return group  # "two three four", "a billion dollar company"
+        # The scale said once for both: "five or six thousand" -> "5,000 or 6,000".
+        scale = r"(hundred|thousand)\b(?! (?:thousand|million|billion)\b)"
+        shared = re.match(rf"(?i) (?:or|to) ((?:(?:{WORD})[ -])+?){scale}", after)
+        second = [w for w in re.split(r"[ -]+", shared[1].lower()) if w] if shared else []
+        if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
+            return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
+        listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
+        if words == ["one"] and (previous in DETERMINERS or not listed):
+            return group  # "one of them", "no one"
+        scale = VALUE[words[-1]]
+        if words[-1] in ("million", "billion") and number < 1000 * scale:
+            return f"{number // scale:,} {words[-1]}"  # "a hundred million" -> "100 million"
+        # "in 2000", "class of 2008"; not "2,000 people", "2,050 of them"
+        dated = previous in ("in", "since", "until", "during", "by")
+        dated |= previous == "year" and not counted  # "the year 2000", not "last year 2,000 people"
+        named = number % 1000 and not counted and not re.match(r"(?i) of\b", after)
+        year = 2000 <= number < 2100 and (dated or named)
+        return str(number) if year else f"{number:,}"
 
-# Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
-STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+)(?![\w/@-]|\.\w)"
-# Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
-START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
-# A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
-LEAD_STALL_RE = re.compile(rf"(?:{START})([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
-# Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
-STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
-
-
-def strip_stalls(text):
-    # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
-    out = LEAD_STALL_RE.sub(
-        lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
-        text,
-    )
-    out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", out))  # blank lines stay
-    out = re.sub(r"[^\S\n]+\n", "\n", out).strip()
-    return re.sub(r"^[,;:](?:\s+|$)", "", out)
+    return RUN.sub(convert, text)
 
 
 class Engine:
