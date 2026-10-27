@@ -114,9 +114,12 @@ LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
 SAYS = "said|saying|told|telling|mentioned|discussed|talked|agreed|asked|wrote|planned|explained"
 SAYS += "|showed|promised|expect|expected|predicted|suggested|warned|noted|posted|decided"
 SAYS += "|figured|guessed|thought|assumed|feared|recommended|requested"
+SAYS += "|say|says|saw|noticed|pointed|suspected|hoped|texted|learned"
 QUOTES = "why|what|how|who|no|nope|okay|oh|sure|yeah|yes|wait|hey|dude|come"
-LIKENS = rf"like (?:th(?:at|is)(?:(?: ones?)?(?!\s*\w)| since)|the|an?|[\w']+(?: \w+)? (?:{SAYS}))"
-LIKENS += rf"|(?:(?<=\w )(?<!so )(?<!and )(?<!but )like,|like) (?:{QUOTES})"  # not "So like, why"
+THEN = "since|for|when|before|after|until|all|ever|every"  # "like this for weeks"
+LIKENS = rf"like (?:th(?:at|is)(?:(?: ones?)?(?!\s*\w)| (?:{THEN}))|the|an?|{QUOTES})"
+# Verbs but "said"/"told" need a comma or the end within 4 words: not "Like I figured out the bug".
+LIKENS += rf"|like [\w']+(?: \w+)? (?:said|told|(?:{SAYS})(?: [\w']+){{0,4}}(?=[,.!?]|$))"
 LIKENS += r"|(?:(?<=was )|(?<=were )|(?<='m )|(?<=he's )|(?<='re ))like, \w+"  # "I was like, nah"
 OPENS = r"most|all|any|every\w*|last|before|my|our|your|his|her|their"  # "Like last time, …"
 LIKENS += rf"|(?<![\w,] )like (?:{OPENS})(?: [\w']+){{0,3}}(?=,)"
@@ -136,9 +139,11 @@ def ending(raw, text):
         return text  # "What if?" and "Oh my!" are complete
     last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
     if last in DIRECTED:  # "Send it to", not "That's who I gave it to"
-        # A comma or conjunction ends the wh-word's clause ("… or send it to"), not "Sam and I".
+        # A comma or conjunction ends the wh-word's clause ("… or send it to"), not "Sam and I";
+        # an aside doesn't ("who, like, we sent it to").
+        bare = re.sub(r",(?![^,.!?]*\b(?:what|which|who|where)\b)[^,.!?]*,", "", raw)
         joins = r"but|or|so|then|if|when|before|after|because|until"
-        clause = re.split(rf"[.!?,]\s|\b(?:{joins})\b|\band\b(?! [A-Z]\w* )", raw)[-1]
+        clause = re.split(rf"[.!?,]\s|\b(?:{joins})\b|\band\b(?! [A-Z]\w* )", bare)[-1]
         stranded = re.search(r"(?i)\b(?:what|which|who|where)\b", clause)
         if previous not in ("it", "this", "that", "them", "these", "those") or stranded:
             return text
@@ -441,8 +446,9 @@ def digits(text, names):
     measure = "|".join([*MEASURES, *SCALES]) + "|feet|percent|point|degree|time|hour|minute|amp"
     measure += r"|ounce|gallon|yard|ton|gig|[kmgt]b|ms"
     measure += r"|\w*(?:second|meter|gram|liter|byte|watt|volt|hertz|hz)"
-    measure += r"|(?:(?!as )\w+ )?per(?! the)"  # "megabits per", "per hour"; not "as per"/"per the"
-    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:an? )?(?:{measure})(?:e?s)?\b)"
+    measure += r"|(?:(?!as )\w+ )?per(?! (?:the|my|your|our)\b)"  # not "as per", "per my email"
+    rate = r"(?:an? (?!\w+ (?:before|after|early|earlier|later)\b))?"  # not "an hour before"
+    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?{rate}(?:{measure})(?:e?s)?\b)"
     span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
     at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
     pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
@@ -511,10 +517,10 @@ def digits(text, names):
         gap = r",? (?:or |to )|, " if noun else r",? (?:or |to |and )?"
         listed = re.match(rf"(?i)(?:{gap})(?:\d|(?:{WORD})\b)", after)
         # "One, …? Two,": an item is one sentence ("2.5" ends none); "the new one, …" is no list
-        item = r"(?i),(?:[^.?!]|\.\w)*?(?:[,.?!] |[,.?!]? and )(?:two|2)[,.]"
+        item = r"(?i),(?:[^.?!]|\.\w)*?(?:[,.?!] |[,.?!]? and )(?:two|2)[,.](?!\d)"
         listed = listed or not noun and re.match(item, after)
-        if words == ["one"] and (previous in DETERMINERS or not listed):
-            return group  # "one of them", "no one"
+        if words == ["one"] and (previous in DETERMINERS and after[:4] != " or " or not listed):
+            return group  # "one of them", "no one"; not "every one or two"
         if previous == "the" and re.match(r"(?i) of (?:us|you|them)\b", after):
             return group  # "the two of us"
         scale = VALUE[words[-1]]
