@@ -39,13 +39,10 @@ static int glass(lua_State *state) {
                                                   styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
                                                     backing:NSBackingStoreBuffered
                                                       defer:NO];
-  panel.releasedWhenClosed = NO;
   panel.opaque = NO;
   panel.backgroundColor = NSColor.clearColor;
-  panel.hasShadow = YES;
   panel.ignoresMouseEvents = YES;
   panel.animationBehavior = NSWindowAnimationBehaviorNone;
-  panel.level = canvas.level;
   panel.collectionBehavior = canvas.collectionBehavior;
   panel.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
 
@@ -73,18 +70,16 @@ static int hide(lua_State *state) {
   NSTimeInterval fade = luaL_optnumber(state, 2, 0);
   NSPanel *panel = (__bridge_transfer NSPanel *)*pointer;
   *pointer = NULL;
-  void (^gone)(void) = ^{
-    [panel.parentWindow removeChildWindow:panel];
-    [panel orderOut:nil];
-  };
   if (fade <= 0) {
-    gone();
+    [panel orderOut:nil];
     return 0;
   }
   [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
     context.duration = fade;
     panel.animator.alphaValue = 0;
-  } completionHandler:gone];
+  } completionHandler:^{
+    [panel orderOut:nil];
+  }];
   return 0;
 }
 

@@ -81,7 +81,7 @@ local toast = assert(loadfile(
         end,
       },
       canvas = {
-        windowLevels = { dock = 20, status = 25 },
+        windowLevels = { dock = 20 },
         new = function()
           local canvas = { elements = {}, visible = false, deleted = false, calls = {} }
           function canvas.minimumTextSize(_, text)
