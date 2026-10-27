@@ -1,5 +1,5 @@
 local root, scratch = arg[1], arg[3]
-local passed, rest, slept = 0, "", 0
+local passed, rest = 0, ""
 local task, receive
 
 local function test(name, callback)
@@ -27,11 +27,6 @@ local hs = {
     end,
     pathToAbsolute = function() end,
   },
-  timer = {
-    usleep = function(microseconds)
-      slept = slept + microseconds
-    end,
-  },
   host = {
     uuid = function()
       return "take"
@@ -39,15 +34,13 @@ local hs = {
   },
   task = {
     new = function(_, exit, output)
-      task = { exit = exit, stream = output, interrupts = 0, running = 0 }
+      task = { exit = exit, stream = output, running = false }
       function task.start()
         return true
       end
-      function task.interrupt()
-        task.interrupts = task.interrupts + 1
-      end
+      function task.interrupt() end
       function task.isRunning()
-        return slept < task.running
+        return task.running
       end
       return task
     end,
@@ -93,25 +86,31 @@ test("a frame shows bands only once a full window has streamed, and only for new
   assert(recorder.analyze(recording) == nil, "bands with nothing new")
 end)
 
-test("a steady quiet room leaves the bars flat", function()
+test("a steady quiet room leaves the bars flat, and quiet speech over it moves them", function()
   local recording = assert(recorder.start(8, error))
   receive(pcm(0.01, 1024))
   for _, band in ipairs(assert(recorder.analyze(recording), "no bands")) do
     assert(band == 0, band)
   end
+  receive(pcm(0.02, 1024)) -- 6 dB over the room
+  assert(recorder.analyze(recording)[4] > 0, "quiet speech left the bars flat")
 end)
 
 test("every window since the last frame, and audio unread at exit, counts", function()
-  local recording = assert(recorder.start(8, error))
-  local peak, duration
-  receive(pcm(0, 16000))
-  recorder.analyze(recording)
-  rest = pcm(0.5, 1024) .. pcm(0, 3072)
-  recorder.stop(recording, function(_, loudest, seconds)
-    peak, duration = loudest, seconds
-  end)
-  task.exit(255, "", "")
-  assert(peak == 1 and duration == 20096 / 16000, ("%s %s"):format(peak, duration))
+  -- A 0.05 sine is -29 dBFS: 0.52 on minLevel's -50..-10 dBFS scale.
+  for _, unread in ipairs({ pcm(0.05, 1024) .. pcm(0, 3072), pcm(0, 3072) .. pcm(0.05, 1024) }) do
+    local recording = assert(recorder.start(8, error))
+    local peak, duration
+    receive(pcm(0, 16000))
+    recorder.analyze(recording)
+    rest = unread
+    recorder.stop(recording, function(_, loudest, seconds)
+      peak, duration = loudest, seconds
+    end)
+    task.exit(255, "", "")
+    assert(peak > 0.5 and peak < 0.55, peak)
+    assert(duration == 20096 / 16000, duration)
+  end
 end)
 
 test("cleanup kills ffmpeg, cancels a waiting stop, and deletes the wav unless kept", function()
@@ -124,7 +123,7 @@ test("cleanup kills ffmpeg, cancels a waiting stop, and deletes the wav unless k
     function task.pid()
       return pid
     end
-    task.running = math.huge
+    task.running = true
     local function left()
       local file = io.open(recording.wav)
       return file ~= nil and file:close()
@@ -141,28 +140,7 @@ test("cleanup kills ffmpeg, cancels a waiting stop, and deletes the wav unless k
   end
 end)
 
-test("finalize waits for ffmpeg to finish the wav, signalling it once, for up to 2 s", function()
-  for _, case in ipairs({
-    { stopped = true, running = 30000, finished = true }, -- microseconds
-    { stopped = false, running = 30000, finished = true },
-    { stopped = false, running = math.huge, finished = false },
-  }) do
-    local running = case.running
-    local recording, sent = assert(recorder.start(8, error)), false
-    if case.stopped then
-      recorder.stop(recording, function()
-        sent = true
-      end)
-    end
-    task.running, slept = running, 0
-    assert(recorder.finalize(recording) == case.finished, "finished")
-    task.exit(255, "", "")
-    assert(task.interrupts == 1 and not sent, "signalled twice or sent")
-    assert(slept == math.min(running, 2000000), ("%d us asleep"):format(slept))
-  end
-end)
-
-test("ffmpeg failing or ending unasked fails the take once and deletes its wav", function()
+test("ffmpeg failing or ending unasked fails the take once", function()
   for _, case in ipairs({
     { "No such device\n", 1, "", "No such device" }, -- while recording
     { "", 1, "Error opening input\n", "Error opening input" }, -- as it exits
@@ -170,14 +148,12 @@ test("ffmpeg failing or ending unasked fails the take once and deletes its wav",
   }) do
     local live, code, last, want = table.unpack(case)
     local failures = {}
-    local recording = assert(recorder.start(8, function(problem)
+    assert(recorder.start(8, function(problem)
       failures[#failures + 1] = problem
     end))
-    assert(io.open(recording.wav, "w")):close()
     task.stream(nil, "", live)
     task.exit(code, "", last)
     assert(#failures == 1 and failures[1] == want, table.concat(failures, "; "))
-    assert(not io.open(recording.wav), "the recording is left")
   end
 end)
 

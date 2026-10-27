@@ -192,10 +192,6 @@ local modules = {
         end
       end
     end,
-    finalize = function(capture)
-      capture.done, capture.finalized = nil, fs.attributes(capture.wav) ~= nil
-      return not capture.stuck
-    end,
     analyze = function() end,
   },
   ["dictation.engine"] = {
@@ -440,17 +436,31 @@ test("a take recording when the backend dies goes on, and is kept", function()
   assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
 end)
 
-test("a stop ffmpeg doesn't finish in 2 s (a stalled mic) keeps the take and says so", function()
-  local count = wavs()
-  local id = dictate(field("Hi"))
-  timers[#timers]() -- ffmpeg exited in time: its deadline is stopped
+test("a stop ffmpeg doesn't finish in 2 s, slow apps aside, keeps the take and says so", function()
+  local count, element, before = wavs(), field("Hi"), #timers
+  local system = hs.axuielement.systemWideElement
+  -- An app slow to answer: every timer started by then comes due first.
+  hs.axuielement.systemWideElement = function()
+    for index = before + 1, #timers do
+      timers[index]()
+    end
+    return system()
+  end
+  local id = dictate(element)
+  hs.axuielement.systemWideElement = system
+  assert(#alerts == 0, "a slow app used up the 2 s: " .. tostring(alerts[1]))
+  local exited = timers[#timers] -- ffmpeg exited in time: its deadline is stopped
+  exited()
   handlers.onFinal({ id = id, text = "in time" })
+  assert(element.value == "Hi in time" and #alerts == 0, tostring(alerts[1] or element.value))
   toggle()
   toggle()
   escape()
-  timers[#timers]() -- cancelled: its deadline is stopped
   focus, alerts = field("Hi"), {}
   toggle()
+  exited()
+  timers[#timers]() -- cancelled: its deadline is stopped
+  assert(shown and #alerts == 0, "an earlier take's deadline ended the next one")
   toggle()
   timers[#timers]()
   assert(tostring(alerts[1]):find("did not finish the recording", 1, true), tostring(alerts[1]))
@@ -672,8 +682,9 @@ test("a reload that can't move a take into history leaves it where the alert say
   alerts, focus = {}, field("Hi")
   toggle()
   os.execute("chmod 500 " .. directory)
-  hs.shutdownCallback()
+  local ok, problem = pcall(hs.shutdownCallback)
   os.execute("chmod 700 " .. directory)
+  assert(ok, problem)
   assert(tostring(alerts[1]):find("could not keep " .. recorded, 1, true), tostring(alerts[1]))
   assert(fs.attributes(recorded), "the recording was deleted")
 end)
@@ -686,13 +697,12 @@ test("shutdown puts the clipboard back and keeps every take, even if a log line 
   escape() -- still transcribing, no longer waited on
   toggle()
   local recording = take
-  recording.stuck, alerts, chained = true, {}, false
+  chained = false
   dead = true -- unbinding Escape raises: every take is kept first
   pcall(hs.shutdownCallback)
   dead = false
-  assert(recording.finalized, "the recording was kept before ffmpeg finished it")
+  assert(recording.ended, "ffmpeg left running")
   assert(chained, "the shutdown before it was skipped")
-  assert(tostring(alerts[1]):find("may be cut short", 1, true), tostring(alerts[1]))
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
   assert(wavs() == count + 2 and not fs.attributes(recorded), "a recording is not kept")
 end)

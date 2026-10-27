@@ -26,7 +26,7 @@
 ---@field adapterRevision? string Its commit SHA.
 
 ---@class DictationHistory
----@field directory string Every transcript goes here first; unanswered takes keep their wav.
+---@field directory string Every transcript goes here first; untranscribed takes keep their wav.
 ---@field maxMegabytes number Transcripts cap, oldest first; kept wavs are never counted or deleted.
 
 -- A key in config.lua replaces its default whole, not field by field.

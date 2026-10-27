@@ -94,7 +94,7 @@ function engine.new(config, handlers)
     -- The last stderr line goes in the popup: an exception's, or whatever was printed last.
     local reason = self.errors:match("([^\n]*%S)%s*$")
     local exit = self.task:terminationReason() == "interrupt" and "killed by signal " .. code
-      or "exited (code " .. tostring(code) .. ")"
+      or "exited (code " .. code .. ")"
     failure(reason and exit .. "; last output: " .. reason .. "\n" .. self.errors or exit)
   end, output, { directory .. "server.py", settings })
   if not self.task:start() then

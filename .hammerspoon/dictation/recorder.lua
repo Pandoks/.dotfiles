@@ -12,8 +12,7 @@ local utils = require("lib.utils")
 ---@field bins integer[] band edges in FFT bins, 0..bands
 ---@field task? hs.task nil once ffmpeg exits
 ---@field stopping? boolean
----@field discarded? boolean cancelled or failed: its wav is deleted unless kept
----@field kept? boolean
+---@field discarded? boolean cancelled or failed
 ---@field done? fun(wav: string, peak: number, duration: number)
 
 local recorder = {}
@@ -123,7 +122,7 @@ function recorder.start(bands, onError)
     failure(errors)
     -- Stopping, SIGINT exits ffmpeg 255, or 2 if it came before ffmpeg set its handler.
     if not recording.stopping or (code ~= 0 and code ~= 255 and code ~= 2) then
-      failure("capture exited (code " .. tostring(code) .. ")")
+      failure("capture exited (code " .. code .. ")")
     end
     -- The last chunk arrives after the final tick: count it in the duration and peak.
     local rest, problem = recording.close()
@@ -132,8 +131,6 @@ function recorder.start(bands, onError)
       recording.fresh = recording.fresh .. rest
       recorder.analyze(recording)
       recording.done(wav, recording.peak, recording.offset / (2 * rate))
-    elseif recording.discarded and not recording.kept then
-      os.remove(wav)
     end
   end, function(_, _, errors)
     -- Output after the exit fails nothing.
@@ -251,33 +248,13 @@ function recorder.stop(recording, done)
   assert(recording.task):interrupt()
 end
 
--- Lets ffmpeg finish the wav, for up to 2 s: a second signal would make it skip the trailer.
----@param recording DictationRecording
----@return boolean finished
-function recorder.finalize(recording)
-  recording.done = nil
-  local task = recording.task
-  if task and not recording.stopping then
-    recording.stopping = true
-    task:interrupt()
-  end
-  -- Polled: waitUntilExit has no timeout, and a stuck ffmpeg would hang the reload.
-  for _ = 1, 200 do
-    if not (task and task:isRunning()) then
-      return true
-    end
-    hs.timer.usleep(10000)
-  end
-  return false
-end
-
 ---@param recording? DictationRecording
 ---@param kept? boolean its wav is left for history
 function recorder.cleanup(recording, kept)
   if not recording then
     return
   end
-  recording.discarded, recording.done, recording.kept = true, nil, kept
+  recording.discarded, recording.done = true, nil
   -- SIGKILL: ffmpeg ignores 3 signals once its input stops delivering (an unplugged mic).
   if recording.task and recording.task:isRunning() then
     os.execute("kill -KILL " .. recording.task:pid())

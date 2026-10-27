@@ -218,12 +218,8 @@ local function keep(wav)
   )
 end
 
--- Kills ffmpeg and keeps its wav, which neither finish() nor ffmpeg's exit then deletes.
----@param finished boolean
-local function salvage(finished)
-  if not finished then
-    fail("ffmpeg did not finish the recording in 2 s; the kept wav may be cut short")
-  end
+-- Kills ffmpeg and keeps its wav, which finish() then doesn't delete.
+local function salvage()
   recorder.cleanup(recording, true)
   if hs.fs.attributes(recording.wav) then
     keep(recording.wav)
@@ -363,19 +359,20 @@ local function toggle()
       local id, refused = engine:transcribe(wav, bundle)
       if not id then
         fail(tostring(refused))
-        salvage(true)
+        salvage()
         return finish()
       end
       wavs[id], inflight, recording = wav, id, nil
       pill.thinking = true
     end)
-    -- A stalled input (an unplugged mic) makes ffmpeg ignore SIGINT: it never exits.
-    deadline = hs.timer.doAfter(2, function()
-      salvage(false)
-      finish()
-    end)
     -- After SIGINT, so a slow app cannot extend the take.
     target, targetError = focused()
+    -- An unplugged mic makes ffmpeg ignore SIGINT; counted from here, as focused() can block.
+    deadline = hs.timer.doAfter(2, function()
+      fail("ffmpeg did not finish the recording in 2 s")
+      salvage()
+      finish()
+    end)
   end
 end
 
@@ -394,9 +391,9 @@ hs.shutdownCallback = function()
   if restore then
     restore.timer:fire()
   end
-  -- A take still recording is kept once ffmpeg has finished it: nothing will transcribe it.
+  -- A take still recording is kept: nothing will transcribe it.
   if recording then
-    salvage(recorder.finalize(recording))
+    salvage()
   end
   engine:stop()
   -- No transcript will come back for these.
