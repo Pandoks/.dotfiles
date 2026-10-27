@@ -261,6 +261,11 @@ For a live check after reloading Hammerspoon:
 
 The logger Lua regressions also run with `tests/run.sh`.
 
+Run `sh .hammerspoon/tests/stream_test.sh` for `lib/stream`, dictation's PCM socket; it needs
+`ffmpeg` on `PATH`. It streams real ffmpeg output and checks live chunked delivery, `close()`
+before, during, and after a writer, accept and read failures, garbage collection, and a Lua
+reload mid-stream.
+
 Audit checks (substitute the installed executable paths if needed):
 
 ```sh

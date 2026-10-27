@@ -21,7 +21,6 @@ static dispatch_queue_t queue;
 @property NSString *error;
 @property BOOL scheduled, closed;
 @property int callback;
-@property LSGCCanary canary;
 @end
 
 @implementation Stream
@@ -40,7 +39,7 @@ static dispatch_queue_t queue;
   unlink(self.path.fileSystemRepresentation);
   self.path = nil;
   if (client < 0) return;
-  if (fcntl(client, F_SETFD, FD_CLOEXEC) < 0 || fcntl(client, F_SETFL, O_NONBLOCK) < 0) {
+  if (fcntl(client, F_SETFD, FD_CLOEXEC) < 0) {
     [self fail:@"configure"];
     close(client);
     return;
@@ -55,7 +54,6 @@ static dispatch_queue_t queue;
   dispatch_resume(self.reader);
 }
 
-// Everything buffered; stops at the writer's end or an error.
 - (void)read {
   uint8_t buffer[16384];
   while (self.client >= 0) {
@@ -98,12 +96,11 @@ static dispatch_queue_t queue;
     error = self.error;
     self.error = nil;
   });
-  if (error && [self call:nil error:error]) [self finish:nil];
+  if (error) [self call:nil error:error];
 }
 
-- (BOOL)call:(NSData *)chunk error:(NSString *)error {
+- (void)call:(NSData *)chunk error:(NSString *)error {
   LuaSkin *skin = [LuaSkin sharedWithState:NULL];
-  if (self.closed || ![skin checkGCCanary:self.canary]) return NO;
   lua_State *state = skin.L;
   _lua_stackguard_entry(state);
   [skin pushLuaRef:references ref:self.callback];
@@ -113,7 +110,6 @@ static dispatch_queue_t queue;
   else lua_pushnil(state);
   [skin protectedCallAndError:@"stream callback" nargs:2 nresults:0];
   _lua_stackguard_exit(state);
-  return YES;
 }
 
 // Accepts a waiting writer and drains it: the bytes not yet delivered, and any error not yet raised.
@@ -136,12 +132,7 @@ static dispatch_queue_t queue;
   });
   if (error) *error = problem;
   if (!rest) return nil; // already closed
-  LuaSkin *skin = [LuaSkin sharedWithState:NULL];
-  if ([skin checkGCCanary:self.canary]) {
-    [skin luaUnref:references ref:self.callback];
-    LSGCCanary canary = self.canary;
-    [skin destroyGCCanary:&canary];
-  }
+  [[LuaSkin sharedWithState:NULL] luaUnref:references ref:self.callback];
   return rest;
 }
 @end
@@ -192,7 +183,6 @@ static int serve(lua_State *state) {
   stream.server = server;
   stream.client = -1;
   stream.pending = [NSMutableData new];
-  stream.canary = [skin createGCCanary];
   lua_pushvalue(state, 2);
   stream.callback = [skin luaRef:references];
   stream.listener = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, (uintptr_t)server, 0, queue);

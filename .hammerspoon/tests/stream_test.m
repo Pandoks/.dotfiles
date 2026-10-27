@@ -172,13 +172,17 @@ int main(int argc, char **argv) {
       " assert(#chunks==0 and rest==reference,'close() lost the undelivered bytes')");
     await(0.3, NO);
     execute(state, "assert(#chunks==0,'delivered after close()')");
+    // Stopped before the writer connects.
+    socketPath(state, "unused", path);
+    execute(state, "local rest,problem=assert(stream.listen(path,error))();"
+      " assert(rest=='' and problem==nil,problem)");
+    assert(stat(path, &info) != 0 && errno == ENOENT);
     // Gone before the reader can accept it.
     socketPath(state, "quick", path);
     execute(state, "local data=string.rep('ab',2048); for _=1,50 do"
       " local close=assert(stream.listen(path,error)); send(path,data);"
       " local rest,problem=close(); assert(rest==data and problem==nil,'lost a finished writer') end");
     pass("close() returns every byte not yet delivered, and nothing is delivered after it");
-
 
     // A read failure lands while bytes are pending, and their callback closes the stream.
     socketPath(state, "reentrant", path);
@@ -204,10 +208,12 @@ int main(int argc, char **argv) {
 
     socketPath(state, "old", path);
     snprintf(target, sizeof target, "unix:%s", path);
-    execute(state, "close=assert(stream.listen(path,function() finish() end)); stream=nil");
+    execute(state, "close=assert(stream.listen(path,function() finish() end))");
     pid_t old = sine(target, YES);
     await(3, YES);
+    usleep(300000); // the next chunk's delivery waits on main
     [skin resetLuaState];
+    await(0.3, NO); // and runs before the module loads again
     skin = [LuaSkin sharedWithState:NULL];
     state = prepare(skin);
     socketPath(state, "fresh", path);
@@ -221,7 +227,7 @@ int main(int argc, char **argv) {
     execute(state, "local rest=close(); assert(table.concat(chunks)..rest==reference,'old stream leaked in')");
     pass("a Lua reload mid-stream drops the old callbacks and a new stream works");
 
-    printf("%d stream tests passed\n", passed);
+    printf("RESULT %d passed, 0 failed\n", passed);
   }
   return 0;
 }
