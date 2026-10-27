@@ -88,6 +88,8 @@ function toast.close(id, fade)
       if entry.timer then
         entry.timer:stop()
       end
+      -- Its window stays through the fade, and ignores clicks only without a callback.
+      entry.canvas:mouseCallback(nil)
       entry.canvas:delete(seconds)
       if entry.glass then
         entry.glass:hide(seconds)

@@ -107,7 +107,13 @@ local toast = assert(loadfile(
           function canvas.behaviorAsLabels(_, labels)
             canvas.labels = table.concat(labels, " ")
           end
-          function canvas.mouseCallback(_, fn)
+          -- Without one, its window ignores clicks.
+          function canvas.mouseCallback(_, ...)
+            local fn = ...
+            assert(
+              select("#", ...) == 1 and (fn == nil or type(fn) == "function"),
+              "not a function or nil"
+            )
             canvas.click = fn
           end
           function canvas.show()
@@ -242,6 +248,13 @@ test("a toast stays on its screen when focus and the stack change", function()
   assert(bottom(canvases[1]) == 609 and bottom(canvases[2]) == 609, "screens share one stack")
   timers[2].fn()
   assert(canvases[2].fade == 0.25, "the side screen's oldest did not fade")
+  clear()
+end)
+
+test("a closed toast lets clicks through while it fades", function()
+  toast.close(toast.show("fading"), 5)
+  assert(canvases[1].fade == 5)
+  assert(not rawget(canvases[1], "click"), "the fading toast takes clicks")
   clear()
 end)
 

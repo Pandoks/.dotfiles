@@ -262,15 +262,15 @@ For a live check after reloading Hammerspoon:
 
 The logger Lua regressions also run with `tests/run.sh`, as does the toast suite: placement at the
 bottom right of the focused Space's display just below the Dock's level (without one, the text is
-printed to the log, nothing is shown, and no error is raised), stacking, repeats, dismissal,
-wrapping, themes, and every `hs.alert` call routed through `lib/toast.lua` with its screen, seconds,
-and id. It also checks that the glass theme gives each toast its own glass, hidden with the toast's
-fade, under shadowed text that goes with the theme, and that a failed build of `lib/toast/toast.m`
-(stubbed) fails the load. Its look was checked with real `hs.canvas` renders. The glass window was
-checked live on macOS 27.0.1: it refracts what is behind it, another app's window too (lensing at
-the edges, a rim highlight), though its panel is never key; it moves with its toast, clicks still
-reach the toast, a glass collected during its fade stays until the fade ends, and no window is left
-after a toast times out or its glass is collected.
+printed to the log, nothing is shown, and no error is raised), stacking, repeats, dismissal (clicks
+pass through a fading toast), wrapping, themes, and every `hs.alert` call routed through
+`lib/toast.lua` with its screen, seconds, and id. It also checks that the glass theme gives each
+toast its own glass, hidden with the toast's fade, under shadowed text that goes with the theme, and
+that a failed build of `lib/toast/toast.m` (stubbed) fails the load. Its look was checked with real
+`hs.canvas` renders. The glass window was checked live on macOS 27.0.1: it refracts what is behind
+it, another app's window too (lensing at the edges, a rim highlight), though its panel is never key;
+it moves with its toast, clicks still reach the toast, a glass collected during its fade stays until
+the fade ends, and no window is left after a toast times out or its glass is collected.
 
 Audit checks (substitute the installed executable paths if needed):
 
