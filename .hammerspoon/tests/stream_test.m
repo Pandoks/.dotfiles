@@ -30,7 +30,7 @@ static int passed;
 static void execute(lua_State *state, const char *code) {
   if (luaL_dostring(state, code)) { fprintf(stderr, "%s\n", lua_tostring(state, -1)); abort(); }
 }
-static void pass(const char *name) { printf("PASS %s\n", name); passed++; }
+static void pass(const char *name) { printf("PASS %s\n", name); fflush(stdout); passed++; }
 static int now(lua_State *state) { lua_pushnumber(state, CFAbsoluteTimeGetCurrent()); return 1; }
 static int finish(lua_State *state) { (void)state; CFRunLoopStop(CFRunLoopGetMain()); return 0; }
 
@@ -109,6 +109,7 @@ static void socketPath(lua_State *state, const char *name, char *path) {
 int main(int argc, char **argv) {
   @autoreleasepool {
     assert(argc == 4);
+    alarm(300); // the guards run on main, which a hung close() or reap() blocks
     binary = argv[1]; ffmpeg = argv[2]; directory = argv[3];
     atomic_int *armed = dlsym(RTLD_DEFAULT, "armed");
     assert(armed && unsetenv("DYLD_INSERT_LIBRARIES") == 0);
@@ -149,7 +150,8 @@ int main(int argc, char **argv) {
 
     socketPath(state, "live", path);
     execute(state, "chunks,times={},{}; close=assert(stream.listen(path,function(chunk,problem)"
-      " assert(chunk and not problem,problem); chunks[#chunks+1]=chunk; times[#times+1]=now() end))");
+      " assert(chunk and not problem,problem); chunks[#chunks+1]=chunk; times[#times+1]=now() end));"
+      " collectgarbage()"); // test 1's closed stream, whose callback reference this one reuses
     assert(stat(path, &info) == 0 && S_ISSOCK(info.st_mode) && (info.st_mode & 0777) == 0600);
     char target[1100];
     snprintf(target, sizeof target, "unix:%s", path);
@@ -173,16 +175,24 @@ int main(int argc, char **argv) {
     await(0.3, NO);
     execute(state, "assert(#chunks==0,'delivered after close()')");
     // Stopped before the writer connects.
+    int lowest = dup(STDERR_FILENO);
+    close(lowest);
     socketPath(state, "unused", path);
     execute(state, "local rest,problem=assert(stream.listen(path,error))();"
       " assert(rest=='' and problem==nil,problem)");
     assert(stat(path, &info) != 0 && errno == ENOENT);
     // Gone before the reader can accept it.
     socketPath(state, "quick", path);
-    execute(state, "local data=string.rep('ab',2048); for _=1,50 do"
-      " local close=assert(stream.listen(path,error)); send(path,data);"
+    execute(state, "alive=setmetatable({},{__mode='k'}); local data=string.rep('ab',2048); for _=1,50 do"
+      " local callback=function() error(data) end; alive[callback]=true;"
+      " local close=assert(stream.listen(path,callback)); send(path,data);"
       " local rest,problem=close(); assert(rest==data and problem==nil,'lost a finished writer') end");
-    pass("close() returns every byte not yet delivered, and nothing is delivered after it");
+    await(0.3, NO); // the read queue closes their sockets
+    execute(state, "collectgarbage(); collectgarbage(); assert(next(alive)==nil,'kept a callback')");
+    int next = dup(STDERR_FILENO);
+    assert(next == lowest); // no socket left open
+    close(next);
+    pass("close() returns every byte not yet delivered, delivers nothing after it, and keeps no socket or callback");
 
     // A read failure lands while bytes are pending, and their callback closes the stream.
     socketPath(state, "reentrant", path);

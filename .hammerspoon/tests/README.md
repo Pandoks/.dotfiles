@@ -21,16 +21,16 @@ one background window search, so the first Cmd-Tab finds windows on other Spaces
 Neither touches the real window server; the native gesture, focus, and Accessibility calls in
 `lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
 
+Run `sh .hammerspoon/tests/stream_test.sh` for `lib/stream`, dictation's PCM socket; it needs
+`ffmpeg` on `PATH`. It streams real ffmpeg output and checks live chunked delivery, listen,
+accept, and read failures, `close()` before, during, and after a writer, that a closed stream
+keeps no socket or callback, garbage collection, and a Lua reload mid-stream.
+
 Run `sh .hammerspoon/tests/previews_test.sh` for the native preview worker pool.
 It uses synthetic images and windows, without Screen Recording access or UI changes.
 The tests verify four concurrent captures, progressive main-thread delivery,
 real bitmap resizing, a 100-window cache below 47 MiB of pixel data, cancellation,
 garbage collection, window-ID reuse, capture failures, and Lua reload with work pending.
-
-Run `sh .hammerspoon/tests/stream_test.sh` for `lib/stream`, dictation's PCM socket; it needs
-`ffmpeg` on `PATH`. It streams real ffmpeg output and checks live chunked delivery, `close()`
-before, during, and after a writer, accept and read failures, garbage collection, and a Lua
-reload mid-stream.
 
 Previews use `CGSHWCaptureWindowList` at nominal resolution on four background
 workers. SkyLight ownership checks include minimized windows and reject reused IDs

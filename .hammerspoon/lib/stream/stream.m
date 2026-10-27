@@ -55,15 +55,12 @@ static dispatch_queue_t queue;
   uint8_t buffer[16384];
   while (self.reader) {
     ssize_t count = read((int)dispatch_source_get_handle(self.reader), buffer, sizeof buffer);
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0 && errno == EAGAIN) return;
+    if (count < 0) [self fail:@"read"];
     if (count > 0) {
       [self.pending appendBytes:buffer length:(NSUInteger)count];
       continue;
-    } else if (count < 0 && errno == EINTR) {
-      continue;
-    } else if (count < 0 && errno == EAGAIN) {
-      return;
-    } else if (count < 0) {
-      [self fail:@"read"];
     }
     dispatch_source_cancel(self.reader);
     self.reader = nil;
