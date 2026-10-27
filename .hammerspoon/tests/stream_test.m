@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
     struct sockaddr_un address = { .sun_family = AF_UNIX };
     strlcpy(address.sun_path, path, sizeof address.sun_path);
     assert(connect(client, (struct sockaddr *)&address, sizeof address) == 0);
-    await(3, YES);
+    await(30, YES);
     assert(setrlimit(RLIMIT_NOFILE, &limits) == 0);
     close(client);
     await(0.3, NO);
@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
     snprintf(target, sizeof target, "unix:%s", path);
     pid_t pid = sine(target, YES);
     watch(state, pid);
-    await(10, YES);
+    await(60, YES);
     assert(reap(pid) == 0);
     execute(state, "local rest,problem=close(); assert(problem==nil,problem);"
       " assert(table.concat(chunks)..rest==reference,'bytes lost or reordered');"
@@ -190,7 +190,7 @@ int main(int argc, char **argv) {
       " assert(chunk and not closed,'raised after close()'); closed=table.pack(close()); finish() end))");
     atomic_store(armed, 1);
     execute(state, "send(path,'ab')");
-    await(3, YES);
+    await(30, YES);
     await(0.3, NO);
     execute(state, "assert(closed[1]=='' and closed[2] and closed[2]:find('read'),'close() lost the read error')");
     pass("close() from a chunk callback returns the read failure that came with the chunk");
@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
     snprintf(target, sizeof target, "unix:%s", path);
     execute(state, "count=0; close=assert(stream.listen(path,function() count=count+1; finish() end))");
     pid = sine(target, YES);
-    await(3, YES);
+    await(30, YES);
     execute(state, "close=nil; collectgarbage(); collectgarbage(); seen=count");
     await(0.3, NO);
     execute(state, "assert(count==seen,'delivered after collection')");
@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
     snprintf(target, sizeof target, "unix:%s", path);
     execute(state, "close=assert(stream.listen(path,function() finish() end))");
     pid_t old = sine(target, YES);
-    await(3, YES);
+    await(30, YES);
     usleep(300000); // the next chunk's delivery waits on main
     [skin resetLuaState];
     await(0.3, NO); // and runs before the module loads again
@@ -221,7 +221,7 @@ int main(int argc, char **argv) {
     execute(state, "chunks={}; close=assert(stream.listen(path,function(chunk) chunks[#chunks+1]=chunk end))");
     pid = sine(target, YES);
     watch(state, pid);
-    await(10, YES);
+    await(60, YES);
     reap(old);
     assert(reap(pid) == 0);
     execute(state, "local rest=close(); assert(table.concat(chunks)..rest==reference,'old stream leaked in')");

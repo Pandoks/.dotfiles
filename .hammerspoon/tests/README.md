@@ -27,6 +27,11 @@ The tests verify four concurrent captures, progressive main-thread delivery,
 real bitmap resizing, a 100-window cache below 47 MiB of pixel data, cancellation,
 garbage collection, window-ID reuse, capture failures, and Lua reload with work pending.
 
+Run `sh .hammerspoon/tests/stream_test.sh` for `lib/stream`, dictation's PCM socket; it needs
+`ffmpeg` on `PATH`. It streams real ffmpeg output and checks live chunked delivery, `close()`
+before, during, and after a writer, accept and read failures, garbage collection, and a Lua
+reload mid-stream.
+
 Previews use `CGSHWCaptureWindowList` at nominal resolution on four background
 workers. SkyLight ownership checks include minimized windows and reject reused IDs
 before and after capture. Each worker produces a real sRGB bitmap fitting 460x260
@@ -260,11 +265,6 @@ For a live check after reloading Hammerspoon:
     the menu stays closed.
 
 The logger Lua regressions also run with `tests/run.sh`.
-
-Run `sh .hammerspoon/tests/stream_test.sh` for `lib/stream`, dictation's PCM socket; it needs
-`ffmpeg` on `PATH`. It streams real ffmpeg output and checks live chunked delivery, `close()`
-before, during, and after a writer, accept and read failures, garbage collection, and a Lua
-reload mid-stream.
 
 Audit checks (substitute the installed executable paths if needed):
 

@@ -15,7 +15,6 @@ static dispatch_queue_t queue;
 // Sockets, sources, and buffers change only on `queue`; Lua state only on main.
 @interface Stream : NSObject
 @property NSString *path;
-@property int server, client;
 @property dispatch_source_t listener, reader;
 @property NSMutableData *pending;
 @property NSString *error;
@@ -29,13 +28,12 @@ static dispatch_queue_t queue;
 }
 
 - (void)accept {
-  int client = accept(self.server, NULL, NULL);
+  int client = accept((int)dispatch_source_get_handle(self.listener), NULL, NULL);
   if (client < 0 && (errno == EAGAIN || errno == EINTR || errno == ECONNABORTED)) return;
   if (client < 0) [self fail:@"accept"];
   // One writer, or none after an error: no one else can connect.
   dispatch_source_cancel(self.listener);
   self.listener = nil;
-  self.server = -1;
   unlink(self.path.fileSystemRepresentation);
   self.path = nil;
   if (client < 0) return;
@@ -44,7 +42,6 @@ static dispatch_queue_t queue;
     close(client);
     return;
   }
-  self.client = client;
   self.reader = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, (uintptr_t)client, 0, queue);
   dispatch_source_set_event_handler(self.reader, ^{
     [self read];
@@ -56,8 +53,8 @@ static dispatch_queue_t queue;
 
 - (void)read {
   uint8_t buffer[16384];
-  while (self.client >= 0) {
-    ssize_t count = read(self.client, buffer, sizeof buffer);
+  while (self.reader) {
+    ssize_t count = read((int)dispatch_source_get_handle(self.reader), buffer, sizeof buffer);
     if (count > 0) {
       [self.pending appendBytes:buffer length:(NSUInteger)count];
       continue;
@@ -70,7 +67,6 @@ static dispatch_queue_t queue;
     }
     dispatch_source_cancel(self.reader);
     self.reader = nil;
-    self.client = -1;
   }
 }
 
@@ -180,8 +176,6 @@ static int serve(lua_State *state) {
   }
   Stream *stream = [Stream new];
   stream.path = @(address.sun_path);
-  stream.server = server;
-  stream.client = -1;
   stream.pending = [NSMutableData new];
   lua_pushvalue(state, 2);
   stream.callback = [skin luaRef:references];
