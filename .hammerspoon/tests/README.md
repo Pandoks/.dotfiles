@@ -262,15 +262,33 @@ For a live check after reloading Hammerspoon:
 
 The logger Lua regressions also run with `tests/run.sh`, as does the toast suite: placement at the
 bottom right of the focused Space's display just below the Dock's level (without one, the text is
-printed to the log, nothing is shown, and no error is raised), stacking, repeats, dismissal (clicks
-pass through a fading toast), wrapping, themes, and every `hs.alert` call routed through
-`lib/toast.lua` with its screen, seconds, and id. It also checks that the glass theme gives each
-toast its own glass, hidden with the toast's fade, under shadowed text that goes with the theme, and
-that a failed build of `lib/toast/toast.m` (stubbed) fails the load. Its look was checked with real
-`hs.canvas` renders. The glass window was checked live on macOS 27.0.1: it refracts what is behind
-it, another app's window too (lensing at the edges, a rim highlight), though its panel is never key;
-it moves with its toast, clicks still reach the toast, a glass collected during its fade stays until
-the fade ends, and no window is left after a toast times out or its glass is collected.
+printed to the log, nothing is shown, and no error is raised), stacking, repeats, dismissal (on
+release, as the window server puts back a window ordered out under a held left click, so a pressed
+toast outlasts its timeout and `closeAll` until let go, and the cap passes it over; one closed under
+a press Hammerspoon has yet to see is ordered out at alpha 0 after any fade, comes back unseen when
+let go right after, and is still collected; clicks pass through a fading toast; and the rest of a
+multi-click that closed a toast reaches nothing, each mouse-up going where its button's mouse-down
+went), wrapping, themes, and every `hs.alert` call routed through `lib/toast.lua` with its screen,
+seconds, and id. It also checks that the glass theme gives each toast its own glass, hidden with the
+toast's fade, under shadowed text that goes with the theme, and that a failed build of
+`lib/toast/toast.m` (stubbed) fails the load. Its look was checked with real `hs.canvas` renders.
+The glass window was checked live on macOS 27.0.1: it refracts what is behind it, another app's
+window too (lensing at the edges, a rim highlight), though its panel is never key; it moves with its
+toast, clicks still reach the toast, a glass collected during its fade stays until the fade ends,
+and no window is left after a toast times out or its glass is collected. Multi-clicks posted with
+their click states set by hand (double, triple with clicks 0.35 s apart, and right-button double)
+were checked live on macOS 27.0.1 in all four themes: each closed only its toast, and its later
+clicks reached none of the toast moving into its place, one shown between the clicks, or the window
+beneath. A click and a double-click elsewhere afterwards reached the window there, mouse-ups
+included, and with each down and up 0.09 s apart, a toast clicked as a double-click's second click,
+or with the right button while the left was held, left no button reported as held. Neither did a
+double-click with button 4 while the middle button was held and let go. With clicks posted at the
+HID level, no closed toast's window was left visible. A press Hammerspoon saw, 20 to 456 ms before a
+toast's timeout, `closeAll`, `closeSpecific` or the cap, closed the toast on release. Under one it
+had yet to see, from 35 ms before them to 13 ms after while the window was still there, held 1.2 s
+or 3 s, the toast came back at alpha 0 after its 0.25 s or 2 s fade if it had one, let clicks
+through, and stayed until garbage collection; so did one let go 0 to 164 ms after its faded window
+was ordered out. A fade held up while Hammerspoon was busy still ended at alpha 0.
 
 Audit checks (substitute the installed executable paths if needed):
 

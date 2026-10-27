@@ -50,6 +50,7 @@ local native
 ---@type ToastEntry[]
 local shown = {} -- oldest first
 local count = 0
+local held = {} -- by id, a toast a click is pressing
 
 local function grays(levels)
   local colors = {}
@@ -76,6 +77,9 @@ end
 ---@param fade? number seconds, 0.25 by default
 function toast.close(id, fade)
   local seconds = fade and math.max(fade, 0) or 0.25
+  if held[id] then
+    return -- its release closes it
+  end
   for i, entry in ipairs(shown) do
     if entry.id == id then
       -- Only its screen's oldest fades: the toasts above any other move into its place.
@@ -88,9 +92,24 @@ function toast.close(id, fade)
       if entry.timer then
         entry.timer:stop()
       end
+      local canvas = entry.canvas
+      local from, ends = canvas:alpha(), hs.timer.absoluteTime() + seconds * 1e9
       -- Its window stays through the fade, and ignores clicks only without a callback.
-      entry.canvas:mouseCallback(nil)
-      entry.canvas:delete(seconds)
+      canvas:mouseCallback(nil)
+      -- By hand, as hs.canvas's fade orders the window out, then restores the alpha it began at.
+      local function step()
+        local left = ends - hs.timer.absoluteTime()
+        if left > 0 then
+          canvas:alpha(from * (left / seconds / 1e9) ^ 2)
+          entry.timer = hs.timer.doAfter(1 / 60, step)
+        else
+          entry.timer = nil -- else never collected
+          -- The window server puts back a window ordered out under a held left click.
+          canvas:alpha(0)
+          canvas:delete()
+        end
+      end
+      step()
       if entry.glass then
         entry.glass:hide(seconds)
       end
@@ -99,6 +118,29 @@ function toast.close(id, fade)
     end
   end
 end
+
+local types = hs.eventtap.event.types
+local ups = { [types.leftMouseUp] = true, [types.rightMouseUp] = true, [types.otherMouseUp] = true }
+local clicked, dropped = false, {}
+-- Until a fresh click, drops the rest of a multi-click that closed a toast, each up with its down.
+local tap = hs.eventtap.new({
+  types.leftMouseDown,
+  types.leftMouseUp,
+  types.rightMouseDown,
+  types.rightMouseUp,
+  types.otherMouseDown,
+  types.otherMouseUp,
+}, function(event)
+  local button = event:getProperty(hs.eventtap.event.properties.mouseEventButtonNumber)
+  if ups[event:getType()] then
+    local drop = dropped[button]
+    dropped[button] = nil
+    return drop
+  end
+  local drop = clicked and event:getProperty(hs.eventtap.event.properties.mouseEventClickState) > 1
+  clicked, dropped[button] = drop, drop
+  return drop
+end)
 
 ---@param entry ToastEntry
 ---@param seconds number|false
@@ -261,11 +303,19 @@ function toast.show(text, options)
   canvas:behaviorAsLabels({ "canJoinAllSpaces", "stationary", "fullScreenAuxiliary" })
   canvas:clickActivating(false)
 
-  canvas:canvasMouseEvents(true, false, false, false)
+  -- Closes on release: the window server puts back a window ordered out under a held left click.
+  canvas:canvasMouseEvents(true, true, false, false)
   count = count + 1
   local id = count
-  canvas:mouseCallback(function()
+  canvas:mouseCallback(function(_, message)
+    held[id] = message == "mouseDown" or nil
+    if held[id] then
+      return
+    end
     toast.close(id)
+    clicked = true
+    -- Left on until a reload: stopping it from its callback dropped that click's mouse-up.
+    tap:start()
   end)
   local entry = {
     id = id,
@@ -277,7 +327,7 @@ function toast.show(text, options)
   }
   arm(entry, seconds)
   shown[#shown + 1] = entry
-  -- Past the cap, the screen's oldest timed toast goes.
+  -- Past the cap, the screen's oldest unpressed timed toast goes.
   local on = {}
   for _, other in ipairs(shown) do
     if other.screen:id() == screen:id() then
@@ -286,7 +336,7 @@ function toast.show(text, options)
   end
   if #on > most then
     for i = 1, #on - 1 do
-      if on[i].timer then
+      if on[i].timer and not held[on[i].id] then
         toast.close(on[i].id, 0) -- at once: the stack shifts into its place
         break
       end
@@ -343,8 +393,8 @@ function toast.install(options)
   end
   alert.closeSpecific = toast.close
   alert.closeAll = function(fade)
-    while shown[1] do
-      toast.close(shown[1].id, fade)
+    for _, entry in ipairs({ table.unpack(shown) }) do
+      toast.close(entry.id, fade)
     end
   end
 end

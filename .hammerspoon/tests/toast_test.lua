@@ -1,5 +1,7 @@
 local root = assert(arg[1])
 local canvases, timers, logged, printed, measured = {}, {}, {}, {}, 0
+local clock = 0 -- ns, as hs.timer.absoluteTime gives
+local tap
 local glasses, unbuilt = {}, false
 -- Userdata, as in Hammerspoon.
 local screens, styled, at = {}, {}, {}
@@ -70,9 +72,43 @@ local toast = assert(loadfile(
           return { text = text, style = copy }
         end,
       },
+      eventtap = {
+        event = {
+          types = {
+            leftMouseDown = 1,
+            leftMouseUp = 2,
+            rightMouseDown = 3,
+            rightMouseUp = 4,
+            otherMouseDown = 25,
+            otherMouseUp = 26,
+          },
+          properties = { mouseEventClickState = 1, mouseEventButtonNumber = 3 },
+        },
+        -- No stop: toast.lua never stops the tap.
+        new = function(mask, fn)
+          tap = { fn = fn, types = {} }
+          for _, kind in ipairs(mask) do
+            tap.types[kind] = not tap.types[kind] -- toggled, as libeventtap's mask bit is
+          end
+          function tap.start()
+            tap.on = true
+          end
+          return tap
+        end,
+      },
       timer = {
+        absoluteTime = function()
+          return clock
+        end,
+        -- Its callback is held in the registry until the timer is collected, as in hs.timer.
         doAfter = function(seconds, fn)
-          local timer = { seconds = seconds, fn = fn }
+          local timer, ref = { seconds = seconds, fn = fn, at = clock + seconds * 1e9 }, {}
+          debug.getregistry()[ref] = fn
+          setmetatable(timer, {
+            __gc = function()
+              debug.getregistry()[ref] = nil
+            end,
+          })
           function timer.stop()
             timer.stopped = true
           end
@@ -119,8 +155,25 @@ local toast = assert(loadfile(
           function canvas.show()
             canvas.visible = true
           end
+          canvas.out, canvas.ghost, canvas.opacity = false, false, 1
+          function canvas.alpha(_, value)
+            canvas.opacity = value or canvas.opacity
+            return canvas.opacity
+          end
+          -- Ordered out now, or after its fade, at the alpha it began at; one mid-fade is ignored.
+          canvas.ending = false
           function canvas.delete(_, fade)
-            canvas.deleted, canvas.fade = true, fade
+            canvas.deleted = true
+            if not fade then
+              canvas.out = true
+            elseif not canvas.ending then
+              local restore, over = canvas.opacity, clock + fade * 1e9
+              function canvas.ending()
+                if clock >= over then
+                  canvas.ending, canvas.out, canvas.opacity = false, true, restore
+                end
+              end
+            end
           end
           for _, method in ipairs({ "level", "clickActivating", "canvasMouseEvents" }) do
             rawset(canvas, method, function(_, ...)
@@ -201,10 +254,107 @@ end
 local function bottom(canvas)
   return canvas.at.y + canvas.frame.h
 end
+-- A down via the tap (false: swallowed; nil: reached beneath; else the toast hit) and its release.
+local function hold(point, state, button, first)
+  button = button or 0
+  local down = ({ [0] = 1, [1] = 3 })[button] or 25
+  local function through(kind)
+    return tap
+      and tap.on
+      and tap.types[kind]
+      and tap.fn({
+        getProperty = function(_, key)
+          assert(key == 1 or key == 3, "not the click state or button")
+          return key == 1 and state or button
+        end,
+        getType = function()
+          return kind
+        end,
+      })
+  end
+  local swallowed, front = through(down), nil
+  for _, canvas in ipairs(canvases) do
+    local there = canvas.visible and not canvas.out
+    local over = point.x >= canvas.at.x
+      and point.x < canvas.at.x + canvas.frame.w
+      and point.y >= canvas.at.y
+      and point.y < bottom(canvas)
+    if not swallowed and there and over and rawget(canvas, "click") then
+      front = canvas
+    end
+  end
+  -- As canvasMouseEvents asks, with the up sent where the down went.
+  local function deliver(phase)
+    if front and rawget(front, "click") and (front.calls.canvasMouseEvents or {})[phase] then
+      front.click(front, phase == 1 and "mouseDown" or "mouseUp")
+    end
+  end
+  -- Runs after the down reaches its window, before the toast hears of it.
+  if first then
+    first()
+  end
+  deliver(1)
+  return not swallowed and front,
+    function()
+      assert(not through(down + 1) == not swallowed, "a click's down and up went different ways")
+      if front then
+        -- A window ordered out under a held click comes back (live, only a left single click).
+        front.ghost = front.out
+      end
+      deliver(2)
+    end
+end
+local function press(...)
+  local hit, release = hold(...)
+  release()
+  return hit
+end
+-- Shown and not yet ordered out, or put back, and not transparent.
+local function drawn(canvas)
+  return (canvas.visible and not canvas.out or canvas.ghost) and canvas.opacity > 0
+end
+-- Lets the seconds pass, running each timer when due if still held; hs.timer collects the rest.
+local function wait(seconds)
+  local stop = clock + seconds * 1e9
+  while true do
+    local first
+    for i, timer in ipairs(timers) do
+      local due = timer and not timer.stopped and timer.at <= stop
+      if due and (not first or timer.at < timers[first].at) then
+        first = i
+      end
+    end
+    clock = math.max(clock, first and timers[first].at or stop)
+    -- An hs.canvas fade over by then ends first.
+    for _, canvas in ipairs(canvases) do
+      if canvas.ending then
+        canvas.ending()
+      end
+    end
+    if not first then
+      return
+    end
+    local alive = setmetatable({}, { __mode = "v" })
+    alive[1], timers[first] = timers[first], false
+    collectgarbage()
+    if alive[1] then
+      alive[1].fn()
+    end
+  end
+end
+-- Seconds until its window is ordered out, to the nearest 0.05 s, letting frames pass.
+local function fade(canvas)
+  local frames = 0
+  repeat
+    wait(1 / 60)
+    frames = frames + 1
+  until not drawn(canvas) or frames == 600
+  return math.floor(frames / 3 + 0.5) / 20
+end
 local function clear()
   for _, canvas in ipairs(canvases) do
-    if not canvas.deleted then
-      canvas.click()
+    if rawget(canvas, "click") then
+      canvas.click(canvas, "mouseUp")
     end
   end
   canvases, timers, glasses, focused = {}, {}, {}, main
@@ -217,7 +367,6 @@ test("a failure sits at the bottom right, titled by its source, with a red cross
   assert(find(canvas, "circle") and canvas.visible and timers[1].seconds == 5)
   assert(canvas.at.x + canvas.frame.w == 1000 - 16 and bottom(canvas) == 609, "not bottom right")
   assert(canvas.labels == "canJoinAllSpaces stationary fullScreenAuxiliary", canvas.labels)
-  assert(canvas.calls.canvasMouseEvents[1] == true, "a click is never delivered")
   assert(canvas.calls.clickActivating[1] == false)
   assert(canvas.calls.level[1] == 19, "not just below the Dock")
   clear()
@@ -234,9 +383,9 @@ test("a newer toast stacks below the older, which drops back when it goes", func
   )
   timers[2].fn()
   assert(second.deleted and not first.deleted and bottom(first) == 609)
-  assert(second.fade == 0, "it faded while the toast above moved into its place")
+  assert(fade(second) == 0, "it faded while the toast above moved into its place")
   timers[1].fn()
-  assert(first.fade == 0.25, "the oldest did not fade")
+  assert(fade(first) == 0.25, "the oldest did not fade")
   clear()
 end)
 
@@ -247,15 +396,131 @@ test("a toast stays on its screen when focus and the stack change", function()
   assert(canvases[1].at.x < 1000 and canvases[2].at.x >= 1000, "a toast moved screens")
   assert(bottom(canvases[1]) == 609 and bottom(canvases[2]) == 609, "screens share one stack")
   timers[2].fn()
-  assert(canvases[2].fade == 0.25, "the side screen's oldest did not fade")
+  assert(fade(canvases[2]) == 0.25, "the side screen's oldest did not fade")
   clear()
 end)
 
 test("a closed toast lets clicks through while it fades", function()
   toast.close(toast.show("fading"), 5)
-  assert(canvases[1].fade == 5)
-  assert(not rawget(canvases[1], "click"), "the fading toast takes clicks")
+  local canvas = canvases[1]
+  wait(2.5)
+  assert(canvas.opacity > 0 and canvas.opacity < 1, "it did not fade")
+  assert(press({ x = canvas.at.x + 5, y = canvas.at.y + 5 }, 1) == nil, "the fading toast took it")
+  assert(fade(canvas) == 2.5)
   clear()
+end)
+
+test("a multi-click closes only its toast, and the rest of it reaches nothing", function()
+  -- The bottom toast is triple-clicked, or clicked second and third after a click away.
+  for _, case in ipairs({
+    { "lone" },
+    { "older", "newer" },
+    { "older", "newer", second = true },
+    { "lone", late = "late" }, -- shown between the clicks
+    { "older", "newer", button = 1, held = 0 }, -- right, with left held
+    { "older", "newer", button = 3, held = 2 }, -- button 4, with the middle held
+  }) do
+    for _, text in ipairs(case) do
+      toast.show(text)
+    end
+    local target
+    for _, canvas in ipairs(canvases) do
+      if bottom(canvas) == 609 then
+        target = canvas
+      end
+    end
+    local point, away, state = { x = target.at.x + 5, y = target.at.y + 5 }, { x = 5, y = 30 }, 1
+    -- Another button's double-click is held through the toast's, and let go during it.
+    press(away, 1, case.held or 1)
+    local _, other = hold(away, 2, case.held or 1)
+    if case.second then
+      assert(press(away, 1) == nil, "the click away was swallowed")
+      state = 2
+    end
+    assert(
+      press(point, state, case.button) == target and not rawget(target, "click"),
+      "the click missed it"
+    )
+    assert(not target.ghost, "its window came back when the click was let go")
+    if case.late then
+      toast.show(case.late)
+    end
+    local second, release = hold(point, state + 1, case.button)
+    other()
+    release()
+    local rest = { second, press(point, state + 2, case.button) }
+    assert(rest[1] == false and rest[2] == false, "the rest of the click got through")
+    assert(
+      press(away, 1, case.button) == nil and press(away, 2, case.button) == nil,
+      "a later double-click was swallowed"
+    )
+    clear()
+  end
+end)
+
+test("a toast pressed as it times out or all close waits for its release", function()
+  toast.install()
+  toast.show("older")
+  toast.show("pressed")
+  local older, pressed = canvases[1], canvases[2]
+  local hit, release = hold({ x = pressed.at.x + 5, y = pressed.at.y + 5 }, 1)
+  assert(hit == pressed)
+  timers[2].fn()
+  alert.closeAll()
+  assert(fade(older) == 0.25, "the oldest did not fade")
+  assert(rawget(pressed, "click"), "a pressed toast closed")
+  release()
+  assert(fade(pressed) == 0.25, "it did not fade once let go")
+  assert(not pressed.ghost, "its window came back when the click was let go")
+  clear()
+end)
+
+test("a toast closed under a press it has not heard of ends at alpha 0, after any fade", function()
+  toast.install()
+  local function fire(i)
+    return function()
+      timers[i].fn()
+    end
+  end
+  local function all()
+    alert.closeAll(0)
+  end
+  local id
+  local function slow()
+    alert.closeSpecific(id, 2)
+  end
+  local function cap()
+    toast.show("sixth", { seconds = false })
+  end
+  local closed = setmetatable({}, { __mode = "k" })
+  for _, case in ipairs({
+    { { "older", "target" }, 0, fire(2) }, -- times out, not its screen's oldest
+    { { "target" }, 0.25, fire(1) },
+    { { "older", "target" }, 0, all },
+    { { "target" }, 2, slow },
+    { { "target", "b", "c", "d", "e" }, 0, cap },
+  }) do
+    local target
+    for i, text in ipairs(case[1]) do
+      if text == "target" then
+        id, target = toast.show(text), canvases[i]
+      else
+        toast.show(text)
+      end
+    end
+    local _, release = hold({ x = target.at.x + 5, y = target.at.y + 5 }, 1, nil, case[3])
+    assert(case[2] == 0 or target.opacity == 1, "its fade was not seen")
+    -- Let go once its window is ordered out, before any timer set for after its fade.
+    assert(fade(target) == case[2], "it stayed or did not fade as asked")
+    release()
+    assert(target.ghost and not drawn(target), "its window came back drawn")
+    closed[target] = true
+    clear()
+  end
+  for _ = 1, 3 do
+    collectgarbage()
+  end
+  assert(next(closed) == nil, "a closed toast is never collected")
 end)
 
 test("a toast without a focused display is printed instead, never raising", function()
@@ -291,8 +556,8 @@ test("a click dismisses, and a sixth toast drops the oldest", function()
     toast.show("toast " .. i)
   end
   assert(canvases[1].deleted and timers[1].stopped and not canvases[2].deleted)
-  assert(canvases[1].fade == 0, "the dropped toast faded under the one moving into its place")
-  canvases[4].click()
+  assert(fade(canvases[1]) == 0, "the dropped toast faded under the one moving into its place")
+  press({ x = canvases[4].at.x + 5, y = canvases[4].at.y + 5 }, 1)
   assert(canvases[4].deleted and bottom(canvases[3]) == canvases[5].at.y - 8)
   clear()
 end)
@@ -366,9 +631,9 @@ test("glass: each toast has its own, hidden with the toast's fade, under shadowe
     assert(element.type ~= "text" or element.text.style.shadow, "glass text has no shadow")
   end
   assert(#glasses == 2 and glasses[1].canvas == first and glasses[2].canvas == second)
-  second.click()
+  press({ x = second.at.x + 5, y = second.at.y + 5 }, 1)
   alert.closeAll()
-  assert(glasses[2].fade == second.fade and glasses[1].fade == first.fade, "a glass stayed")
+  assert(glasses[2].fade == fade(second) and glasses[1].fade == fade(first), "a glass stayed")
   toast.install()
   toast.show("metal")
   assert(not find(canvases[3], "text").text.style.shadow, "the glass shadow stayed")
@@ -408,20 +673,20 @@ test("an hs.alert with non-number seconds stays until closed by its id", functio
   alert.show("other", 1)
   assert(#timers == 1, "the indefinite one got a timer")
   alert.closeSpecific(id)
-  assert(canvases[1].deleted and not canvases[2].deleted)
+  assert(fade(canvases[1]) == 0.25 and not canvases[2].deleted)
   alert.show("another", 1)
   alert.closeAll()
-  assert(canvases[2].fade == 0.25 and canvases[3].deleted and canvases[3].fade == 0.25)
+  assert(drawn(canvases[3]) and fade(canvases[2]) == 0.25 and canvases[3].deleted)
   alert.closeSpecific(alert.show("now", "indefinite"), 0)
   alert.show("all now", 5)
   alert.closeAll(0)
-  assert(canvases[4].fade == 0 and canvases[5].fade == 0, "a close ignored its fade time")
+  assert(fade(canvases[4]) == 0 and fade(canvases[5]) == 0, "a close ignored its fade time")
   alert.show("above", "indefinite")
   local stuck = alert.show("stuck?", "indefinite")
   assert(not pcall(alert.closeSpecific, stuck, true), "a fade of true was taken")
   assert(not pcall(alert.closeSpecific, 999, true), "a fade of true was taken for an unknown id")
   alert.closeAll()
-  assert(canvases[7].deleted, "a failed close left a toast nothing can close")
+  assert(fade(canvases[7]) == 0.25, "a failed close left a toast nothing can close")
   clear()
 end)
 
@@ -431,9 +696,10 @@ test("each hs.alert kept until closed has its own id, and an old id closes nothi
   local second = alert.show("Working…", "indefinite")
   assert(first ~= second and #canvases == 2, "two callers share one alert")
   alert.closeSpecific(first)
-  assert(canvases[1].deleted and not canvases[2].deleted, "closing one closed the other")
+  assert(fade(canvases[1]) == 0.25, "the closed one did not fade")
+  assert(not canvases[2].deleted, "closing one closed the other")
   alert.show("Working…", 2)
-  assert(#canvases == 3 and #timers == 1, "a timed repeat merged into a kept alert")
+  assert(#canvases == 3 and timers[#timers].seconds == 2, "a timed repeat merged into a kept alert")
   alert.show("Working…", "indefinite")
   assert(#canvases == 4, "a kept alert merged into a timed one")
   clear()
@@ -445,7 +711,7 @@ test("each hs.alert kept until closed has its own id, and an old id closes nothi
   clear()
 end)
 
-test("the cap drops a screen's oldest timed toast, never one kept until closed", function()
+test("the cap drops a screen's oldest unpressed timed toast, never a kept one", function()
   toast.install()
   local kept = alert.show("Working…", "indefinite")
   for i = 1, 5 do
@@ -458,6 +724,15 @@ test("the cap drops a screen's oldest timed toast, never one kept until closed",
   end
   assert(not canvases[3].deleted, "another screen's toasts counted toward this screen's cap")
   alert.closeSpecific(kept)
+  clear()
+  for i = 1, 5 do
+    toast.show("toast " .. i)
+  end
+  local _, release = hold({ x = canvases[1].at.x + 5, y = canvases[1].at.y + 5 }, 1)
+  toast.show("sixth")
+  assert(not canvases[1].deleted, "the cap dropped the pressed toast")
+  assert(canvases[2].deleted, "the cap dropped no unpressed toast")
+  release()
   clear()
   for _ = 1, 6 do
     alert.show("Working…", "indefinite")
