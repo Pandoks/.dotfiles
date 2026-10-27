@@ -54,7 +54,7 @@ function environment.require(name)
   elseif name == "lib.logger" then
     return assert(loadfile(root .. "/../lib/logger.lua", "t", environment))()
   end
-  return name == "dictation.recorder" and { ffmpeg = "/usr/bin/ffmpeg" } or require(name)
+  return require(name)
 end
 local engine = assert(loadfile(root .. "/engine.lua", "t", environment))()
 

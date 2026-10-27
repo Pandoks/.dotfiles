@@ -155,6 +155,7 @@ local modules = {
     end,
   },
   ["dictation.recorder"] = {
+    ffmpeg = "/usr/bin/ffmpeg",
     start = function(_, onError)
       takes = takes + 1
       recorded = ("%s/take%d.wav"):format(scratch, takes)
@@ -360,8 +361,6 @@ test("a reply to a cancelled take is saved; the next take still gets its own", f
 end)
 
 test("with nothing to type, what was heard is saved in place of the recording", function()
-  handlers.onFinal({ id = dictate(field("Hi")), text = "", heard = "mumble" })
-  assert(saved("mumble") and not fs.attributes(recorded), "not saved, or the recording left")
   local rewrote = "the cleanup rewrote what was said, so nothing was typed"
   handlers.onError(rewrote, dictate(field("Hi")), "heard it")
   assert(
@@ -437,11 +436,11 @@ test("a take too short or too quiet is never sent, and is deleted", function()
   end
 end)
 
-test("a take where nothing was heard deletes its recording", function()
+test("a take of only stalls deletes its recording and saves nothing", function()
   local count = wavs()
-  handlers.onFinal({ id = dictate(field("Hi")), text = "" })
+  handlers.onFinal({ id = dictate(field("Hi")), text = "", heard = "Um." }) -- cleanup off
   assert(alerts[1] == "Dictation: no speech recognized", tostring(alerts[1]))
-  assert(wavs() == count and not fs.attributes(recorded) and not saved(""), "kept a silent take")
+  assert(wavs() == count and not fs.attributes(recorded) and not saved("Um."), "kept the take")
 end)
 
 test("a log line raising as Escape is bound or unbound leaves no take half done", function()
@@ -549,19 +548,26 @@ local function unprepared(problem)
   }
 end
 
-test("a history folder it can't secure leaves only a hotkey that says why", function()
-  local started = false
-  local hotkey = reload({
-    ["dictation.history"] = unprepared("could not create /x owner-only"),
-    ["dictation.engine"] = {
+test("an unsecured history folder or no ffmpeg leaves only a hotkey that says why", function()
+  for _, case in ipairs({
+    {
+      "could not create /x owner-only",
+      { ["dictation.history"] = unprepared("could not create /x owner-only") },
+    },
+    { "ffmpeg not found; run mise install", { ["dictation.recorder"] = {} } },
+  }) do
+    local problem, swapped = table.unpack(case)
+    local started = false
+    swapped["dictation.engine"] = {
       new = function()
         started = true
       end,
-    },
-  })
-  alerts = {}
-  hotkey()
-  assert(not started and alerts[1] == "Dictation: could not create /x owner-only", alerts[1])
+    }
+    local hotkey = reload(swapped)
+    alerts = {}
+    hotkey()
+    assert(not started and alerts[1] == "Dictation: " .. problem, tostring(alerts[1]))
+  end
 end)
 
 test("an unknown setting in config.lua alerts", function()

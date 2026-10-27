@@ -48,6 +48,8 @@ end
 local unprepared = history.prepare(config.history)
 if unprepared then
   return disabled(unprepared)
+elseif not recorder.ffmpeg then
+  return disabled("ffmpeg not found; run mise install")
 end
 
 ---@type "idle"|"recording"|"thinking"
@@ -237,10 +239,10 @@ end
 local engine, problem = Engine.new(config, {
   onFinal = function(result)
     local text = result.text ~= "" and result.text or nil
-    local saved = settle(result.id, text or result.heard or "")
+    local saved = settle(result.id, result.text)
     if inflight == result.id then
       if not text then
-        fail("no speech recognized" .. (saved and " (what was heard is in history)" or ""))
+        fail("no speech recognized")
       end
       finish(text)
     end

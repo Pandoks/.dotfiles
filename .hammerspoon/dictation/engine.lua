@@ -1,5 +1,4 @@
 local logger = require("lib.logger")
-local recorder = require("dictation.recorder")
 
 local engine = {}
 engine.__index = engine
@@ -13,10 +12,7 @@ local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 function engine.new(config, handlers)
   local python = directory .. ".venv/bin/python"
   if not hs.fs.attributes(python) then
-    return nil, "backend venv missing; run dictation/setup.sh"
-  end
-  if not recorder.ffmpeg then
-    return nil, "ffmpeg not found; run mise install"
+    return nil, "backend venv missing; run uv sync --locked --project ~/.hammerspoon/dictation"
   end
   local settings = hs.json.encode(config)
   if not settings then
@@ -93,25 +89,13 @@ function engine.new(config, handlers)
     end
     return true
   end
-  self.task = hs.task.new(
-    "/usr/bin/env",
-    function(code, stdout, stderr)
-      output(nil, stdout, stderr)
-      -- The last stderr line goes in the popup: an exception's, or whatever was printed last.
-      local reason = self.errors:match("([^\n]*%S)%s*$")
-      local exit = "backend exited (code " .. tostring(code) .. ")"
-      failure(reason and exit .. "; last output: " .. reason .. "\n" .. self.errors or exit)
-    end,
-    output,
-    {
-      -- mlx-whisper reads the wav with the ffmpeg CLI.
-      "PATH=" .. recorder.ffmpeg:match("^(.*)/") .. ":" .. os.getenv("PATH"),
-      "PYTHONUNBUFFERED=1",
-      python,
-      directory .. "server.py",
-      settings,
-    }
-  )
+  self.task = hs.task.new(python, function(code, stdout, stderr)
+    output(nil, stdout, stderr)
+    -- The last stderr line goes in the popup: an exception's, or whatever was printed last.
+    local reason = self.errors:match("([^\n]*%S)%s*$")
+    local exit = "backend exited (code " .. tostring(code) .. ")"
+    failure(reason and exit .. "; last output: " .. reason .. "\n" .. self.errors or exit)
+  end, output, { directory .. "server.py", settings })
   if not self.task:start() then
     return nil, "failed to start backend"
   end

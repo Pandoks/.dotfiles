@@ -20,7 +20,7 @@
 
 ---@class DictationCleanup
 ---@field backend "mlx-lm" The runtime `model` needs.
----@field enabled boolean false = the speech model's text, spelled, numbers as digits.
+---@field enabled boolean false = the speech model's text, spelled, stalls out, numbers as digits.
 ---@field model string Hugging Face repo of an MLX model; the base when `adapter` is set.
 ---@field revision string Its commit SHA.
 ---@field adapter? string Cleanup LoRA, prompt in system_v2.txt; nil = a plain model, with `style`.
