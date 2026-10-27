@@ -88,7 +88,8 @@ concurrent requests, and unavailable or reused windows.
 Menu layout responds to both dimensions of the usable frame of the focused Space's display,
 resolved through `hs.spaces.spaceDisplay(hs.spaces.focusedSpace())` because
 `hs.screen.mainScreen()` can stay on another display while a fullscreen app has focus. If
-that display cannot be resolved, Cmd-Tab logs, shows a popup, and opens no menu.
+that display cannot be resolved, Cmd-Tab logs and opens no menu. Its popup, a toast, has no
+display either, so it is only printed to the log.
 Width adds columns, height adds visible rows, and cards adapt between 180 and 320
 logical points (smaller only if a tiny display cannot fit one card). Preferred card
 size follows the shorter screen dimension, so ultrawides cannot inflate previews.
@@ -260,15 +261,16 @@ For a live check after reloading Hammerspoon:
     the menu stays closed.
 
 The logger Lua regressions also run with `tests/run.sh`, as does the toast suite: placement at the
-bottom right of the focused Space's display (the main screen without one) just below the Dock's
-level, stacking, repeats, dismissal, wrapping, themes, and every `hs.alert` call routed through
-`lib/toast.lua` with its screen, seconds, and id. It also checks that the glass theme gives each
-toast its own glass, hidden with the toast's fade, under shadowed text that goes with the theme, and
-that a failed build of `lib/toast/toast.m` (stubbed) fails the load. Its look was checked with real
-`hs.canvas` renders. The glass window was checked live on macOS 27.0.1: it refracts what is behind
-it, another app's window too (lensing at the edges, a rim highlight), though its panel is never key;
-it moves with its toast, clicks still reach the toast, a glass collected during its fade stays until
-the fade ends, and no window is left after a toast times out or its glass is collected.
+bottom right of the focused Space's display just below the Dock's level (without one, the text is
+printed to the log, nothing is shown, and no error is raised), stacking, repeats, dismissal,
+wrapping, themes, and every `hs.alert` call routed through `lib/toast.lua` with its screen, seconds,
+and id. It also checks that the glass theme gives each toast its own glass, hidden with the toast's
+fade, under shadowed text that goes with the theme, and that a failed build of `lib/toast/toast.m`
+(stubbed) fails the load. Its look was checked with real `hs.canvas` renders. The glass window was
+checked live on macOS 27.0.1: it refracts what is behind it, another app's window too (lensing at
+the edges, a rim highlight), though its panel is never key; it moves with its toast, clicks still
+reach the toast, a glass collected during its fade stays until the fade ends, and no window is left
+after a toast times out or its glass is collected.
 
 Audit checks (substitute the installed executable paths if needed):
 

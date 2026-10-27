@@ -147,17 +147,19 @@ end
 -- "Tiling: no window" shows "Tiling" over "No window".
 ---@param text string
 ---@param options? ToastOptions
----@return integer
+---@return integer?
 function toast.show(text, options)
   options = options or {}
   local seconds = options.seconds
   if seconds == nil then
     seconds = 3
   end
-  -- The main screen can lag a fullscreen app's display, but a toast must never raise.
-  local screen = options.screen
-    or hs.screen.find(hs.spaces.spaceDisplay(hs.spaces.focusedSpace()))
-    or hs.screen.mainScreen()
+  local screen = options.screen or hs.screen.find(hs.spaces.spaceDisplay(hs.spaces.focusedSpace()))
+  if not screen then
+    -- Not raised or sent to logger.error, which toasts; hs.ipc's print can raise.
+    pcall(print, "Toast: no focused display: " .. text)
+    return nil
+  end
   local failure = options.failure == true
   -- A timed repeat on the same screen restarts instead of stacking.
   for i, entry in ipairs(shown) do

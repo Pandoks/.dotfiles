@@ -1,5 +1,5 @@
 local root = assert(arg[1])
-local canvases, timers, logged, measured = {}, {}, {}, 0
+local canvases, timers, logged, printed, measured = {}, {}, {}, {}, 0
 local glasses, unbuilt = {}, false
 -- Userdata, as in Hammerspoon.
 local screens, styled, at = {}, {}, {}
@@ -156,6 +156,11 @@ local toast = assert(loadfile(
         end,
       }
     end,
+    -- Raises after logging, as hs.ipc's does while a dead `hs` CLI is registered.
+    print = function(...)
+      printed[#printed + 1] = table.concat({ ... }, "\t")
+      error("dead hs CLI")
+    end,
   }, { __index = _G })
 ))()
 local passed = 0
@@ -240,10 +245,12 @@ test("a toast stays on its screen when focus and the stack change", function()
   clear()
 end)
 
-test("a toast without a focused display goes to the main screen", function()
+test("a toast without a focused display is printed instead, never raising", function()
   focused = nil
-  assert(pcall(toast.show, "lost"), "a toast without a focused display raised")
-  assert(canvases[1].at.x < 1000, "the toast without a focused display went elsewhere")
+  local ok, id = pcall(toast.show, "Tiling: lost")
+  assert(ok, "a toast without a focused display raised: " .. tostring(id))
+  assert(id == nil and #canvases == 0, "a toast without a focused display was shown")
+  assert(printed[1] and printed[1]:find("Tiling: lost", 1, true), tostring(printed[1]))
   clear()
 end)
 
