@@ -68,7 +68,7 @@ class Boosted:
             for i, piece in enumerate(self.vocabulary):
                 core, starts = letters(piece), piece.startswith("▁")
                 if core and (starts or word) and (core if starts else word + core) in self.prefixes:
-                    # None for a first letter: it flips casing and splitting ("▁me" -> "▁M" "e").
+                    # Zero for a first letter: it flips casing and splitting ("▁me" -> "▁M" "e").
                     bias[i] = self.bonus * (len(core) - starts)
             self.biases[word] = mx.array(bias)
         # Added to the logits, as to log-probs: the argmax is the same.

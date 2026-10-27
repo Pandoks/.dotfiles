@@ -26,7 +26,7 @@ import server
 engine = server.Engine(
     {
         "speech": {"backend": "parakeet-mlx", "model": "stub", "revision": "0" * 40},
-        "cleanup": {"enabled": False},
+        "cleanup": False,
         "words": {
             "Raycast": ["ray cast", "re cast", "ray cost"],
             "yabai": ["yabe", "ya bye", "yah bye"],
@@ -79,7 +79,7 @@ def dictate(raw, cleaned=None, numbers=False):
             return engine.process(raw, {})
         with mock.patch.object(server, "digits", lambda text, names: text):
             return engine.process(raw, {})
-    except server.Rewritten:
+    except server.Rejected:
         return None
 
 
@@ -118,7 +118,7 @@ check(
     lambda text: engine.spell(text, {}),
 )
 check(
-    "vocabulary keeps real words, possessives, domains, and paths",
+    "vocabulary keeps real words, contractions, domains, and paths",
     [
         (text, text)
         for text in [
@@ -314,6 +314,8 @@ check(
         ("We started in two thousand.", "We started in 2000."),
         ("The year two thousand.", "The year 2000."),
         ("Last year two thousand people came.", "Last year 2,000 people came."),
+        ("This year two thousand of them signed up.", "This year 2,000 of them signed up."),
+        ("The two of us went to lunch.", "The two of us went to lunch."),
         ("It's priced at 2.50 each.", "It's priced at 2.50 each."),
         ("Around three fifty people came.", "Around three fifty people came."),
         ("I have thirteen twenty dollar bills.", "I have thirteen twenty dollar bills."),
@@ -345,8 +347,11 @@ for size in (2, 3, 4):
         server.digits(" ".join(run) + ".", ())
 print("PASS no number run raises")
 check(
-    "a cleaned take gets its numbers as digits",
-    [(("Um, send three copies.", None), "Send 3 copies.")],
+    "a cleaned take loses its stalls before spelling, and gets its numbers as digits",
+    [
+        (("Um, send three copies.", None), "Send 3 copies."),
+        (("Um, yabai crashed again.", None), "yabai crashed again."),
+    ],
     lambda pair: dictate(*pair, numbers=True),
 )
 check(
@@ -370,6 +375,9 @@ check(
         ("Open ~/um now.", "Open ~/um now."),
         ("Email er@acme.com please.", "Email er@acme.com please."),
         ("Um?", ""),
+        ("Um ahm.", ""),
+        ("The, uh, the dog ate an, um, an apple and a a pear.", "The dog ate an apple and a pear."),
+        ("I got an A a week ago.", "I got an A a week ago."),
         ("Okay. Um?", "Okay."),
         ("I think, um .", "I think."),
         ("git add .", "git add ."),
@@ -397,13 +405,11 @@ check(
         ("I didn't know that.", "I didn't know that."),
         ("Hold on.", "Hold on."),
         ("See you in May.", "See you in May."),
-        ("What is this for?", "What is this for?"),
         ("I'd love to.", "I'd love to."),
         ("Let's go with option A.", "Let's go with option A."),
         ("Take him to the OR.", "Take him to the OR."),
         ("Oh my!", "Oh my!"),
         ("What if?", "What if?"),
-        ("Um, yabai crashed again.", "yabai crashed again."),
         ("Let me check and, uh.", "Let me check and"),
     ],
     dictate,
@@ -421,7 +427,6 @@ check(
         (("Can you send me the", "Can you send me the?"), "Can you send me the"),
         (("I want to go to the", "I want to go to the!"), "I want to go to the"),
         (("I want to go to the", "I want to go to."), "I want to go to the"),
-        (("I want to go to the", "I want to go."), "I want to go to the"),
         (("Send it to", "Send it."), "Send it to"),
         (("We can ship it unless", "We can ship it unless."), "We can ship it unless"),
         (("So I was thinking, you know, and", "So I was thinking."), "So I was thinking, and"),
@@ -446,7 +451,6 @@ check(
         (("He said I want the", 'He said, "I want the."'), 'He said, "I want the"'),
         # A cut word comes back after the comma or colon said before it, inside closing quotes.
         (("Send it to John, and", "Send it to John."), "Send it to John, and"),
-        (("Send it to John, and the", "Send it to John."), "Send it to John, and the"),
         (("Send it to John and", "Send it to John,"), "Send it to John, and"),
         (("Send it to John, and", "Send it to John,"), "Send it to John, and"),
         (("The plan is simple: the", "The plan is simple."), "The plan is simple: the"),
@@ -460,8 +464,7 @@ check(
         (("Don't you think so?", "Don’t you think so."), "Don’t you think so?"),
         # A straight ' after an end mark closes a quote too; one inside a word opens none.
         (('"Can you help?"', '"Can you help."'), '"Can you help?"'),
-        (("It's for the dogs and", "It's for the dogs'."), "It's for the dogs' and"),
-        (("He said 'yes', and", "He said 'yes'."), "He said 'yes', and"),
+        (("He said 'yes', and", "He said 'yes.'"), "He said 'yes', and"),
         (("He said ‘yes’, and", "He said ‘yes.’"), "He said ‘yes’, and"),
         (("He said 'yes.' And", "He said 'yes.'"), "He said 'yes.' And"),
         (("In the '90s, the kids' and", "In the '90s, the kids'."), "In the '90s, the kids' and"),
@@ -534,17 +537,19 @@ check(
             ("Run it with, without the cache.", "Run it without the cache."),
             ("The meeting took about, about an hour.", "The meeting took about an hour."),
             ("It's the forth quarter already.", "It's the fourth quarter already."),
+            ("Um, so I think we should ship it.", "I think we should ship it."),
         ]
     ],
     lambda pair: server.restore(*pair),
 )
 check(
-    "what a cleanup left out or changed beyond its rules is typed as said",
+    "what a cleanup left out or changed beyond its rules is typed as said, or the take is rejected",
     [
         ((raw, out), raw)
         for raw, out in [
             ("It's always been like that.", "It's always been that."),
             ("He's like my best friend.", "He's my best friend."),
+            ("It should be like the Raycast one.", "It should be the Raycast one."),
             ("Delete all files except logs.", "Delete all files."),
             ("Include the tests.", "Exclude the tests."),
             ("I can, I can't come tonight.", "I can come tonight."),
@@ -589,8 +594,14 @@ check(
                 "I might try a smaller adapter, or maybe just cache the prompt prefix.",
                 "I might try a smaller adapter. Maybe just cache the prompt prefix.",
             ),
-            ("It runs now, and the cleanup is fast.", "It runs now. The cleanup is fast."),
+            ("It runs now, and Neovim is fast.", "It runs now. Neovim is fast."),
             ("Shopping list eggs milk bread and butter", "- Eggs\n- Milk\n- Bread\n- Butter"),
+            ("Shopping list eggs milk bread and butter", "- Eggs\r- Milk\r- Bread\r- Butter"),
+            ("Name tab age tab city.", "Name\tage\tcity."),
+            ("I guess so.", "I guessed so."),
+            ("Uh-huh.", "Huh."),
+            ("It costs one thousand dollars.", "It costs 1,000 dollars."),
+            ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
         ]
     ]
     + [
@@ -631,7 +642,7 @@ check(
         (("I think so.", "Yes, I think so."), "I think so."),
         (("Okay. Um, the build broke. Fix it.", "Okay. Fix it."), "Okay. The build broke. Fix it."),
         (("Fix it. Um. Thanks for that.", "Fix it."), "Fix it. Thanks for that."),
-        (("Yeah, 'cause I need it.", "Yeah, because I need it."), "Yeah, 'cause I need it."),
+        (("'Cause I need it.", "Because I need it."), "'Cause I need it."),
         (
             (
                 "Then put it in one of the corners, probably bottom left or bottom right, and.",
@@ -680,24 +691,20 @@ check(
             "You shouldn't deploy on Friday.",
         ),
         (("What's the capital of France?", "Paris."), "What's the capital of France?"),
-        (
-            ("Um, so I think we should ship it.", "I think we should ship it."),
-            "I think we should ship it.",
-        ),
-        (("It costs 1,000 dollars.", "It costs 1.00 dollars."), None),
     ],
     lambda pair: dictate(*pair),
 )
 check(
-    "any script's letters or digits count as speech",
+    "any script's letters or digits count as speech; stalls, a filler, or marks alone are none",
     [
-        ("Привет, как дела?", "Привет, как дела?"),
-        ("你好，今天天气很好。", "你好，今天天气很好。"),
-        ("42", "42"),
-        ("...", ""),
-        ("—–…", ""),
+        (("Привет, как дела?", None), "Привет, как дела?"),
+        (("你好，今天天气很好。", None), "你好，今天天气很好。"),
+        (("42", None), "42"),
+        (("—–…", None), ""),
+        (("Um, uh.", None), ""),
+        (("Like.", "."), ""),
     ],
-    dictate,
+    lambda pair: dictate(*pair),
 )
 engine.speech = SimpleNamespace(transcribe=lambda wav, hint: "Mmm wha blah", boost=0)
 engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
@@ -706,7 +713,7 @@ engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
 try:
     engine.process("take.wav", {})
     raise AssertionError("an empty cleanup was typed")
-except server.Rewritten as error:
+except server.Rejected as error:
     assert "returned nothing" in str(error) and engine.heard == "Mmm wha blah", engine.heard
 print("PASS an empty cleanup is reported, not typed, and keeps what was heard")
 
@@ -725,7 +732,7 @@ class Chatty:
 server.Engine = Chatty
 """
 events, stderr = serve(chatty, [{"id": 1, "wav": "x.wav"}])
-assert events == [{"event": "ready"}, {"event": "final", "id": 1, "text": "ok", "heard": None}]
+assert events == [{"event": "ready"}, {"event": "final", "id": 1, "text": "ok"}]
 assert "native chatter" in stderr, stderr
 print("PASS a library that prints cannot corrupt the protocol")
 events, stderr = serve("", [], config='{"speech": {"backend": "nope"}}')
@@ -740,7 +747,7 @@ server.Engine = Failing
 config = json.dumps(
     {
         "speech": {"backend": "parakeet-mlx", "model": "s", "revision": "0" * 40},
-        "cleanup": {"enabled": False},
+        "cleanup": False,
     }
 )
 events, stderr = serve(failing, [], config=config)
@@ -772,7 +779,7 @@ finally:
 print("PASS replies and prints arrive while stdin is still open")
 takes = """
 from types import SimpleNamespace
-heard = iter(["It costs 1,000 dollars.", "Send it."])
+heard = iter(["Add 0.5 cups.", "Send it."])
 def transcribe(wav, hint):
     for text in heard:
         return text
@@ -782,15 +789,15 @@ class Stub(server.Engine):
         self.config, self.heard = config, None
         self.speech = SimpleNamespace(transcribe=transcribe, boost=0)
         self.cleaner = SimpleNamespace(prompt="p")
-        self.cleaner.complete = lambda m, raw: raw.replace("1,000", "1.00")
+        self.cleaner.complete = lambda m, raw: raw.replace("0.5", "0.05")
     def load(self):
         pass
 server.Engine = Stub
 """
 events, stderr = serve(takes, [{"id": i, "wav": "x.wav", "app": "x"} for i in (1, 2, 3)])
 assert [e["event"] for e in events] == ["ready", "error", "final", "error"], (events, stderr)
-assert events[1]["heard"] == "It costs 1,000 dollars." and "rewrote" in events[1]["msg"], events
-assert events[2] == {"event": "final", "id": 2, "text": "Send it.", "heard": "Send it."}, events
+assert events[1]["heard"] == "Add 0.5 cups." and "rewrote" in events[1]["msg"], events
+assert events[2] == {"event": "final", "id": 2, "text": "Send it."}, events
 assert events[3]["heard"] is None and "speech model failed" in events[3]["msg"], events
 assert stderr.count("Traceback") == 1 and "RuntimeError: the speech model failed" in stderr, stderr
 print("PASS a failed take reports what was heard, and only a bug's traceback")
@@ -809,6 +816,9 @@ rendered, limits = [], []
 
 
 def generate(llm, tokenizer, prompt, max_tokens=None, prompt_cache=None):
+    if prompt_cache:  # as mlx-lm does, the take extends the cache it is given
+        prompt_cache[0].seen += prompt
+        prompt = prompt_cache[0].seen
     rendered.append(tokenizer.decode(prompt))
     limits.append(max_tokens)
     return "Thinking about it.</think>\n\nFix the bug."
@@ -826,12 +836,13 @@ print("PASS the cleanup skips thinking, has room to echo the take, and drops a s
 
 
 class Llm:
-    """No LoRA to fuse, no prompt to prefill."""
+    """Its prompt cache records the tokens it was given."""
 
-    named_modules = update_modules = make_cache = lambda *_: []
+    def make_cache(self):
+        return [SimpleNamespace(state=[], seen=[])]
 
-    def __call__(self, *_, **__):
-        pass
+    def __call__(self, tokens, cache):
+        cache[0].seen += tokens[0].tolist()
 
 
 def load_adapter(files):
@@ -843,11 +854,15 @@ def load_adapter(files):
             mock.patch("huggingface_hub.snapshot_download", lambda *_, **__: folder),
             mock.patch("mlx_lm.load", lambda *_, **__: (Llm(), tokenizer)),
         ):
-            try:
-                cleaner.load()
-            except (ValueError, FileNotFoundError) as error:
-                return type(error).__name__
-        return cleaner.prompt
+            cleaner.load()
+        return cleaner
+
+
+def prompt(files):
+    try:
+        return load_adapter(files).prompt
+    except (ValueError, FileNotFoundError) as error:
+        return type(error).__name__
 
 
 check(
@@ -857,14 +872,23 @@ check(
         ({}, "FileNotFoundError"),
         ({"system_v2.txt": " \n"}, "ValueError"),
     ],
-    load_adapter,
+    prompt,
 )
+# Prefilled once, copied per take: each take's model sees what it would see without the prefill.
+adapted = load_adapter({"system_v2.txt": "Clean it."})
+with mock.patch("mlx_lm.generate", generate):
+    for raw in ("Fix the bug.", "Ship it."):
+        take = [{"role": "user", "content": f"Clean it.\n\n{raw}"}]
+        cleaner.complete(take, raw)
+        adapted.complete(take, raw)
+assert rendered[2::2] == rendered[3::2], rendered[2:]
+print("PASS a prefilled prompt gives each take the tokens it would have without it")
 
 
 def styled(config):
     adapter = {"adapter": "stub/adapter", "adapterRevision": "0" * 40}
     try:
-        cleanup = dict(stub, backend="mlx-lm", enabled=True, **adapter)
+        cleanup = dict(stub, backend="mlx-lm", **adapter)
         server.Engine(dict(engine.config, cleanup=cleanup, **config))
     except ValueError:
         return "ValueError"
@@ -898,9 +922,10 @@ plain.process("Restart yabai.", {})
 fake.prompt = "P"
 plain.process("Restart yabai.", {})
 vocabulary = "Domain vocabulary (spell these exactly): yabai."
-system, user = prompts[0][0]["content"], prompts[0][1]["content"]
-assert system == f"Be terse.\nA chat.\n{vocabulary}\n{server.PROMPT}", system
-assert user == server.FRAME.format("Restart yabai."), user
+assert prompts[0] == [
+    {"role": "system", "content": f"Be terse.\nA chat.\n{vocabulary}\n{server.PROMPT}"},
+    {"role": "user", "content": server.FRAME.format("Restart yabai.")},
+], prompts[0]
 assert prompts[1][0]["content"] == f"{server.STYLE}\n{vocabulary}\n{server.PROMPT}"
 # An adapter's prompt is used as trained: prompt, blank line, take.
 assert prompts[2] == [{"role": "user", "content": "P\n\nRestart yabai."}], prompts[2]
@@ -921,7 +946,6 @@ def pin(kind, settings):
 check(
     "model revisions are commit SHAs, never a branch that moves",
     [
-        ((models.Parakeet, stub), "ok"),
         ((models.Parakeet, dict(stub, revision="main")), "ValueError"),
         ((models.MlxLm, dict(stub, revision="main")), "ValueError"),
         ((models.MlxLm, dict(stub, adapter="a", adapterRevision="main")), "ValueError"),

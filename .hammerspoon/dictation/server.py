@@ -3,7 +3,7 @@
 stdin:  {"id": 1, "wav": "/path.wav", "app": "com.tinyspeck.slackmacgap"}
 stdout: {"event": "ready"}                                       once the models are loaded
         {"event": "error", "msg": "..."}                         the load failed; it exits
-        {"event": "final", "id": 1, "text": "...", "heard": ...}  result; what was heard
+        {"event": "final", "id": 1, "text": "..."}                result
         {"event": "error", "id": 1, "msg": "...", "heard": ...}   the take failed
 Diagnostics and tracebacks go to stderr.
 """
@@ -20,7 +20,7 @@ from pathlib import Path
 from models import CLEANERS, SPEECH, letters
 
 
-class Rewritten(RuntimeError):
+class Rejected(RuntimeError):
     pass
 
 
@@ -58,7 +58,7 @@ def fold(word):  # "José" -> "jose"
 
 
 # Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
-STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+)(?![\w/@-]|\.\w)"
+STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+)(?![\w/@-]|\.\w)"
 # Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
 START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
 # A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
@@ -74,6 +74,8 @@ def strip_stalls(text):
         text,
     )
     out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", out))  # blank lines stay
+    # A stutter, often across a pause ("the, um, the"); "an A a day" stays.
+    out = re.sub(r"(?<=\b[Tt]he) the\b|(?<=\b[Aa]n) an\b|(?<=\ba) a\b", "", out)
     out = re.sub(r"[^\S\n]+\n", "\n", out).strip()
     return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
@@ -92,6 +94,15 @@ def ensure_question(raw, text):
         return text
     return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
 
+
+HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+m*|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, ahm, oh
+CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
+CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
+FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
+TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
+# Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
+LEADS = {"is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're", "and"}
+LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
 
 # Words no finished sentence ends on; enforced here since the model adds a period anyway.
 CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
@@ -129,21 +140,23 @@ def ending(raw, text):
     return f"{unmarked} {tail}"
 
 
-HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, oh
-CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
-CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
-FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
-TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
-# Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
-LEADS = {"is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're", "and"}
-LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
+UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+UNITS += ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen"]
+UNITS += ["eighteen", "nineteen"]
+TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+SCALES = {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
+VALUE = {w: n for n, w in enumerate(UNITS)} | {w: 20 + 10 * n for n, w in enumerate(TENS)}
+VALUE |= SCALES | {"oh": 0}  # "oh" is a zero digit: "four oh four"
+ORDINAL = {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight"}
+ORDINAL |= {"ninth": "nine", "twelfth": "twelve"} | {w[:-1] + "ieth": w for w in TENS}
+ORDINAL |= {w + "th": w for w in UNITS[4:] + [*SCALES] if w not in ORDINAL.values()}
+WORD = "|".join(sorted(VALUE.keys() - {"oh"}, key=len, reverse=True))
 
 
 # (word, start, end, word with its plural): lowercased, "2" as "two", no plural "s", no stalls
-# ("ER" is a name).
 def tokens(text):
     found = []
-    for token in re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text):
+    for token in re.finditer(r"\d+(?:,\d{3})+|[^\W_]+(?:'[^\W_]+)*", text):  # "1,000" is one
         word = token[0].lower()
         while word.isdecimal() and len(word) > 1 and word[0] == "0":  # "05" is "oh five"
             found.append(("oh", token.start(), token.end(), "oh"))
@@ -153,7 +166,9 @@ def tokens(text):
         number = rf"(?:\b(?:{WORD}|oh)\b|\d)"
         zero = word == "oh" and re.search(rf"(?i){number}[ -]$", text[: token.start()])
         zero = zero and re.match(rf"(?i)[ -]{number}", text[token.end() :])
-        if token[0].isupper() or zero or not re.fullmatch(HESITATIONS, word):
+        joined = "-" in text[max(token.start() - 1, 0) : token.end() + 1]
+        # Stalls out, but not a name ("ER"), a zero, or one joined to a word ("uh-huh").
+        if token[0].isupper() or zero or joined or not re.fullmatch(HESITATIONS, word):
             found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end(), word))
     return found
 
@@ -175,7 +190,7 @@ def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"
 def restore(raw, out):
     """`out` with each change from `raw`, other than a left-out stall, filler, repeat, or
     self-correction, put back as said: "Just fix it." left out comes back. None if a change can't
-    be put back cleanly: inside a written word ("1,000" -> "1.00"), or an "oh" comes back twice."""
+    be put back cleanly: inside a written word ("0.5" -> "0.05"), or an "oh" comes back twice."""
 
     # "İ" lowercases to two characters, which would shift every later word's position.
     said, written = raw, out  # as written, to put changes back
@@ -192,7 +207,7 @@ def restore(raw, out):
         return re.sub(rf"\b(?:{HESITATIONS})\b", "", sentence).strip()
 
     def repeated(k, kept, reach):  # said again within `reach` words, that copy kept: "test testing"
-        if spoken[k] in VALUE or spoken[k].isdecimal() or spoken[k] in ("dash", "dot", "slash"):
+        if spoken[k] in VALUE or spoken[k][0].isdecimal() or spoken[k] in ("dash", "dot", "slash"):
             return False  # said twice on purpose: "seven seventeen", "dash dash save"
         nearby = [i for i in range(k - reach, k + reach + 1) if i in kept]
         # A negating form said after it is a correction, not a repeat: "with, without".
@@ -211,10 +226,10 @@ def restore(raw, out):
         commas = re.search(r"[,;]$", said) or re.match(r"\s*[,;]", rest)
         opens = not said and found[0] not in ("like", "you know", "i mean")  # "So I think"
         ends = found[0] in TAGS and re.match(r"\s*([.!?]|$)", rest)  # "Fine, yeah."
-        # A "like" opening a sentence or after a lead, unless it likens: "It's been like that."
+        # A "like" opening a sentence or after a lead, unless it likens: "like that", "like a car"
         last = (re.findall(r"[\w']+", said) or [""])[-1]
         likes = found[0] == "like" and (last in LEADS or not said)
-        likes &= not re.match(r"\s+th(?:at|is)(?: ones?)?\s*(?:[^\w\s]|$)", rest)
+        likes &= not re.match(r"\s+(?:th(?:at|is)(?: ones?)?\s*(?:[^\w\s]|$)|(?:the|an?)\s)", rest)
         return len(found[0].split()) if commas or opens or ends or likes else 0
 
     # Changes that aren't a left-out stall, filler, repeat, or correction; corrections the cleanup
@@ -251,7 +266,7 @@ def restore(raw, out):
                 # Respaced ("e mail" -> "email", not "14.99" -> "1499"), or one misheard word.
                 respaced = "".join(run) == "".join(new)
                 respaced &= not any(re.search(r"\d \d", " ".join(words)) for words in (run, new))
-                if respaced or len(run) == len(new) == 1 and misheard(run[0], new[0]):
+                if respaced or len(run) == len(new) == 1 and misheard(spans[i1][0], outs[j1][0]):
                     continue
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
                 listed = re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[i2 - 1][2]])
@@ -296,7 +311,7 @@ def restore(raw, out):
     if not bad or not unexplained(backward):
         return text
     # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
-    spoken, typed = [s[3] for s in spans], [o[3] for o in outs]
+    spoken, typed = [w for *_, w in spans], [w for *_, w in outs]
     forward = difflib.SequenceMatcher(None, spoken, typed, autojunk=False).get_opcodes()
     # Back to front, so the positions before each change hold. A left-out run comes back whole:
     # with the gap said around it if that has a mark ("friendly, I guess? Then"), else before the
@@ -355,18 +370,7 @@ def restore(raw, out):
     return text if text != written.strip() else None
 
 
-UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
-UNITS += ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen"]
-UNITS += ["eighteen", "nineteen"]
-TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
-SCALES = {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
-VALUE = {w: n for n, w in enumerate(UNITS)} | {w: 20 + 10 * n for n, w in enumerate(TENS)}
-VALUE |= SCALES | {"oh": 0}  # "oh" is a zero digit: "four oh four"
-ORDINAL = {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight"}
-ORDINAL |= {"ninth": "nine", "twelfth": "twelve"} | {w[:-1] + "ieth": w for w in TENS}
-ORDINAL |= {w + "th": w for w in UNITS[4:] + [*SCALES] if w not in ORDINAL.values()}
 DECADE = {w[:-1] + "ies": VALUE[w] for w in TENS}  # "nineteen eighties" -> "1980s"
-WORD = "|".join(sorted(VALUE.keys() - {"oh"}, key=len, reverse=True))
 ENDS = "|".join(sorted([*ORDINAL, *DECADE], key=len, reverse=True))
 AND = r"(?:(?<=hundred)|(?<=thousand)|(?<=million)|(?<=billion)) and"  # "two hundred and five"
 OH = rf"(?P<oh>(?:[ -]oh\b)+)(?=[ -](?:{WORD})\b)|(?:[ -]oh\b){{2,}}"  # "four oh four"
@@ -404,7 +408,7 @@ def digits(text, names):
     """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
     hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
     clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million|billion|thousand"
-    clock += r"|dollars?|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
+    clock += r"|dollar|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
     span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
     at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
     pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
@@ -471,14 +475,16 @@ def digits(text, names):
         listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
         if words == ["one"] and (previous in DETERMINERS or not listed):
             return group  # "one of them", "no one"
+        if previous == "the" and re.match(r"(?i) of (?:us|you|them)\b", after):
+            return group  # "the two of us"
         scale = VALUE[words[-1]]
         if words[-1] in ("million", "billion") and number < 1000 * scale:
             return f"{number // scale:,} {words[-1]}"  # "a hundred million" -> "100 million"
         # "in 2000", "class of 2008"; not "2,000 people", "2,050 of them"
         dated = previous in ("in", "since", "until", "during", "by")
         dated |= previous == "year" and not counted  # "the year 2000", not "last year 2,000 people"
-        named = number % 1000 and not counted and not re.match(r"(?i) of\b", after)
-        year = 2000 <= number < 2100 and (dated or named)
+        named = number % 1000 and not counted
+        year = 2000 <= number < 2100 and (dated or named) and not re.match(r"(?i) of\b", after)
         return str(number) if year else f"{number:,}"
 
     return RUN.sub(convert, text)
@@ -492,7 +498,7 @@ class Engine:
         self.config, self.heard = config, None
         self.speech = SPEECH[config["speech"]["backend"]](config["speech"])
         cleanup = config["cleanup"]
-        self.cleaner = CLEANERS[cleanup["backend"]](cleanup) if cleanup["enabled"] else None
+        self.cleaner = CLEANERS[cleanup["backend"]](cleanup) if cleanup else None
         apps = (config.get("apps") or {}).values()
         styles = [app.get("style") for app in apps]
         if self.cleaner and self.cleaner.adapter and (config.get("style") or any(styles)):
@@ -569,13 +575,13 @@ class Engine:
         heard = self.speech.transcribe(wav, names)
         if self.speech.boost and names:  # decoded again unboosted: see merge
             heard = self.merge(self.speech.transcribe(wav, []), heard, request)
-        # No letters or digits in any script: nothing was said, and the cleaner would invent text.
-        if not re.search(r"[^\W_]", heard):
-            return ""
-        self.heard = heard  # what was said, kept if a later step fails or types nothing
+        self.heard = heard  # what was said, kept if a later step fails
         raw = self.spell(heard, request)
-        # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
+        # A stall hides the last word ("and, uh.").
         said = strip_stalls(raw)
+        # Stalls alone, or no letters or digits in any script: the cleaner would invent text.
+        if not re.search(r"[^\W_]", said):
+            return ""
         if not self.cleaner:  # spelled again: a stall's removal may add a capital ("Yabai")
             return digits(ending(said, self.spell(said, request)), names)
         if self.cleaner.prompt:
@@ -592,20 +598,22 @@ class Engine:
                 {"role": "user", "content": FRAME.format(raw)},
             ]
         out = self.cleaner.complete(messages, raw)
-        if "\n" in out:  # a reformat that can't be put back word by word: "- Eggs\n- Milk"
+        if not out.isprintable():  # a line break or control: a reformat ("- Eggs\n- Milk")
+            print("put back what the cleanup changed beyond its rules", file=sys.stderr)
             out = raw
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
         text = self.spell(strip_stalls(out), request)
         if not text:
-            raise Rewritten("the cleanup returned nothing, so nothing was typed")
+            raise Rejected("the cleanup returned nothing, so nothing was typed")
         text = ending(said, ensure_question(said, text))
         # What the cleanup changed beyond its rules is typed as said.
         restored = restore(raw, text)
         if restored is None or restore(raw, restored) != restored:
-            raise Rewritten("the cleanup rewrote what was said, so nothing was typed")
+            raise Rejected("the cleanup rewrote what was said, so nothing was typed")
         if restored != text:
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
-        return digits(ending(said, restored), names)
+        typed = digits(ending(said, restored), names)
+        return typed if re.search(r"[^\W_]", typed) else ""  # a filler alone: "Like." -> "."
 
 
 def main():
@@ -634,10 +642,10 @@ def main():
         request, engine.heard = json.loads(line), None
         try:
             text = engine.process(request["wav"], request)
-            emit({"event": "final", "id": request["id"], "text": text, "heard": engine.heard})
+            emit({"event": "final", "id": request["id"], "text": text})
         except Exception as error:  # noqa: BLE001 - every take gets an answer, with what was heard
             emit({"event": "error", "id": request["id"], "msg": str(error), "heard": engine.heard})
-            if not isinstance(error, Rewritten):  # a verdict, not a bug: no traceback
+            if not isinstance(error, Rejected):  # a verdict, not a bug: no traceback
                 traceback.print_exc()
         mx.clear_cache()
 
