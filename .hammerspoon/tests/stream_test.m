@@ -174,9 +174,9 @@ int main(int argc, char **argv) {
       " assert(#chunks==0 and rest==reference,'close() lost the undelivered bytes')");
     await(0.3, NO);
     execute(state, "assert(#chunks==0,'delivered after close()')");
-    // Stopped before the writer connects.
     int lowest = dup(STDERR_FILENO);
     close(lowest);
+    // Stopped before the writer connects.
     socketPath(state, "unused", path);
     execute(state, "local rest,problem=assert(stream.listen(path,error))();"
       " assert(rest=='' and problem==nil,problem)");
