@@ -139,8 +139,7 @@ class Parakeet(Speech):
         # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
         text = model.transcribe(wav, chunk_duration=120).text
         # Short-take garbage: special pieces (<unk>, v3's <|en|>) and rare-symbol runs ("ΨΨΨ").
-        text = re.sub(r"<(?:unk|pad|\|[^<>|]*\|)>|(?<!\S)([^\x00-\x7F])\1{2,}(?!\S)", "", text)
-        return " ".join(text.split())
+        return re.sub(r"<(?:unk|pad|\|[^<>|]*\|)>|(?<!\S)([^\x00-\x7F])\1{2,}(?!\S)", "", text)
 
 
 class Whisper(Speech):

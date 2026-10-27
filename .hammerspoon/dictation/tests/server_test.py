@@ -253,6 +253,10 @@ check(
         ("Cut it at 2.45 meters or at 2.45 inches.", "Cut it at 2.45 meters or at 2.45 inches."),
         ("Play the video at 1.30 times speed.", "Play the video at 1.30 times speed."),
         ("The latency is at 1.45 milliseconds.", "The latency is at 1.45 milliseconds."),
+        (
+            "The link runs at 2.45 gigabits per second.",
+            "The link runs at 2.45 gigabits per second.",
+        ),
         ("It's sitting at 2.45 GB.", "It's sitting at 2.45 GB."),
         ("The market closed at one point fifteen.", "The market closed at 1.15."),
         ("We raised at two point fifteen million dollars.", "We raised at 2.15 million dollars."),
@@ -299,7 +303,6 @@ check(
         ("Room one oh one point five.", "Room 101.5."),
         ("Call at eight oh oh tomorrow.", "Call at 8:00 tomorrow."),
         ("The server returned five oh oh.", "The server returned 500."),
-        ("The latency peaked at 1.15 seconds.", "The latency peaked at 1.15 seconds."),
         ("Use port eight oh eight oh.", "Use port 8080."),
         ("Dial two oh two point oh five oh.", "Dial 202.050."),
         ("The site throws four oh four a lot.", "The site throws 404 a lot."),
@@ -311,8 +314,8 @@ check(
         ("The server returned a five-oh-three.", "The server returned a 503."),
         ("Do it in this order: one, two.", "Do it in this order: 1, 2."),
         (
-            "One, fix the overlay. Two, update the README.",
-            "1, fix the overlay. 2, update the README.",
+            "Okay so one, fix the overlay. Two, update the README.",
+            "Okay so 1, fix the overlay. 2, update the README.",
         ),
         (
             "Two things. One, the pill is too big and two, it's too bright.",
@@ -323,8 +326,8 @@ check(
             "I tried one, it's fine. 1, it's fast. 2, it's cheap.",
         ),
         (
-            "I'd pick the blue one, honestly. Two of the others are broken.",
-            "I'd pick the blue one, honestly. 2 of the others are broken.",
+            "I'd pick one, honestly. Two of the others are broken.",
+            "I'd pick one, honestly. 2 of the others are broken.",
         ),
         (
             "One, it's 2.5 times slower. And two, it crashes.",
@@ -333,6 +336,10 @@ check(
         (
             "Two problems. One, the new one, it leaks memory, and two, it's slow.",
             "2 problems. 1, the new one, it leaks memory, and 2, it's slow.",
+        ),
+        (
+            "I tried the other one, and two of them crashed.",
+            "I tried the other one, and 2 of them crashed.",
         ),
         (
             "One, why is it slow? Two, why does it crash?",
@@ -385,7 +392,7 @@ for size in (2, 3, 4):
         server.digits(" ".join(run) + ".", ())
 print("PASS no number run raises")
 check(
-    "a cleaned take loses its stalls before spelling, and gets its numbers as digits",
+    "a cleaned take is one line, loses its stalls before spelling, and gets its numbers as digits",
     [
         (("Um, send three copies.", None), "Send 3 copies."),
         (("Um, yabai crashed again.", None), "yabai crashed again."),
@@ -450,6 +457,7 @@ check(
         ("See you in May.", "See you in May."),
         ("I'd love to.", "I'd love to."),
         ("That's what I use it for.", "That's what I use it for."),
+        ("That's what Sam and I used it for.", "That's what Sam and I used it for."),
         ("Let's go with option A.", "Let's go with option A."),
         ("Take him to the OR.", "Take him to the OR."),
         ("Oh my!", "Oh my!"),
@@ -466,6 +474,10 @@ check(
         (
             ("Check what broke and send it to", "Check what broke and send it to."),
             "Check what broke and send it to",
+        ),
+        (
+            ("See what breaks if we hand it to", "See what breaks if we hand it to."),
+            "See what breaks if we hand it to",
         ),
         (
             ("Let me know what you come up with", "Let me know what you come up with."),
@@ -589,7 +601,9 @@ check(
                 "Can you make one? Like I forgot what it is called, but it has bars.",
                 "Can you make one? I forgot what it is called, but it has bars.",
             ),
-            ("Like, what are we even doing here?", "What are we even doing here?"),
+            ("Okay. Like, what are we even doing here?", "Okay. What are we even doing here?"),
+            ("Like I think so, but I am not sure.", "I think so, but I am not sure."),
+            ("So like, what's the plan?", "What's the plan?"),
             ("It's like so slow.", "It's so slow."),
             ("I'm um like so tired.", "I'm so tired."),
             ("That's the one that you know, I told you about.", "That's the one I told you about."),
@@ -620,10 +634,13 @@ check(
             ("He's like my best friend.", "He's my best friend."),
             ("It should be like the Raycast one.", "It should be the Raycast one."),
             ("It's like a car.", "It's a car."),
-            ("So, like I said, the deploy failed again.", "So I said, the deploy failed again."),
+            ("Like I said the deploy failed again.", "I said the deploy failed again."),
             ("And I'm like why is it even broken?", "And I'm why is it even broken?"),
             ("I'm like, why is it broken?", "I'm why is it broken?"),
             ("Like we agreed, the release is on Friday.", "We agreed, the release is on Friday."),
+            ("Like we've discussed, we ship it.", "We've discussed, we ship it."),
+            ("Like last time, the build failed on CI.", "Last time, the build failed on CI."),
+            ("She was like, sure, go ahead.", "She was sure, go ahead."),
             ("Delete all files except logs.", "Delete all files."),
             ("Include the tests.", "Exclude the tests."),
             ("I can, I can't come tonight.", "I can come tonight."),
@@ -1042,14 +1059,14 @@ parakeet.model = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
 check(
     "Parakeet drops special pieces and rare symbol runs",
     [
-        ("<unk> <pad> ΨΨΨ", ""),
-        (" Hello <unk> there ", "Hello there"),
-        ("N<|eo|>vim<|endoftext|>", "Nvim"),
-        ("Привееет", "Привееет"),
-        ("Dial 000 now.", "Dial 000 now."),
-        ("Use <div> here.", "Use <div> here."),
+        ("<unk> <pad> ΨΨΨ", []),
+        (" Hello <unk> there ", ["Hello", "there"]),
+        ("N<|eo|>vim<|endoftext|>", ["Nvim"]),
+        ("Привееет", ["Привееет"]),
+        ("Dial 000 now.", ["Dial", "000", "now."]),
+        ("Use <div> here.", ["Use", "<div>", "here."]),
     ],
-    lambda text: parakeet.transcribe(text, []),
+    lambda text: parakeet.transcribe(text, []).split(),
 )
 check(
     "vocabulary prefixes",

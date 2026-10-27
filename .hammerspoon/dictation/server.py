@@ -72,9 +72,7 @@ STALL_RE = re.compile(rf",?\s*{STALL},?(?:\s+(?=[.!?,;:](?:\s|$)))?")
 
 def strip_stalls(text):
     # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
-    out = None
-    while out != text:  # until none leads, as that word may be a hum: "Hum, hum, hum."
-        out = text
+    while LEAD_STALL_RE.search(text):  # the next word may be a hum too: "Hum, hum, hum."
         text = LEAD_STALL_RE.sub(
             lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
             text,
@@ -112,10 +110,14 @@ TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("F
 # Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
 LEADS = {"is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're", "and"}
 LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
-# A "like" that likens, quotes, or means "as" stays: "like a car", "I'm like, why", "like I said".
-LIKENS = r"like (?:th(?:at|is)(?: ones?)?(?!\s*\w)|the|an?|[\w']+ said)"
-LIKENS += r"|(?:(?<=\w )like,|like) (?:why|what|how|who|no|okay|oh)"  # not "Like, why"
-LIKENS += r"|like (?:i|we|you|he|she|they)(?: \w+){1,4}(?=,)"  # "Like we agreed, …"
+# A "like" that likens, quotes, or means "as" stays: "like a car", "I'm like, sure", "like I said".
+SAYS = "said|saying|told|telling|mentioned|discussed|talked|agreed|asked|wrote|planned|explained"
+SAYS += "|showed|promised|expect"
+QUOTES = "why|what|how|who|no|nope|okay|oh|sure|yeah|yes|wait|hey|dude|come"
+LIKENS = rf"like (?:th(?:at|is)(?: ones?)?(?!\s*\w)|the|an?|[\w']+(?: \w+)? (?:{SAYS}))"
+LIKENS += rf"|(?:(?<=\w )(?<!so )(?<!and )(?<!but )like,|like) (?:{QUOTES})"  # not "So like, why"
+OPENS = r"most|all|any|every\w*|last|before|my|our|your|his|her|their"  # "Like last time, …"
+LIKENS += rf"|(?<![\w,] )like (?:{OPENS})"
 
 # Words no finished sentence ends on; enforced here since the model adds a period anyway.
 CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
@@ -132,7 +134,9 @@ def ending(raw, text):
         return text  # "What if?" and "Oh my!" are complete
     last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
     if last in DIRECTED:  # "Send it to", not "That's what I use it for"
-        clause = re.split(r"[.!?]\s|\b(?:and|but|so|then)\b", raw)[-1]  # "… and send it to"
+        # A conjunction ends the wh-word's clause ("… or send it to"), but not in "Sam and I".
+        joins = r"but|or|so|then|if|when|before|after|because|until"
+        clause = re.split(rf"[.!?]\s|\b(?:{joins})\b|\band\b(?! [A-Z]\w* )", raw)[-1]
         stranded = re.search(r"(?i)\b(?:what|which|who|where)\b", clause)
         if previous not in ("it", "this", "that", "them", "these", "those") or stranded:
             return text
@@ -431,7 +435,7 @@ def digits(text, names):
     hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
     # Not before a unit: "at 3.30 percent", "at 2.45 inches", "at 1.45 ms", "at 3.45 GHz".
     measure = "|".join([*MEASURES, *SCALES]) + "|feet|percent|point|degree|time|hour|minute|amp"
-    measure += r"|ounce|gallon|yard|ton|gig|[kmgt]b|ms"
+    measure += r"|ounce|gallon|yard|ton|gig|[kmgt]b|ms|\w+ per"  # "megabits per second"
     measure += r"|\w*(?:second|meter|gram|liter|byte|watt|volt|hertz|hz)"
     clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:{measure})(?:e?s)?\b)"
     span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
@@ -497,9 +501,11 @@ def digits(text, names):
         second = [w for w in re.split(r"[ -]+", shared[1].lower()) if w] if shared else []
         if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
             return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
-        listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
-        # "One, …? Two,": an item is one sentence ("2.5" ends none); "the new one, …" is no list
+        # "one or two", "the steps one, two"; a noun's "one" takes no "and": "the old one and two"
         noun = re.search(rf"\b(?:{'|'.join(DETERMINERS)}) \w+ $", before)
+        near = r",? (?:or |to )|, " if noun else r",? (?:or |to |and )?"
+        listed = re.match(rf"(?i)(?:{near})(?:\d|(?:{WORD})\b)", after)
+        # "One, …? Two,": an item is one sentence ("2.5" ends none); "the new one, …" is no list
         item = r"(?i),(?:[^.?!]|\.\w)*?(?:[,.?!] |[,.?!]? and )two,"
         listed = listed or not noun and re.match(item, after)
         if words == ["one"] and (previous in DETERMINERS or not listed):
