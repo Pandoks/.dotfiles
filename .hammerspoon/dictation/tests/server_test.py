@@ -252,6 +252,7 @@ check(
         ("The train at 7.15 leaves from platform 2.", "The train at 7:15 leaves from platform 2."),
         ("Cut it at 2.45 meters or at 2.45 inches.", "Cut it at 2.45 meters or at 2.45 inches."),
         ("Play the video at 1.30 times speed.", "Play the video at 1.30 times speed."),
+        ("The battery sits at 3.45 volts.", "The battery sits at 3.45 volts."),
         ("The market closed at one point fifteen.", "The market closed at 1.15."),
         ("We raised at two point fifteen million dollars.", "We raised at 2.15 million dollars."),
         ("We raised at 2.15 million dollars.", "We raised at 2.15 million dollars."),
@@ -324,6 +325,14 @@ check(
             "I'd pick the blue one, honestly. Two of the others are broken.",
             "I'd pick the blue one, honestly. 2 of the others are broken.",
         ),
+        (
+            "One, the old one is too slow. And two, it crashes.",
+            "1, the old one is too slow. And 2, it crashes.",
+        ),
+        (
+            "One, why is it slow? Two, why does it crash?",
+            "1, why is it slow? 2, why does it crash?",
+        ),
         ("The steps one, two, and three are done.", "The steps 1, 2, and 3 are done."),
         ("We got a million hits.", "We got 1 million hits."),
         ("We grew a lot during two thousand.", "We grew a lot during 2000."),
@@ -376,8 +385,9 @@ check(
         (("Um, send three copies.", None), "Send 3 copies."),
         (("Um, yabai crashed again.", None), "yabai crashed again."),
         (("Erm, I think, hmm, we should, ahm, go.", None), "I think we should go."),
-        (("MM, maybe later.", None), "Maybe later."),
         (("MMM, that sounds good.", None), "That sounds good."),
+        (("Hum, let me think.", None), "Let me think."),
+        (("Mm, I'm not sure.", None), "I'm not sure."),
     ],
     lambda pair: dictate(*pair, numbers=True),
 )
@@ -448,6 +458,7 @@ check(
     [
         (("I want to go to the", "I want to go to the."), "I want to go to the"),
         (("Send it to", "Send it to."), "Send it to"),
+        (("That's what I use it for.", None), "That's what I use it for."),
         (
             ("Let me know what you come up with", "Let me know what you come up with."),
             "Let me know what you come up with.",
@@ -565,7 +576,7 @@ check(
             ("Like you're being very vague.", "You're being very vague."),
             ("Can you make one? Like I forgot its name.", "Can you make one? I forgot its name."),
             ("It's like so slow.", "It's so slow."),
-            ("I'm like so tired.", "I'm so tired."),
+            ("I'm um like so tired.", "I'm so tired."),
             ("That's the one that you know, I told you about.", "That's the one I told you about."),
             ("Show 10² rows, not ①.", "Show 10² rows, not ①."),
             ("Meet İbrahim Monday, sorry, Tuesday.", "Meet İbrahim Tuesday."),
@@ -594,6 +605,8 @@ check(
             ("He's like my best friend.", "He's my best friend."),
             ("It should be like the Raycast one.", "It should be the Raycast one."),
             ("It's like a car.", "It's a car."),
+            ("So, like I said, the deploy failed again.", "So I said, the deploy failed again."),
+            ("And I'm like why is it even broken?", "And I'm why is it even broken?"),
             ("Delete all files except logs.", "Delete all files."),
             ("Include the tests.", "Exclude the tests."),
             ("I can, I can't come tonight.", "I can come tonight."),
@@ -646,7 +659,6 @@ check(
             ("We miss missed the bus this morning.", "We missed the bus this morning."),
             ("Uh-huh.", "Huh."),
             ("Uh huh.", "Huh."),
-            ("Like I said the deploy failed again.", "I said the deploy failed again."),
             ("It costs one thousand dollars.", "It costs 1,000 dollars."),
             ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
         ]
@@ -788,10 +800,6 @@ class Chatty:
         return "ok"
 server.Engine = Chatty
 """
-events, stderr = serve(chatty, [{"id": 1, "wav": "x.wav"}])
-assert events == [{"event": "ready"}, {"event": "final", "id": 1, "text": "ok"}]
-assert "native chatter" in stderr, stderr
-print("PASS a library that prints cannot corrupt the protocol")
 events, stderr = serve("", [], config='{"speech": {"backend": "nope"}}')
 assert [e["event"] for e in events] == ["error"] and "id" not in events[0], events
 assert "nope" in events[0]["msg"] and "Traceback" in stderr, (events, stderr)
@@ -833,7 +841,8 @@ finally:
     deadline.cancel()
     live.kill()
     live.wait()
-print("PASS replies and prints arrive while stdin is still open")
+assert live.stderr and "native chatter" in live.stderr.read(), "native output was lost"
+print("PASS replies and prints arrive while stdin is still open, native output on stderr")
 takes = """
 from types import SimpleNamespace
 heard = iter(["Add 0.5 cups.", "Send it."])
@@ -1129,6 +1138,7 @@ class Transcriber(Model):
     decode = ParakeetTDT.decode  # pyright: ignore[reportAssignmentType]
     decode_greedy, transcribe = ParakeetTDT.decode_greedy, ParakeetTDT.transcribe
     preprocessor_config = SimpleNamespace(sample_rate=16000)
+    parameters = dict
 
     def encoder(self, mel):
         encoded.append(mel)
@@ -1137,20 +1147,22 @@ class Transcriber(Model):
 
 encoded = []
 reusing = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})
-reusing.model = Transcriber(  # pyright: ignore[reportAttributeAccessIssue]
-    scores([{"▁ok": 30}, {"ay": 21, "i": 20}])
-)
+transcriber = Transcriber(scores([{"▁ok": 30}, {"ay": 21, "i": 20}]))
 with (
     tempfile.TemporaryDirectory() as folder,
-    mock.patch("parakeet_mlx.parakeet.load_audio", models.read),  # as Parakeet.load sets it
+    mock.patch.dict(os.environ, PATH="/usr/bin:/bin:/usr/sbin:/sbin"),  # Hammerspoon's: no ffmpeg
+    mock.patch("huggingface_hub.hf_hub_download", lambda *_, **__: f"{folder}/config.json"),
+    mock.patch("parakeet_mlx.from_pretrained", lambda _: transcriber),
+    mock.patch("parakeet_mlx.ParakeetTDT", Transcriber),  # for load's boost check
     mock.patch("parakeet_mlx.parakeet.get_logmel", lambda *_: mx.arange(3.0)[None, :, None]),
 ):
+    reusing.load()
     with wave.open(f"{folder}/take.wav", "wb") as audio:  # the recorder's 16 kHz mono s16le
         audio.setparams((1, 2, 16000, 0, "NONE", ""))
         audio.writeframes(bytes(32000))
     texts = [reusing.transcribe(f"{folder}/take.wav", hint) for hint in (["Oki"], [])]
 assert texts == ["oki", "okay"] and len(encoded) == 1, (texts, encoded)
-print("PASS boosting encodes a take once, and the unboosted pass decodes it unboosted")
+print("PASS a loaded Parakeet reads a take without ffmpeg, encodes it once, decodes it unboosted")
 # Unboosted and boosted Parakeet decodes of TTS takes (`say -v Albert`, `-v Daniel`, ...).
 check(
     "a boosted word is kept only where it spells a vocabulary word, never over a stall",

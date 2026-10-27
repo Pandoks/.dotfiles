@@ -59,8 +59,9 @@ def fold(word):  # "José" -> "jose"
 
 # A stall alone, not in a path, address, or word: "~/um", "hm.com", "uh-huh", "uh huh".
 LONE = r"(?<![\w./~@'-])(?:{})(?![\w/@-]|\.\w| [Hh]uh\b)"
-# Stalls removed mechanically (the model is inconsistent); "ER" stays, Parakeet's "MM" doesn't.
-STALL = LONE.format(r"[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+|MM+")
+# Stalls removed mechanically (the model is inconsistent); "ER" stays, Parakeet's "MM", "Mm",
+# "Hum," don't.
+STALL = LONE.format(r"[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+|M[Mm]+|Hum(?=[,.?!])")
 # Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
 START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
 # A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
@@ -70,12 +71,14 @@ STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
 
 
 def strip_stalls(text):
-    # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
-    out = LEAD_STALL_RE.sub(
-        lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
-        text,
-    )
-    out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", out))  # blank lines stay
+    # Only an all-lowercase next word takes the stall's capital ("iPhone" stays); twice, as that
+    # word may be a hum: "Hum, hum."
+    for _ in range(2):
+        text = LEAD_STALL_RE.sub(
+            lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
+            text,
+        )
+    out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", text))  # blank lines stay
     # A stutter, often across a pause ("the, um, the", "the... The"); "an A a day" stays.
     pause = r"(?:\.\.\.|…)?"
     out = re.sub(
@@ -109,6 +112,9 @@ TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("F
 # Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
 LEADS = {"is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're", "and"}
 LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
+# A "like" that likens, quotes, or means "as" stays: "like a car", "I'm like why", "like I said".
+LIKENS = r"like (?:th(?:at|is)(?: ones?)?(?!\s*\w)|the|an?|why|what|how|who|no|okay|oh"
+LIKENS += r"|\w+ (?:said|told|mentioned|discussed|was saying))"
 
 # Words no finished sentence ends on; enforced here since the model adds a period anyway.
 CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
@@ -124,8 +130,9 @@ def ending(raw, text):
     if not words or re.search(r"[?!]\W*$", raw):
         return text  # "What if?" and "Oh my!" are complete
     last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
-    if last in DIRECTED:
-        if previous not in ("it", "this", "that", "them", "these", "those"):
+    if last in DIRECTED:  # "Send it to", not "That's what I use it for"
+        asked = re.search(r"(?i)\b(?:what|which|who|where)\b", re.split(r"[.!?]\s", raw)[-1])
+        if previous not in ("it", "this", "that", "them", "these", "those") or asked:
             return text
     elif last not in CONTINUATION or (previous and words[-1].isupper()):
         return text  # an all-caps one after others is a name: "plan A", "the OR"
@@ -172,8 +179,8 @@ def tokens(text):
         number = rf"(?:\b(?:{WORD}|oh)\b|\d)"
         zero = word == "oh" and re.search(rf"(?i){number}[ -]$", text[: token.start()])
         zero = zero and re.match(rf"(?i)[ -]{number}", text[token.end() :])
-        # Stalls out, but not a name ("ER"; Parakeet's "MM" is a hum), a zero, or one in a word.
-        name = token[0].isupper() and not re.fullmatch("mm+", word)
+        # Stalls out, but not a name ("ER", not STALL's "MM"), a zero, or one in a word.
+        name = token[0].isupper() and not re.compile(STALL).match(text, token.start())
         stall = HESITATION_RE.match(text, token.start())
         if name or zero or not (stall and stall.end() == token.end()):
             found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end(), word))
@@ -227,17 +234,14 @@ def restore(raw, out):
 
     def filler(k):  # its word count, if set off by a comma or opening or ending a sentence
         found = match(k, FILLER)
-        if not found:
+        if not found or match(k, LIKENS):
             return 0
         rest, said = raw[found.end() :], before(k)
         commas = re.search(r"[,;]$", said) or re.match(r"\s*[,;]", rest)
         opens = not said and found[0] not in ("like", "you know", "i mean")  # "So I think"
         ends = found[0] in TAGS and re.match(r"\s*([.!?]|$)", rest)  # "Fine, yeah."
-        # A "like" opening a sentence or after a lead, unless it likens: "like that", "like a car"
         last = (re.findall(r"[\w']+", said) or [""])[-1]
         likes = found[0] == "like" and (last in LEADS or not said)
-        likes &= not re.match(r"\s+(?:th(?:at|is)(?: ones?)?\s*(?:[^\w\s]|$)|(?:the|an?)\s)", rest)
-        likes &= not re.match(r"\s+\w+ said\b", rest)  # "Like I said" is "as I said"
         return len(found[0].split()) if commas or opens or ends or likes else 0
 
     def dropped(k, end, kept):  # spoken[k:end] is fillers and repeats
@@ -328,8 +332,8 @@ def restore(raw, out):
     whole = [w for *_, w in spans], [w for *_, w in outs]
     forward = difflib.SequenceMatcher(None, *whole, autojunk=False).get_opcodes()
     # Back to front, so the positions before each change hold. A left-out run comes back whole:
-    # with the gap said around it if that has a mark ("friendly, I guess? Then"), else before the
-    # next word kept ("like " before "something").
+    # with the gaps said in and around it if one has a mark ("friendly, I guess? Then"), else
+    # before the next word kept ("like " before "something").
     for i1, i2, j1, j2 in reversed(unexplained(forward, trusted=False)):
         # A run before a kept copy of its first word may be the one after: "done. Is it done?"
         while j1 == j2 and 0 < j1 < size - 1 and i2 + 1 < total and spoken[i1] == spoken[i2]:
@@ -423,9 +427,9 @@ def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen
 def digits(text, names):
     """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
     hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
-    # Not before a unit: "at 3.30 percent", "at 2.45 inches", "at 1.30 times".
-    measure = [*MEASURES, *SCALES, "feet", "percent", "point", "degree", "time", "hour", "minute"]
-    measure = "|".join([*measure, "second", r"\w*(?:meter|gram|liter|byte)"])
+    # Not before a unit: "at 3.30 percent", "at 2.45 inches", "at 1.30 times", "at 3.45 GHz".
+    measure = "|".join([*MEASURES, *SCALES]) + "|feet|percent|point|degree|time|hour|minute|second"
+    measure += r"|amp|ounce|gallon|yard|ton|\w*(?:meter|gram|liter|byte|watt|volt|hertz|hz)"
     clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:{measure})(?:e?s)?\b)"
     span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
     at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
@@ -491,8 +495,8 @@ def digits(text, names):
         if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
             return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
         listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
-        # "One, …, and two,", the "one" nearest it: not "the new one, … One, … Two,"
-        listed = listed or re.match(r"(?i),(?:(?!\bone\b)[^?!])*?(?:[,.] |[,.]? and )two,", after)
+        # "One, …? Two,": an item is one sentence, so not "the new one, mostly good. One, … Two,"
+        listed = listed or re.match(r"(?i),[^.?!]*?(?:[,.?!] |[,.?!]? and )two,", after)
         if words == ["one"] and (previous in DETERMINERS or not listed):
             return group  # "one of them", "no one"
         if previous == "the" and re.match(r"(?i) of (?:us|you|them)\b", after):
