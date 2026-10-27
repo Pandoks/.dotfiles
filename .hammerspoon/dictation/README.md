@@ -75,7 +75,7 @@ adapter they fail the load. A plain model types self-corrections as said.
   answers (it died, or Hammerspoon reloaded), keeps its recording there as a `.wav`, as does one
   whose input stopped delivering (an unplugged mic) and ffmpeg didn't finish in 2 s.
 - The cleanup rewrites the whole take: a sentence types about 1 s after stop, a 50 s take about
-  4 s, a 2.5-minute take about 16 s (M1 Max).
+  4 s, a 2.5-minute take about 13 s (M1 Max).
 - Alerts show a failure's first line; the rest is in the Hammerspoon console and
   `~/Library/Logs/Hammerspoon/config.log`.
 
