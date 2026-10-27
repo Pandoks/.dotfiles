@@ -530,7 +530,7 @@ local function harness(options)
         read("focused")
         return window(desktop.focused)
       end,
-      -- WindowServer on-screen list, front to back; `all` adds off-screen windows.
+      -- On-screen, front to back. Without `all`, only those behind the first titled "Dock".
       list = function(all)
         desktop.lists = desktop.lists + 1
         if desktop.listing then
@@ -541,7 +541,7 @@ local function harness(options)
         local rows, order = {}, {}
         for index, row in ipairs(desktop.rows) do
           local shown = row.space == 0 or desktop:current(display(row.space)) == row.space
-          if all or (shown and not row.minimized and not row.hidden) then
+          if shown and not row.minimized and not row.hidden then
             rows[#rows + 1], order[row] = row, index
           end
         end
@@ -560,6 +560,11 @@ local function harness(options)
             kCGWindowLayer = row.layer or 0,
             kCGWindowBounds = { X = frame.x, Y = frame.y, Width = frame.w, Height = frame.h },
           }
+        end
+        for i, entry in ipairs(entries) do
+          if not all and entry.kCGWindowName == "Dock" then
+            return { table.unpack(entries, i + 1) }
+          end
         end
         return entries
       end,
@@ -933,6 +938,14 @@ test("windows on the other display's visible Space are excluded", function()
   assertEqual(desktop:countFocus(), 0)
   assertEqual(#desktop.clicks, 1)
 end)
+test("a window titled Dock behind the destination does not stop focus restoration", function()
+  local desktop = harness()
+  desktop:add({ id = 4, pid = 104, app = "Finder", title = "Dock", space = 202 })
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop:countFocus(), 1)
+end)
 test("an unavailable Space display fails once with a popup", function()
   local desktop = harness({ displays = { [202] = "gone" } })
   desktop.module.switchSpace(2)
@@ -948,6 +961,17 @@ test("an unavailable Space display fails once with a popup", function()
 end)
 test("empty Space focuses uncovered desktop without returning to another Space", function()
   local desktop = harness()
+  -- A shown Dock is no cover.
+  desktop:add({
+    id = 92,
+    pid = 910,
+    app = "Dock",
+    title = "Dock",
+    space = 0,
+    layer = 20,
+    untracked = true,
+    frame = { x = 0, y = 0, w = 1000, h = 800 },
+  })
   desktop.module.switchSpace(3)
   desktop:advance(0.3)
   assertEqual(desktop.space, 303)
@@ -1674,10 +1698,13 @@ local function pip(options)
 end
 
 test("activation onto PiP continues to the app's most recent real window", function()
-  for _, case in ipairs({ { true }, { false }, { true, true } }) do
+  for _, case in ipairs({ { true }, { false }, { true, true }, { true, false, true } }) do
     local loaded = case[1]
     -- Without Screen Recording, titles come from the tracked windows instead.
     local desktop = pip({ noSwitcher = not loaded, noTitles = case[2] })
+    if case[3] then
+      desktop:add({ id = 4, pid = 104, app = "Finder", title = "Dock", space = 101 })
+    end
     -- Without the switcher, the lowest tracked ID wins.
     desktop.recent = { [61] = 2 }
     desktop:activate(50)

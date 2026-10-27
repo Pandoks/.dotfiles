@@ -19,7 +19,7 @@ local function isPiP(title)
 end
 
 -- Without Screen Recording, the WindowServer list omits titles; the tracked window still has one.
----@param info table `hs.window.list()` entry
+---@param info table `hs.window.list(true)` entry
 ---@return string
 local function titleOf(info)
   if info.kCGWindowName then
@@ -36,12 +36,13 @@ end
 -- One in-process read of the visible Space on a screen: the WindowServer's on-screen order,
 -- limited to windows the Accessibility cache tracks. It never waits behind a busy app.
 -- The focused window can be on another screen (e.g. its PiP); `inside` tells which.
+-- `list(true)`: plain `list()` drops windows in front of the first window titled "Dock".
 local function snapshot(frame)
   local focusedWindow = hs.window.focusedWindow()
   local focusedID = focusedWindow and focusedWindow:id()
   local rows, cover, tracked, focused = {}, {}, {}, nil
   for _, info in
-    ipairs(hs.window.list() --[[@as table[] ]])
+    ipairs(hs.window.list(true) --[[@as table[] ]])
   do
     local id, pid, layer, bounds =
       info.kCGWindowNumber, info.kCGWindowOwnerPID, info.kCGWindowLayer, info.kCGWindowBounds
@@ -428,7 +429,7 @@ local function leavePiP(id, pid)
   end
   local info
   for _, entry in
-    ipairs(hs.window.list() --[[@as table[] ]])
+    ipairs(hs.window.list(true) --[[@as table[] ]])
   do
     if entry.kCGWindowNumber == id then
       info = entry
@@ -539,7 +540,7 @@ module.appWatcher = hs.application.watcher
     -- Ask the app for its focused window only when it owns a PiP.
     local window
     for _, entry in
-      ipairs(hs.window.list() --[[@as table[] ]])
+      ipairs(hs.window.list(true) --[[@as table[] ]])
     do
       if entry.kCGWindowOwnerPID == pid and isPiP(titleOf(entry)) then
         window = app:focusedWindow()
