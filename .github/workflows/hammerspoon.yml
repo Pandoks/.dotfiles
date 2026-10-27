@@ -22,6 +22,7 @@ jobs:
       - run: sh .hammerspoon/tests/run.sh
       - run: sh .hammerspoon/dictation/tests/run.sh
       - run: sh .hammerspoon/tests/previews_test.sh
+      - run: sh .hammerspoon/tests/stream_test.sh
       - name: Build native modules
         run: |
           frameworks=/Applications/Hammerspoon.app/Contents/Frameworks
