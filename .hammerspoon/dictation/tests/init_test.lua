@@ -188,7 +188,7 @@ local modules = {
     cleanup = function(capture, kept)
       if capture then
         capture.done, capture.ended = nil, true
-        if not kept or capture.silent then
+        if not kept or capture.empty then
           os.remove(capture.wav)
         end
       end
@@ -545,7 +545,7 @@ test("a failed capture keeps its audio and says why; the next press starts anew"
   alerts = {}
   toggle()
   assert(takes == started + 1, "the next press did not start a take")
-  take.silent = true -- caught no audio
+  take.empty = true
   take.fail("capture exited (code 0)")
   assert(#alerts == 1 and wavs() == count + 1, "kept no audio: " .. tostring(alerts[2]))
 end)

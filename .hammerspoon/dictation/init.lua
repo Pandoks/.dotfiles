@@ -218,7 +218,7 @@ local function keep(wav)
   )
 end
 
--- Kills ffmpeg and keeps its wav, which finish() then doesn't delete.
+-- Kills ffmpeg and keeps its wav if it caught audio; finish() then deletes nothing.
 local function salvage()
   recorder.cleanup(recording, true)
   if hs.fs.attributes(recording.wav) then
