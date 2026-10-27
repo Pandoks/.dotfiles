@@ -72,7 +72,7 @@ def dictate(raw, cleaned=None, numbers=False):
     engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
     engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
         prompt="prompt",
-        complete=lambda messages, raw: cleaned or raw,
+        complete=lambda messages, raw: raw if cleaned is None else cleaned,
     )
     try:
         if numbers:
@@ -212,7 +212,8 @@ check(
 off = server.Engine(engine.config)
 off.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
 check(
-    "cleanup off fixes spellings, numbers, stalls, and unfinished ends, keeping real words",
+    "cleanup off fixes spellings, numbers, stalls, and unfinished ends, keeping real words; marks"
+    " alone are no speech",
     [
         ("I missed the bus.", "I missed the bus."),
         ("She misses her family.", "She misses her family."),
@@ -220,6 +221,7 @@ check(
         ("I want three things.", "I want 3 things."),
         ("Um, yabai is, uh, open.", "yabai is open."),
         ("Send it to.", "Send it to"),
+        ("—–…", ""),
     ],
     lambda text: off.process(text, {}),
 )
@@ -245,6 +247,8 @@ check(
         ("Pick one or two options.", "Pick 1 or 2 options."),
         ("Meet at three thirty.", "Meet at 3:30."),
         ("Let's meet at 3.30.", "Let's meet at 3:30."),
+        ("Let's meet at 3.30 this afternoon.", "Let's meet at 3:30 this afternoon."),
+        ("Lunch at 12.30 works for me.", "Lunch at 12:30 works for me."),
         ("The market closed at one point fifteen.", "The market closed at 1.15."),
         ("We raised at two point fifteen million dollars.", "We raised at 2.15 million dollars."),
         ("We raised at 2.15 million dollars.", "We raised at 2.15 million dollars."),
@@ -301,6 +305,10 @@ check(
         ("At one point, five people left.", "At one point, 5 people left."),
         ("The server returned a five-oh-three.", "The server returned a 503."),
         ("Do it in this order: one, two.", "Do it in this order: 1, 2."),
+        (
+            "One, fix the overlay. Two, update the README.",
+            "1, fix the overlay. 2, update the README.",
+        ),
         ("The steps one, two, and three are done.", "The steps 1, 2, and 3 are done."),
         ("We got a million hits.", "We got 1 million hits."),
         ("We grew a lot during two thousand.", "We grew a lot during 2000."),
@@ -316,6 +324,7 @@ check(
         ("Last year two thousand people came.", "Last year 2,000 people came."),
         ("This year two thousand of them signed up.", "This year 2,000 of them signed up."),
         ("The two of us went to lunch.", "The two of us went to lunch."),
+        ("The three tests failed.", "The 3 tests failed."),
         ("It's priced at 2.50 each.", "It's priced at 2.50 each."),
         ("Around three fifty people came.", "Around three fifty people came."),
         ("I have thirteen twenty dollar bills.", "I have thirteen twenty dollar bills."),
@@ -351,11 +360,12 @@ check(
     [
         (("Um, send three copies.", None), "Send 3 copies."),
         (("Um, yabai crashed again.", None), "yabai crashed again."),
+        (("Erm, I think, hmm, we should, ahm, go.", None), "I think we should go."),
     ],
     lambda pair: dictate(*pair, numbers=True),
 )
 check(
-    "stalls",
+    "stalls, and an article said twice",
     [
         ("Um, so I was, uh, thinking.", "So I was thinking."),
         ("I think, um.", "I think."),
@@ -370,6 +380,7 @@ check(
         ("HM Revenue sent a letter.", "HM Revenue sent a letter."),
         ("Uh, iPhone sales are up.", "iPhone sales are up."),
         ("Uh-huh, sure.", "Uh-huh, sure."),
+        ("Uh huh, sure.", "Uh huh, sure."),
         ("The umbrella is here.", "The umbrella is here."),
         ("Order it from hm.com today.", "Order it from hm.com today."),
         ("Open ~/um now.", "Open ~/um now."),
@@ -378,6 +389,7 @@ check(
         ("Um ahm.", ""),
         ("The, uh, the dog ate an, um, an apple and a a pear.", "The dog ate an apple and a pear."),
         ("I got an A a week ago.", "I got an A a week ago."),
+        ("Can you look at the... The overlay code?", "Can you look at the overlay code?"),
         ("Okay. Um?", "Okay."),
         ("I think, um .", "I think."),
         ("git add .", "git add ."),
@@ -536,6 +548,7 @@ check(
             ("Test testing one two.", "Testing one two."),
             ("Run it with, without the cache.", "Run it without the cache."),
             ("The meeting took about, about an hour.", "The meeting took about an hour."),
+            ("It's on the 2nd, 2nd floor.", "It's on the 2nd floor."),
             ("It's the forth quarter already.", "It's the fourth quarter already."),
             ("Um, so I think we should ship it.", "I think we should ship it."),
         ]
@@ -550,6 +563,7 @@ check(
             ("It's always been like that.", "It's always been that."),
             ("He's like my best friend.", "He's my best friend."),
             ("It should be like the Raycast one.", "It should be the Raycast one."),
+            ("It's like a car.", "It's a car."),
             ("Delete all files except logs.", "Delete all files."),
             ("Include the tests.", "Exclude the tests."),
             ("I can, I can't come tonight.", "I can come tonight."),
@@ -599,6 +613,7 @@ check(
             ("Shopping list eggs milk bread and butter", "- Eggs\r- Milk\r- Bread\r- Butter"),
             ("Name tab age tab city.", "Name\tage\tcity."),
             ("I guess so.", "I guessed so."),
+            ("We miss missed the bus this morning.", "We missed the bus this morning."),
             ("Uh-huh.", "Huh."),
             ("It costs one thousand dollars.", "It costs 1,000 dollars."),
             ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
@@ -695,14 +710,19 @@ check(
     lambda pair: dictate(*pair),
 )
 check(
-    "any script's letters or digits count as speech; stalls, a filler, or marks alone are none",
+    "any script's words count as speech; stalls alone are none, and a cleanup with no words types"
+    " nothing if it left out only stalls and fillers, else is rejected",
     [
         (("Привет, как дела?", None), "Привет, как дела?"),
         (("你好，今天天气很好。", None), "你好，今天天气很好。"),
         (("42", None), "42"),
-        (("—–…", None), ""),
         (("Um, uh.", None), ""),
+        (("Ah, um.", None), ""),
+        (("Hum?", None), ""),
         (("Like.", "."), ""),
+        (("Like", ""), ""),
+        (("Hmm, you know.", "Hmm."), ""),
+        (("Hmm, just fix it.", "Hmm."), None),
     ],
     lambda pair: dictate(*pair),
 )
@@ -714,7 +734,7 @@ try:
     engine.process("take.wav", {})
     raise AssertionError("an empty cleanup was typed")
 except server.Rejected as error:
-    assert "returned nothing" in str(error) and engine.heard == "Mmm wha blah", engine.heard
+    assert "no words" in str(error) and engine.heard == "Mmm wha blah", engine.heard
 print("PASS an empty cleanup is reported, not typed, and keeps what was heard")
 
 chatty = """
@@ -938,17 +958,18 @@ print(
 def pin(kind, settings):
     try:
         kind(settings)
-    except ValueError:
-        return "ValueError"
+    except (ValueError, TypeError) as error:
+        return type(error).__name__
     return "ok"
 
 
 check(
-    "model revisions are commit SHAs, never a branch that moves",
+    "model revisions are commit SHAs, never a branch that moves; only false turns the cleanup off",
     [
         ((models.Parakeet, dict(stub, revision="main")), "ValueError"),
         ((models.MlxLm, dict(stub, revision="main")), "ValueError"),
         ((models.MlxLm, dict(stub, adapter="a", adapterRevision="main")), "ValueError"),
+        ((server.Engine, dict(engine.config, cleanup=[])), "TypeError"),  # hs.json's {}
     ],
     lambda case: pin(*case),
 )

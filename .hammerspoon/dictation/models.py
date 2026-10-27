@@ -91,7 +91,7 @@ class Speech:
 class Parakeet(Speech):
     def __init__(self, speech):
         super().__init__(speech)
-        self.boost = float(speech.get("boost") or 0)
+        self.boost, self.encoded = float(speech.get("boost") or 0), {}
 
     def load(self):
         import mlx.core as mx
@@ -109,18 +109,33 @@ class Parakeet(Speech):
         parakeet_mlx.parakeet.load_audio = read
 
     def transcribe(self, wav, hint):
+        import numpy as np
         from parakeet_mlx import ParakeetTDT
+        from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
+
+        model, boosting = self.model, bool(self.boost and hint)
+
+        def generate(mel, *, decoding_config):  # TDT's, encoding each chunk once per take
+            key = np.asarray(mel).tobytes()
+            features = self.encoded.pop(key, None) or model.encoder(mel)
+            if boosting:
+                self.encoded[key] = features
+            tokens = model.decode(*features, config=decoding_config)[0][0]  # pyright: ignore[reportOptionalCall]
+            return [sentences_to_result(tokens_to_sentences(tokens, decoding_config.sentence))]
 
         # Boosting swaps in a biased greedy decoder on this model instance only.
-        self.model.__dict__.pop("decode_greedy", None)
-        if self.boost and hint:
-            boosted = Boosted(self.model, hint, self.boost)
-            self.model.decode_greedy = functools.partial(
+        model.__dict__.pop("decode_greedy", None)
+        if self.boost:  # a TDT model (load checks); the unboosted pass reuses the encodings
+            model.generate = generate  # pyright: ignore[reportAttributeAccessIssue]
+        if boosting:
+            self.encoded = {}
+            boosted = Boosted(model, hint, self.boost)
+            model.decode_greedy = functools.partial(
                 ParakeetTDT.decode_greedy,
                 boosted,  # pyright: ignore[reportArgumentType]
             )
         # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
-        text = self.model.transcribe(wav, chunk_duration=120).text
+        text = model.transcribe(wav, chunk_duration=120).text
         # Short-take garbage: special pieces (<unk>, v3's <|en|>) and rare-symbol runs ("ΨΨΨ").
         text = re.sub(r"<(?:unk|pad|\|[^<>|]*\|)>|(?<!\S)([^\x00-\x7F])\1{2,}(?!\S)", "", text)
         return " ".join(text.split())

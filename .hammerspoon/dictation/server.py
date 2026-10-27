@@ -1,8 +1,8 @@
 """JSON lines on stdin and stdout, config as argv[1], stop with SIGTERM.
 
 stdin:  {"id": 1, "wav": "/path.wav", "app": "com.tinyspeck.slackmacgap"}
-stdout: {"event": "ready"}                                       once the models are loaded
-        {"event": "error", "msg": "..."}                         the load failed; it exits
+stdout: {"event": "ready"}                                        once the models are loaded
+        {"event": "error", "msg": "..."}                          the load failed; it exits
         {"event": "final", "id": 1, "text": "..."}                result
         {"event": "error", "id": 1, "msg": "...", "heard": ...}   the take failed
 Diagnostics and tracebacks go to stderr.
@@ -57,8 +57,8 @@ def fold(word):  # "José" -> "jose"
     return "".join(c for c in unicodedata.normalize("NFKD", word.lower()) if c.isalnum())
 
 
-# Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "hm.com" stay.
-STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+)(?![\w/@-]|\.\w)"
+# Stalls removed mechanically (the model is inconsistent); "ER", "uh-huh", "uh huh", "hm.com" stay.
+STALL = r"(?<![\w./~@'-])(?:[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+)(?![\w/@-]|\.\w| [Hh]uh\b)"
 # Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
 START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
 # A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
@@ -74,8 +74,11 @@ def strip_stalls(text):
         text,
     )
     out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", out))  # blank lines stay
-    # A stutter, often across a pause ("the, um, the"); "an A a day" stays.
-    out = re.sub(r"(?<=\b[Tt]he) the\b|(?<=\b[Aa]n) an\b|(?<=\ba) a\b", "", out)
+    # A stutter, often across a pause ("the, um, the", "the... The"); "an A a day" stays.
+    pause = r"(?:\.\.\.|…)?"
+    out = re.sub(
+        rf"(?<=\b[Tt]he){pause} [Tt]he\b|(?<=\b[Aa]n){pause} [Aa]n\b|(?<=\ba){pause} a\b", "", out
+    )
     out = re.sub(r"[^\S\n]+\n", "\n", out).strip()
     return re.sub(r"^[,;:](?:\s+|$)", "", out)
 
@@ -207,7 +210,7 @@ def restore(raw, out):
         return re.sub(rf"\b(?:{HESITATIONS})\b", "", sentence).strip()
 
     def repeated(k, kept, reach):  # said again within `reach` words, that copy kept: "test testing"
-        if spoken[k] in VALUE or spoken[k][0].isdecimal() or spoken[k] in ("dash", "dot", "slash"):
+        if spoken[k] in (*VALUE, "dash", "dot", "slash") or spoken[k].replace(",", "").isdecimal():
             return False  # said twice on purpose: "seven seventeen", "dash dash save"
         nearby = [i for i in range(k - reach, k + reach + 1) if i in kept]
         # A negating form said after it is a correction, not a repeat: "with, without".
@@ -311,8 +314,8 @@ def restore(raw, out):
     if not bad or not unexplained(backward):
         return text
     # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
-    spoken, typed = [w for *_, w in spans], [w for *_, w in outs]
-    forward = difflib.SequenceMatcher(None, spoken, typed, autojunk=False).get_opcodes()
+    whole = [w for *_, w in spans], [w for *_, w in outs]
+    forward = difflib.SequenceMatcher(None, *whole, autojunk=False).get_opcodes()
     # Back to front, so the positions before each change hold. A left-out run comes back whole:
     # with the gap said around it if that has a mark ("friendly, I guess? Then"), else before the
     # next word kept ("like " before "something").
@@ -358,7 +361,7 @@ def restore(raw, out):
         # The said lowercase where the cleanup started a sentence: "And the", not "And The".
         elif i2 < total and re.search(r"[.!?]\s+$", text[:end]) and said[spans[i2][1]].islower():
             rest = piece + text[end : end + 1].lower() + text[end + 1 :]
-        # A sentence the cleanup started keeps its capital: "send it" for "Please send it".
+        # A sentence the cleanup started keeps its capital: "Please send it", not "please send it".
         if re.search(r"(?:^|[.!?]\s+)$", text[:start]) and text[start : start + 1].isupper():
             rest = re.sub(r"^(\s*)([a-z]+)(?!\w)", lambda m: m[1] + m[2].capitalize(), rest)
         text = text[:start] + rest
@@ -407,8 +410,9 @@ def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen
 def digits(text, names):
     """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
     hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
-    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million|billion|thousand"
-    clock += r"|dollar|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
+    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million|billion|thousand|dollar"
+    # Nor before a plural: "at 3.30 tasks", not "this", "unless", "works".
+    clock += rf"|(?!(?:{'|'.join(VERBS)})\b)\w{{3,}}[^\Ws']s\b))"
     span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
     at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
     pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
@@ -473,6 +477,7 @@ def digits(text, names):
         if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
             return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
         listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
+        listed = listed or re.match(r"(?i),[^?!]*?[,.] two\b", after)  # "One, fix it. Two, ..."
         if words == ["one"] and (previous in DETERMINERS or not listed):
             return group  # "one of them", "no one"
         if previous == "the" and re.match(r"(?i) of (?:us|you|them)\b", after):
@@ -498,7 +503,7 @@ class Engine:
         self.config, self.heard = config, None
         self.speech = SPEECH[config["speech"]["backend"]](config["speech"])
         cleanup = config["cleanup"]
-        self.cleaner = CLEANERS[cleanup["backend"]](cleanup) if cleanup else None
+        self.cleaner = CLEANERS[cleanup["backend"]](cleanup) if cleanup is not False else None
         apps = (config.get("apps") or {}).values()
         styles = [app.get("style") for app in apps]
         if self.cleaner and self.cleaner.adapter and (config.get("style") or any(styles)):
@@ -579,8 +584,8 @@ class Engine:
         raw = self.spell(heard, request)
         # A stall hides the last word ("and, uh.").
         said = strip_stalls(raw)
-        # Stalls alone, or no letters or digits in any script: the cleaner would invent text.
-        if not re.search(r"[^\W_]", said):
+        # No words, in any script, but stalls ("Ah, um.", "Hum?"): the cleaner would invent text.
+        if not tokens(said):
             return ""
         if not self.cleaner:  # spelled again: a stall's removal may add a capital ("Yabai")
             return digits(ending(said, self.spell(said, request)), names)
@@ -601,19 +606,20 @@ class Engine:
         if not out.isprintable():  # a line break or control: a reformat ("- Eggs\n- Milk")
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
             out = raw
+        # No words ("", "Hmm."): nothing was said if every word heard is one it may leave out.
+        if not tokens(out):
+            if restore(raw, out) != out:
+                raise Rejected("the cleanup returned no words, so nothing was typed")
+            return ""
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
-        text = self.spell(strip_stalls(out), request)
-        if not text:
-            raise Rejected("the cleanup returned nothing, so nothing was typed")
-        text = ending(said, ensure_question(said, text))
+        text = ending(said, ensure_question(said, self.spell(strip_stalls(out), request)))
         # What the cleanup changed beyond its rules is typed as said.
         restored = restore(raw, text)
         if restored is None or restore(raw, restored) != restored:
             raise Rejected("the cleanup rewrote what was said, so nothing was typed")
         if restored != text:
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
-        typed = digits(ending(said, restored), names)
-        return typed if re.search(r"[^\W_]", typed) else ""  # a filler alone: "Like." -> "."
+        return digits(ending(said, restored), names)
 
 
 def main():
