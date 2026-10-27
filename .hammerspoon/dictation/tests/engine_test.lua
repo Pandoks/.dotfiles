@@ -1,7 +1,7 @@
 local root, frameworks = assert(arg[1], "pass the dictation directory"), arg[2]
 local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
 local passed, alerts, output, exit, printed, inputs, dead = 0, {}, nil, nil, {}, {}, false
-local terminated
+local terminated, reason
 
 local function test(name, callback)
   local ok, failure = pcall(callback)
@@ -42,6 +42,9 @@ local environment = setmetatable({
           end,
           terminate = function()
             terminated = true
+          end,
+          terminationReason = function()
+            return reason
           end,
         }
       end,
@@ -162,10 +165,11 @@ test("a backend that fails, dies, or says something unknown fails once and says 
     { '{"event":"ready"}\nTraceback\n', "Traceback" },
     { '{"event":"ready"}\n{"event":"x"}\n', '"x"' },
     { '{"event":"ready"}\n', "KeyError", 1 },
+    { '{"event":"ready"}\n', "killed by signal 9", 9, true }, -- SIGKILL, as jetsam sends
   }) do
-    local said, why, code = table.unpack(case)
+    local said, why, code, killed = table.unpack(case)
     local failures = {}
-    terminated = nil
+    terminated, reason = nil, killed and "interrupt" or "exit"
     local backend = assert(engine.new({}, {
       onFinal = function() end,
       onError = function(message, id)

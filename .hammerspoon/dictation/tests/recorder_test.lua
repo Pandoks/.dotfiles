@@ -49,9 +49,6 @@ local hs = {
       function task.isRunning()
         return slept < task.running
       end
-      function task.terminate()
-        os.execute("kill -TERM " .. task:pid())
-      end
       return task
     end,
   },
@@ -98,7 +95,7 @@ end)
 
 test("a steady quiet room leaves the bars flat", function()
   local recording = assert(recorder.start(8, error))
-  receive(pcm(0.002, 1024))
+  receive(pcm(0.01, 1024))
   for _, band in ipairs(assert(recorder.analyze(recording), "no bands")) do
     assert(band == 0, band)
   end
@@ -117,24 +114,31 @@ test("every window since the last frame, and audio unread at exit, counts", func
   assert(peak == 1 and duration == 20096 / 16000, ("%s %s"):format(peak, duration))
 end)
 
-test("cleanup kills ffmpeg, deletes its recording, and cancels a stop still waiting", function()
-  local recording, sent = assert(recorder.start(8, error)), false
-  -- ffmpeg whose input stopped delivering: it ignores SIGINT and SIGTERM.
-  local deaf = assert(io.popen("trap '' INT TERM; sleep 5 & echo $!; wait $! 2>/dev/null; echo $?"))
-  local pid = deaf:read("l")
-  function task.pid()
-    return pid
+test("cleanup kills ffmpeg, cancels a waiting stop, and deletes the wav unless kept", function()
+  for _, kept in ipairs({ false, true }) do
+    local recording, sent = assert(recorder.start(8, error)), false
+    -- ffmpeg whose input stopped delivering: it ignores SIGINT and SIGTERM.
+    local deaf =
+      assert(io.popen("trap '' INT TERM; sleep 5 & echo $!; wait $! 2>/dev/null; echo $?"))
+    local pid = deaf:read("l")
+    function task.pid()
+      return pid
+    end
+    task.running = math.huge
+    local function left()
+      local file = io.open(recording.wav)
+      return file ~= nil and file:close()
+    end
+    assert(io.open(recording.wav, "w")):close()
+    recorder.stop(recording, function()
+      sent = true
+    end)
+    recorder.cleanup(recording, kept)
+    assert(left() == kept, "the wav") -- a reload skips the exit callback
+    task.exit(9, "", "")
+    assert(left() == kept and not sent, "the cancelled take was sent, or the kept wav deleted")
+    assert(deaf:read("l") == "137" and deaf:close(), "ffmpeg left recording") -- 128 + SIGKILL
   end
-  task.running = math.huge
-  assert(io.open(recording.wav, "w")):close()
-  recorder.stop(recording, function()
-    sent = true
-  end)
-  recorder.cleanup(recording)
-  assert(not io.open(recording.wav), "the recording is left") -- a reload skips the exit callback
-  task.exit(255, "", "")
-  assert(not sent, "the cancelled take was sent")
-  assert(deaf:read("l") == "137" and deaf:close(), "ffmpeg left recording") -- 128 + SIGKILL
 end)
 
 test("finalize waits for ffmpeg to finish the wav, signalling it once, for up to 2 s", function()

@@ -54,7 +54,7 @@ end
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
-local overlay, recording, animation
+local overlay, recording, animation, deadline
 -- The request whose text gets typed, and the field focused when its take stopped.
 local inflight, target, targetError
 local wavs = {}
@@ -184,15 +184,14 @@ end
 ---@param text string?
 ---@param saved boolean?
 local function finish(text, saved)
+  local ok, problem = true, nil
   if text and config.insert == "clipboard" then
-    if not hs.pasteboard.setContents(text) then
-      fail("could not write clipboard")
-    end
+    ok, problem = hs.pasteboard.setContents(text), "could not write clipboard"
   elseif text then
-    local ok, problem = pcall(insert, text)
-    if not ok then
-      fail(tostring(problem) .. (saved and " (the text is in history)" or ""))
-    end
+    ok, problem = pcall(insert, text)
+  end
+  if not ok then
+    fail(tostring(problem) .. (saved and " (the text is in history)" or ""))
   end
   if overlay then
     overlay.canvas:delete()
@@ -200,8 +199,12 @@ local function finish(text, saved)
   if animation then
     animation:stop()
   end
+  if deadline then
+    deadline:stop()
+  end
   recorder.cleanup(recording)
-  overlay, recording, animation, inflight, target, targetError = nil, nil, nil, nil, nil, nil
+  overlay, recording, animation, deadline = nil, nil, nil, nil
+  inflight, target, targetError = nil, nil, nil
   state = "idle"
   dictation.cancel:disable()
 end
@@ -215,8 +218,21 @@ local function keep(wav)
   )
 end
 
+-- Kills ffmpeg and keeps its wav, which neither finish() nor ffmpeg's exit then deletes.
+---@param finished boolean
+local function salvage(finished)
+  if not finished then
+    fail("ffmpeg did not finish the recording in 2 s; the kept wav may be cut short")
+  end
+  recorder.cleanup(recording, true)
+  if hs.fs.attributes(recording.wav) then
+    keep(recording.wav)
+  end
+  recording = nil
+end
+
 ---@param id integer
----@param text string? nil when no reply came, "" when nothing was heard
+---@param text string? nil: nothing transcribed, the wav is kept; "": no speech, it is deleted
 ---@return boolean saved
 local function settle(id, text)
   local wav = wavs[id]
@@ -323,6 +339,8 @@ local function toggle()
     local app = hs.application.frontmostApplication()
     local bundle = app and app:bundleID()
     recorder.stop(recording, function(wav, peak, duration)
+      assert(deadline):stop()
+      deadline = nil
       -- Too short is an accidental tap; too quiet is a mic problem worth showing.
       if duration < config.minDuration then
         pcall(
@@ -345,12 +363,16 @@ local function toggle()
       local id, refused = engine:transcribe(wav, bundle)
       if not id then
         fail(tostring(refused))
-        recording = nil -- kept, so not for finish() to delete
-        keep(wav)
+        salvage(true)
         return finish()
       end
       wavs[id], inflight, recording = wav, id, nil
       pill.thinking = true
+    end)
+    -- A stalled input (an unplugged mic) makes ffmpeg ignore SIGINT: it never exits.
+    deadline = hs.timer.doAfter(2, function()
+      salvage(false)
+      finish()
     end)
     -- After SIGINT, so a slow app cannot extend the take.
     target, targetError = focused()
@@ -374,12 +396,7 @@ hs.shutdownCallback = function()
   end
   -- A take still recording is kept once ffmpeg has finished it: nothing will transcribe it.
   if recording then
-    if not recorder.finalize(recording) then
-      fail("ffmpeg did not finish the recording in 2 s; the kept wav may be cut short")
-    end
-    if hs.fs.attributes(recording.wav) then
-      keep(recording.wav)
-    end
+    salvage(recorder.finalize(recording))
   end
   engine:stop()
   -- No transcript will come back for these.

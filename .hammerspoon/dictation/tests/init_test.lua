@@ -33,7 +33,7 @@ local config = load("defaults", {})
 local mine = load("config", {})
 mine.words = { "Slack", Raycast = { "ray cast" } }
 mine.apps = { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } } }
-mine.cleanup = false
+mine.cleanup, mine.speech = false, { model = "mine" }
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
 local hs = {
   fs = fs,
@@ -74,8 +74,14 @@ local hs = {
       })
     end,
     doAfter = function(_, callback)
-      timers[#timers + 1] = callback
-      return stub({ fire = callback })
+      local index = #timers + 1
+      timers[index] = callback
+      return stub({
+        fire = callback,
+        stop = function()
+          timers[index] = function() end -- a stopped timer never fires
+        end,
+      })
     end,
   },
   audiodevice = {
@@ -175,12 +181,15 @@ local modules = {
         if capture.done then
           capture.done(capture.wav, 0.5, 1)
         end
+        capture.done = nil -- ffmpeg exits once
       end
     end,
-    cleanup = function(capture)
+    cleanup = function(capture, kept)
       if capture then
-        capture.done = nil
-        os.remove(capture.wav)
+        capture.done, capture.ended = nil, true
+        if not kept then
+          os.remove(capture.wav)
+        end
       end
     end,
     finalize = function(capture)
@@ -278,7 +287,7 @@ test("a field that takes the write gets the text spaced, saved, its recording de
   handlers.onFinal({ id = dictate(element), text = "there." })
   assert(sent.app == "com.apple.Notes", tostring(sent.app))
   assert(element.value == "Hello there." and #strokes == 0 and #alerts == 0, element.value)
-  assert(saved("there.") and not saved("there"), "not the text saved")
+  assert(saved("there."), "not the text saved")
   assert(not fs.attributes(sent.wav) and wavs() == 0, "the recording is left")
   assert(not shown and not frame and not armed, "the pill, its frames, or Escape outlived the take")
 end)
@@ -377,7 +386,7 @@ test("with nothing to type, what was heard is saved in place of the recording", 
   assert(wavs() == 0, "a recording kept")
 end)
 
-test("a take with no transcript keeps its recording in history", function()
+test("a take whose transcript isn't saved keeps its recording in history", function()
   for _, case in ipairs({
     {
       "an error reply",
@@ -431,10 +440,29 @@ test("a take recording when the backend dies goes on, and is kept", function()
   assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
 end)
 
+test("a stop ffmpeg doesn't finish in 2 s (a stalled mic) keeps the take and says so", function()
+  local count = wavs()
+  local id = dictate(field("Hi"))
+  timers[#timers]() -- ffmpeg exited in time: its deadline is stopped
+  handlers.onFinal({ id = id, text = "in time" })
+  toggle()
+  toggle()
+  escape()
+  timers[#timers]() -- cancelled: its deadline is stopped
+  focus, alerts = field("Hi"), {}
+  toggle()
+  toggle()
+  timers[#timers]()
+  assert(tostring(alerts[1]):find("did not finish the recording", 1, true), tostring(alerts[1]))
+  assert(take.ended, "ffmpeg left running")
+  assert(wavs() == count + 1 and not fs.attributes(recorded), "not kept")
+  assert(not shown and not armed, "the take did not end")
+end)
+
 test("config.lua's settings replace the defaults, its words sent as one map", function()
   local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
   local decoded = json.decode(assert(json.encode(settings)))
-  assert(decoded.speech.model and decoded.cleanup == false, "a setting merged, not replaced")
+  assert(decoded.speech.revision == nil and decoded.cleanup == false, "a setting merged")
   assert(next(decoded.words.Slack) == nil, json.encode(decoded.words))
   assert(decoded.words.Raycast[1] == "ray cast", json.encode(decoded.words))
   local words = decoded.apps["com.x"].words
@@ -454,12 +482,12 @@ test("a take too short or too quiet is never sent, and is deleted", function()
   end
 end)
 
-test("a take of only stalls deletes its recording and saves nothing", function()
+test("an empty transcript says no speech, deletes its recording, and saves nothing", function()
   local count = wavs()
   handlers.onFinal({ id = dictate(field("Hi")), text = "" })
   assert(alerts[1] == "Dictation: no speech recognized", tostring(alerts[1]))
   assert(wavs() == count and not fs.attributes(recorded), "kept the recording")
-  assert(not saved("Um.") and not saved(""), "saved a transcript")
+  assert(not saved(""), "saved a transcript")
 end)
 
 test("a log line raising as Escape is bound or unbound leaves no take half done", function()
@@ -476,13 +504,21 @@ test("a log line raising as Escape is bound or unbound leaves no take half done"
   assert(element.value == "Hi one two", element.value)
 end)
 
-test("clipboard mode copies the text and inserts nothing", function()
-  local element = field("Hi")
+test("clipboard mode copies the text, inserts nothing, and says if the copy fails", function()
+  local element, set = field("Hi"), hs.pasteboard.setContents
   config.insert = "clipboard"
   handlers.onFinal({ id = dictate(element), text = "copied" })
-  config.insert = "direct"
   assert(not element.written and #strokes == 0, "inserted")
   assert(clipboard["public.utf8-plain-text"] == "copied", clipboard["public.utf8-plain-text"])
+  hs.pasteboard.setContents = function()
+    return false
+  end
+  handlers.onFinal({ id = dictate(element), text = "lost" })
+  config.insert, hs.pasteboard.setContents = "direct", set
+  assert(
+    alerts[1] == "Dictation: could not write clipboard (the text is in history)",
+    tostring(alerts[1])
+  )
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
@@ -632,6 +668,16 @@ test("a hotkey key hs.hotkey doesn't know stops the backend and says why", funct
   assert(stopped and tostring(alerts[1]):find("Invalid key: bogus", 1, true), tostring(alerts[1]))
 end)
 
+test("a reload that can't move a take into history leaves it where the alert says", function()
+  alerts, focus = {}, field("Hi")
+  toggle()
+  os.execute("chmod 500 " .. directory)
+  hs.shutdownCallback()
+  os.execute("chmod 700 " .. directory)
+  assert(tostring(alerts[1]):find("could not keep " .. recorded, 1, true), tostring(alerts[1]))
+  assert(fs.attributes(recorded), "the recording was deleted")
+end)
+
 -- Last: it tears everything down.
 test("shutdown puts the clipboard back and keeps every take, even if a log line raises", function()
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "x" })
@@ -640,7 +686,7 @@ test("shutdown puts the clipboard back and keeps every take, even if a log line 
   escape() -- still transcribing, no longer waited on
   toggle()
   local recording = take
-  recording.stuck, alerts = true, {}
+  recording.stuck, alerts, chained = true, {}, false
   dead = true -- unbinding Escape raises: every take is kept first
   pcall(hs.shutdownCallback)
   dead = false

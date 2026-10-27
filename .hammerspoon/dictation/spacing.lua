@@ -23,15 +23,6 @@ local marks = {
   { 0xFF3B, 0xFF40 },
   { 0xFF5B, 0xFF65 },
 }
-local function within(char, blocks)
-  local code = char ~= "" and utf8.codepoint(char) or 0
-  for _, block in ipairs(blocks) do
-    if code >= block[1] and code <= block[2] then
-      return true
-    end
-  end
-  return false
-end
 
 local function starts(char)
   return char == "" or char:match("^%s$") or openers[char]
@@ -39,7 +30,16 @@ end
 
 -- A letter or digit in any script: "é", "日".
 local function wordy(char)
-  return char:match("^%w$") ~= nil or (#char > 1 and not within(char, marks))
+  if #char < 2 then
+    return char:match("^%w$") ~= nil
+  end
+  local code = utf8.codepoint(char)
+  for _, block in ipairs(marks) do
+    if code >= block[1] and code <= block[2] then
+      return false
+    end
+  end
+  return true
 end
 
 -- The text spaced against its neighbors in `value` around `range` (a selection or the cursor).

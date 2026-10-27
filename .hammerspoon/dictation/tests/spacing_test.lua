@@ -45,7 +45,7 @@ for _, case in ipairs({
   { "", "", "日本", "hello", "hello " },
   { "", "", "—then", "hello", "hello" }, -- a dash is a mark, not a word
   { "", "", "？", "hello", "hello" },
-  { "你好", "", "", "hello", " hello" },
+  { "“Hi” ", "", "", "there", "there" },
   { "", "", "/bin", "usr", "usr" },
   { "foo.", "local", ".bar", "remote", "remote" },
   { "foo.", "", "bar", "remote", "remote" },
