@@ -102,13 +102,16 @@ def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen
     return [total + part for total, part, *_ in out]
 
 
-def write_numbers(text, names):
+def digits(text, names):
     """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
     hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
-    at = rf"(?i)\b(at|until|till) {hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million"
-    at += r"|billion|thousand|dollars?|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
+    clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:percent|million|billion|thousand"
+    clock += r"|dollars?|\w+s\b))"  # not "at 3.30 percent", "at 3.30 tasks"
+    span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
+    at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
     pm = r"(?=(?: ?(?:-|to|and) ?(?:1[0-2]|[1-9])[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
-    text = re.sub(rf"(?i)\b{hour}\.([0-5]\d){pm}", r"\1:\2", re.sub(at, r"\1 \2:\3", text))
+    text = re.sub(at, r"\1 \2:\3", re.sub(span, r"\1 \2:\3", text))
+    text = re.sub(rf"(?i)\b{hour}\.([0-5]\d){pm}", r"\1:\2", text)
     named = (rf"(?<!\w){re.escape(name)}(?!\w)" for name in names)
     kept = [found.span() for name in named for found in re.finditer(name, text, re.IGNORECASE)]
 
@@ -133,7 +136,7 @@ def write_numbers(text, names):
             if words[-1] == "second" and previous in ("a", "an"):
                 return group  # "a thirty-second timeout"
             number, *rest = chunks(words[:-1] + [ORDINAL[words[-1]]])
-            if len(words) == 1 or rest or words[0] == "one" and words[-1][:-2] in SCALES:
+            if rest or words[0] == "one" and words[-1][:-2] in SCALES:
                 return group  # "third", "one hundredth"
             teen = number % 100 in (11, 12, 13)  # "11th", not "11st"
             suffix = {1: "st", 2: "nd", 3: "rd"}.get(0 if teen else number % 10, "th")
@@ -145,8 +148,8 @@ def write_numbers(text, names):
             bad = not all(parts) or {*rest} & {*SCALES} or {*words} - {*VALUE, "point"}
             if bad or len(chunks(parts[0])) > 1 and "oh" not in parts[0]:
                 return group  # "one point two hundred thousand"
-            digits = ".".join("".join(map(str, chunks(p))) for p in parts)
-            return digits + (f" {big}" if big else "")
+            decimal = ".".join("".join(map(str, chunks(p))) for p in parts)
+            return decimal + (f" {big}" if big else "")
         if "oh" in words:  # "four oh four" -> "404", "at eight oh oh" -> "at 8:00"
             tail = "".join(map(str, numbers[1:]))
             clock = timed and number <= 12 and len(tail) == 2  # not "a hundred oh five"
@@ -164,17 +167,18 @@ def write_numbers(text, names):
         # The scale said once for both: "five or six thousand" -> "5,000 or 6,000".
         scale = r"(hundred|thousand)\b(?! (?:thousand|million|billion)\b)"
         shared = re.match(rf"(?i) (?:or|to) ((?:(?:{WORD})[ -])+?){scale}", after)
-        second = shared and [w for w in re.split(r"[ -]+", shared[1].lower()) if w]
+        second = [w for w in re.split(r"[ -]+", shared[1].lower()) if w] if shared else []
         if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
             return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
         listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
         if words == ["one"] and (previous in DETERMINERS or not listed):
             return group  # "one of them", "no one"
         scale = VALUE[words[-1]]
-        if words[-1] in ("million", "billion") and number % scale == 0 and number < 1000 * scale:
+        if words[-1] in ("million", "billion") and number < 1000 * scale:
             return f"{number // scale:,} {words[-1]}"  # "a hundred million" -> "100 million"
         # "in 2000", "class of 2008"; not "2,000 people", "2,050 of them"
         dated = previous in ("in", "since", "until", "during", "by")
+        dated |= previous == "year" and not counted  # "the year 2000", not "last year 2,000 people"
         named = number % 1000 and not counted and not re.match(r"(?i) of\b", after)
         year = 2000 <= number < 2100 and (dated or named)
         return str(number) if year else f"{number:,}"
@@ -197,13 +201,14 @@ def restore(raw, out):
     self-correction, put back as said: "Just fix it." left out comes back. None if a change can't
     be put back cleanly: inside a written word ("1,000" -> "1.00"), or an "oh" comes back twice."""
 
-    # (word, start, end): lowercased, "2" as "two", no plural "s", no stalls ("ER" is a name).
+    # (word, start, end, word with its plural): lowercased, "2" as "two", no plural "s", no stalls
+    # ("ER" is a name).
     def tokens(text):
         found = []
         for token in re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text):
             word = token[0].lower()
             while word.isdecimal() and len(word) > 1 and word[0] == "0":  # "05" is "oh five"
-                found.append(("oh", token.start(), token.end()))
+                found.append(("oh", token.start(), token.end(), "oh"))
                 word = word[1:]
             word = UNITS[int(word)] if word.isdecimal() and int(word) < 13 else word
             # An "oh" between numbers is a zero: "two oh one", not "10, oh my god".
@@ -211,14 +216,14 @@ def restore(raw, out):
             zero = word == "oh" and re.search(rf"(?i){number}[ -]$", text[: token.start()])
             zero = zero and re.match(rf"(?i)[ -]{number}", text[token.end() :])
             if token[0].isupper() or zero or not re.fullmatch(HESITATIONS, word):
-                found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end()))
+                found.append((re.sub(r"(?<=\w{3})s$", "", word), token.start(), token.end(), word))
         return found
 
     # "İ" lowercases to two characters, which would shift every later word's position.
     said, written = raw, out  # as written, to put changes back
     raw, out = (text.replace("’", "'").replace("İ", "I") for text in (raw, out))
     spans, outs = tokens(raw), tokens(out)
-    spoken, typed = [w for w, _, _ in spans], [w for w, _, _ in outs]
+    spoken, typed = [w for w, *_ in spans], [w for w, *_ in outs]
     raw, total = raw.lower(), len(spoken)  # cues and fillers said in any case
 
     def match(k, pattern):  # `pattern` said from spoken word k on
@@ -344,6 +349,9 @@ def restore(raw, out):
     bad, text = unexplained(forward), written
     if not bad or not unexplained(backward):
         return text
+    # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
+    spoken, typed = [s[3] for s in spans], [o[3] for o in outs]
+    forward = difflib.SequenceMatcher(None, spoken, typed, autojunk=False).get_opcodes()
     # Back to front, so the positions before each change hold. A left-out run comes back whole:
     # with the gap said around it if that has a mark ("friendly, I guess? Then"), else before the
     # next word kept ("like " before "something").
@@ -369,13 +377,16 @@ def restore(raw, out):
             elif i1 == i2 and j1:  # added mid-text: out, with the gap said there ("it? Ship")
                 start, end = outs[j1 - 1][2], outs[j2][1]
                 piece = said[spans[i1 - 1][2] : spans[i1][1]]
+            elif i1 and j1:  # with the gap said before it: "is. First we", not "is First we"
+                start = outs[j1 - 1][2]
+                piece = said[spans[i1 - 1][2] : None if last else spans[i2][1]]
         elif not j1:  # left out at the start: through the first word kept, as said
             start, end = 0, outs[0][2] if size else len(text)
             piece = said[: spans[i2][2] if size else len(said)]
         elif j1 == size:  # left out at the end: with what was said after it
             start, end, piece = outs[j1 - 1][2], len(text), said[spans[i1 - 1][2] :]
-        elif re.search(r"[^\w\s]", said[spans[i2 - 1][2] : spans[i2][1]]):
-            start, end = outs[j1 - 1][2], outs[j1][1]  # the gap as said: "here? Can"
+        elif any(re.search(r"[^\w\s]", said[spans[k - 1][2] : spans[k][1]]) for k in (i1, i2)):
+            start, end = outs[j1 - 1][2], outs[j1][1]  # the gaps as said: "here? Can", "me, we"
             piece = said[spans[i1 - 1][2] : spans[i2][1]]
         else:
             start = end = outs[j1][1]
@@ -383,14 +394,17 @@ def restore(raw, out):
         rest = piece + text[end:]
         if i2 < total and re.search(r"[.!?]\s+$", piece) and said[spans[i2][1]].isupper():
             rest = piece + text[end : end + 1].upper() + text[end + 1 :]
+        # The said lowercase where the cleanup started a sentence: "And the", not "And The".
+        elif i2 < total and re.search(r"[.!?]\s+$", text[:end]) and said[spans[i2][1]].islower():
+            rest = piece + text[end : end + 1].lower() + text[end + 1 :]
         # A sentence the cleanup started keeps its capital: "send it" for "Please send it".
         if re.search(r"(?:^|[.!?]\s+)$", text[:start]) and text[start : start + 1].isupper():
             rest = re.sub(r"^(\s*)([a-z]+)(?!\w)", lambda m: m[1] + m[2].capitalize(), rest)
         text = text[:start] + rest
     text = strip_stalls(text)  # the cleanup's text has none: only what was put back
     # Words the alignment skips can't come back twice: "one oh one oh point five".
-    skipped = lambda t: len(re.findall(rf"(?i)\b(?:{HESITATIONS})\b", t))
-    if skipped(text) > max(skipped(said), skipped(written)):
+    stalls = re.compile(rf"(?i)\b(?:{HESITATIONS})\b")
+    if len(stalls.findall(text)) > max(len(stalls.findall(said)), len(stalls.findall(written))):
         return None
     return text if text != written.strip() else None
 
@@ -403,13 +417,13 @@ CONTINUATION |= {"versus", "per"}
 DIRECTED = {"to", "with", "into", "onto", "from", "toward", "towards", "for"}
 
 
-def end_policy(raw, text):
+def ending(raw, text):
     """No end mark on a dictation that stops mid-thought ("I want to go to the")."""
     words = re.sub(r"[.!?,;:…—–\"”’')\]]+$", "", raw.strip()).split()
     if not words or re.search(r"[?!]\W*$", raw):
         return text  # "What if?" and "Oh my!" are complete
     last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
-    if last in DIRECTED and previous:
+    if last in DIRECTED:
         if previous not in ("it", "this", "that", "them", "these", "those"):
             return text
     elif last not in CONTINUATION or (previous and words[-1].isupper()):
@@ -433,7 +447,11 @@ def end_policy(raw, text):
 
 def ensure_question(raw, text):
     """The speech model's closing '?' survives the cleanup's end mark, unless it moved."""
-    if not re.search(r"\?[!?]*[\"”’')\]]*$", raw.strip()) or "?" in text:
+    asks = r"\?[!?]*[\"”’')\]]*$"
+    if not re.search(asks, raw.strip()) or re.search(asks, text.strip()):
+        return text
+    # Moved: "Is it done, I wonder?" -> "Is it done? I wonder."
+    if text.count("?") >= raw.count("?"):
         return text
     # Not when the question was left out: "Sounds good, yeah?" -> "Sounds good."
     asked = {fold(w) for w in re.split(r"[.!,;:]\s+", raw.strip())[-1].split()}
@@ -471,12 +489,11 @@ class Engine:
         self.config, self.heard = config, None
         self.speech = SPEECH[config["speech"]["backend"]](config["speech"])
         cleanup = config["cleanup"]
-        backend = cleanup.get("backend", "mlx-lm")
-        self.cleaner = CLEANERS[backend](cleanup) if cleanup["enabled"] else None
-        styles = [app.get("style") for app in (config.get("apps") or {}).values()]
+        self.cleaner = CLEANERS[cleanup["backend"]](cleanup) if cleanup["enabled"] else None
+        apps = (config.get("apps") or {}).values()
+        styles = [app.get("style") for app in apps]
         if self.cleaner and self.cleaner.adapter and (config.get("style") or any(styles)):
             raise ValueError("style needs cleanup.adapter = nil: the adapter has its own prompt")
-        apps = (config.get("apps") or {}).values()
         lists = [config.get("words"), *(app.get("words") for app in apps)]
         for word, heard in [item for words in lists if words for item in words.items()]:
             if not all(form.strip() for form in [word, *heard]):
@@ -498,9 +515,6 @@ class Engine:
         for word, heard in (self.app(request).get("words") or {}).items():
             words[word] = [*words.get(word, []), *heard]
         return {word: words[word] for word in sorted(words, key=str.lower)}
-
-    def glossary(self, request):
-        return list(self.spellings(request))
 
     def spell(self, text, request):
         """Mishearings in any case ("ghost tea") and 4+ letter near-misses ("yabay" -> "yabai")."""
@@ -538,7 +552,7 @@ class Engine:
 
         The boost pushes a word toward a vocabulary word letter by letter and can stop partway:
         "the older" -> "the old hammers" (Hammerspoon), "the mist" -> "the mis" (mise)."""
-        names = {w.lower() for w in self.glossary(request) if letters(w) == w.lower()}
+        names = {w.lower() for w in self.spellings(request) if letters(w) == w.lower()}
         plain, boosted = (self.spell(text, request).split() for text in (plain, boosted))
         a, b = ([letters(w) for w in words] for words in (plain, boosted))
         out = []
@@ -548,7 +562,7 @@ class Engine:
         return " ".join(out)
 
     def process(self, wav, request):
-        names = self.glossary(request)
+        names = list(self.spellings(request))
         heard = self.speech.transcribe(wav, names)
         if self.speech.boost and names:  # decoded again unboosted: see merge
             heard = self.merge(self.speech.transcribe(wav, []), heard, request)
@@ -557,8 +571,10 @@ class Engine:
             return ""
         self.heard = heard  # what was said, kept if a later step fails or types nothing
         raw = self.spell(heard, request)
-        if not self.cleaner:
-            return write_numbers(raw, names)
+        # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
+        said = strip_stalls(raw)
+        if not self.cleaner:  # spelled again: a stall's removal may add a capital ("Yabai")
+            return digits(ending(said, self.spell(said, request)), names)
         if self.cleaner.prompt:
             messages = [{"role": "user", "content": f"{self.cleaner.prompt}\n\n{raw}"}]
         else:
@@ -572,20 +588,21 @@ class Engine:
                 {"role": "system", "content": "\n".join(filter(None, system))},
                 {"role": "user", "content": FRAME.format(raw)},
             ]
+        out = self.cleaner.complete(messages, raw)
+        if "\n" in out:  # a reformat that can't be put back word by word: "- Eggs\n- Milk"
+            out = raw
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
-        text = self.spell(strip_stalls(self.cleaner.complete(messages, raw)), request)
+        text = self.spell(strip_stalls(out), request)
         if not text:
-            return ""
-        # A stall hides the last word ("and, uh.") and the question opener ("Um, can you").
-        said = strip_stalls(raw)
-        text = end_policy(said, ensure_question(said, text))
+            raise Rewritten("the cleanup returned nothing, so nothing was typed")
+        text = ending(said, ensure_question(said, text))
         # What the cleanup changed beyond its rules is typed as said.
         restored = restore(raw, text)
         if restored is None or restore(raw, restored) != restored:
             raise Rewritten("the cleanup rewrote what was said, so nothing was typed")
         if restored != text:
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
-        return write_numbers(end_policy(said, restored), names)
+        return digits(ending(said, restored), names)
 
 
 def main():
