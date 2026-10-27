@@ -252,7 +252,8 @@ check(
         ("The train at 7.15 leaves from platform 2.", "The train at 7:15 leaves from platform 2."),
         ("Cut it at 2.45 meters or at 2.45 inches.", "Cut it at 2.45 meters or at 2.45 inches."),
         ("Play the video at 1.30 times speed.", "Play the video at 1.30 times speed."),
-        ("The battery sits at 3.45 volts.", "The battery sits at 3.45 volts."),
+        ("The latency is at 1.45 milliseconds.", "The latency is at 1.45 milliseconds."),
+        ("It's sitting at 2.45 GB.", "It's sitting at 2.45 GB."),
         ("The market closed at one point fifteen.", "The market closed at 1.15."),
         ("We raised at two point fifteen million dollars.", "We raised at 2.15 million dollars."),
         ("We raised at 2.15 million dollars.", "We raised at 2.15 million dollars."),
@@ -318,16 +319,20 @@ check(
             "2 things. 1, the pill is too big and 2, it's too bright.",
         ),
         (
-            "I tried the blue one, it's fine. One, it's fast. Two, it's cheap.",
-            "I tried the blue one, it's fine. 1, it's fast. 2, it's cheap.",
+            "I tried one, it's fine. One, it's fast. Two, it's cheap.",
+            "I tried one, it's fine. 1, it's fast. 2, it's cheap.",
         ),
         (
             "I'd pick the blue one, honestly. Two of the others are broken.",
             "I'd pick the blue one, honestly. 2 of the others are broken.",
         ),
         (
-            "One, the old one is too slow. And two, it crashes.",
-            "1, the old one is too slow. And 2, it crashes.",
+            "One, it's 2.5 times slower. And two, it crashes.",
+            "1, it's 2.5 times slower. And 2, it crashes.",
+        ),
+        (
+            "Two problems. One, the new one, it leaks memory, and two, it's slow.",
+            "2 problems. 1, the new one, it leaks memory, and 2, it's slow.",
         ),
         (
             "One, why is it slow? Two, why does it crash?",
@@ -386,7 +391,8 @@ check(
         (("Um, yabai crashed again.", None), "yabai crashed again."),
         (("Erm, I think, hmm, we should, ahm, go.", None), "I think we should go."),
         (("MMM, that sounds good.", None), "That sounds good."),
-        (("Hum, let me think.", None), "Let me think."),
+        (("Hum, hum, hum. Let me check the logs.", None), "Let me check the logs."),
+        (("Okay.\nUm, next paragraph.", None), "Okay. Next paragraph."),
         (("Mm, I'm not sure.", None), "I'm not sure."),
     ],
     lambda pair: dictate(*pair, numbers=True),
@@ -418,11 +424,9 @@ check(
         ("I got an A a week ago.", "I got an A a week ago."),
         ("Can you look at the... The overlay code?", "Can you look at the overlay code?"),
         ("Okay. Um?", "Okay."),
+        ("It works. Um; okay.", "It works. Okay."),
         ("I think, um .", "I think."),
         ("git add .", "git add ."),
-        ("Line one.\n\nUh, line two.", "Line one.\n\nLine two."),
-        ("Hi Anna,\n\nUm, I wanted to check in.", "Hi Anna,\n\nI wanted to check in."),
-        ("Okay. Um\n\nNext paragraph.", "Okay.\n\nNext paragraph."),
         # Opening a quote or bracket too; a closing '"' does not open one.
         ('She said, "Um, I\'m not sure."', 'She said, "I\'m not sure."'),
         ("She said, “uh, maybe.”", "She said, “maybe.”"),
@@ -445,6 +449,7 @@ check(
         ("Hold on.", "Hold on."),
         ("See you in May.", "See you in May."),
         ("I'd love to.", "I'd love to."),
+        ("That's what I use it for.", "That's what I use it for."),
         ("Let's go with option A.", "Let's go with option A."),
         ("Take him to the OR.", "Take him to the OR."),
         ("Oh my!", "Oh my!"),
@@ -457,8 +462,11 @@ check(
     "end punctuation overrides the cleanup",
     [
         (("I want to go to the", "I want to go to the."), "I want to go to the"),
-        (("Send it to", "Send it to."), "Send it to"),
-        (("That's what I use it for.", None), "That's what I use it for."),
+        (("Which one? Send it to", "Which one? Send it to."), "Which one? Send it to"),
+        (
+            ("Check what broke and send it to", "Check what broke and send it to."),
+            "Check what broke and send it to",
+        ),
         (
             ("Let me know what you come up with", "Let me know what you come up with."),
             "Let me know what you come up with.",
@@ -573,8 +581,15 @@ check(
                 "Couldn't we do Tuesday after lunch?",
             ),
             ("Fine by me yeah.", "Fine by me."),
-            ("Like you're being very vague.", "You're being very vague."),
-            ("Can you make one? Like I forgot its name.", "Can you make one? I forgot its name."),
+            (
+                "Like you're being very vague, be more specific.",
+                "You're being very vague, be more specific.",
+            ),
+            (
+                "Can you make one? Like I forgot what it is called, but it has bars.",
+                "Can you make one? I forgot what it is called, but it has bars.",
+            ),
+            ("Like, what are we even doing here?", "What are we even doing here?"),
             ("It's like so slow.", "It's so slow."),
             ("I'm um like so tired.", "I'm so tired."),
             ("That's the one that you know, I told you about.", "That's the one I told you about."),
@@ -607,6 +622,8 @@ check(
             ("It's like a car.", "It's a car."),
             ("So, like I said, the deploy failed again.", "So I said, the deploy failed again."),
             ("And I'm like why is it even broken?", "And I'm why is it even broken?"),
+            ("I'm like, why is it broken?", "I'm why is it broken?"),
+            ("Like we agreed, the release is on Friday.", "We agreed, the release is on Friday."),
             ("Delete all files except logs.", "Delete all files."),
             ("Include the tests.", "Exclude the tests."),
             ("I can, I can't come tonight.", "I can come tonight."),
@@ -761,13 +778,12 @@ check(
     lambda pair: dictate(*pair),
 )
 check(
-    "any script's words count as speech; stalls alone are none, and a cleanup with no words types"
-    " nothing if it left out only stalls and fillers, else is rejected",
+    "any script's words count as speech, and a cleanup with no words types nothing if it left out"
+    " only stalls and fillers, else is rejected",
     [
         (("Привет, как дела?", None), "Привет, как дела?"),
         (("你好，今天天气很好。", None), "你好，今天天气很好。"),
         (("42", None), "42"),
-        (("Hum?", None), ""),
         (("Like.", "."), ""),
         (("Like", ""), ""),
         (("Hmm, you know.", "Hmm."), ""),
@@ -786,20 +802,6 @@ except server.Rejected as error:
     assert "no words" in str(error) and engine.heard == "Mmm wha blah", engine.heard
 print("PASS an empty cleanup is reported, not typed, and keeps what was heard")
 
-chatty = """
-class Chatty:
-    def __init__(self, config):
-        print("[WARNING] Generating with a model that requires 9000 MB")
-        self.heard = None
-    def load(self):
-        print("loading...")
-    def process(self, wav, request):
-        import os
-        print("[WARNING] again")
-        os.write(1, b"native chatter\\n")  # as native code would, past sys.stdout
-        return "ok"
-server.Engine = Chatty
-"""
 events, stderr = serve("", [], config='{"speech": {"backend": "nope"}}')
 assert [e["event"] for e in events] == ["error"] and "id" not in events[0], events
 assert "nope" in events[0]["msg"] and "Traceback" in stderr, (events, stderr)
@@ -819,6 +821,20 @@ events, stderr = serve(failing, [], config=config)
 assert [e["event"] for e in events] == ["error"] and "no weights" in events[0]["msg"], events
 print("PASS a failed load reports an error and never ready")
 # Hammerspoon never closes stdin: replies, and what libraries print, must arrive while it is open.
+chatty = """
+class Chatty:
+    def __init__(self, config):
+        print("[WARNING] Generating with a model that requires 9000 MB")
+        self.heard = None
+    def load(self):
+        print("loading...")
+    def process(self, wav, request):
+        import os
+        print("[WARNING] again")
+        os.write(1, b"native chatter\\n")  # as native code would, past sys.stdout
+        return "ok"
+server.Engine = Chatty
+"""
 live = subprocess.Popen(
     [sys.executable, "-c", f"import sys, server\n{chatty}\nsys.argv[1:] = ['{{}}']\nserver.main()"],
     stdin=subprocess.PIPE,
@@ -841,7 +857,7 @@ finally:
     deadline.cancel()
     live.kill()
     live.wait()
-assert live.stderr and "native chatter" in live.stderr.read(), "native output was lost"
+assert "native chatter" in live.stderr.read(), "native output was lost"
 print("PASS replies and prints arrive while stdin is still open, native output on stderr")
 takes = """
 from types import SimpleNamespace

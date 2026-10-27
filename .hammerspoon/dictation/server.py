@@ -59,38 +59,38 @@ def fold(word):  # "José" -> "jose"
 
 # A stall alone, not in a path, address, or word: "~/um", "hm.com", "uh-huh", "uh huh".
 LONE = r"(?<![\w./~@'-])(?:{})(?![\w/@-]|\.\w| [Hh]uh\b)"
-# Stalls removed mechanically (the model is inconsistent); "ER" stays, Parakeet's "MM", "Mm",
-# "Hum," don't.
+# Stalls removed mechanically (the model is inconsistent); "ER" stays, "MM", "Mm", "Hum," don't.
 STALL = LONE.format(r"[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+|M[Mm]+|Hum(?=[,.?!])")
-# Sentence starts: text, line, end mark, opening quote or bracket ('"' only after a space).
-START = r"(?<![^.!?\n])|(?<=[.!?]['\"”’)\]])|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
+CLOSE = r"[\"”’')\]]"  # a closing quote or bracket
+# Sentence starts: text, end mark, opening quote or bracket ('"' only after a space).
+START = rf"(?<![^.!?])|(?<=[.!?]{CLOSE})|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
 # A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
-LEAD_STALL_RE = re.compile(rf"(?:{START})([^\S\n]*)((?:{STALL}(?:,|[.…?!]+)?[^\S\n]*)+)(\w*)")
+LEAD_STALL_RE = re.compile(rf"(?:{START})(\s*)({STALL}(?:[,;:]|[.…?!]+)?\s*)(\w*)")
 # Elsewhere with its commas and the gap before a lone mark: "I think, uh ." -> "I think."
-STALL_RE = re.compile(rf",?[^\S\n]*{STALL},?(?:[^\S\n]+(?=[.!?,;:](?:\s|$)))?")
+STALL_RE = re.compile(rf",?\s*{STALL},?(?:\s+(?=[.!?,;:](?:\s|$)))?")
 
 
 def strip_stalls(text):
-    # Only an all-lowercase next word takes the stall's capital ("iPhone" stays); twice, as that
-    # word may be a hum: "Hum, hum."
-    for _ in range(2):
+    # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
+    out = None
+    while out != text:  # until none leads, as that word may be a hum: "Hum, hum, hum."
+        out = text
         text = LEAD_STALL_RE.sub(
             lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
             text,
         )
-    out = re.sub(r"[^\S\n]{2,}", " ", STALL_RE.sub("", text))  # blank lines stay
+    out = re.sub(r"\s{2,}", " ", STALL_RE.sub("", text))
     # A stutter, often across a pause ("the, um, the", "the... The"); "an A a day" stays.
     pause = r"(?:\.\.\.|…)?"
     out = re.sub(
         rf"(?<=\b[Tt]he){pause} [Tt]he\b|(?<=\b[Aa]n){pause} [Aa]n\b|(?<=\ba){pause} a\b", "", out
     )
-    out = re.sub(r"[^\S\n]+\n", "\n", out).strip()
-    return re.sub(r"^[,;:](?:\s+|$)", "", out)
+    return out.strip()
 
 
 def ensure_question(raw, text):
     """The speech model's closing '?' survives the cleanup's end mark, unless it moved."""
-    asks = r"\?[!?]*[\"”’')\]]*$"
+    asks = rf"\?[!?]*{CLOSE}*$"
     if not re.search(asks, raw.strip()) or re.search(asks, text.strip()):
         return text
     # Moved: "Is it done, I wonder?" -> "Is it done? I wonder."
@@ -100,7 +100,7 @@ def ensure_question(raw, text):
     asked = {fold(w) for w in re.split(r"[.!,;:]\s+", raw.strip())[-1].split()}
     if not asked & {fold(w) for w in re.split(r"[.!?]\s+", text.strip())[-1].split()}:
         return text
-    return re.sub(r"[.!,;:]*(?=[\"”’')\]]*$)", "?", text.rstrip(), count=1)
+    return re.sub(rf"[.!,;:]*(?={CLOSE}*$)", "?", text.rstrip(), count=1)
 
 
 HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+m*|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, ahm, oh
@@ -112,9 +112,10 @@ TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("F
 # Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
 LEADS = {"is", "was", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're", "and"}
 LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
-# A "like" that likens, quotes, or means "as" stays: "like a car", "I'm like why", "like I said".
-LIKENS = r"like (?:th(?:at|is)(?: ones?)?(?!\s*\w)|the|an?|why|what|how|who|no|okay|oh"
-LIKENS += r"|\w+ (?:said|told|mentioned|discussed|was saying))"
+# A "like" that likens, quotes, or means "as" stays: "like a car", "I'm like, why", "like I said".
+LIKENS = r"like (?:th(?:at|is)(?: ones?)?(?!\s*\w)|the|an?|[\w']+ said)"
+LIKENS += r"|(?:(?<=\w )like,|like) (?:why|what|how|who|no|okay|oh)"  # not "Like, why"
+LIKENS += r"|like (?:i|we|you|he|she|they)(?: \w+){1,4}(?=,)"  # "Like we agreed, …"
 
 # Words no finished sentence ends on; enforced here since the model adds a period anyway.
 CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
@@ -126,17 +127,18 @@ DIRECTED = {"to", "with", "into", "onto", "from", "toward", "towards", "for"}
 
 def ending(raw, text):
     """No end mark on a dictation that stops mid-thought ("I want to go to the")."""
-    words = re.sub(r"[.!?,;:…—–\"”’')\]]+$", "", raw.strip()).split()
+    words = re.sub(rf"(?:[.!?,;:…—–]|{CLOSE})+$", "", raw.strip()).split()
     if not words or re.search(r"[?!]\W*$", raw):
         return text  # "What if?" and "Oh my!" are complete
     last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
     if last in DIRECTED:  # "Send it to", not "That's what I use it for"
-        asked = re.search(r"(?i)\b(?:what|which|who|where)\b", re.split(r"[.!?]\s", raw)[-1])
-        if previous not in ("it", "this", "that", "them", "these", "those") or asked:
+        clause = re.split(r"[.!?]\s|\b(?:and|but|so|then)\b", raw)[-1]  # "… and send it to"
+        stranded = re.search(r"(?i)\b(?:what|which|who|where)\b", clause)
+        if previous not in ("it", "this", "that", "them", "these", "those") or stranded:
             return text
     elif last not in CONTINUATION or (previous and words[-1].isupper()):
         return text  # an all-caps one after others is a name: "plan A", "the OR"
-    unmarked = re.sub(r"\s*[.!?…—]+(?=[\"”’')\]]*$)", "", text.rstrip())
+    unmarked = re.sub(rf"\s*[.!?…—]+(?={CLOSE}*$)", "", text.rstrip())
     # Words the cleanup cut come back ("go to the" -> "go."), after the mark said before them.
     said = [fold(w) for w in words]
     end = fold((unmarked.split() or [""])[-1])
@@ -238,10 +240,10 @@ def restore(raw, out):
             return 0
         rest, said = raw[found.end() :], before(k)
         commas = re.search(r"[,;]$", said) or re.match(r"\s*[,;]", rest)
-        opens = not said and found[0] not in ("like", "you know", "i mean")  # "So I think"
+        opens = not said and found[0] not in ("you know", "i mean")  # "So I think"
         ends = found[0] in TAGS and re.match(r"\s*([.!?]|$)", rest)  # "Fine, yeah."
         last = (re.findall(r"[\w']+", said) or [""])[-1]
-        likes = found[0] == "like" and (last in LEADS or not said)
+        likes = found[0] == "like" and last in LEADS
         return len(found[0].split()) if commas or opens or ends or likes else 0
 
     def dropped(k, end, kept):  # spoken[k:end] is fillers and repeats
@@ -427,9 +429,10 @@ def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen
 def digits(text, names):
     """Spoken numbers as digits: "three things" -> "3 things", "at three thirty" -> "at 3:30"."""
     hour = r"(1[0-2]|[1-9])"  # the speech model's times: "at 3.30" -> "at 3:30", "4.45 pm"
-    # Not before a unit: "at 3.30 percent", "at 2.45 inches", "at 1.30 times", "at 3.45 GHz".
-    measure = "|".join([*MEASURES, *SCALES]) + "|feet|percent|point|degree|time|hour|minute|second"
-    measure += r"|amp|ounce|gallon|yard|ton|\w*(?:meter|gram|liter|byte|watt|volt|hertz|hz)"
+    # Not before a unit: "at 3.30 percent", "at 2.45 inches", "at 1.45 ms", "at 3.45 GHz".
+    measure = "|".join([*MEASURES, *SCALES]) + "|feet|percent|point|degree|time|hour|minute|amp"
+    measure += r"|ounce|gallon|yard|ton|gig|[kmgt]b|ms"
+    measure += r"|\w*(?:second|meter|gram|liter|byte|watt|volt|hertz|hz)"
     clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?(?:{measure})(?:e?s)?\b)"
     span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
     at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
@@ -495,8 +498,10 @@ def digits(text, names):
         if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
             return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
         listed = re.match(rf"(?i),? (?:or |to |and )?(?:\d|(?:{WORD})\b)", after)  # "one or two"
-        # "One, …? Two,": an item is one sentence, so not "the new one, mostly good. One, … Two,"
-        listed = listed or re.match(r"(?i),[^.?!]*?(?:[,.?!] |[,.?!]? and )two,", after)
+        # "One, …? Two,": an item is one sentence ("2.5" ends none); "the new one, …" is no list
+        noun = re.search(rf"\b(?:{'|'.join(DETERMINERS)}) \w+ $", before)
+        item = r"(?i),(?:[^.?!]|\.\w)*?(?:[,.?!] |[,.?!]? and )two,"
+        listed = listed or not noun and re.match(item, after)
         if words == ["one"] and (previous in DETERMINERS or not listed):
             return group  # "one of them", "no one"
         if previous == "the" and re.match(r"(?i) of (?:us|you|them)\b", after):
@@ -598,7 +603,7 @@ class Engine:
 
     def process(self, wav, request):
         names = list(self.spellings(request))
-        heard = self.speech.transcribe(wav, names)
+        heard = " ".join(self.speech.transcribe(wav, names).split())  # one line, as rules assume
         if self.speech.boost and names:  # decoded again unboosted: see merge
             heard = self.merge(self.speech.transcribe(wav, []), heard, request)
         self.heard = heard  # what was said, kept if a later step fails

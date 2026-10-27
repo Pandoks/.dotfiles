@@ -158,7 +158,7 @@ class Whisper(Speech):
 
         prompt = ", ".join(hint) or None
         result = mlx_whisper.transcribe(read(wav), path_or_hf_repo=self.path, initial_prompt=prompt)
-        return result["text"].strip()  # pyright: ignore[reportAttributeAccessIssue]
+        return result["text"]
 
 
 class MlxAudio(Speech):
@@ -168,7 +168,7 @@ class MlxAudio(Speech):
         self.model = load_model(self.repo, revision=self.revision)
 
     def transcribe(self, wav, hint):
-        return self.model.generate(wav).text.strip()  # pyright: ignore[reportOptionalCall]
+        return self.model.generate(wav).text  # pyright: ignore[reportOptionalCall]
 
 
 SPEECH = {"parakeet-mlx": Parakeet, "mlx-whisper": Whisper, "mlx-audio": MlxAudio}
