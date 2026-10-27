@@ -119,9 +119,11 @@ test("every window since the last frame, and audio unread at exit, counts", func
   end
 end)
 
-test("cleanup kills ffmpeg, cancels a waiting stop, and deletes the wav unless kept", function()
-  for _, kept in ipairs({ false, true }) do
+test("cleanup kills ffmpeg, cancels a stop, and deletes the wav unless kept with audio", function()
+  for _, case in ipairs({ { false, pcm(0.5, 1024) }, { true, "" }, { true, pcm(0.5, 1024) } }) do
     local recording, sent = assert(recorder.start(8, error)), false
+    local asked, audio = table.unpack(case)
+    local kept = asked and audio ~= ""
     -- ffmpeg whose input stopped delivering: it ignores SIGINT and SIGTERM.
     local deaf =
       assert(io.popen("trap '' INT TERM; sleep 5 & echo $!; wait $! 2>/dev/null; echo $?"))
@@ -135,10 +137,11 @@ test("cleanup kills ffmpeg, cancels a waiting stop, and deletes the wav unless k
       return file ~= nil and file:close()
     end
     assert(io.open(recording.wav, "w")):close()
+    receive(audio)
     recorder.stop(recording, function()
       sent = true
     end)
-    recorder.cleanup(recording, kept)
+    recorder.cleanup(recording, asked)
     assert(left() == kept, "the wav") -- a reload skips the exit callback
     task.exit(9, "", "")
     assert(left() == kept and not sent, "the cancelled take was sent, or the kept wav deleted")

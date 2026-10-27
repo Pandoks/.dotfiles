@@ -397,11 +397,6 @@ test("a take whose transcript isn't saved keeps its recording in history", funct
       end,
     },
     {
-      "the backend refusing it",
-      function() end,
-      true,
-    },
-    {
       "a transcript it can't save",
       function(id)
         local history = modules["dictation.history"]
@@ -414,11 +409,9 @@ test("a take whose transcript isn't saved keeps its recording in history", funct
       end,
     },
   }) do
-    local name, reply, refuse = table.unpack(case)
+    local name, reply = table.unpack(case)
     local count = wavs()
-    refused = refuse
     reply(dictate(field("Hi")))
-    refused = nil
     assert(wavs() == count + 1 and not fs.attributes(recorded), name .. ": not kept")
     assert(table.concat(alerts, "\n"):find("kept in", 1, true), name .. ": not told")
   end
@@ -693,7 +686,7 @@ test("a take that can't move into history is left where the alert says", functio
   assert(fs.attributes(recorded), "the recording was deleted")
 end)
 
--- Last: it tears everything down.
+-- Last: it leaves the take to Hammerspoon's teardown.
 test("shutdown puts the clipboard back and keeps every take", function()
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "x" })
   local count = wavs()

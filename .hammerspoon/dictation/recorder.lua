@@ -248,7 +248,7 @@ function recorder.stop(recording, done)
 end
 
 ---@param recording? DictationRecording
----@param kept? boolean its wav is left for history
+---@param kept? boolean its wav, if it caught audio, is left for history
 function recorder.cleanup(recording, kept)
   if not recording then
     return
@@ -259,8 +259,9 @@ function recorder.cleanup(recording, kept)
     os.execute("kill -KILL " .. recording.task:pid())
   end
   -- Now: a reload skips the exit callback (unlinking is safe while ffmpeg writes).
-  recording.close()
-  if not kept then
+  local rest = recording.close()
+  -- Nothing streamed: the wav holds ffmpeg's header alone.
+  if not kept or recording.offset + #recording.fresh + #rest == 0 then
     os.remove(recording.wav)
   end
 end
