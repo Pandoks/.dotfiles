@@ -7,7 +7,8 @@ self-corrections, your word list fixes names, and the text goes into the focused
 
 ## Setup
 
-1. `uv sync --locked --project ~/.hammerspoon/dictation` (uv and ffmpeg from `mise install`).
+1. `uv sync --locked --project ~/.hammerspoon/dictation` (uv and ffmpeg from `mise install`); again
+   whenever `uv.lock` changes.
 2. Grant **Hammerspoon** Microphone and Accessibility in **System Settings > Privacy & Security**.
 3. Reload Hammerspoon. The first start downloads the pinned models (about 4.3 GB) into
    `~/.cache/huggingface`; the hotkey alerts "backend is still loading" until the console prints
@@ -29,9 +30,9 @@ transcribes, fixes spellings, cleans up, and writes numbers as digits. Its guard
 words with what was heard: the cleanup may fix misheard words and drop stalls, fillers, repeats,
 and self-corrections, and whatever else it changed or left out is put back as said ("Can you fix
 it?" for "Can you fix it? Just fix it." is typed whole). A change that can't be put back cleanly,
-such as one inside a written number ("1,000" as "1.00"), or a cleanup that returns nothing, types
-nothing, alerts, and keeps what was heard in `history.directory`. Otherwise `history.lua` saves the text and `init.lua` types it into the
-focused field, spaced by `spacing.lua`.
+such as one inside a written number ("0.5" as "0.05"), or a cleanup that returns nothing, types
+nothing, alerts, and keeps what was heard in `history.directory`. Otherwise `history.lua` saves
+the text and `init.lua` types it into the focused field, spaced by `spacing.lua`.
 
 ## Speech models
 
@@ -52,18 +53,17 @@ model's English average on the
 |---|---|---|---|---|---|
 | `mlx-community/parakeet-tdt-0.6b-v2` | `parakeet-mlx` | 2.5 GB | CC-BY-4.0 | 6.02 | English only, fastest. Default. |
 | `mlx-community/parakeet-tdt-0.6b-v3` | `parakeet-mlx` | 2.5 GB | CC-BY-4.0 | 6.18 | 25 EU languages; short English takes can come out in another. |
-| `mlx-community/Qwen3-ASR-1.7B-4bit` | `mlx-audio` | 1.6 GB | Apache-2.0 | 5.40 | 50+ languages, slower. |
-| `ibm-granite/granite-speech-4.1-2b` | `mlx-audio` | 4.9 GB | Apache-2.0 | 5.96 | Takes over about 2 minutes loop and type garbage. |
-| `mlx-community/whisper-large-v3-turbo` | `mlx-whisper` | 1.6 GB | MIT | 7.64 | 99 languages. |
+| `mlx-community/Qwen3-ASR-1.7B-4bit` | `mlx-audio` | 1.6 GB | Apache-2.0 | 5.40 | 30 languages, slower. |
+| `ibm-granite/granite-speech-4.1-2b` | `mlx-audio` | 4.9 GB | Apache-2.0 | 5.96 | Lowercase, unpunctuated output: "i" and "915" can reach the field. Takes over about 2 minutes loop and type garbage. |
+| `mlx-community/whisper-large-v3-turbo` | `mlx-whisper` | 1.6 GB | MIT | 7.64 | 100 languages. |
 | `mistralai/Voxtral-Mini-4B-Realtime-2602` | `mlx-audio` | 18 GB | Apache-2.0 | 8.44 | Two weight copies; slower than real time (1.4-2.8x the take's length on an M1 Max). |
 
 ## Cleanup
 
-The default cleanup model is the simplewords v3 LoRA on Qwen3.5-2B (1.7 GB + 67 MB). It ships
-its own prompt, so `style` and per-app `style` apply only to a plain instruct model,
-`cleanup = { enabled = true, backend = "mlx-lm", model = "<repo>", revision = "<sha>" }` with no
-`adapter`; with an
-adapter they fail the load.
+The default cleanup model is the simplewords v3 LoRA on Qwen3.5-2B (1.7 GB + 67 MB). It ships its
+own prompt, so `style` and per-app `style` apply only to a plain instruct model,
+`cleanup = { backend = "mlx-lm", model = "<repo>", revision = "<sha>" }` with no `adapter`; with an
+adapter they fail the load. A plain model types self-corrections as said.
 
 ## Limitations
 
@@ -81,8 +81,8 @@ adapter they fail the load.
 
 In `models.py`, subclass `Speech` (`load`, `transcribe(wav, hint)`) and register it in `SPEECH`,
 or subclass `Cleaner` (`load`, `complete(messages, raw)`) and register it in `CLEANERS`, under
-the name `speech.backend` or `cleanup.backend` selects. Then add that name to
-the field's type in `defaults.lua`.
+the name `speech.backend` or `cleanup.backend` selects. Then add that name to the field's type in
+`defaults.lua`.
 
 ## Tests
 
