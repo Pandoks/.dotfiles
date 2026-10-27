@@ -17,9 +17,9 @@ self-corrections, your word list fixes names, and the text goes into the focused
 Your settings are in `config.lua`: the hotkey and `words`, each name as it should be written,
 alone (`"Slack"`) or with what the speech model hears instead (`Raycast = { "ray cast" }`).
 `defaults.lua` has every other setting, typed, with hover docs from lua-language-server; a key
-set in `config.lua` replaces its default whole, and an unknown one alerts.
-If another app, such as Raycast, also uses Option+Space, rebind one. The macOS dictation (mic)
-key cannot be used: macOS always handles it itself.
+set in `config.lua` replaces its default whole, and an unknown one alerts. If another app, such
+as Raycast, also uses Option+Space, rebind one. The macOS dictation (mic) key cannot be used:
+macOS always handles it itself.
 
 ## How it works
 
@@ -30,9 +30,10 @@ transcribes, fixes spellings, cleans up, and writes numbers as digits. Its guard
 words with what was heard: the cleanup may fix misheard words and drop stalls, fillers, repeats,
 and self-corrections, and whatever else it changed or left out is put back as said ("Can you fix
 it?" for "Can you fix it? Just fix it." is typed whole). A change that can't be put back cleanly,
-such as one inside a written number ("0.5" as "0.05"), or a cleanup that returns nothing, types
-nothing, alerts, and keeps what was heard in `history.directory`. Otherwise `history.lua` saves
-the text and `init.lua` types it into the focused field, spaced by `spacing.lua`.
+such as one inside a written number ("0.5" as "0.05"), or a cleanup with no words when more than
+stalls and fillers were said, types nothing, alerts, and keeps what was heard in
+`history.directory`. Otherwise `history.lua` saves the text and `init.lua` types it into the
+focused field, spaced by `spacing.lua`.
 
 ## Speech models
 
@@ -69,9 +70,10 @@ adapter they fail the load. A plain model types self-corrections as said.
 
 - Electron/Chromium and Gecko (Firefox) fields, terminals, Messages, and Mail get the text by ⌘V;
   the clipboard is restored 1 s later (first item only, with an alert).
-- A read-only text view looks like a terminal, so the ⌘V silently does nothing; every take
-  is still saved to `history.directory`. A take the backend fails before hearing anything, or
-  never answers (it died, or Hammerspoon reloaded), keeps its recording there as a `.wav`.
+- A read-only text view looks like a terminal, so the ⌘V silently does nothing; every take is
+  still saved to `history.directory`. A take the backend fails before hearing anything, or never
+  answers (it died, or Hammerspoon reloaded), keeps its recording there as a `.wav`, as does one
+  whose input stopped delivering (an unplugged mic) and ffmpeg didn't finish in 2 s.
 - The cleanup rewrites the whole take: a sentence types about 1 s after stop, a 50 s take about
   4 s, a 2.5-minute take about 16 s (M1 Max).
 - Alerts show a failure's first line; the rest is in the Hammerspoon console and
