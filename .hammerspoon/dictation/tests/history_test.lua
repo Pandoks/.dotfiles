@@ -2,7 +2,6 @@ local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 package.path = root .. "/../?.lua;" .. package.path
 local date, clock = os.date, 0
--- os.date reads a clock the tests set, so take names are known.
 local history = assert(loadfile(
   root .. "/history.lua",
   "t",

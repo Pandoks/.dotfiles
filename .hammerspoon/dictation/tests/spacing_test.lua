@@ -73,6 +73,5 @@ for _, case in ipairs({
     ("%s[%s]%s + %s: '%s', not '%s'"):format(before, selected, after, text, got, want)
   )
 end
--- A field with a value but no selection range.
 assert(spaced("hi", "Hello") == "hi", "no range")
 print("RESULT 1 passed, 0 failed")

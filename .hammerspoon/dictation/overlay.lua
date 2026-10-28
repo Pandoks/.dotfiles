@@ -1,25 +1,25 @@
 local overlay = {}
 overlay.__index = overlay
--- Equalizer bands, mirrored into 2n - 1 bars; the spacing below is tuned for 15.
+-- Mirrored into 2n - 1 bars; the spacing below is tuned for 15.
 overlay.bands = 15
 
-local height = 44 -- points
+local height = 44
 local aspect = 3.32
 local stroke = 1
-local thickness = 0.038 -- bar width as a fraction of height
-local spread = 0.80 -- fraction of width the bars occupy
-local peak = 0.34 -- tallest bar as a fraction of height
-local fade = 12 -- frames (~0.4 s at 30 fps) from the ripple intro to the live equalizer
+local thickness = 0.038
+local spread = 0.80
+local peak = 0.34
+local fade = 12 -- frames
 local width, barWidth = height * aspect, height * thickness
 
 function overlay.new()
   local canvas = hs.canvas.new({ x = 0, y = 0, w = width, h = height }) --[[@as hs.canvas]]
   local self = setmetatable({
     canvas = canvas,
-    baseline = {}, -- an idle pill's diamond envelope, like Raycast's
+    baseline = {}, -- idle diamond envelope
     bars = {},
     thinking = false,
-    warmth = 1, -- 1 = ripple intro, fading to 0 = live equalizer
+    warmth = 1, -- 1 = ripple intro, 0 = live equalizer
     phase = 0,
   }, overlay)
   local bands = overlay.bands
@@ -74,12 +74,12 @@ function overlay:layout()
   for i = 1, count do
     local amplitude, glow
     if self.thinking then
-      -- A shimmer travels along the bars, brightness with it.
+      -- A traveling shimmer.
       local wave = 0.5 + 0.5 * math.sin(self.phase + i * 0.5)
       amplitude = (0.25 + 0.35 * wave) * self.baseline[i]
       glow = 0.4 + 0.6 * wave ^ 2
     else
-      -- A ripple from the center bar crossfades into the live equalizer; louder bars glow brighter.
+      -- A center ripple crossfades into the live levels.
       local distance = math.abs(i - center)
       local bloom = math.max(0, math.min(1, (self.phase * 4.6 - distance) / 4))
       local ripple = (0.5 + 0.5 * math.sin(self.phase * 1.3 - distance * 0.6)) ^ 2
@@ -109,7 +109,7 @@ function overlay:update(bands)
     self.warmth = math.max(0, self.warmth - 1 / fade)
     local center = (#self.bars + 1) // 2
     for i = 1, #self.bars do
-      -- Fast attack, slow release: a natural equalizer bounce.
+      -- Fast attack, slow release.
       local target = math.max(0, math.min(1, bands[math.abs(i - center) + 1]))
       local current = self.bars[i]
       self.bars[i] = current + (target - current) * (target > current and 0.6 or 0.25)

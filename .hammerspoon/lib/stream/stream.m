@@ -105,7 +105,7 @@ static dispatch_queue_t queue;
   _lua_stackguard_exit(state);
 }
 
-// Accepts a waiting writer and drains it: the bytes not yet delivered, and any error not yet raised.
+// Accepts a waiting writer and drains it: undelivered bytes and any unraised error.
 - (NSData *)finish:(NSString **)error {
   __block NSData *rest;
   __block NSString *problem;

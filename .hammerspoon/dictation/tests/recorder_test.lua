@@ -9,7 +9,6 @@ local function test(name, callback)
   print("PASS " .. name)
 end
 
--- recorder.lua with ffmpeg and the native stream as stubs to drive.
 local stream = {
   listen = function(_, callback)
     receive = callback
@@ -61,7 +60,6 @@ local recorder = assert(loadfile(
   }, { __index = _G })
 ))()
 
--- `count` samples of a 440 Hz sine at `amplitude` (0..1), as s16le.
 local function pcm(amplitude, count)
   local samples = {}
   for i = 1, count do

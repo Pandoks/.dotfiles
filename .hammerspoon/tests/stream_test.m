@@ -34,7 +34,6 @@ static void pass(const char *name) { printf("PASS %s\n", name); fflush(stdout); 
 static int now(lua_State *state) { lua_pushnumber(state, CFAbsoluteTimeGetCurrent()); return 1; }
 static int finish(lua_State *state) { (void)state; CFRunLoopStop(CFRunLoopGetMain()); return 0; }
 
-// Connects to `path`, writes `data`, and hangs up.
 static int deliver(lua_State *state) {
   struct sockaddr_un address = { .sun_family = AF_UNIX };
   strlcpy(address.sun_path, luaL_checkstring(state, 1), sizeof address.sun_path);
@@ -47,7 +46,6 @@ static int deliver(lua_State *state) {
   return 0;
 }
 
-// Fresh Lua with the module, paths, and helpers as globals.
 static lua_State *prepare(LuaSkin *skin) {
   lua_State *state = skin.L;
   luaL_openlibs(state);
@@ -61,7 +59,6 @@ static lua_State *prepare(LuaSkin *skin) {
   return state;
 }
 
-// Runs the main run loop until finish(), aborting after `seconds`; or, unless `strict`, just for them.
 static void await(double seconds, BOOL strict) {
   __block BOOL done = NO;
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(seconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -73,7 +70,6 @@ static void await(double seconds, BOOL strict) {
   done = YES;
 }
 
-// ffmpeg's 2 s, 16 kHz s16le sine into `output`, in real time when `live`.
 static pid_t sine(const char *output, BOOL live) {
   const char *arguments[] = { ffmpeg, "-hide_banner", "-loglevel", "fatal", "-nostdin", "-y",
     live ? "-re" : "-nostats", "-f", "lavfi", "-i", "sine=f=440:r=16000:d=2", "-f", "s16le", "-ac", "1",
@@ -89,7 +85,6 @@ static int reap(pid_t pid) {
   return status;
 }
 
-// Stops the run loop when `pid` exits, setting the Lua global `exited` to the time.
 static void watch(lua_State *state, pid_t pid) {
   dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, (uintptr_t)pid,
     DISPATCH_PROC_EXIT, dispatch_get_main_queue());
@@ -194,7 +189,6 @@ int main(int argc, char **argv) {
     close(next);
     pass("close() returns every byte not yet delivered, delivers nothing after it, and keeps no socket or callback");
 
-    // A read failure lands while bytes are pending, and their callback closes the stream.
     socketPath(state, "reentrant", path);
     execute(state, "closed=nil; close=assert(stream.listen(path,function(chunk)"
       " assert(chunk and not closed,'raised after close()'); closed=table.pack(close()); finish() end))");

@@ -36,7 +36,7 @@ function engine.new(config, handlers)
       logger.error("Dictation: " .. tostring(problem))
     end
   end
-  -- One request at a time: a second setInput drops what the full pipe has not taken yet.
+  -- One at a time: a second setInput drops what a full pipe hasn't taken.
   local function answered(id)
     if id ~= self.sending then
       return
@@ -49,7 +49,7 @@ function engine.new(config, handlers)
   end
   local function output(_, stdout, stderr)
     stderr = stderr or ""
-    -- Load chatter (progress bars) stays out of the console; later output, even past exit, goes in.
+    -- Load chatter (progress bars) stays out of the console.
     if stderr ~= "" and (self.ready or self.stopped) then
       pcall(print, "Dictation backend: " .. stderr:gsub("\n$", ""))
     end
@@ -57,7 +57,7 @@ function engine.new(config, handlers)
       return true
     end
     self.errors = (self.errors .. stderr):sub(-4000)
-    -- Anchored and greedy, so one pass however long the line: an unanchored match is quadratic.
+    -- Anchored: an unanchored match is quadratic on a long line.
     local buffer = self.buffer .. (stdout or "")
     local lines, partial = buffer:match("^(.*\n)(.*)$")
     self.buffer = partial or buffer
@@ -67,7 +67,7 @@ function engine.new(config, handlers)
         failure("invalid response: " .. line)
         return true
       elseif event.event == "ready" then
-        -- Load chatter (HF warnings, progress bars) is no crash reason.
+        -- Load chatter is no crash reason.
         self.ready, self.errors = true, ""
         pcall(print, "Dictation: backend ready")
       elseif event.event == "final" then
@@ -82,7 +82,7 @@ function engine.new(config, handlers)
           failure((event.msg or "unknown error") .. "\n" .. self.errors)
         end
       else
-        -- Not one this client knows: a take waiting on it would never end.
+        -- A take waiting on an unknown event would never end.
         failure("unknown event: " .. line)
         return true
       end
@@ -91,7 +91,7 @@ function engine.new(config, handlers)
   end
   self.task = hs.task.new(python, function(code, stdout, stderr)
     output(nil, stdout, stderr)
-    -- The last stderr line goes in the popup: an exception's, or whatever was printed last.
+    -- The last stderr line, an exception's if any, goes in the popup.
     local reason = self.errors:match("([^\n]*%S)%s*$")
     local exit = self.task:terminationReason() == "interrupt" and "killed by signal " .. code
       or "exited (code " .. code .. ")"

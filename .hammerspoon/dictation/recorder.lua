@@ -86,7 +86,7 @@ local function samples(pcm, from)
   return values, math.max(0, math.min(1, (20 * math.log(rms, 10) + 50) / 40)), energy
 end
 
----@param bands integer equalizer bands
+---@param bands integer
 ---@param onError fun(message: string)
 function recorder.start(bands, onError)
   -- Per-user 0700 temp dir, not the shared /tmp.
@@ -104,7 +104,7 @@ function recorder.start(bands, onError)
     recording.discarded, recording.done = true, nil
     onError(message)
   end
-  -- Listening before ffmpeg starts, so it can connect.
+  -- Before ffmpeg, so it can connect.
   local close, reason = stream.listen(socket, function(chunk, problem)
     if chunk then
       recording.fresh = recording.fresh .. chunk
@@ -239,7 +239,7 @@ function recorder.analyze(recording)
   return bands
 end
 
--- SIGINT lets ffmpeg finalize the wav; `done` gets it and the seconds read (failures: onError).
+-- SIGINT lets ffmpeg finalize the wav; failures go to onError.
 ---@param recording DictationRecording
 ---@param done fun(wav: string, peak: number, duration: number)
 function recorder.stop(recording, done)

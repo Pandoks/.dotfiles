@@ -1,4 +1,4 @@
-// Inserted into the stream test to fail a socket read, which no writer can cause.
+// Fails a socket read, which no writer can cause.
 #include <errno.h>
 #include <stdatomic.h>
 #include <sys/stat.h>

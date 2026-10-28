@@ -4,7 +4,7 @@ local history = {}
 
 -- Transcripts are <timestamp>.txt; the folder's other files are never counted or deleted.
 local take = "^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d_?%d*%.txt$"
--- Bytes of transcripts once prune() has counted them: it lists the folder again only past the cap.
+-- Transcript bytes, once prune() has listed the folder.
 local total
 
 ---@param settings DictationHistory
@@ -52,7 +52,6 @@ function history.save(text, settings)
   total = total and total + hs.fs.attributes(path, "blocks") * 512
 end
 
--- Never pruned: it is the only copy of what was said.
 ---@param wav string
 ---@param settings DictationHistory
 ---@return string? failure
@@ -64,7 +63,7 @@ function history.keep(wav, settings)
   end
 end
 
--- Delete the oldest transcripts over the cap, never the newest; sizes are du-style blocks.
+-- Oldest first, never the newest; sizes are du-style blocks.
 ---@param settings DictationHistory
 ---@return string? failure
 function history.prune(settings)

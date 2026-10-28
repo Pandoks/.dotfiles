@@ -149,7 +149,7 @@ test("a take waits for the one before it, never written over it", function()
   assert(inputs[1].wav == "/tmp/a.wav" and inputs[1].app == "com.apple.Notes", "wrong request")
   feed(nil, '{"event":"error","id":99,"msg":"stray"}\n', "")
   assert(#inputs == 1, "an answer to another request sent the next")
-  feed(nil, '{"event":"final","id":' .. first .. ',"te', "") -- a line split across reads
+  feed(nil, '{"event":"final","id":' .. first .. ',"te', "")
   feed(nil, 'xt":"a"}\n', "")
   assert(#inputs == 2 and inputs[2].id == second, "the next request not sent once answered")
   feed(nil, '{"event":"error","id":' .. second .. ',"msg":"no speech"}\n', "")

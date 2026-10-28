@@ -6,14 +6,12 @@ local function set(chars)
   return result
 end
 
--- Delimiters that open a run: no space goes between them and the text.
 local openers = set("([{“‘</")
--- A straight quote or backtick opens after the start, a space, or an opener, and before a word.
 local quotes = set("\"'`")
--- Parts of a name, address, or path stay joined ("foo.|bar", "user|@host"); "Note:|" still spaces.
+-- "foo.|bar" and "user|@host" stay joined; "Note:|" still spaces.
 local joiners = set(".-_@+=:")
 local slashes = set("/\\") -- "/usr/|bin", "/usr|/bin", "C:\[old]\file"
--- Punctuation blocks and Latin-1 marks, not letters: "—", "？".
+-- Punctuation blocks and Latin-1 marks: "—", "？".
 local marks = {
   { 0x80, 0xBF },
   { 0x2000, 0x206F },
@@ -42,7 +40,6 @@ local function wordy(char)
   return true
 end
 
--- The text spaced against its neighbors in `value` around `range` (a selection or the cursor).
 ---@param text string
 ---@param value string
 ---@param range table?

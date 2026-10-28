@@ -17,7 +17,7 @@ for key, value in pairs(require("dictation.config")) do
   end
   config[key] = value
 end
--- "Slack" becomes Slack = {}: JSON has no table that is a list and a map at once.
+-- JSON can't mix list and map keys.
 local function spelled(words)
   local out = {}
   for key, value in pairs(words or {}) do
@@ -55,12 +55,12 @@ end
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
 local overlay, recording, animation, deadline
--- The request whose text gets typed, and the field focused when its take stopped.
+-- The request to type, and the field focused at its stop.
 local inflight, target, targetError
 local wavs = {}
 local restore
 
--- Gecko apps apply accessibility writes late, after the read-back that would then paste it again.
+-- Gecko applies AX writes after the read-back, which would paste again.
 local gecko = {
   ["org.mozilla.firefox"] = true,
   ["org.mozilla.firefoxdeveloperedition"] = true,
@@ -81,7 +81,7 @@ end
 
 ---@param text string
 local function paste(text)
-  -- A paste before the last one's restore keeps the clipboard from before that one.
+  -- Back-to-back pastes restore the clipboard from before the first.
   local held = restore and hs.pasteboard.changeCount() == restore.count
   local previous = held and restore.previous or hs.pasteboard.readAllData() or {}
   local items = held and restore.items or #hs.pasteboard.allContentTypes()
@@ -92,7 +92,7 @@ local function paste(text)
     restore.timer:stop()
   end
   local count = hs.pasteboard.changeCount()
-  -- 1 s lets a busy app (Slack, VS Code) read it; any later write cancels the restore.
+  -- 1 s lets a busy app (Slack, VS Code) read it.
   restore = {
     count = count,
     previous = previous,
@@ -113,7 +113,7 @@ local function paste(text)
       end
     end),
   }
-  -- Last: a layout without "v" raises, and the clipboard must still be put back.
+  -- Last: a layout without "v" raises.
   hs.eventtap.keyStroke({ "cmd" }, "v", 0)
 end
 
@@ -151,7 +151,7 @@ local function insert(text)
   local range = read(element, "AXSelectedTextRange")
   local app = hs.application.frontmostApplication()
   local bundle = app and app:bundleID()
-  -- As dictated where the text is hidden, or is Ghostty's whole screen with the range at {0, 0}.
+  -- Unspaced where the value is hidden, or is Ghostty's whole screen at {0, 0}.
   if type(value) == "string" and bundle ~= "com.mitchellh.ghostty" then
     text = spaced(text, value, range)
   end
@@ -159,7 +159,7 @@ local function insert(text)
   if role == "AXWebArea" and read(element, "AXValue", true) then
     return paste(text)
   end
-  -- Text roles only: Chromium also takes (and drops) text writes on sliders, buttons, toolbars.
+  -- Chromium also takes (and drops) text writes on sliders, buttons, toolbars.
   if role ~= "AXTextField" and role ~= "AXTextArea" and role ~= "AXComboBox" then
     error("no text field is focused", 0)
   end
@@ -228,7 +228,7 @@ local function salvage()
 end
 
 ---@param id integer
----@param text string? nil: nothing transcribed, the wav is kept; "": no speech, it is deleted
+---@param text string?
 ---@return boolean saved
 local function settle(id, text)
   local wav = wavs[id]
@@ -248,7 +248,6 @@ local function settle(id, text)
   return false
 end
 
--- Each reply settles its take; only the one still waiting is delivered.
 local engine, problem = Engine.new(config, {
   onFinal = function(result)
     local text = result.text ~= "" and result.text or nil
@@ -266,7 +265,7 @@ local engine, problem = Engine.new(config, {
     end
   end,
   onError = function(message, id, heard)
-    -- No id: the backend died, and none of the takes it holds will be answered.
+    -- No id: the backend died with every take.
     local saved = false
     for key in pairs(wavs) do
       if key == id or not id then
@@ -274,7 +273,7 @@ local engine, problem = Engine.new(config, {
       end
     end
     fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))
-    -- A take still recording goes on, and is kept when the backend refuses it.
+    -- A take still recording goes on.
     if inflight and (inflight == id or not id) then
       finish()
     end
@@ -388,16 +387,13 @@ dictation.cancel = hs.hotkey.new({}, "escape", finish)
 
 local shutdown = hs.shutdownCallback
 hs.shutdownCallback = function()
-  -- A reload must not leave the dictation on the clipboard.
   if restore then
     restore.timer:fire()
   end
-  -- A take still recording is kept: nothing will transcribe it.
   if recording then
     salvage()
   end
   engine:stop()
-  -- No transcript will come back for these.
   for id in pairs(wavs) do
     settle(id)
   end

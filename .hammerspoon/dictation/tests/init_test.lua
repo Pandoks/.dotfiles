@@ -80,7 +80,7 @@ local hs = {
       return stub({
         fire = callback,
         stop = function()
-          timers[index] = function() end -- a stopped timer never fires
+          timers[index] = function() end
         end,
       })
     end,
@@ -182,7 +182,7 @@ local modules = {
         if capture.done then
           capture.done(capture.wav, 0.5, 1)
         end
-        capture.done = nil -- ffmpeg exits once
+        capture.done = nil
       end
     end,
     cleanup = function(capture, kept)
@@ -603,7 +603,6 @@ test("past the history cap a saved take prunes the oldest", function()
   assert(texts == 1, texts)
 end)
 
--- init.lua loaded again with `swapped` modules; its hotkey is returned, the first load's kept.
 local function reload(swapped)
   local main, cancel, shutdown = toggle, escape, hs.shutdownCallback
   load("init", {
