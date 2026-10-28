@@ -209,7 +209,7 @@ check(
     [("Write it in latex with frac.", "Write it in \\LaTeX with \\frac.")],
     lambda text: latex.spell(text, {}),
 )
-# Cleanup off: no tokenizer words, so only macOS's word list keeps real words.
+# No tokenizer words: only macOS's word list keeps real words.
 off = server.Engine(engine.config)
 off.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
 check(
@@ -637,6 +637,7 @@ check(
                 "Set the timeout to 60 seconds.",
             ),
             ("Print the labels in red, actually, make them blue.", "Print the labels in blue."),
+            ("Set the font to Arial, sorry, make that Helvetica.", "Set the font to Helvetica."),
             (
                 "Please print ten copies of the report, sorry, twelve.",
                 "Please print twelve copies of the report.",
@@ -649,8 +650,9 @@ check(
             ("The review is Thursday. Uh, sorry, Friday.", "The review is Friday."),
             ("We need five chairs, I mean six.", "We need six chairs."),
             ("Send the draft to Sam, sorry, I meant Kate.", "Send the draft to Kate."),
-            ("Open the link in Chrome, I meant to say Safari.", "Open the link in Safari."),
+            ("Write the hook in Lua, what I meant to say was Python.", "Write the hook in Python."),
             ("Write the script in Python, no, what I meant was Bash.", "Write the script in Bash."),
+            ("Move the sync to Wednesday. What I mean is Thursday.", "Move the sync to Thursday."),
             ("Is that right? So we ship it.", "Is that right? We ship it."),
             (
                 "Book it for Monday, sorry, Tuesday for your team, if you can.",
@@ -767,7 +769,7 @@ check(
             ),
             ("npm install dash dash save dev", "npm install dash save dev"),
             ("Open localhost colon 3000 in the browser.", "Open localhost:3000 in the browser."),
-            ("Meet at 10 oh 5 tomorrow.", "Meet at 10:5 tomorrow."),
+            ("Subject colon quarterly planning notes.", "Subject: Quarterly planning notes."),
             ("Meet at seven seventeen.", "Meet at seven."),
             ("I think he knows you know.", "I think he knows you."),
             ("Send it tomorrow, I'm sorry, tonight.", "Send it tonight tomorrow."),
@@ -951,7 +953,7 @@ config = json.dumps(
 events, stderr = serve(failing, [], config=config)
 assert [e["event"] for e in events] == ["error"] and "no weights" in events[0]["msg"], events
 print("PASS a failed load reports an error and never ready")
-# Hammerspoon never closes stdin: replies, and what libraries print, must arrive while it is open.
+# Hammerspoon never closes stdin.
 chatty = """
 class Chatty:
     def __init__(self, config):
@@ -1015,14 +1017,12 @@ assert events[3]["heard"] is None and "speech model failed" in events[3]["msg"],
 assert stderr.count("Traceback") == 1 and "RuntimeError: the speech model failed" in stderr, stderr
 print("PASS a failed take reports what was heard, and only a bug's traceback")
 
-# A take needing words put back trusts none of the cleanup's moved-up corrections: a shuffle of
-# the said words through one would type them in another order.
+# A take with words put back trusts no moved-up correction: it could reorder them.
 said = "We need eggs, milk, and bread, no wait, eggs and bread."
 got = dictate(said, "We need and milk, bread. no eggs, and bread, wait, eggs")
 assert got and re.findall(r"[\w']+", got.lower()) == re.findall(r"[\w']+", said.lower()), got
 print("PASS words put back keep the order said")
 
-# The model may close the template's think block again.
 cleaner = models.MlxLm(stub)
 cleaner.llm, cleaner.tokenizer = None, tokenizer  # pyright: ignore[reportAttributeAccessIssue]
 rendered, limits = [], []
@@ -1042,15 +1042,13 @@ with mock.patch("mlx_lm.generate", generate):
     reply = cleaner.complete([{"role": "user", "content": "Fix the bug."}], "Fix the bug.")
     cleaner.complete([{"role": "user", "content": long}], long)
 assert reply == "Fix the bug.", reply
-assert rendered[0].endswith("<think>\n\n</think>\n\n"), rendered[0]  # no thinking before the reply
+assert rendered[0].endswith("<think>\n\n</think>\n\n"), rendered[0]
 # mlx-lm's default 256 would cut long takes; 600 words are 600+ tokens.
 assert limits[0] >= 400 and limits[1] > 600, limits
 print("PASS the cleanup skips thinking, has room to echo the take, and drops a stray think tag")
 
 
 class Llm:
-    """Its prompt cache records the tokens it was given."""
-
     def make_cache(self):
         return [SimpleNamespace(state=[], seen=[])]
 
@@ -1087,7 +1085,6 @@ check(
     ],
     prompt,
 )
-# Prefilled once, copied per take: each take's model sees what it would see without the prefill.
 adapted = load_adapter({"system_v2.txt": "Clean it."})
 with mock.patch("mlx_lm.generate", generate):
     for raw in ("Fix the bug.", "Ship it."):
@@ -1140,7 +1137,6 @@ assert prompts[0] == [
     {"role": "user", "content": server.FRAME.format("Restart yabai.")},
 ], prompts[0]
 assert prompts[1][0]["content"] == f"{server.STYLE}\n{vocabulary}\n{server.PROMPT}"
-# An adapter's prompt is used as trained: prompt, blank line, take.
 assert prompts[2] == [{"role": "user", "content": "P\n\nRestart yabai."}], prompts[2]
 print(
     "PASS a plain model gets the style, the app's, the vocabulary, the rules, then the framed take;"
@@ -1280,7 +1276,6 @@ check(
 )
 
 
-# Through parakeet-mlx's transcribe: the unboosted pass decodes the boosted pass's encoding.
 class Transcriber(Model):
     decode = ParakeetTDT.decode  # pyright: ignore[reportAssignmentType]
     decode_greedy, transcribe = ParakeetTDT.decode_greedy, ParakeetTDT.transcribe

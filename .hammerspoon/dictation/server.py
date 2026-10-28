@@ -61,7 +61,7 @@ def fold(word):  # "José" -> "jose"
 LONE = r"(?<![\w./~@'-])(?:{})(?![\w/@-]|\.\w| [Hh]uh\b)"
 # Stalls removed mechanically (the model is inconsistent); "ER" stays, "MM", "Mm", "Hum," don't.
 STALL = LONE.format(r"[Uu]m+|[Uu]h+|[Ee]rm?|[Hh]m+|[Aa]hm+|M[Mm]+|Hum(?=[,.?!])")
-CLOSE = r"[\"”’')\]]"  # a closing quote or bracket
+CLOSE = r"[\"”’')\]]"
 # Sentence starts: text, end mark, opening quote or bracket ('"' only after a space).
 START = rf"(?<![^.!?])|(?<=[.!?]{CLOSE})|(?<=[“‘(\[])|(?<![^\s(\[]\")(?<=\")"
 # A sentence opener goes with its own mark: "Okay. Um, let's go." -> "Okay. Let's go."
@@ -202,7 +202,7 @@ def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"
 
 BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
 CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|scratch that|or rather"
-CUE += r"|(?:what )?i meant?(?: to say)?(?: was)?)"
+CUE += r"|(?:what )?i meant?(?: to say)?(?: was| is)?)"
 CUE += rf"(?:[,.]? make (?:{'|'.join(BACK)}))?"  # "sorry, make it 30", "actually. Make it 60"
 ADDS = r"[^.!?,]*\b(?:too|also|as well|first)\b"  # a cue that adds: "Actually, send it to Sam too"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
@@ -233,8 +233,8 @@ def restore(raw, out):
     self-correction, put back as said: "Just fix it." left out comes back. None if a change can't
     be put back cleanly: inside a written word ("0.5" -> "0.05"), or an "oh" comes back twice."""
 
-    # "İ" lowercases to two characters, which would shift every later word's position.
     said, written = raw, out  # as written, to put changes back
+    # "İ" lowercases to two characters, which would shift every later word's position.
     raw, out = (text.replace("’", "'").replace("İ", "I") for text in (raw, out))
     spans, outs = tokens(raw), tokens(out)
     spoken, typed = [w for w, *_ in spans], [w for w, *_ in outs]
@@ -302,7 +302,7 @@ def restore(raw, out):
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
                 past = c + len(cue[0].split())
-                # Its verb again, as "make": "Oki, sorry, send them to Sam"
+                # Its verb again: "Oki, sorry, send them to Sam"
                 if past + 1 < total and spoken[past + 1] in BACK and spoken[past] in spoken[:c]:
                     past += 0 if re.match(ADDS, raw[spans[past + 1][2] :]) else 2
                 if found and c <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
@@ -338,7 +338,7 @@ def restore(raw, out):
             if dropped(i1, i2, kept) or shift and dropped(i1 - 1, i2 - 1, kept):
                 continue
             # ...what a cue takes back ("Monday, sorry, Tuesday" or "four, sorry, four"), its own
-            # words or those before the run, not a list's item or a detail the cleanup moved...
+            # words or those before the run, not two list items or a detail the cleanup moved...
             if i2 < total and any(
                 (c > i1 or e < i2)
                 and spoken[e:i2] == spoken[i1 - (i2 - e) : i1]
@@ -367,9 +367,7 @@ def restore(raw, out):
     # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
     whole = [w for *_, w in spans], [w for *_, w in outs]
     forward = difflib.SequenceMatcher(None, *whole, autojunk=False).get_opcodes()
-    # Back to front, so the positions before each change hold. A left-out run comes back whole:
-    # with the gaps said in and around it if one has a mark ("friendly, I guess? Then") or the
-    # cleanup joined the words around it ("localhost:3000"), else before the next word kept.
+    # Back to front, so the positions before each change hold.
     for i1, i2, j1, j2 in reversed(unexplained(forward, trusted=False)):
         # A run before a kept copy of its first word may be the one after: "done. Is it done?"
         while j1 == j2 and 0 < j1 < size - 1 and i2 + 1 < total and spoken[i1] == spoken[i2]:
@@ -382,30 +380,30 @@ def restore(raw, out):
             i1, i2, j1, j2 = i1 + 1, i2 + 1, j1 + 1, j2 + 1
         if j1 < j2:  # words changed, or added: as said, up to the next word kept
             last = j2 == size and i2 == total
-            start = outs[j1 - 1][2] if i1 and j1 else outs[j1][1]
-            end = len(text) if last else outs[j2][1]
+            start, end = outs[j1][1], len(text) if last else outs[j2][1]
             quoted = i1 < i2 and said[spans[i1][1] - 1 : spans[i1][1]] in ("'", "’")  # "'cause"
             piece = said[spans[i1][1] - quoted : None if last else spans[i2][1]] if i1 < i2 else ""
             if i1 and j1:  # with the gap said before it: "is. First we", not "is First we"
+                start = outs[j1 - 1][2]
                 piece = said[spans[i1 - 1][2] : None if last else spans[i2][1]]
         elif not j1:  # left out at the start: through the first word kept, as said
             start, end = 0, outs[0][2] if size else len(text)
             piece = said[: spans[i2][2] if size else len(said)]
         elif j1 == size:  # left out at the end: with what was said after it
             start, end, piece = outs[j1 - 1][2], len(text), said[spans[i1 - 1][2] :]
-        elif any(mark(k) for k in range(i1, i2 + 1)) or not re.search(
-            r"\s", text[outs[j1 - 1][2] : outs[j1][1]]
-        ):
+        elif any(mark(k) for k in range(i1, i2 + 1)) or re.fullmatch(
+            r"\S*|:\s+", text[outs[j1 - 1][2] : outs[j1][1]]
+        ):  # joined or a colon: "localhost:3000", "Subject: …"
             start, end = outs[j1 - 1][2], outs[j1][1]  # the gaps as said: "here? Can", "me, we"
             piece = said[spans[i1 - 1][2] : spans[i2][1]]
-        else:
+        else:  # before the next word kept
             start = end = outs[j1][1]
             piece = said[spans[i1][1] : spans[i2][1]]
         rest = piece + text[end:]
         if i2 < total and re.search(r"[.!?]\s+$", piece) and said[spans[i2][1]].isupper():
             rest = piece + text[end : end + 1].upper() + text[end + 1 :]
-        # The said lowercase where the cleanup started a sentence: "And the", not "And The".
-        elif i2 < total and re.search(r"[.!?]\s+$", text[:end]) and said[spans[i2][1]].islower():
+        # The said lowercase after the cleanup's end mark or colon: "And the", not "And The".
+        elif i2 < total and re.search(r"[.!?:]\s+$", text[:end]) and said[spans[i2][1]].islower():
             rest = piece + text[end : end + 1].lower() + text[end + 1 :]
         # A sentence the cleanup started keeps its capital: "Please send it", not "please send it".
         if re.search(r"(?:^|[.!?]\s+)$", text[:start]) and text[start : start + 1].isupper():
@@ -482,7 +480,7 @@ def digits(text, names):
         words = [w for w in re.split(r"[ -]+", group.lower()) if w not in ("and", "a")]
         numbers = chunks(w for w in words if w in VALUE)
         number = numbers[0]
-        opens = re.search(r"(?:^|[.!?]\s+)$", before)  # a sentence starts here
+        opens = re.search(r"(?:^|[.!?]\s+)$", before)
         title = group[0].isupper() and (not opens or word[:1].isupper())  # "Ocean's Eleven"
         if title or any(a < match.end() and match.start() < b for a, b in kept):
             return group
@@ -672,7 +670,6 @@ class Engine:
             return ""
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
         text = ending(said, ensure_question(said, self.spell(strip_stalls(out), request)))
-        # What the cleanup changed beyond its rules is typed as said.
         restored = restore(raw, text)
         if restored != text:
             if restored is None or restore(raw, restored) != restored:
