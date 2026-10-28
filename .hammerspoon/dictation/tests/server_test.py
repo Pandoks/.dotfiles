@@ -265,7 +265,7 @@ check(
         ),
         ("Ping me at 2.30 an hour from now.", "Ping me at 2:30 an hour from now."),
         ("We're billed at 1.30 an hour from now on.", "We're billed at 1.30 an hour from now on."),
-        ("Stand-up is at 9.15 as per usual.", "Stand-up is at 9:15 as per usual."),
+        ("Lunch is at 12.30 per usual.", "Lunch is at 12:30 per usual."),
         ("We'll sync at 2.45 per the new schedule.", "We'll sync at 2:45 per the new schedule."),
         ("Let's meet at 1.30 per your email.", "Let's meet at 1:30 per your email."),
         ("Let's meet at 2.30 per her email.", "Let's meet at 2:30 per her email."),
@@ -481,6 +481,7 @@ check(
         ("I'd love to.", "I'd love to."),
         ("He's the one I wrote it for.", "He's the one I wrote it for."),
         ("That's who Tom and I sent it to.", "That's who Tom and I sent it to."),
+        ("That's who I'd, honestly, send it to.", "That's who I'd, honestly, send it to."),
         (
             "I forgot which repo, honestly, my script pushed it to.",
             "I forgot which repo, honestly, my script pushed it to.",
@@ -490,8 +491,16 @@ check(
             "I'm not sure which old branch, like, we merged it into.",
         ),
         (
-            "If you know who owns it, like, send it to.",
-            "If you know who owns it, like, send it to",
+            "When you know what broke, like, send it to.",
+            "When you know what broke, like, send it to",
+        ),
+        (
+            "If you know who owns it, like, you can send it to.",
+            "If you know who owns it, like, you can send it to",
+        ),
+        (
+            "I see what you mean, like, we could send it to.",
+            "I see what you mean, like, we could send it to",
         ),
         (
             "I get what you're saying, and honestly, I'd just send it to.",
@@ -652,6 +661,7 @@ check(
             ("Like I think so, but I am not sure.", "I think so, but I am not sure."),
             ("We have like, no tests for this.", "We have no tests for this."),
             ("It's like so slow.", "It's so slow."),
+            ("You need to like restart it.", "You need to restart it."),
             ("I'm like so tired of this.", "I'm so tired of this."),
             ("Like I figured out the bug last night.", "I figured out the bug last night."),
             ("Like everything is broken today.", "Everything is broken today."),
@@ -685,6 +695,11 @@ check(
             ("It should be like the Raycast one.", "It should be the Raycast one."),
             ("It's like a car.", "It's a car."),
             ("Like I just said, the deploy failed again.", "I just said, the deploy failed again."),
+            ("Like I literally just said, it's broken.", "I literally just said, it's broken."),
+            (
+                "Like I was mentioning earlier, the build is flaky.",
+                "I was mentioning earlier, the build is flaky.",
+            ),
             ("And I'm like why is it even broken?", "And I'm why is it even broken?"),
             ("I'm like, why is it broken?", "I'm why is it broken?"),
             ("Like we agreed, the release is on Friday.", "We agreed, the release is on Friday."),
@@ -692,6 +707,10 @@ check(
             ("Like you suggested, I split the PR.", "You suggested, I split the PR."),
             ("Okay. Like last time, it failed on CI.", "Okay. Last time, it failed on CI."),
             ("Like most of the team, I use Ghostty.", "Most of the team, I use Ghostty."),
+            (
+                "Like all the long-running jobs, it timed out.",
+                "All the long-running jobs, it timed out.",
+            ),
             ("Sam was like, let me check.", "Sam was let me check."),
             ("He was like just ship it.", "He was just ship it."),
             ("It's like Slack but for email.", "It's Slack but for email."),
