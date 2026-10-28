@@ -202,6 +202,7 @@ def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"
 
 CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
 CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
+ADDS = r"[^.!?,]*\b(?:too|also|as well|first)\b"  # a cue that adds: "Actually, send it to Sam too"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
 # Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
 LEADS = {"is", "were", "are", "am", "be", "been", "it's", "i'm", "you're", "and", "to"}
@@ -218,9 +219,8 @@ SAYS += "|messaged|outlined|replied|estimated|proposed|demoed|reported"
 # Unlike "said"/"told", these need a comma or the end within 4 words: "Like I noted, it's flaky".
 LIKENS += rf"|like [\w']+(?: \w+){{0,3}} (?:said|told|(?:{SAYS})(?: [\w'-]+){{0,4}}(?=[,.!?]|$))"
 TELLS = "tells?|explains?|mentions?|to (?:say|tell|explain|mention)"
-# These need a comma after or before: "Like he tells us, …", "…, like he tells us."
-LIKENS += rf"|(?:(?<=, )|(?=[^.!?]*,))like [\w']+(?: \w+){{0,3}} (?:{TELLS})(?: [\w'-]+){{0,4}}"
-LIKENS += r"(?=[,.!?]|$)"
+# These need a comma within 4 words: "Like he tells us, …".
+LIKENS += rf"|like [\w']+(?: \w+){{0,3}} (?:{TELLS})(?: [\w'-]+){{0,4}}(?=,)"
 LIKENS += r"|(?:(?<=was )|(?<=were )|(?<='m )|(?<=he's )|(?<='re ))like, \w+"  # "I was like, nah"
 OPENS = r"most|all|any|every\w*|last|before|my|our|your|his|her|their"  # "Like last time, …"
 LIKENS += rf"|(?<![\w,] )like (?:{OPENS})(?: [\w'-]+){{0,3}}(?=,)"
@@ -299,6 +299,9 @@ def restore(raw, out):
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
                 past = c + len(cue[0].split())
+                # Its verb again with "it", as "make it": "the logs to Oki, sorry, send them to"
+                if spoken[past + 1 : past + 2] in (["it"], ["them"]) and spoken[past] in spoken[:c]:
+                    past += 0 if re.match(ADDS, raw[spans[past + 1][2] :]) else 2
                 if found and c <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
                     found[-1] = (found[-1][0], past)
                 else:
