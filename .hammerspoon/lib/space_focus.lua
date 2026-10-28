@@ -36,7 +36,7 @@ end
 -- One in-process read of the visible Space on a screen: the WindowServer's on-screen order,
 -- limited to windows the Accessibility cache tracks. It never waits behind a busy app.
 -- The focused window can be on another screen (e.g. its PiP); `inside` tells which.
--- `list(true)`: plain `list()` drops windows in front of the first window titled "Dock".
+-- Plain `list()` drops windows in front of the first one titled "Dock".
 local function snapshot(frame)
   local focusedWindow = hs.window.focusedWindow()
   local focusedID = focusedWindow and focusedWindow:id()

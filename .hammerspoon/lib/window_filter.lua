@@ -406,7 +406,7 @@ function module.new(predicate)
     applicationWatcher:start()
     spaceWatcher = hs.spaces.watcher.new(function()
       -- Only apps with windows on the visible Spaces can reveal windows AXWindows omitted.
-      -- `list(true)`: plain `list()` drops windows in front of the first window titled "Dock".
+      -- Plain `list()` drops windows in front of the first one titled "Dock".
       local visible = {}
       for _, info in
         ipairs(hs.window.list(true) --[[@as table[] ]])
