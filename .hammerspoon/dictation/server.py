@@ -210,15 +210,17 @@ LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
 QUOTES = "why|what|how|who|no|nope|okay|oh|sure|yeah|yes|wait|hey|dude|come"
 THEN = "since|for|when|before|after|until|all|ever|every"  # "like this for weeks"
 LIKENS = rf"like (?:th(?:at|is)(?:(?: ones?)?(?!\s*\w)| (?:{THEN}))|the|an?|{QUOTES})"
-SAYS = "saying|telling|mentioned|discussed|talked|agreed|asked|wrote|planned|explained"
-SAYS += "|showed|promised|expect|expected|predicted|suggested|warned|noted|posted|decided"
-SAYS += "|figured|guessed|thought|assumed|feared|recommended|requested"
-SAYS += "|say|says|saw|noticed|pointed|suspected|hoped|texted|learned"
-SAYS += "|flagged|described|emailed|messaged|outlined|replied|estimated|proposed|demoed|reported"
-SAYS += "|mentioning|explaining|discussing|talking"
-SAYS += "|tells?|explains?|mentions?|to (?:say|tell|explain|mention)"
+SAYS = "says?|saying|telling|explained|explaining|mentioned|mentioning|discussed|discussing"
+SAYS += "|talked|talking|agreed|asked|wrote|planned|showed|promised|expect|expected|predicted"
+SAYS += "|suggested|warned|noted|posted|decided|figured|guessed|thought|assumed|feared|recommended"
+SAYS += "|requested|saw|noticed|pointed|suspected|hoped|texted|learned|flagged|described|emailed"
+SAYS += "|messaged|outlined|replied|estimated|proposed|demoed|reported"
 # Unlike "said"/"told", these need a comma or the end within 4 words: "Like I noted, it's flaky".
-LIKENS += rf"|like [\w']+(?: \w+){{0,2}} (?:said|told|(?:{SAYS})(?: [\w'-]+){{0,4}}(?=[,.!?]|$))"
+LIKENS += rf"|like [\w']+(?: \w+){{0,3}} (?:said|told|(?:{SAYS})(?: [\w'-]+){{0,4}}(?=[,.!?]|$))"
+TELLS = "tells?|explains?|mentions?|to (?:say|tell|explain|mention)"
+# These need a comma after or before: "Like he tells us, …", "…, like he tells us."
+LIKENS += rf"|(?:(?<=, )|(?=[^.!?]*,))like [\w']+(?: \w+){{0,3}} (?:{TELLS})(?: [\w'-]+){{0,4}}"
+LIKENS += r"(?=[,.!?]|$)"
 LIKENS += r"|(?:(?<=was )|(?<=were )|(?<='m )|(?<=he's )|(?<='re ))like, \w+"  # "I was like, nah"
 OPENS = r"most|all|any|every\w*|last|before|my|our|your|his|her|their"  # "Like last time, …"
 LIKENS += rf"|(?<![\w,] )like (?:{OPENS})(?: [\w'-]+){{0,3}}(?=,)"
@@ -242,6 +244,9 @@ def restore(raw, out):
     def before(k):  # the sentence said before spoken word k, stalls left out
         sentence = re.split(r"[.!?]", raw[: spans[k][1]])[-1]
         return HESITATION_RE.sub("", sentence).strip()
+
+    def mark(k):  # a mark said between spoken words k - 1 and k: "here? Can"
+        return re.search(r"[^\w\s]", said[spans[k - 1][2] : spans[k][1]])
 
     def repeated(k, kept, reach):  # said again within `reach` words, that copy kept: "test testing"
         if spoken[k] in (*VALUE, "dash", "dot", "slash") or spoken[k].replace(",", "").isdecimal():
@@ -361,12 +366,11 @@ def restore(raw, out):
     for i1, i2, j1, j2 in reversed(unexplained(forward, trusted=False)):
         # A run before a kept copy of its first word may be the one after: "done. Is it done?"
         while j1 == j2 and 0 < j1 < size - 1 and i2 + 1 < total and spoken[i1] == spoken[i2]:
-            marked = re.search(r"[^\w\s]", said[spans[i2 - 1][2] : spans[i2][1]])
             # Not if the gap said after its first word would become the cleanup's: "1.5 one".
             gap = said[spans[i1][2] : spans[i1 + 1][1]]
-            ends = re.search(r"[^\w\s]", said[spans[i2][2] : spans[i2 + 1][1]])
+            ends = mark(i2 + 1)
             lost = gap.split() != written[outs[j1][2] : outs[j1 + 1][1]].split() and not ends
-            if spoken[i2 + 1] != typed[j1 + 1] or marked or lost or not re.search(r"\s", gap):
+            if spoken[i2 + 1] != typed[j1 + 1] or mark(i2) or lost or not re.search(r"\s", gap):
                 break
             i1, i2, j1, j2 = i1 + 1, i2 + 1, j1 + 1, j2 + 1
         if j1 < j2:  # words changed, or added: as said, up to the next word kept
@@ -388,9 +392,7 @@ def restore(raw, out):
             piece = said[: spans[i2][2] if size else len(said)]
         elif j1 == size:  # left out at the end: with what was said after it
             start, end, piece = outs[j1 - 1][2], len(text), said[spans[i1 - 1][2] :]
-        elif any(
-            re.search(r"[^\w\s]", said[spans[k - 1][2] : spans[k][1]]) for k in range(i1, i2 + 1)
-        ):
+        elif any(mark(k) for k in range(i1, i2 + 1)):
             start, end = outs[j1 - 1][2], outs[j1][1]  # the gaps as said: "here? Can", "me, we"
             piece = said[spans[i1 - 1][2] : spans[i2][1]]
         else:

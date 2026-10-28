@@ -483,6 +483,7 @@ check(
         ("That's where Sam and I got it from.", "That's where Sam and I got it from."),
         ("Tell me what to send it to.", "Tell me what to send it to."),
         ("That's who I'd, honestly, send it to.", "That's who I'd, honestly, send it to."),
+        ("That's who, I mean, we report it to.", "That's who, I mean, we report it to."),
         (
             "I forgot which repo, honestly, my script pushed it to.",
             "I forgot which repo, honestly, my script pushed it to.",
@@ -666,6 +667,7 @@ check(
             ("I'm like so tired of this.", "I'm so tired of this."),
             ("Like I figured out the bug last night.", "I figured out the bug last night."),
             ("Like everything is broken today.", "Everything is broken today."),
+            ("Like he tells me nothing.", "He tells me nothing."),
             ("I'm um like so tired.", "I'm so tired."),
             ("That's the one that you know, I told you about.", "That's the one I told you about."),
             ("Show 10² rows, not ①.", "Show 10² rows, not ①."),
@@ -720,19 +722,15 @@ check(
             ("It's been like this for weeks.", "It's been this for weeks."),
             ("Like it says in the README, run uv sync.", "It says in the README, run uv sync."),
             ("Like I figured it was a cache.", "I figured it was a cache."),
+            ("Like I had sort of guessed, it was DNS.", "I had sort of guessed, it was DNS."),
             (
                 "Like I mentioned in the stand-up, we ship Friday.",
                 "I mentioned in the stand-up, we ship Friday.",
             ),
             ("Like I emailed you, it's attached.", "I emailed you, it's attached."),
-            (
-                "Like I was going to say, the deploy failed.",
-                "I was going to say, the deploy failed.",
-            ),
-            (
-                "Like my manager always tells us, ship small changes.",
-                "My manager always tells us, ship small changes.",
-            ),
+            ("Like I was just going to say, it failed.", "I was just going to say, it failed."),
+            ("Like my boss always tells us, ship it.", "My boss always tells us, ship it."),
+            ("Like I explain in the PR, it runs last.", "I explain in the PR, it runs last."),
             (
                 "Like I told you yesterday on the phone, it's broken.",
                 "I told you yesterday on the phone, it's broken.",
