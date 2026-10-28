@@ -20,7 +20,7 @@ local red = { red = 1, green = 0.27, blue = 0.23 }
 ---@class ToastNative
 ---@field glass fun(canvas: hs.canvas, radius: number, fade: number, dark: boolean): ToastGlass
 
--- Gray levels in each appearance: the rim and face gradients, the text, and glass's text shadow.
+-- Gray levels.
 local themes = {
   metal = {
     angle = 45,
@@ -65,7 +65,7 @@ local watcher
 ---@type ToastEntry[]
 local shown = {} -- oldest first
 local count = 0
-local held = {} -- by id, a toast a click is pressing
+local held = {}
 
 local function grays(levels)
   local colors = {}
@@ -89,7 +89,7 @@ end
 
 -- By id, as a callback holding its own timer is never collected.
 ---@param id integer?
----@param fade? number seconds, 0.25 by default
+---@param fade? number
 function toast.close(id, fade)
   local seconds = fade and math.max(fade, 0) or 0.25
   if held[id] then
@@ -97,7 +97,7 @@ function toast.close(id, fade)
   end
   for i, entry in ipairs(shown) do
     if entry.id == id then
-      -- Only its screen's oldest fades: the toasts above any other move into its place.
+      -- Only a screen's oldest fades: the toasts above any other move into its place.
       for j = 1, i - 1 do
         if shown[j].screen:id() == entry.screen:id() then
           seconds = 0
@@ -109,9 +109,9 @@ function toast.close(id, fade)
       end
       local canvas = entry.canvas
       local from, ends = canvas:alpha(), hs.timer.absoluteTime() + seconds * 1e9
-      -- Its window stays through the fade, and ignores clicks only without a callback.
+      -- Its fading window ignores clicks only without a callback.
       canvas:mouseCallback(nil)
-      -- By hand, as hs.canvas's fade orders the window out, then restores the alpha it began at.
+      -- By hand: hs.canvas's fade orders out, then restores the starting alpha.
       local function step()
         local left = ends - hs.timer.absoluteTime()
         if left > 0 then
@@ -137,7 +137,7 @@ end
 local types = hs.eventtap.event.types
 local ups = { [types.leftMouseUp] = true, [types.rightMouseUp] = true, [types.otherMouseUp] = true }
 local clicked, dropped = false, {}
--- Until a fresh click, drops the rest of a multi-click that closed a toast, each up with its down.
+-- Drops the rest of a multi-click that closed a toast, each up with its down.
 local tap = hs.eventtap.new({
   types.leftMouseDown,
   types.leftMouseUp,
@@ -199,7 +199,7 @@ end
 
 ---@class ToastOptions
 ---@field failure? boolean
----@field seconds? number|false 3 by default; false until closed
+---@field seconds? number|false false: until closed
 ---@field screen? hs.screen
 ---@field image? hs.image
 
@@ -220,7 +220,6 @@ function toast.show(text, options)
     return nil
   end
   local failure = options.failure == true
-  -- A timed repeat on the same screen restarts instead of stacking.
   for i, entry in ipairs(shown) do
     local plain = not options.image and not entry.image
     local same = entry.text == text and entry.failure == failure and plain
@@ -252,7 +251,6 @@ function toast.show(text, options)
   local left = padding + ((failure or options.image) and icon + 10 or 0)
   local size, radius = { w = left + width + padding, h = height }, math.min(height / 2, 20)
   canvas:size(size)
-  -- Drawn again in place when the appearance changes.
   local function paint()
     local look = theme[dark and "dark" or "light"]
     local shadow = look.shadow
@@ -329,7 +327,7 @@ function toast.show(text, options)
   canvas:behaviorAsLabels({ "canJoinAllSpaces", "stationary", "fullScreenAuxiliary" })
   canvas:clickActivating(false)
 
-  -- Closes on release: the window server puts back a window ordered out under a held left click.
+  -- Closes on release, as a held left click would put its window back.
   canvas:canvasMouseEvents(true, true, false, false)
   count = count + 1
   local id = count
@@ -340,7 +338,7 @@ function toast.show(text, options)
     end
     toast.close(id)
     clicked = true
-    -- Left on until a reload: stopping it from its callback dropped that click's mouse-up.
+    -- Never stopped: stopping it from its callback drops that click's mouse-up.
     tap:start()
   end)
   local entry = {
@@ -354,7 +352,6 @@ function toast.show(text, options)
   }
   arm(entry, seconds)
   shown[#shown + 1] = entry
-  -- Past the cap, the screen's oldest unpressed timed toast goes.
   local on = {}
   for _, other in ipairs(shown) do
     if other.screen:id() == screen:id() then
@@ -377,7 +374,7 @@ function toast.show(text, options)
   return id
 end
 
--- Metal, as light or dark as macOS, by default; makes every hs.alert a toast.
+-- Makes every hs.alert a toast.
 ---@param options? { theme?: "metal"|"edge"|"flat"|"glass", appearance?: "system"|"light"|"dark" }
 function toast.install(options)
   options = options or {}
@@ -401,7 +398,6 @@ function toast.install(options)
     watcher = nil
   end
   if appearance == "system" then
-    -- Follows macOS's appearance, redrawing shown toasts in place.
     watcher = hs.distributednotifications.new(function()
       dark = hs.host.interfaceStyle() == "Dark"
       for _, entry in ipairs(shown) do

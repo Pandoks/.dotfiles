@@ -1,10 +1,10 @@
 local root = assert(arg[1])
 local canvases, timers, logged, printed, measured = {}, {}, {}, {}, 0
-local clock = 0 -- ns, as hs.timer.absoluteTime gives
+local clock = 0 -- ns
 local tap
 local glasses, unbuilt = {}, false
 ---@type string?
-local system, watchers = "Dark", {} -- macOS's appearance, and each watcher of it
+local system, watchers = "Dark", {}
 -- Userdata, as in Hammerspoon.
 local screens, styled, at = {}, {}, {}
 screens.__index = {
@@ -65,7 +65,6 @@ local toast = assert(loadfile(
         return kinds[name]
       end,
       screen = {
-        -- Can stay on another display while a fullscreen app has focus.
         mainScreen = function()
           return main
         end,
@@ -122,7 +121,7 @@ local toast = assert(loadfile(
         absoluteTime = function()
           return clock
         end,
-        -- Its callback is held in the registry until the timer is collected, as in hs.timer.
+        -- Holds its callback in the registry until collected, as hs.timer does.
         doAfter = function(seconds, fn)
           local timer, ref = { seconds = seconds, fn = fn, at = clock + seconds * 1e9 }, {}
           debug.getregistry()[ref] = fn
@@ -277,7 +276,6 @@ local function rim(canvas)
   end
   return table.concat(levels, " ")
 end
--- Gray levels of the title and detail text.
 local function inks(canvas)
   local levels = {}
   for _, element in ipairs(canvas.elements) do
@@ -319,7 +317,6 @@ local function hold(point, state, button, first)
       front = canvas
     end
   end
-  -- As canvasMouseEvents asks, with the up sent where the down went.
   local function deliver(phase)
     if front and rawget(front, "click") and (front.calls.canvasMouseEvents or {})[phase] then
       front.click(front, phase == 1 and "mouseDown" or "mouseUp")
@@ -345,11 +342,10 @@ local function press(...)
   release()
   return hit
 end
--- Shown and not yet ordered out, or put back, and not transparent.
 local function drawn(canvas)
   return (canvas.visible and not canvas.out or canvas.ghost) and canvas.opacity > 0
 end
--- Lets the seconds pass, running each timer when due if still held; hs.timer collects the rest.
+-- Runs each timer when due unless collected, as hs.timer does.
 local function wait(seconds)
   local stop = clock + seconds * 1e9
   while true do
@@ -378,7 +374,7 @@ local function wait(seconds)
     end
   end
 end
--- Seconds until its window is ordered out, to the nearest 0.05 s, letting frames pass.
+-- Seconds until it is no longer drawn, to the nearest 0.05 s.
 local function fade(canvas)
   local frames = 0
   repeat

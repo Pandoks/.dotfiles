@@ -11,7 +11,7 @@ logger.path = directory .. "/config.log"
 ---@param message string
 function logger.error(message)
   toast.show(message:match("[^\n]+") or message, { failure = true, seconds = 5 })
-  -- After the alert: hs.ipc's print raises while a dead `hs` CLI is registered.
+  -- hs.ipc's print raises while a dead `hs` CLI is registered.
   pcall(print, message)
 end
 

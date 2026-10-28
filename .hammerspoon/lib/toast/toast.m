@@ -14,7 +14,7 @@ static BOOL keepImageLoaded(void) {
   return handle != NULL;
 }
 
-// Full glass without key focus, as AppKit's menus do; otherwise it's a subdued blur.
+// Full glass without key focus; otherwise a subdued blur.
 @interface ToastPanel : NSPanel
 @end
 
@@ -31,7 +31,6 @@ static void style(NSPanel *panel, BOOL dark) {
   ((NSGlassEffectView *)panel.contentView).tintColor = tint;
 }
 
-// glass(canvas, radius, fade, dark)
 static int glass(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TUSERDATA, "hs.canvas", LS_TNUMBER, LS_TNUMBER, LS_TBOOLEAN, LS_TBREAK];
@@ -69,7 +68,7 @@ static int glass(lua_State *state) {
   return 1;
 }
 
-// glass:hide(fade). The fade holds the panel, so a collection can't cut it short.
+// The fade holds the panel, so a collection can't cut it short.
 static int hide(lua_State *state) {
   void **pointer = luaL_checkudata(state, 1, tag);
   NSTimeInterval fade = luaL_optnumber(state, 2, 0);
@@ -88,7 +87,6 @@ static int hide(lua_State *state) {
   return 0;
 }
 
-// glass:paint(dark), once macOS's appearance changes.
 static int paint(lua_State *state) {
   void **pointer = luaL_checkudata(state, 1, tag);
   luaL_checktype(state, 2, LUA_TBOOLEAN);
