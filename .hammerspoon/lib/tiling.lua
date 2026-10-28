@@ -488,6 +488,12 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
     sync()
     return
   end
+  -- One dropped on another Space (e.g. another display in Mission Control) retiles there.
+  local space = entry and windowManager.native.spaces({ id })[id]
+  if space and space ~= entry.space then
+    sync()
+    return
+  end
   local tile = entry and not moving[id] and frames(entry.space)[entry.leaf]
   if not tile or window:frame():equals(tile) then
     return

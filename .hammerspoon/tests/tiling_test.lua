@@ -392,6 +392,14 @@ test("a window moved by hand snaps back, after the drag when the mouse is down",
   eq(h:frame(1), "0,0 500x600", "the release snaps it back")
 end)
 
+test("a window dropped on another display's Space tiles there instead of snapping back", function()
+  local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
+  h:row(1).space = 2
+  h:drag(1, rect(1200, 100, 300, 300))
+  eq(h:frame(1), "1000,0 1000x600", "fills the other display")
+  eq(h:frame(2), "0,0 1000x600", "the window left behind takes the Space")
+end)
+
 test("a tiled window entering fullscreen leaves the layout instead of snapping back", function()
   local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
   h:row(1).fullscreen = true
