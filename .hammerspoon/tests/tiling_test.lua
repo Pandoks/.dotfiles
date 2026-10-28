@@ -34,7 +34,7 @@ local function rect(x, y, w, h)
 end
 
 -- A 1000x600 display showing Space 1 and, to its right, one showing Space 2. Windows are
--- {id, app, title?, space?}; Space 3 has no display.
+-- {id, app, title?, space?}; Space 3 has no display, and Space 4 is another on the first.
 local function harness(rows)
   local h = {
     subscribed = {},
@@ -44,6 +44,7 @@ local function harness(rows)
     focuses = {},
     windows = {},
     buttons = {},
+    settle = function() end,
   }
   local function window(row)
     local app = {
@@ -182,6 +183,14 @@ local function harness(rows)
           return h.buttons
         end,
       },
+      timer = {
+        delayed = {
+          new = function(_, fn)
+            h.settle = fn
+            return { start = function() end, stop = function() end }
+          end,
+        },
+      },
       eventtap = {
         event = { types = { leftMouseUp = "up" } },
         new = function(_, fn)
@@ -196,7 +205,7 @@ local function harness(rows)
       },
       spaces = {
         spaceDisplay = function(space)
-          return ({ "display", "other" })[space]
+          return ({ [1] = "display", [2] = "other", [4] = "display" })[space]
         end,
         activeSpaces = function()
           return { display = 1, other = 2 }
@@ -392,7 +401,7 @@ test("a window moved by hand snaps back, after the drag when the mouse is down",
   eq(h:frame(1), "0,0 500x600", "the release snaps it back")
 end)
 
-test("a window moved to another display tiles there, after the drag when the mouse is down", function()
+test("a window moved to another display tiles there, after the drag when there is one", function()
   local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
   h:row(1).space = 2
   h:drag(1, rect(1200, 100, 300, 300))
@@ -407,6 +416,19 @@ test("a window moved to another display tiles there, after the drag when the mou
   h.release()
   eq(h:frame(2), "0,0 500x600", "the release retiles both displays")
   eq(h:frame(1), "500,0 500x600")
+end)
+
+test("a window moved to another Space on the same display retiles both once released", function()
+  local h = harness({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
+  h:row(1).space = 4
+  h.release()
+  h.buttons = { true }
+  h.settle()
+  eq(h:frame(2), "500,0 500x600", "a new drag waits for its own release")
+  h.buttons = {}
+  h.settle()
+  eq(h:frame(2), "0,0 1000x600", "the window left behind takes the Space")
+  eq(h:frame(1), "0,0 1000x600", "the moved window fills its new Space")
 end)
 
 test("a tiled window entering fullscreen leaves the layout instead of snapping back", function()

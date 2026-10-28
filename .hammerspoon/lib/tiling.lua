@@ -489,7 +489,7 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
     sync()
     return
   end
-  -- One moved to another Space (e.g. another display) retiles there, after the drag when there is one.
+  -- One moved to another display retiles there, after the drag when there is one.
   local space = entry and windowManager.native.spaces({ id })[id]
   if space and space ~= entry.space then
     if hs.mouse.getButtons()[1] then
@@ -509,6 +509,23 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
     apply(entry.space)
   end
 end)
+-- A Mission Control drop moves a window to another Space ~0.6 s after the release, without moving it.
+tiling.settle = hs.timer.delayed.new(1, function()
+  if hs.mouse.getButtons()[1] then
+    return
+  end
+  local ids = {}
+  for id in pairs(tiled) do
+    ids[#ids + 1] = id
+  end
+  local spaces = windowManager.native.spaces(ids)
+  for id, entry in pairs(tiled) do
+    if spaces[id] and spaces[id] ~= entry.space then
+      sync()
+      return
+    end
+  end
+end)
 tiling.release = hs.eventtap
   .new({ hs.eventtap.event.types.leftMouseUp }, function()
     if crossed then
@@ -519,6 +536,7 @@ tiling.release = hs.eventtap
       apply(space)
     end
     dragged = {}
+    tiling.settle:start()
     return false
   end)
   :start() --[[@as hs.eventtap]]
@@ -553,6 +571,7 @@ end
 function tiling.stop()
   stopped = true
   tiling.release:stop()
+  tiling.settle:stop()
   tiling.spaces:stop()
   tiling.screens:stop()
   tiling.windows:delete()
