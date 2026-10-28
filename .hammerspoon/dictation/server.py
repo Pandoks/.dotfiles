@@ -200,8 +200,10 @@ def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"
     return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
 
 
-CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i meant?|scratch that|or rather)"
-CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
+BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
+CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|scratch that|or rather"
+CUE += r"|(?:what )?i meant?(?: to say)?(?: was)?)"
+CUE += rf"(?:[,.]? make (?:{'|'.join(BACK)}))?"  # "sorry, make it 30", "actually. Make it 60"
 ADDS = r"[^.!?,]*\b(?:too|also|as well|first)\b"  # a cue that adds: "Actually, send it to Sam too"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
 # Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
@@ -300,9 +302,8 @@ def restore(raw, out):
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
                 past = c + len(cue[0].split())
-                # Its verb again with it/them/him/her, as "make it": "Oki, sorry, send them to Sam"
-                pronoun = spoken[past + 1 : past + 2] in (["it"], ["them"], ["him"], ["her"])
-                if pronoun and spoken[past] in spoken[:c]:
+                # Its verb again, as "make": "Oki, sorry, send them to Sam"
+                if past + 1 < total and spoken[past + 1] in BACK and spoken[past] in spoken[:c]:
                     past += 0 if re.match(ADDS, raw[spans[past + 1][2] :]) else 2
                 if found and c <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
                     found[-1] = (found[-1][0], past)
@@ -324,7 +325,7 @@ def restore(raw, out):
                     continue
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
                 listed = re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[i2 - 1][2]])
-                said_later = any(set(new) <= set(spoken[e:]) for _, e in cues(i2, total))
+                said_later = any(set(new) <= set(spoken[c:]) for c, _ in cues(i2, total))
                 if listed or not trusted or not said_later:
                     bad.append((i1, i2, j1, j2))
                     continue
@@ -336,8 +337,8 @@ def restore(raw, out):
             shift = i1 and spoken[i1 - 1] == spoken[i2 - 1]  # "that, you know, you have"
             if dropped(i1, i2, kept) or shift and dropped(i1 - 1, i2 - 1, kept):
                 continue
-            # ...what a cue takes back, its own words or those before the run, not a list's item
-            # or a detail moved past it: "Monday, sorry, Tuesday" or "four, sorry, four"...
+            # ...what a cue takes back ("Monday, sorry, Tuesday" or "four, sorry, four"), its own
+            # words or those before the run, not a list's item or a detail the cleanup moved...
             if i2 < total and any(
                 (c > i1 or e < i2)
                 and spoken[e:i2] == spoken[i1 - (i2 - e) : i1]
@@ -367,8 +368,8 @@ def restore(raw, out):
     whole = [w for *_, w in spans], [w for *_, w in outs]
     forward = difflib.SequenceMatcher(None, *whole, autojunk=False).get_opcodes()
     # Back to front, so the positions before each change hold. A left-out run comes back whole:
-    # with the gaps said in and around it if one has a mark ("friendly, I guess? Then"), else
-    # before the next word kept ("like " before "something").
+    # with the gaps said in and around it if one has a mark ("friendly, I guess? Then") or the
+    # cleanup joined the words around it ("localhost:3000"), else before the next word kept.
     for i1, i2, j1, j2 in reversed(unexplained(forward, trusted=False)):
         # A run before a kept copy of its first word may be the one after: "done. Is it done?"
         while j1 == j2 and 0 < j1 < size - 1 and i2 + 1 < total and spoken[i1] == spoken[i2]:
@@ -381,24 +382,20 @@ def restore(raw, out):
             i1, i2, j1, j2 = i1 + 1, i2 + 1, j1 + 1, j2 + 1
         if j1 < j2:  # words changed, or added: as said, up to the next word kept
             last = j2 == size and i2 == total
-            start = outs[j1 - 1][2] if i1 == i2 and j1 else outs[j1][1]
-            end = len(text) if last else outs[j2 - 1][2] if i1 == i2 and j1 else outs[j2][1]
+            start = outs[j1 - 1][2] if i1 and j1 else outs[j1][1]
+            end = len(text) if last else outs[j2][1]
             quoted = i1 < i2 and said[spans[i1][1] - 1 : spans[i1][1]] in ("'", "’")  # "'cause"
             piece = said[spans[i1][1] - quoted : None if last else spans[i2][1]] if i1 < i2 else ""
-            if i1 == i2 and last:  # added at the end: taken out, keeping the end mark said
-                piece = said[spans[i1 - 1][2] :] if i1 else ""
-            elif i1 == i2 and j1:  # added mid-text: out, with the gap said there ("it? Ship")
-                start, end = outs[j1 - 1][2], outs[j2][1]
-                piece = said[spans[i1 - 1][2] : spans[i1][1]]
-            elif i1 and j1:  # with the gap said before it: "is. First we", not "is First we"
-                start = outs[j1 - 1][2]
+            if i1 and j1:  # with the gap said before it: "is. First we", not "is First we"
                 piece = said[spans[i1 - 1][2] : None if last else spans[i2][1]]
         elif not j1:  # left out at the start: through the first word kept, as said
             start, end = 0, outs[0][2] if size else len(text)
             piece = said[: spans[i2][2] if size else len(said)]
         elif j1 == size:  # left out at the end: with what was said after it
             start, end, piece = outs[j1 - 1][2], len(text), said[spans[i1 - 1][2] :]
-        elif any(mark(k) for k in range(i1, i2 + 1)):
+        elif any(mark(k) for k in range(i1, i2 + 1)) or not re.search(
+            r"\s", text[outs[j1 - 1][2] : outs[j1][1]]
+        ):
             start, end = outs[j1 - 1][2], outs[j1][1]  # the gaps as said: "here? Can", "me, we"
             piece = said[spans[i1 - 1][2] : spans[i2][1]]
         else:

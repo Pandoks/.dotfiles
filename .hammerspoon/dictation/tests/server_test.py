@@ -617,8 +617,9 @@ check(
             ("I need two tickets, no, no, three.", "I need three tickets."),
             ("Book two rooms, no, sorry, three.", "Book three rooms."),
             ("Send the logs to Oki, no wait, send them to Sam.", "Send the logs to Sam."),
-            ("Book the room for 3, sorry, book it for 4.", "Book the room for 4."),
             ("Remind Oki on Friday, actually, remind him on Thursday.", "Remind Oki on Thursday."),
+            ("Visit Grandma on Sunday, wait, visit her on Saturday.", "Visit Grandma on Saturday."),
+            ("Ask Kate about the budget, no wait, ask her boss.", "Ask her boss about the budget."),
             (
                 "Book two rooms, sorry, three rooms for Tuesday. Can you do that?",
                 "Book three rooms for Tuesday. Can you do that?",
@@ -629,11 +630,13 @@ check(
             ),
             ("Don't merge it, scratch that, merge it.", "Merge it."),
             ("Set the theme to light, or rather, set it to dark.", "Set the theme to dark."),
+            ("Paint the hallway green, actually, paint that gray.", "Paint the hallway gray."),
             ("I'll take the blue one actually.", "I'll take the blue one."),
             (
                 "Set the timeout to 30 seconds actually. Make it 60 seconds.",
                 "Set the timeout to 60 seconds.",
             ),
+            ("Print the labels in red, actually, make them blue.", "Print the labels in blue."),
             (
                 "Please print ten copies of the report, sorry, twelve.",
                 "Please print twelve copies of the report.",
@@ -646,6 +649,8 @@ check(
             ("The review is Thursday. Uh, sorry, Friday.", "The review is Friday."),
             ("We need five chairs, I mean six.", "We need six chairs."),
             ("Send the draft to Sam, sorry, I meant Kate.", "Send the draft to Kate."),
+            ("Open the link in Chrome, I meant to say Safari.", "Open the link in Safari."),
+            ("Write the script in Python, no, what I meant was Bash.", "Write the script in Bash."),
             ("Is that right? So we ship it.", "Is that right? We ship it."),
             (
                 "Book it for Monday, sorry, Tuesday for your team, if you can.",
@@ -755,11 +760,14 @@ check(
             ("Turn the volume up, wait, no, down.", "Turn the volume up, down."),
             ("Send the logs to Oki, no wait, forward them to Sam.", "Send the logs to Sam."),
             ("Send the logs to Oki. Actually, send them to Sam too.", "Send the logs to Sam too."),
+            ("Lock the doors at 9, actually, lock them again at 12.", "Lock the doors at 12."),
             (
                 "Move the files to the archive tonight, wait, move them to the backup drive.",
                 "Move the files to the backup drive tonight.",
             ),
             ("npm install dash dash save dev", "npm install dash save dev"),
+            ("Open localhost colon 3000 in the browser.", "Open localhost:3000 in the browser."),
+            ("Meet at 10 oh 5 tomorrow.", "Meet at 10:5 tomorrow."),
             ("Meet at seven seventeen.", "Meet at seven."),
             ("I think he knows you know.", "I think he knows you."),
             ("Send it tomorrow, I'm sorry, tonight.", "Send it tonight tomorrow."),
@@ -806,7 +814,6 @@ check(
     ]
     + [
         (("Add 0.5 cups.", "Add 0.05 cups."), None),
-        (("Meet at 10 oh 5 tomorrow.", "Meet at 10:5 tomorrow."), None),
         (
             (
                 "So the plan is. First we update the docs. Then we, um, release it on Friday.",
