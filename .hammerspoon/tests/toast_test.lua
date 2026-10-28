@@ -65,9 +65,6 @@ local toast = assert(loadfile(
         return kinds[name]
       end,
       screen = {
-        mainScreen = function()
-          return main
-        end,
         find = function(uuid)
           return ({ ["0"] = main, ["1000"] = side })[uuid]
         end,
