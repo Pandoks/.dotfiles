@@ -200,7 +200,7 @@ def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"
     return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
 
 
-CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
+CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i meant?|scratch that|or rather)"
 CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
 ADDS = r"[^.!?,]*\b(?:too|also|as well|first)\b"  # a cue that adds: "Actually, send it to Sam too"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
@@ -283,6 +283,7 @@ def restore(raw, out):
     # moved up to the words they replace aren't `trusted` in a take that has others.
     def unexplained(ops, trusted=True):
         kept = {i for tag, i1, i2, _, _ in ops if tag == "equal" for i in range(i1, i2)}
+        added = {w for tag, _, _, j1, j2 in ops if tag == "insert" for w in typed[j1:j2]}
         bad = []
 
         def cues(start, end):  # (first, past) of each left-out correction cue in spoken[start:end]
@@ -299,8 +300,9 @@ def restore(raw, out):
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
                 past = c + len(cue[0].split())
-                # Its verb again with "it", as "make it": "the logs to Oki, sorry, send them to"
-                if spoken[past + 1 : past + 2] in (["it"], ["them"]) and spoken[past] in spoken[:c]:
+                # Its verb again with it/them/him/her, as "make it": "Oki, sorry, send them to Sam"
+                pronoun = spoken[past + 1 : past + 2] in (["it"], ["them"], ["him"], ["her"])
+                if pronoun and spoken[past] in spoken[:c]:
                     past += 0 if re.match(ADDS, raw[spans[past + 1][2] :]) else 2
                 if found and c <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
                     found[-1] = (found[-1][0], past)
@@ -334,12 +336,13 @@ def restore(raw, out):
             shift = i1 and spoken[i1 - 1] == spoken[i2 - 1]  # "that, you know, you have"
             if dropped(i1, i2, kept) or shift and dropped(i1 - 1, i2 - 1, kept):
                 continue
-            # ...what a cue takes back, its own words or those before the run, not a list's item:
-            # "Monday, sorry, Tuesday" or "four, sorry, four"...
+            # ...what a cue takes back, its own words or those before the run, not a list's item
+            # or a detail moved past it: "Monday, sorry, Tuesday" or "four, sorry, four"...
             if i2 < total and any(
                 (c > i1 or e < i2)
                 and spoken[e:i2] == spoken[i1 - (i2 - e) : i1]
                 and not re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[c - 1][2]])
+                and spoken[c - 1] not in added
                 for c, e in cues(i1, i2)
             ):
                 continue

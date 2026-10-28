@@ -618,6 +618,7 @@ check(
             ("Book two rooms, no, sorry, three.", "Book three rooms."),
             ("Send the logs to Oki, no wait, send them to Sam.", "Send the logs to Sam."),
             ("Book the room for 3, sorry, book it for 4.", "Book the room for 4."),
+            ("Remind Oki on Friday, actually, remind him on Thursday.", "Remind Oki on Thursday."),
             (
                 "Book two rooms, sorry, three rooms for Tuesday. Can you do that?",
                 "Book three rooms for Tuesday. Can you do that?",
@@ -627,6 +628,7 @@ check(
                 "I keep telling the team that you have to test it.",
             ),
             ("Don't merge it, scratch that, merge it.", "Merge it."),
+            ("Set the theme to light, or rather, set it to dark.", "Set the theme to dark."),
             ("I'll take the blue one actually.", "I'll take the blue one."),
             (
                 "Set the timeout to 30 seconds actually. Make it 60 seconds.",
@@ -643,6 +645,7 @@ check(
             ("Email Lisa Tuesday, actually, Karen.", "Email Karen Tuesday."),
             ("The review is Thursday. Uh, sorry, Friday.", "The review is Friday."),
             ("We need five chairs, I mean six.", "We need six chairs."),
+            ("Send the draft to Sam, sorry, I meant Kate.", "Send the draft to Kate."),
             ("Is that right? So we ship it.", "Is that right? We ship it."),
             (
                 "Book it for Monday, sorry, Tuesday for your team, if you can.",
@@ -732,6 +735,7 @@ check(
             ),
             ("Like I emailed you, it's attached.", "I emailed you, it's attached."),
             ("Like I was just going to say, it failed.", "I was just going to say, it failed."),
+            ("Like I've tried to tell you, it's DNS.", "I've tried to tell you, it's DNS."),
             ("Like my boss always tells us, ship it.", "My boss always tells us, ship it."),
             ("Like I explain in the PR body, it's last.", "I explain in the PR body, it's last."),
             (
@@ -748,9 +752,13 @@ check(
             ("It costs 14.99.", "It costs 1499."),
             ("Meet at five forty five.", "Meet at five-fort-five."),
             ("Turn the volume up, sorry, down.", "Turn the volume up."),
+            ("Turn the volume up, wait, no, down.", "Turn the volume up, down."),
             ("Send the logs to Oki, no wait, forward them to Sam.", "Send the logs to Sam."),
             ("Send the logs to Oki. Actually, send them to Sam too.", "Send the logs to Sam too."),
-            ("Turn the volume up, wait, no, down.", "Turn the volume up, down."),
+            (
+                "Move the files to the archive tonight, wait, move them to the backup drive.",
+                "Move the files to the backup drive tonight.",
+            ),
             ("npm install dash dash save dev", "npm install dash save dev"),
             ("Meet at seven seventeen.", "Meet at seven."),
             ("I think he knows you know.", "I think he knows you."),
