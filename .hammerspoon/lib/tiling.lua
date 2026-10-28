@@ -481,6 +481,7 @@ end)
 
 -- Windows moved or resized by hand snap back to their tile, after the drag when there is one.
 local dragged = {} ---@type table<integer, boolean>
+local crossed = false
 tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   local entry = tiled[id]
   -- A tiled window that stopped qualifying (e.g. entering fullscreen) leaves the tree instead.
@@ -488,10 +489,14 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
     sync()
     return
   end
-  -- One dropped on another Space (e.g. another display in Mission Control) retiles there.
+  -- One moved to another Space (e.g. another display) retiles there, after the drag when there is one.
   local space = entry and windowManager.native.spaces({ id })[id]
   if space and space ~= entry.space then
-    sync()
+    if hs.mouse.getButtons()[1] then
+      crossed = true
+    else
+      sync()
+    end
     return
   end
   local tile = entry and not moving[id] and frames(entry.space)[entry.leaf]
@@ -506,6 +511,10 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
 end)
 tiling.release = hs.eventtap
   .new({ hs.eventtap.event.types.leftMouseUp }, function()
+    if crossed then
+      crossed = false
+      sync()
+    end
     for space in pairs(dragged) do
       apply(space)
     end
