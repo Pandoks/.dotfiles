@@ -108,18 +108,20 @@ CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it
 FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
 TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
 # Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
-LEADS = {"is", "were", "are", "am", "be", "been", "it's", "that's", "i'm", "you're", "and"}
+LEADS = {"is", "were", "are", "am", "be", "been", "it's", "i'm", "you're", "and"}
 LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
 # A "like" that likens, quotes, or means "as" stays: "like a car", "I'm like, sure", "like I said".
-SAYS = "said|saying|told|telling|mentioned|discussed|talked|agreed|asked|wrote|planned|explained"
-SAYS += "|showed|promised|expect|expected|predicted|suggested|warned|noted|posted|decided"
-SAYS += "|figured|guessed|thought|assumed|feared|recommended|requested"
-SAYS += "|say|says|saw|noticed|pointed|suspected|hoped|texted|learned"
 QUOTES = "why|what|how|who|no|nope|okay|oh|sure|yeah|yes|wait|hey|dude|come"
 THEN = "since|for|when|before|after|until|all|ever|every"  # "like this for weeks"
 LIKENS = rf"like (?:th(?:at|is)(?:(?: ones?)?(?!\s*\w)| (?:{THEN}))|the|an?|{QUOTES})"
-# Verbs but "said"/"told" need a comma or the end within 4 words: not "Like I figured out the bug".
-LIKENS += rf"|like [\w']+(?: \w+)? (?:said|told|(?:{SAYS})(?: [\w']+){{0,4}}(?=[,.!?]|$))"
+SAYS = "saying|telling|mentioned|discussed|talked|agreed|asked|wrote|planned|explained"
+SAYS += "|showed|promised|expect|expected|predicted|suggested|warned|noted|posted|decided"
+SAYS += "|figured|guessed|thought|assumed|feared|recommended|requested"
+SAYS += "|say|says|saw|noticed|pointed|suspected|hoped|texted|learned"
+SAYS += "|flagged|described|emailed|messaged|outlined|replied|estimated|proposed|demoed|reported"
+# Unlike "said"/"told", these need a comma or the end within 4 words: "Like I noted, it's flaky"
+# keeps "like", "Like I figured out the bug last night" doesn't.
+LIKENS += rf"|like [\w']+(?: \w+)? (?:said|told|(?:{SAYS})(?: [\w'-]+){{0,4}}(?=[,.!?]|$))"
 LIKENS += r"|(?:(?<=was )|(?<=were )|(?<='m )|(?<=he's )|(?<='re ))like, \w+"  # "I was like, nah"
 OPENS = r"most|all|any|every\w*|last|before|my|our|your|his|her|their"  # "Like last time, …"
 LIKENS += rf"|(?<![\w,] )like (?:{OPENS})(?: [\w']+){{0,3}}(?=,)"
@@ -140,8 +142,10 @@ def ending(raw, text):
     last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
     if last in DIRECTED:  # "Send it to", not "That's who I gave it to"
         # A comma or conjunction ends the wh-word's clause ("… or send it to"), not "Sam and I";
-        # an aside doesn't ("who, like, we sent it to").
-        bare = re.sub(r",(?![^,.!?]*\b(?:what|which|who|where)\b)[^,.!?]*,", "", raw)
+        # an aside right after it doesn't ("who, like, Sam gave it to"), nor one before a subject
+        # that "and", "but", "or" or "so" doesn't open ("which old repo, like, we pushed it to").
+        bare = re.sub(r"(\b(?:who|what|where|which(?: \w+)?)),[^,.!?]*,", r"\1", raw)
+        bare = re.sub(r",(?! (?:and|but|or|so)\b)[^,.!?]*,(?= (?:I|we|you|s?he|they)\b)", "", bare)
         joins = r"but|or|so|then|if|when|before|after|because|until"
         clause = re.split(rf"[.!?,]\s|\b(?:{joins})\b|\band\b(?! [A-Z]\w* )", bare)[-1]
         stranded = re.search(r"(?i)\b(?:what|which|who|where)\b", clause)
@@ -446,8 +450,9 @@ def digits(text, names):
     measure = "|".join([*MEASURES, *SCALES]) + "|feet|percent|point|degree|time|hour|minute|amp"
     measure += r"|ounce|gallon|yard|ton|gig|[kmgt]b|ms"
     measure += r"|\w*(?:second|meter|gram|liter|byte|watt|volt|hertz|hz)"
-    measure += r"|(?:(?!as )\w+ )?per(?! (?:the|my|your|our)\b)"  # not "as per", "per my email"
-    rate = r"(?:an? (?!\w+ (?:before|after|early|earlier|later)\b))?"  # not "an hour before"
+    # A rate's "per" and "an", not "as per usual", "per her email", "an hour from now."
+    measure += r"|(?:(?!as )\w+ )?per(?! (?:th(?:e\w*|ose|is|at)|my|your|our|his|her|usual)\b)"
+    rate = r"(?:an? (?!\w+ (?:before|after|ahead|early|earlier|later|from now(?! \w))\b))?"
     clock = rf"{hour}\.(00|15|30|45)\b(?![\d%]|\.\d| ?{rate}(?:{measure})(?:e?s)?\b)"
     span = rf"(?i)\b(from|between) {clock}(?= (?:to|and) {clock})"  # "from 9.15 to 9.45"
     at = rf"(?i)\b(at|until|till|(?<=\d:\d\d )(?:to|and)) {clock}"
@@ -658,9 +663,9 @@ class Engine:
         text = ending(said, ensure_question(said, self.spell(strip_stalls(out), request)))
         # What the cleanup changed beyond its rules is typed as said.
         restored = restore(raw, text)
-        if restored is None or restore(raw, restored) != restored:
-            raise Rejected("the cleanup rewrote what was said, so nothing was typed")
         if restored != text:
+            if restored is None or restore(raw, restored) != restored:
+                raise Rejected("the cleanup rewrote what was said, so nothing was typed")
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
         return digits(ending(said, restored), names)
 
