@@ -103,28 +103,7 @@ def ensure_question(raw, text):
 
 HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+m*|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, ahm, oh
 HESITATION_RE = re.compile(LONE.format(HESITATIONS), re.IGNORECASE)
-CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
-CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
 FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
-TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
-# Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
-LEADS = {"is", "were", "are", "am", "be", "been", "it's", "i'm", "you're", "and", "to"}
-LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
-# A "like" that likens, quotes, or means "as" stays: "like a car", "I'm like, sure", "like I said".
-QUOTES = "why|what|how|who|no|nope|okay|oh|sure|yeah|yes|wait|hey|dude|come"
-THEN = "since|for|when|before|after|until|all|ever|every"  # "like this for weeks"
-LIKENS = rf"like (?:th(?:at|is)(?:(?: ones?)?(?!\s*\w)| (?:{THEN}))|the|an?|{QUOTES})"
-SAYS = "saying|telling|mentioned|discussed|talked|agreed|asked|wrote|planned|explained"
-SAYS += "|showed|promised|expect|expected|predicted|suggested|warned|noted|posted|decided"
-SAYS += "|figured|guessed|thought|assumed|feared|recommended|requested"
-SAYS += "|say|says|saw|noticed|pointed|suspected|hoped|texted|learned"
-SAYS += "|flagged|described|emailed|messaged|outlined|replied|estimated|proposed|demoed|reported"
-SAYS += "|mentioning|explaining|discussing|talking"
-# Unlike "said"/"told", these need a comma or the end within 4 words: "Like I noted, it's flaky".
-LIKENS += rf"|like [\w']+(?: \w+){{0,2}} (?:said|told|(?:{SAYS})(?: [\w'-]+){{0,4}}(?=[,.!?]|$))"
-LIKENS += r"|(?:(?<=was )|(?<=were )|(?<='m )|(?<=he's )|(?<='re ))like, \w+"  # "I was like, nah"
-OPENS = r"most|all|any|every\w*|last|before|my|our|your|his|her|their"  # "Like last time, …"
-LIKENS += rf"|(?<![\w,] )like (?:{OPENS})(?: [\w'-]+){{0,3}}(?=,)"
 
 # Words no finished sentence ends on; enforced here since the model adds a period anyway.
 CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
@@ -143,14 +122,14 @@ def ending(raw, text):
     if last in DIRECTED:  # "Send it to", not "That's who I gave it to"
         # A comma or conjunction ends the wh-word's clause ("… or send it to"), not "Sam and I", nor
         # an aside after it or its subject ("who I'd, like, send") or before a subject ("which old
-        # repo, like, we") unless it follows a whole clause ("If you know who owns it, like, you").
-        joins, wh = r"but|or|so|then|if|when|before|after|because|until", "what|which|who|where"
+        # repo, like, we") unless a subordinator or wh-word, then a subject, come first ("If you…").
+        joins, wh = r"if|when|before|after|because|until", "what|which|who|where"
         subject = r" (?:I|we|you|s?he|they)\b"
         bare = re.sub(rf"(\b(?:{wh}|which \w+)(?:{subject}(?:'\w+)?)?),[^,.!?]*,", r"\1", raw)
-        whole = rf"[^,.!?]*\b(?i:if|once|when|after|before|until|because|{wh})\b[^,.!?]*{subject}"
+        whole = rf"[^,.!?]*\b(?i:once|{joins}|{wh})\b[^,.!?]*{subject}"
         held = rf"((?:^|[.!?,] )(?!{whole})[^,.!?]*)"
         bare = re.sub(rf"{held},(?! (?:and|but|or|so)\b)[^,.!?]*,(?={subject})", r"\1", bare)
-        clause = re.split(rf"[.!?,]\s|\b(?:{joins})\b|\band\b(?! [A-Z]\w* )", bare)[-1]
+        clause = re.split(rf"[.!?,]\s|\b(?:but|or|so|then|{joins}|and(?! [A-Z]\w* ))\b", bare)[-1]
         stranded = re.search(rf"(?i)\b(?:{wh})\b", clause)
         if previous not in ("it", "this", "that", "them", "these", "those") or stranded:
             return text
@@ -219,6 +198,30 @@ def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"
     if re.search(r"\d", a + b) or a in VALUE or {a, b} <= VALUE.keys() | ORDINAL.keys():
         return False  # "15000" -> "150000", "fifteenth" -> "fiftieth" is another number
     return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
+
+
+CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|i mean|scratch that|or rather)"
+CUE += r"(?:[,.]? make (?:it|that))?"  # "sorry, make it 30", "actually. Make it 60"
+TAGS = ("yeah", "okay", "ok", "actually")  # fillers that may end a sentence ("Fine by me yeah.")
+# Words a "like" stalls after, commas or not: "it's like so slow"; not "he's like my best friend".
+LEADS = {"is", "were", "are", "am", "be", "been", "it's", "i'm", "you're", "and", "to"}
+LEADS |= {"but", "so", "or", "then", "like", "well", "yeah", "okay"}
+# A "like" that likens, quotes, or means "as" stays: "like a car", "I'm like, sure", "like I said".
+QUOTES = "why|what|how|who|no|nope|okay|oh|sure|yeah|yes|wait|hey|dude|come"
+THEN = "since|for|when|before|after|until|all|ever|every"  # "like this for weeks"
+LIKENS = rf"like (?:th(?:at|is)(?:(?: ones?)?(?!\s*\w)| (?:{THEN}))|the|an?|{QUOTES})"
+SAYS = "saying|telling|mentioned|discussed|talked|agreed|asked|wrote|planned|explained"
+SAYS += "|showed|promised|expect|expected|predicted|suggested|warned|noted|posted|decided"
+SAYS += "|figured|guessed|thought|assumed|feared|recommended|requested"
+SAYS += "|say|says|saw|noticed|pointed|suspected|hoped|texted|learned"
+SAYS += "|flagged|described|emailed|messaged|outlined|replied|estimated|proposed|demoed|reported"
+SAYS += "|mentioning|explaining|discussing|talking"
+SAYS += "|tells?|explains?|mentions?|to (?:say|tell|explain|mention)"
+# Unlike "said"/"told", these need a comma or the end within 4 words: "Like I noted, it's flaky".
+LIKENS += rf"|like [\w']+(?: \w+){{0,2}} (?:said|told|(?:{SAYS})(?: [\w'-]+){{0,4}}(?=[,.!?]|$))"
+LIKENS += r"|(?:(?<=was )|(?<=were )|(?<='m )|(?<=he's )|(?<='re ))like, \w+"  # "I was like, nah"
+OPENS = r"most|all|any|every\w*|last|before|my|our|your|his|her|their"  # "Like last time, …"
+LIKENS += rf"|(?<![\w,] )like (?:{OPENS})(?: [\w'-]+){{0,3}}(?=,)"
 
 
 def restore(raw, out):

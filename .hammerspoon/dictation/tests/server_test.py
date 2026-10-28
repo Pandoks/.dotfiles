@@ -480,7 +480,8 @@ check(
         ("See you in May.", "See you in May."),
         ("I'd love to.", "I'd love to."),
         ("He's the one I wrote it for.", "He's the one I wrote it for."),
-        ("That's who Tom and I sent it to.", "That's who Tom and I sent it to."),
+        ("That's where Sam and I got it from.", "That's where Sam and I got it from."),
+        ("Tell me what to send it to.", "Tell me what to send it to."),
         ("That's who I'd, honestly, send it to.", "That's who I'd, honestly, send it to."),
         (
             "I forgot which repo, honestly, my script pushed it to.",
@@ -491,8 +492,8 @@ check(
             "I'm not sure which old branch, like, we merged it into.",
         ),
         (
-            "When you know what broke, like, send it to.",
-            "When you know what broke, like, send it to",
+            "Figure out what changed, I mean, compare it to.",
+            "Figure out what changed, I mean, compare it to",
         ),
         (
             "If you know who owns it, like, you can send it to.",
@@ -503,8 +504,8 @@ check(
             "I see what you mean, like, we could send it to",
         ),
         (
-            "I get what you're saying, and honestly, I'd just send it to.",
-            "I get what you're saying, and honestly, I'd just send it to",
+            "I asked who owns it, and honestly, we should send it to.",
+            "I asked who owns it, and honestly, we should send it to",
         ),
         (
             "Let me know what you think and I'll forward it to.",
@@ -724,6 +725,14 @@ check(
                 "I mentioned in the stand-up, we ship Friday.",
             ),
             ("Like I emailed you, it's attached.", "I emailed you, it's attached."),
+            (
+                "Like I was going to say, the deploy failed.",
+                "I was going to say, the deploy failed.",
+            ),
+            (
+                "Like my manager always tells us, ship small changes.",
+                "My manager always tells us, ship small changes.",
+            ),
             (
                 "Like I told you yesterday on the phone, it's broken.",
                 "I told you yesterday on the phone, it's broken.",
