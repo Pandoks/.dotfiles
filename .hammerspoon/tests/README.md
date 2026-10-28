@@ -268,10 +268,13 @@ toast outlasts its timeout and `closeAll` until let go, and the cap passes it ov
 a press Hammerspoon has yet to see is ordered out at alpha 0 after any fade, comes back unseen when
 let go right after, and is still collected; clicks pass through a fading toast; and the rest of a
 multi-click that closed a toast reaches nothing, each mouse-up going where its button's mouse-down
-went), wrapping, themes, and every `hs.alert` call routed through `lib/toast.lua` with its screen,
-seconds, and id. It also checks that the glass theme gives each toast its own glass, hidden with the
-toast's fade, under shadowed text that goes with the theme, and that a failed build of
-`lib/toast/toast.m` (stubbed) fails the load. Its look was checked with real `hs.canvas` renders.
+went), wrapping, themes, light and dark (each drawn in its own colors; `system`, the default,
+starts as macOS is and redraws shown toasts in place when macOS switches; an unknown appearance
+fails the load), and every `hs.alert` call routed through `lib/toast.lua` with its screen, seconds,
+and id. It also checks that the glass theme gives each toast its own glass, in the toast's
+appearance, hidden with the toast's fade, under shadowed text that goes with the theme, and that a
+failed build of `lib/toast/toast.m` (stubbed) fails the load. Its look was checked with real
+`hs.canvas` renders, in light and dark.
 The glass window was checked live on macOS 27.0.1: it refracts what is behind it, another app's
 window too (lensing at the edges, a rim highlight), though its panel is never key; it moves with its
 toast, clicks still reach the toast, a glass collected during its fade stays until the fade ends,
@@ -288,7 +291,14 @@ toast's timeout, `closeAll`, `closeSpecific` or the cap, closed the toast on rel
 had yet to see, from 35 ms before them to 13 ms after while the window was still there, held 1.2 s
 or 3 s, the toast came back at alpha 0 after its 0.25 s or 2 s fade if it had one, let clicks
 through, and stayed until garbage collection; so did one let go 0 to 164 ms after its faded window
-was ordered out. A fade held up while Hammerspoon was busy still ended at alpha 0.
+was ordered out. A fade held up while Hammerspoon was busy still ended at alpha 0. A switch of
+macOS's appearance was simulated live on macOS 27.0.1, leaving the real one alone: with
+`hs.host.interfaceStyle` stubbed and the notification posted under a private name, shown metal and
+glass toasts were redrawn in place (same windows, order, positions, timers and glass), each glass
+panel turned light or dark, and a click still closed a toast on release; in metal, a double-click
+closed only its toast. A toast held through the switch was redrawn and closed on release, one
+switched 40 ms into its fade-in ended opaque in the new colors, one fading out kept its colors and
+ended at alpha 0, and toasts after a repeat kept their places and timers.
 
 Audit checks (substitute the installed executable paths if needed):
 

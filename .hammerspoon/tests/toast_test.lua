@@ -3,6 +3,8 @@ local canvases, timers, logged, printed, measured = {}, {}, {}, {}, 0
 local clock = 0 -- ns, as hs.timer.absoluteTime gives
 local tap
 local glasses, unbuilt = {}, false
+---@type string?
+local system, watchers = "Dark", {} -- macOS's appearance, and each watcher of it
 -- Userdata, as in Hammerspoon.
 local screens, styled, at = {}, {}, {}
 screens.__index = {
@@ -37,6 +39,26 @@ local toast = assert(loadfile(
   setmetatable({
     hs = {
       alert = alert,
+      host = {
+        interfaceStyle = function()
+          return system
+        end,
+      },
+      distributednotifications = {
+        new = function(fn, name)
+          local watcher = { fn = fn, name = name }
+          function watcher.start()
+            watcher.on = true
+            return watcher
+          end
+          function watcher.stop()
+            watcher.on = false
+            return watcher
+          end
+          watchers[#watchers + 1] = watcher
+          return watcher
+        end,
+      },
       getObjectMetatable = function(name)
         local kinds =
           { ["hs.styledtext"] = styled, ["hs.screen"] = screens, ["hs.window"] = windows }
@@ -135,10 +157,10 @@ local toast = assert(loadfile(
           function canvas.topLeft(_, point)
             canvas.at = point
           end
-          function canvas.appendElements(_, ...)
-            for _, element in ipairs({ ... }) do
-              canvas.elements[#canvas.elements + 1] = element
-            end
+          function canvas.replaceElements(_, ...)
+            local elements = ...
+            assert(select("#", ...) == 1 and elements[1], "not one array of elements")
+            canvas.elements = { table.unpack(elements) }
           end
           function canvas.behaviorAsLabels(_, labels)
             canvas.labels = table.concat(labels, " ")
@@ -196,10 +218,14 @@ local toast = assert(loadfile(
           native = function(module)
             assert(module == "toast" and not unbuilt, "toast: native build failed")
             return {
-              glass = function(canvas)
-                local glass = { canvas = canvas }
+              glass = function(canvas, _, _, dark)
+                assert(type(dark) == "boolean", "no appearance for the glass")
+                local glass = { canvas = canvas, dark = dark }
                 function glass.hide(_, fade)
                   glass.fade = fade
+                end
+                function glass.paint(_, value)
+                  glass.dark = value
                 end
                 glasses[#glasses + 1] = glass
                 return glass
@@ -250,6 +276,16 @@ local function rim(canvas)
     levels[i] = color.white
   end
   return table.concat(levels, " ")
+end
+-- Gray levels of the title and detail text.
+local function inks(canvas)
+  local levels = {}
+  for _, element in ipairs(canvas.elements) do
+    if element.type == "text" then
+      levels[#levels + 1] = element.text.style.color.white
+    end
+  end
+  return levels
 end
 local function bottom(canvas)
   return canvas.at.y + canvas.frame.h
@@ -605,10 +641,90 @@ test("install picks the theme, and an unknown one is logged and fails the load",
   local ok, problem = pcall(toast.install, { theme = "chrome" })
   assert(not ok and tostring(problem):find("no theme chrome", 1, true), tostring(problem))
   assert(logged[1] and logged[1]:find("no theme chrome", 1, true), tostring(logged[1]))
-  toast.install()
+  toast.install({ appearance = "dark" })
+  ok, problem = pcall(toast.install, { theme = "edge", appearance = "sepia" })
+  assert(problem and tostring(problem):find("no appearance sepia", 1, true), "sepia loaded")
+  assert(logged[2] and logged[2]:find("no appearance sepia", 1, true), tostring(logged[2]))
   toast.show("metal")
   assert(rim(canvases[1]) ~= edge, "the edge theme did not change the rim")
   clear()
+end)
+
+test("light and dark each draw their own colors, and system starts as macOS is", function()
+  for _, name in ipairs({ "metal", "edge", "flat", "glass" }) do
+    local rims = {}
+    -- The appearance, macOS's, and whether it is dark.
+    for i, case in ipairs({
+      { "dark", nil, true },
+      { "light", "Dark", false },
+      { "system", "Dark", true },
+      { "system", nil, false },
+    }) do
+      system = case[2]
+      toast.install({ theme = name, appearance = case[1] })
+      toast.show("Tiling: no focused window", { failure = true })
+      local canvas, title, detail = canvases[1], table.unpack(inks(canvases[1]))
+      local where, dark = ("%s case %d"):format(name, i), case[3]
+      assert(dark == (title > 0.5) and dark == (detail > 0.5), where .. ": text in the other tone")
+      assert(name ~= "glass" or glasses[1].dark == dark, where .. ": glass in the other appearance")
+      assert(find(canvas, "circle"), where .. ": the failure lost its cross")
+      local key, look = tostring(dark), find(canvas, "rectangle") and rim(canvas)
+      rims[key] = rims[key] or look
+      assert(rims[key] == look, where .. ": one appearance, two rims")
+      clear()
+    end
+    assert(name == "glass" or rims["true"] ~= rims["false"], name .. ": light has the dark rim")
+  end
+  system = "Dark"
+end)
+
+test("system redraws shown toasts in place as macOS switches, until installed otherwise", function()
+  for _, name in ipairs({ "metal", "glass" }) do
+    system = nil
+    toast.install({ theme = name })
+    local watcher = watchers[#watchers]
+    assert(watcher and watcher.on, "system does not follow macOS")
+    assert(watcher.name == "AppleInterfaceThemeChangedNotification", tostring(watcher.name))
+    toast.show("Config reloaded", { seconds = false })
+    toast.show("Tiling: no window", { failure = true })
+    local before = {}
+    for i, canvas in ipairs(canvases) do
+      before[i] = { x = canvas.at.x, y = canvas.at.y, title = inks(canvas)[1] }
+      before[i].look = name == "glass" or rim(canvas)
+    end
+    wait(1)
+    watcher.fn("AppleInterfaceThemeChangedNotification")
+    assert(inks(canvases[1])[1] < 0.5, name .. ": it switched while macOS stayed light")
+    system = "Dark"
+    watcher.fn("AppleInterfaceThemeChangedNotification")
+    assert(#canvases == 2 and #timers == 1, "a toast was shown or timed again")
+    for i, canvas in ipairs(canvases) do
+      local moved = canvas.at.x ~= before[i].x or canvas.at.y ~= before[i].y
+      assert(not moved and drawn(canvas), "a toast moved or went")
+      assert(
+        inks(canvas)[1] > 0.5 and before[i].title < 0.5,
+        name .. ": its text did not turn light"
+      )
+      assert(name == "glass" or rim(canvas) ~= before[i].look, "its rim stayed light")
+      assert(texts(canvas) == ({ "Config reloaded", "Tiling | No window" })[i], texts(canvas))
+      assert(name ~= "glass" or glasses[i].dark == true, "its glass stayed light")
+    end
+    assert(find(canvases[2], "circle"), "the failure lost its cross")
+    assert(#glasses == (name == "glass" and 2 or 0), "a glass was added")
+    wait(1.9)
+    assert(drawn(canvases[2]), "it timed out early")
+    wait(0.1)
+    assert(not drawn(canvases[2]), "its timeout moved")
+    local hit = press({ x = canvases[1].at.x + 5, y = canvases[1].at.y + 5 }, 1)
+    assert(hit == canvases[1] and fade(hit) == 0.25, "a click no longer closes it")
+    clear()
+  end
+  toast.install({ appearance = "light" })
+  assert(not watchers[#watchers].on, "a watcher was left following macOS")
+  local count = #watchers
+  toast.install({ appearance = "dark" })
+  assert(#watchers == count, "an explicit appearance follows macOS")
+  system = "Dark"
 end)
 
 test("glass that can't be built fails the load, as an unknown theme does", function()

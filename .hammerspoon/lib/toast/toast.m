@@ -24,10 +24,17 @@ static BOOL keepImageLoaded(void) {
 }
 @end
 
-// glass(canvas, radius, fade)
+// Tinted so its text reads over white and black windows.
+static void style(NSPanel *panel, BOOL dark) {
+  panel.appearance = [NSAppearance appearanceNamed:dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+  NSColor *tint = dark ? [NSColor colorWithWhite:0 alpha:0.6] : [NSColor colorWithWhite:1 alpha:0.7];
+  ((NSGlassEffectView *)panel.contentView).tintColor = tint;
+}
+
+// glass(canvas, radius, fade, dark)
 static int glass(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  [skin checkArgs:LS_TUSERDATA, "hs.canvas", LS_TNUMBER, LS_TNUMBER, LS_TBREAK];
+  [skin checkArgs:LS_TUSERDATA, "hs.canvas", LS_TNUMBER, LS_TNUMBER, LS_TBOOLEAN, LS_TBREAK];
   NSWindow *canvas = ((NSView *)[skin toNSObjectAtIndex:1]).window;
   luaL_argcheck(state, canvas != nil, 1, "canvas has no window");
   CGFloat radius = lua_tonumber(state, 2);
@@ -44,14 +51,12 @@ static int glass(lua_State *state) {
   panel.ignoresMouseEvents = YES;
   panel.animationBehavior = NSWindowAnimationBehaviorNone;
   panel.collectionBehavior = canvas.collectionBehavior;
-  panel.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
 
   NSGlassEffectView *view = [[NSGlassEffectView alloc] initWithFrame:panel.contentView.bounds];
   view.cornerRadius = radius;
-  // Smoked so light text reads over white.
   view.style = NSGlassEffectViewStyleClear;
-  view.tintColor = [NSColor colorWithWhite:0 alpha:0.6];
   panel.contentView = view;
+  style(panel, lua_toboolean(state, 4));
 
   panel.alphaValue = 0;
   [canvas addChildWindow:panel ordered:NSWindowBelow];
@@ -83,6 +88,14 @@ static int hide(lua_State *state) {
   return 0;
 }
 
+// glass:paint(dark), once macOS's appearance changes.
+static int paint(lua_State *state) {
+  void **pointer = luaL_checkudata(state, 1, tag);
+  luaL_checktype(state, 2, LUA_TBOOLEAN);
+  style((__bridge NSPanel *)*pointer, lua_toboolean(state, 2));
+  return 0;
+}
+
 static const luaL_Reg functions[] = {
   { "glass", glass },
   { NULL, NULL },
@@ -98,6 +111,8 @@ int luaopen_toast(lua_State *state) {
   lua_newtable(state);
   lua_pushcfunction(state, hide);
   lua_setfield(state, -2, "hide");
+  lua_pushcfunction(state, paint);
+  lua_setfield(state, -2, "paint");
   lua_setfield(state, -2, "__index");
   lua_pushcfunction(state, hide);
   lua_setfield(state, -2, "__gc");

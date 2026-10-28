@@ -5,35 +5,49 @@ local margin, gap, padding, icon = 16, 8, 14, 16
 local most = 5 -- toasts per screen
 local title = {
   font = { name = ".AppleSystemUIFontMedium", size = 13 },
-  color = { white = 0.976 },
   paragraphStyle = { lineBreak = "truncateTail" },
 }
 local detail = {
   font = { name = ".AppleSystemUIFont", size = 12 },
-  color = { white = 0.62 },
   paragraphStyle = { lineBreak = "truncateTail" },
 }
 local red = { red = 1, green = 0.27, blue = 0.23 }
 
 ---@class ToastGlass
 ---@field hide fun(self: ToastGlass, fade: number)
+---@field paint fun(self: ToastGlass, dark: boolean)
 
 ---@class ToastNative
----@field glass fun(canvas: hs.canvas, radius: number, fade: number): ToastGlass
+---@field glass fun(canvas: hs.canvas, radius: number, fade: number, dark: boolean): ToastGlass
 
+-- Gray levels in each appearance: the rim and face gradients, the text, and glass's text shadow.
 local themes = {
-  metal = { rim = { 0.62, 0.2, 0.42, 0.16 }, angle = 45, face = { 0.2, 0.1 } },
-  edge = { rim = { 0.62, 0.2, 0.14, 0.3 }, angle = 45, face = { 0.17, 0.11 } },
-  flat = { rim = { 0.24, 0.24 }, angle = 90, face = { 0.13, 0.13 } },
+  metal = {
+    angle = 45,
+    dark = { rim = { 0.62, 0.2, 0.42, 0.16 }, face = { 0.2, 0.1 }, title = 0.976, detail = 0.62 },
+    light = { rim = { 1, 0.62, 0.96, 0.56 }, face = { 0.98, 0.91 }, title = 0.1, detail = 0.2 },
+  },
+  edge = {
+    angle = 45,
+    dark = { rim = { 0.62, 0.2, 0.14, 0.3 }, face = { 0.17, 0.11 }, title = 0.976, detail = 0.62 },
+    light = { rim = { 1, 0.62, 0.56, 0.68 }, face = { 0.97, 0.92 }, title = 0.1, detail = 0.2 },
+  },
+  flat = {
+    angle = 90,
+    dark = { rim = { 0.24, 0.24 }, face = { 0.13, 0.13 }, title = 0.976, detail = 0.62 },
+    light = { rim = { 0.78, 0.78 }, face = { 0.95, 0.95 }, title = 0.1, detail = 0.2 },
+  },
   glass = {
     glass = true,
-    detail = 0.9,
-    shadow = { offset = { h = 0, w = 0 }, blurRadius = 4, color = { white = 0, alpha = 0.8 } },
+    dark = { title = 0.976, detail = 0.95, shadow = { white = 0, alpha = 0.8 } },
+    light = { title = 0, detail = 0.1, shadow = { white = 1, alpha = 0.8 } },
   },
 }
-local theme = themes.metal
+local theme, dark = themes.metal, true
 ---@type ToastNative?
 local native
+---@type hs.distributednotifications?
+local watcher
 
 ---@alias ToastSize { w: number, h: number }
 
@@ -46,6 +60,7 @@ local native
 ---@field screen hs.screen
 ---@field timer? hs.timer
 ---@field glass? ToastGlass
+---@field paint fun()
 
 ---@type ToastEntry[]
 local shown = {} -- oldest first
@@ -179,7 +194,7 @@ local function wrap(canvas, text, style, lines)
   end
   out[#out + 1] = line
   local joined = table.concat(out, "\n")
-  return hs.styledtext.new(joined, style), size(joined)
+  return joined, size(joined)
 end
 
 ---@class ToastOptions
@@ -237,68 +252,79 @@ function toast.show(text, options)
   local left = padding + ((failure or options.image) and icon + 10 or 0)
   local size, radius = { w = left + width + padding, h = height }, math.min(height / 2, 20)
   canvas:size(size)
-  if not theme.glass then
-    canvas:appendElements({
-      type = "rectangle",
-      action = "fill",
-      roundedRectRadii = { xRadius = radius, yRadius = radius },
-      fillGradient = "linear",
-      fillGradientColors = grays(theme.rim),
-      fillGradientAngle = theme.angle,
-    })
-    canvas:appendElements({
-      type = "rectangle",
-      action = "fill",
-      frame = { x = 1, y = 1, w = size.w - 2, h = size.h - 2 },
-      roundedRectRadii = { xRadius = radius - 1, yRadius = radius - 1 },
-      fillGradient = "linear",
-      fillGradientColors = grays(theme.face),
-      fillGradientAngle = 90,
-    })
-  end
-  if options.image then
-    canvas:appendElements({
-      type = "image",
-      image = options.image,
-      imageScaling = "scaleProportionally",
-      frame = { x = padding, y = height / 2 - icon / 2, w = icon, h = icon },
-    })
-  elseif failure then
-    local x, y, reach = padding + icon / 2, height / 2, icon * 0.18
-    canvas:appendElements({
-      type = "circle",
-      action = "fill",
-      center = { x = x, y = y },
-      radius = icon / 2,
-      fillColor = red,
-    })
-    for _, sign in ipairs({ 1, -1 }) do
-      canvas:appendElements({
-        type = "segments",
-        action = "stroke",
-        coordinates = {
-          { x = x - reach, y = y - sign * reach },
-          { x = x + reach, y = y + sign * reach },
-        },
-        strokeColor = { white = 1 },
-        strokeWidth = 1.6,
-        strokeCapStyle = "round",
-      })
+  -- Drawn again in place when the appearance changes.
+  local function paint()
+    local look = theme[dark and "dark" or "light"]
+    local shadow = look.shadow
+      and { offset = { h = 0, w = 0 }, blurRadius = 4, color = look.shadow }
+    title.color, title.shadow = { white = look.title }, shadow
+    detail.color, detail.shadow = { white = look.detail }, shadow
+    local elements = {}
+    if look.rim then
+      elements[1] = {
+        type = "rectangle",
+        action = "fill",
+        roundedRectRadii = { xRadius = radius, yRadius = radius },
+        fillGradient = "linear",
+        fillGradientColors = grays(look.rim),
+        fillGradientAngle = theme.angle,
+      }
+      elements[2] = {
+        type = "rectangle",
+        action = "fill",
+        frame = { x = 1, y = 1, w = size.w - 2, h = size.h - 2 },
+        roundedRectRadii = { xRadius = radius - 1, yRadius = radius - 1 },
+        fillGradient = "linear",
+        fillGradientColors = grays(look.face),
+        fillGradientAngle = 90,
+      }
     end
-  end
-  -- +1 pt: a line exactly as wide as its frame wraps.
-  canvas:appendElements({
-    type = "text",
-    text = heading,
-    frame = { x = left, y = 12, w = width + 1, h = top.h },
-  })
-  if below then
-    canvas:appendElements({
+    if options.image then
+      elements[#elements + 1] = {
+        type = "image",
+        image = options.image,
+        imageScaling = "scaleProportionally",
+        frame = { x = padding, y = height / 2 - icon / 2, w = icon, h = icon },
+      }
+    elseif failure then
+      local x, y, reach = padding + icon / 2, height / 2, icon * 0.18
+      elements[#elements + 1] = {
+        type = "circle",
+        action = "fill",
+        center = { x = x, y = y },
+        radius = icon / 2,
+        fillColor = red,
+      }
+      for _, sign in ipairs({ 1, -1 }) do
+        elements[#elements + 1] = {
+          type = "segments",
+          action = "stroke",
+          coordinates = {
+            { x = x - reach, y = y - sign * reach },
+            { x = x + reach, y = y + sign * reach },
+          },
+          strokeColor = { white = 1 },
+          strokeWidth = 1.6,
+          strokeCapStyle = "round",
+        }
+      end
+    end
+    -- +1 pt: a line exactly as wide as its frame wraps.
+    elements[#elements + 1] = {
       type = "text",
-      text = body,
-      frame = { x = left, y = 12 + top.h + 2, w = width + 1, h = below.h },
-    })
+      text = hs.styledtext.new(heading, title),
+      frame = { x = left, y = 12, w = width + 1, h = top.h },
+    }
+    if below then
+      elements[#elements + 1] = {
+        type = "text",
+        text = hs.styledtext.new(body, detail),
+        frame = { x = left, y = 12 + top.h + 2, w = width + 1, h = below.h },
+      }
+    end
+    canvas:replaceElements(elements)
   end
+  paint()
   canvas:level(hs.canvas.windowLevels.dock - 1)
   canvas:behaviorAsLabels({ "canJoinAllSpaces", "stationary", "fullScreenAuxiliary" })
   canvas:clickActivating(false)
@@ -324,6 +350,7 @@ function toast.show(text, options)
     image = options.image ~= nil,
     canvas = canvas,
     screen = screen,
+    paint = paint,
   }
   arm(entry, seconds)
   shown[#shown + 1] = entry
@@ -345,26 +372,49 @@ function toast.show(text, options)
   layout()
   canvas:show(0.15)
   if theme.glass then
-    entry.glass = assert(native).glass(canvas, radius, 0.15)
+    entry.glass = assert(native).glass(canvas, radius, 0.15, dark)
   end
   return id
 end
 
--- Sets the theme and makes every hs.alert a toast.
----@param options? { theme?: "metal"|"edge"|"flat"|"glass" } "metal" by default
+-- Metal, as light or dark as macOS, by default; makes every hs.alert a toast.
+---@param options? { theme?: "metal"|"edge"|"flat"|"glass", appearance?: "system"|"light"|"dark" }
 function toast.install(options)
-  local name = options and options.theme or "metal"
+  options = options or {}
+  local name, appearance = options.theme or "metal", options.appearance or "system"
+  local problem
   if not themes[name] then
-    local message = "Toast: no theme " .. tostring(name) .. "; use metal, edge, flat, or glass"
-    require("lib.logger").error(message)
-    error(message, 2)
+    problem = "Toast: no theme " .. tostring(name) .. "; use metal, edge, flat, or glass"
+  elseif not ({ system = true, light = true, dark = true })[appearance] then
+    problem = "Toast: no appearance " .. tostring(appearance) .. "; use system, light, or dark"
+  end
+  if problem then
+    require("lib.logger").error(problem)
+    error(problem, 2)
   end
   if name == "glass" then
     native = require("lib.utils").native("toast")
   end
   theme = themes[name]
-  detail.color = { white = theme.detail or 0.62 }
-  title.shadow, detail.shadow = theme.shadow, theme.shadow
+  if watcher then
+    watcher:stop()
+    watcher = nil
+  end
+  if appearance == "system" then
+    -- Follows macOS's appearance, redrawing shown toasts in place.
+    watcher = hs.distributednotifications.new(function()
+      dark = hs.host.interfaceStyle() == "Dark"
+      for _, entry in ipairs(shown) do
+        entry.paint()
+        if entry.glass then
+          entry.glass:paint(dark)
+        end
+      end
+    end, "AppleInterfaceThemeChangedNotification")
+    ---@cast watcher hs.distributednotifications
+    watcher:start()
+  end
+  dark = appearance == "dark" or appearance == "system" and hs.host.interfaceStyle() == "Dark"
   local styled = hs.getObjectMetatable("hs.styledtext")
   local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
