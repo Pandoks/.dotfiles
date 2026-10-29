@@ -66,6 +66,7 @@ local logger = assert(loadfile(
       assert(name == "lib.toast")
       return {
         show = function(message, options)
+          assert(type(message) == "string", "no text")
           alerts[#alerts + 1] = message
           assert(options.failure and options.seconds == 5, "not a 5 s failure toast")
         end,
