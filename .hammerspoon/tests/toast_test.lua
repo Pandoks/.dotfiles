@@ -214,8 +214,9 @@ local toast = assert(loadfile(
           native = function(module)
             assert(module == "toast" and not unbuilt, "toast: native build failed")
             return {
-              glass = function(canvas, _, _, dark)
+              glass = function(canvas, radius, seconds, dark)
                 assert(type(dark) == "boolean", "no appearance for the glass")
+                assert(type(radius) == "number" and type(seconds) == "number", "no radius or fade")
                 local glass = { canvas = canvas, dark = dark }
                 function glass.hide(_, fade)
                   glass.fade = fade
@@ -738,11 +739,14 @@ test("installing again redraws shown toasts in place, in its theme and appearanc
   toast.install({ theme = "glass", appearance = "dark" })
   assert(#glasses == 2 and glasses[1].dark == true, "its glass was doubled or stayed light")
   toast.install({ appearance = "dark" })
-  assert(rim(canvases[1]) == dark and glasses[1].fade == 0 and glasses[2].fade == 0, "glass stayed")
+  assert(rim(canvases[1]) == dark and glasses[1].fade and glasses[2].fade, "glass stayed")
   assert(
     #canvases == 2 and #timers == count and canvases[2].at.y == y,
     "a toast was remade or moved"
   )
+  toast.install({ theme = "glass", appearance = "dark" })
+  assert(#glasses == 4 and glasses[3].canvas == canvases[1], "no glass after metal")
+  toast.install({ appearance = "dark" })
   assert(drawn(canvases[1]) and drawn(canvases[2]) and find(canvases[2], "circle"))
   clear()
 end)

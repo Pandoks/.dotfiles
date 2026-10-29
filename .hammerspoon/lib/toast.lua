@@ -451,7 +451,7 @@ function toast.install(options)
   end
   alert.closeSpecific = toast.close
   alert.closeAll = function(fade)
-    fade = fade and math.max(fade, 0) -- so a bad fade raises with none shown
+    fade = fade and math.max(fade, 0) -- raises with none shown too
     for _, entry in ipairs({ table.unpack(shown) }) do
       toast.close(entry.id, fade)
     end

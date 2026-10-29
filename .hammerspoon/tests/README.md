@@ -269,12 +269,12 @@ a press Hammerspoon has yet to see is ordered out at alpha 0 after any fade, com
 let go right after, and is still collected; clicks pass through a fading toast; and the rest of a
 multi-click that closed a toast reaches nothing, each mouse-up going where its button's mouse-down
 went), wrapping, themes, light and dark (each drawn in its own colors; `system`, the default,
-starts as macOS is and redraws shown toasts in place when macOS switches; an unknown appearance
-fails the load), and every `hs.alert` call routed through `lib/toast.lua` with its screen, seconds,
-and id. It also checks that the glass theme gives each toast its own glass, in the toast's
-appearance, hidden with the toast's fade, under shadowed text that goes with the theme, and that a
-failed build of `lib/toast/toast.m` (stubbed) fails the load. Its look was checked with real
-`hs.canvas` renders, in light and dark.
+starts as macOS is and redraws shown toasts in place when macOS switches, as installing again does
+in its theme; an unknown appearance fails the load), and every `hs.alert` call routed through
+`lib/toast.lua` with its screen, seconds, and id. It also checks that the glass theme gives each
+toast its own glass, in the toast's appearance, hidden with the toast's fade, under shadowed text
+that goes with the theme, and that a failed build of `lib/toast/toast.m` (stubbed) fails the load.
+Its look was checked with real `hs.canvas` renders, in light and dark.
 The glass window was checked live on macOS 27.0.1: it refracts what is behind it, another app's
 window too (lensing at the edges, a rim highlight), though its panel is never key; it moves with its
 toast, clicks still reach the toast, a glass collected during its fade stays until the fade ends,
