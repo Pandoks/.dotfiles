@@ -88,8 +88,7 @@ concurrent requests, and unavailable or reused windows.
 Menu layout responds to both dimensions of the usable frame of the focused Space's display,
 resolved through `hs.spaces.spaceDisplay(hs.spaces.focusedSpace())` because
 `hs.screen.mainScreen()` can stay on another display while a fullscreen app has focus. If
-that display cannot be resolved, Cmd-Tab logs and opens no menu. Its popup, a toast, has no
-display either, so it is only printed to the log.
+that display cannot be resolved, Cmd-Tab logs and opens no menu.
 Width adds columns, height adds visible rows, and cards adapt between 180 and 320
 logical points (smaller only if a tiny display cannot fit one card). Preferred card
 size follows the shorter screen dimension, so ultrawides cannot inflate previews.
@@ -260,48 +259,9 @@ For a live check after reloading Hammerspoon:
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
 
-The logger Lua regressions also run with `tests/run.sh`, as does the toast suite: placement at the
-bottom right of the focused Space's display just below the Dock's level (without one, the text is
-printed to the log, nothing is shown, and no error is raised), stacking, repeats, dismissal (on
-release, as the window server puts back a window ordered out under a held left click, so a pressed
-toast outlasts its timeout and `closeAll` until let go, and the cap passes it over; one closed under
-a press Hammerspoon has yet to see is ordered out at alpha 0 after any fade, comes back unseen when
-let go right after, and is still collected; clicks pass through a fading toast; and the rest of a
-multi-click that closed a toast reaches nothing, while another button's clicks still do, each
-mouse-up going where its button's mouse-down went, and a first click too quick for the tap just
-started still drops the rest of any button's multi-click), a toast whose display is unplugged moving
-to the primary display under the cap (or staying put while macOS lists no display), wrapping,
-themes, light and dark (each drawn in its own colors; `system`, the default, starts as macOS is and
-redraws shown toasts in place when macOS switches, as installing again does in its theme; an unknown
-appearance fails the load), and every `hs.alert` call routed through `lib/toast.lua` with its
-screen, seconds, and id. It also checks that the glass theme gives each toast its own glass, in the
-toast's appearance, hidden with the toast's fade, under shadowed text that goes with the theme, and
-that a failed build of `lib/toast/toast.m` (stubbed) fails the load.
-Its look was checked with real `hs.canvas` renders, in light and dark.
-The glass window was checked live on macOS 27.0.1: it refracts what is behind it, another app's
-window too (lensing at the edges, a rim highlight), though its panel is never key; it moves with its
-toast, clicks still reach the toast, a glass collected during its fade stays until the fade ends,
-and no window is left after a toast times out or its glass is collected. Multi-clicks posted with
-their click states set by hand (double, triple with clicks 0.35 s apart, and right-button double)
-were checked live on macOS 27.0.1 in all four themes: each closed only its toast, and its later
-clicks reached none of the toast moving into its place, one shown between the clicks, or the window
-beneath. A click and a double-click elsewhere afterwards reached the window there, mouse-ups
-included, and with each down and up 0.09 s apart, a toast clicked as a double-click's second click,
-or with the right button while the left was held, left no button reported as held. Neither did a
-double-click with button 4 while the middle button was held and let go. With clicks posted at the
-HID level, no closed toast's window was left visible. A press Hammerspoon saw, 20 to 456 ms before a
-toast's timeout, `closeAll`, `closeSpecific` or the cap, closed the toast on release. Under one it
-had yet to see, from 35 ms before them to 13 ms after while the window was still there, held 1.2 s
-or 3 s, the toast came back at alpha 0 after its 0.25 s or 2 s fade if it had one, let clicks
-through, and stayed until garbage collection; so did one let go 0 to 164 ms after its faded window
-was ordered out. A fade held up while Hammerspoon was busy still ended at alpha 0. A switch of
-macOS's appearance was simulated live on macOS 27.0.1, leaving the real one alone: with
-`hs.host.interfaceStyle` stubbed and the notification posted under a private name, shown metal and
-glass toasts were redrawn in place (same windows, order, positions, timers and glass), each glass
-panel turned light or dark, and a click still closed a toast on release; in metal, a double-click
-closed only its toast. A toast held through the switch was redrawn and closed on release, one
-switched 40 ms into its fade-in ended opaque in the new colors, one fading out kept its colors and
-ended at alpha 0, and toasts after a repeat kept their places and timers.
+The logger and toast Lua regressions also run with `tests/run.sh`. The toast suite covers
+placement, stacking, repeats, click dismissal, wrapping, themes, light and dark, glass, and
+`hs.alert` routing. Toast looks, the glass window, and clicks were checked live on macOS 27.0.1.
 
 Audit checks (substitute the installed executable paths if needed):
 
