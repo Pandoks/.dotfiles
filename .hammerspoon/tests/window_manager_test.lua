@@ -47,7 +47,7 @@ local function leaked(timers)
   return held - alive()
 end
 
--- Four Spaces on one display; the Dock lands each batch of swipes and reports once.
+-- The Dock lands each batch of swipes as one Space change.
 local function harness()
   local desktop = { current = 100, steps = 0, inflight = {}, results = {}, timers = {} }
   local spaces = {}

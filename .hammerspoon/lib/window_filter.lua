@@ -45,7 +45,7 @@ end
 module.windowCreated, module.windowFocused = "windowCreated", "windowFocused"
 module.windowHidden, module.windowUnhidden = "windowHidden", "windowUnhidden"
 
--- The frontmost check from the system, not from the app over Accessibility.
+-- Ask the system, not the app over Accessibility.
 ---@param app WindowObserver
 local function frontmost(app)
   local front = hs.application.frontmostApplication()
@@ -118,7 +118,6 @@ local function emit(app, record, event)
   end
 end
 
--- Stops the observer and retires its published windows once.
 ---@param app WindowObserver
 local function retire(app)
   if app.observer then
@@ -145,7 +144,7 @@ end
 ---@param record WindowRecord
 local function unwatch(app, record)
   for notification in pairs(record.notifications) do
-    -- Destruction can invalidate an element before its registrations are removed.
+    -- Destruction can invalidate the element before removal.
     pcall(app.observer.removeWatcher, app.observer, record.element, notification)
   end
   record.notifications = {}
@@ -326,7 +325,7 @@ local function attach(application)
         disable(app, event .. ": " .. tostring(failureMessage))
       end
     end)
-    -- Subscribe before the snapshot so initialization cannot lose an event.
+    -- Subscribe before the snapshot so no event is lost.
     observer:addWatcher(element, "AXWindowCreated")
     observer:addWatcher(element, "AXFocusedWindowChanged")
     observer:start()
@@ -359,7 +358,7 @@ function module.new(predicate)
   local filter = setmetatable({ predicate = predicate, callbacks = {} }, Filter)
   filters[filter] = true
   if not applicationWatcher then
-    -- Seed recency from native ordering, without another Accessibility scan.
+    -- Seed recency without another Accessibility scan.
     local ids = (hs.window --[[@as { _orderedwinids: fun(): integer[] }]])._orderedwinids()
     recent = #ids
     for index, id in ipairs(ids) do
@@ -405,7 +404,7 @@ function module.new(predicate)
     end)
     applicationWatcher:start()
     spaceWatcher = hs.spaces.watcher.new(function()
-      -- Only apps with windows on the visible Spaces can reveal windows AXWindows omitted.
+      -- Only apps on visible Spaces can reveal windows AXWindows omitted.
       -- Plain `list()` drops windows in front of the first one titled "Dock".
       local visible = {}
       for _, info in
@@ -496,7 +495,7 @@ function Filter:getWindow(id, pid)
   end
 end
 
--- Tracked windows of one app, without the Accessibility reads a predicate makes.
+-- Skips the Accessibility reads of filter matching.
 ---@param pid integer
 ---@return table<integer, hs.window>
 function module.windowsOf(pid)

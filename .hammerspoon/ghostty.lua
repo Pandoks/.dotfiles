@@ -1,7 +1,7 @@
 local openOrFocusWindow = require("window_profiles")
 
----@param title string forced window title -- also the profile's exact-match identity
----@param command string command the window runs (its lifetime = the window's)
+---@param title string
+---@param command string
 ---@return WindowProfile
 local function ghosttyProfile(title, command)
   return {

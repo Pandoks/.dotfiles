@@ -77,22 +77,19 @@ local function harness(options)
   local function display(id)
     return options.displays and options.displays[id] or "display"
   end
-  -- utils.spaces() reports each Space's screen UUID.
   for _, space in ipairs(spaces) do
     space.display = display(space.ManagedSpaceID)
   end
-  -- Full frames of side-by-side displays.
   local screens = {
     display = { x = 0, y = 0, w = 1000, h = 800 },
     left = { x = 0, y = 0, w = 1000, h = 800 },
     right = { x = 1000, y = 0, w = 1000, h = 800 },
     middle = { x = 2000, y = 0, w = 1000, h = 800 },
   }
-  -- Counts Accessibility calls by window ID, "app", or "focused".
   local function read(key)
     desktop.accessibilityReads[key] = (desktop.accessibilityReads[key] or 0) + 1
   end
-  -- Current Spaces of other displays.
+  -- Spaces shown on other displays.
   for _, id in ipairs(options.visible or {}) do
     desktop.visible[id] = true
   end
@@ -105,7 +102,6 @@ local function harness(options)
     end
   end
   function desktop:add(row)
-    -- Windows default to their Space's display.
     local screen = screens[display(row.space)] or screens.display
     row.frame = row.frame or { x = screen.x + 20, y = screen.y + 20, w = 300, h = 200 }
     self.rows[#self.rows + 1] = row
@@ -266,7 +262,6 @@ local function harness(options)
     self.focused = id
     self.appCallback(nil, 1, self:app(pid or self:row(id).pid))
   end
-  -- The Space a display shows: an override, the focused Space, or another display's visible one.
   function desktop:current(uuid)
     if self.shows[uuid] then
       return self.shows[uuid]
@@ -279,7 +274,6 @@ local function harness(options)
       end
     end
   end
-  -- Shows a Space on its display without moving focus there.
   function desktop:show(id)
     for other in pairs(self.visible) do
       if display(other) == display(id) then
@@ -291,7 +285,7 @@ local function harness(options)
       self.spaceCallback()
     end
   end
-  -- Focus moves to the Space shown on another display.
+  -- Focus moves to another display's shown Space.
   function desktop:shift(id)
     self.visible[self.space] = true
     self.visible[id] = nil
@@ -326,7 +320,6 @@ local function harness(options)
       end,
     }
   end
-  -- lib.window_manager: the newest Space request supersedes a pending one; each replies once.
   local windowManager, pending = { native = {} }, nil
   function windowManager.space(index, done)
     desktop.writes[#desktop.writes + 1] = { "space", index }
@@ -350,7 +343,7 @@ local function harness(options)
       pending = nil
       local function move()
         if options.away then
-          -- The target is shown on its display; focus stays on the other one.
+          -- Target shows on its display; focus stays on the other.
           desktop:show(id)
           if options.away == "pip" then
             desktop:focus(50)
@@ -473,7 +466,6 @@ local function harness(options)
         desktop.displayReads = desktop.displayReads + 1
         return display(id)
       end,
-      -- Each display's current Space.
       data_managedDisplaySpaces = function()
         local out, seen = {}, {}
         for _, space in ipairs(spaces) do
@@ -530,7 +522,7 @@ local function harness(options)
         read("focused")
         return window(desktop.focused)
       end,
-      -- On-screen, front to back. Without `all`, only those behind the first titled "Dock".
+      -- On-screen, front to back.
       list = function(all)
         desktop.lists = desktop.lists + 1
         if desktop.listing then
@@ -931,7 +923,7 @@ end)
 test("windows on the other display's visible Space are excluded", function()
   local desktop =
     harness({ displays = { [101] = "left", [202] = "right", [303] = "left" }, visible = { 202 } })
-  -- Shell and Docs stay on-screen, centered on the right display.
+  -- Shell and Docs stay on-screen on the right display.
   desktop.module.switchSpace(3)
   desktop:advance(0.3)
   assertEqual(desktop.space, 303)
@@ -1274,7 +1266,7 @@ local function away(mode)
 end
 test("an empty Space on another display takes focus once windowManager replies", function()
   local desktop = away(true)
-  -- The display can show the Space before windowManager replies; restoration waits for the reply.
+  -- The Space already shows before the reply.
   desktop.beforeReply = function()
     assertEqual(desktop.lists, 0)
   end
@@ -1300,7 +1292,6 @@ end)
 test("PiP focus after focus reaches the new Space is still left for its desktop", function()
   local desktop = away(true)
   desktop.module.switchSpace(3)
-  -- The display takes focus, then PiP on the other display takes it back.
   desktop.beforeReply = function()
     desktop:shift(303)
     desktop.focused = 50
@@ -1353,7 +1344,6 @@ test("a same-display Space shown before focus follows waits instead of clicking"
   desktop.beforeReply = function()
     desktop.shows.right = 303
   end
-  -- Focus follows just after the reply, to the new desktop.
   desktop.afterReply = function()
     desktop.shows.right = nil
     desktop.space, desktop.focused = 303, nil
@@ -1385,7 +1375,6 @@ test("PiP retaking focus from the other display after the switch is undone", fun
   desktop:advance(0.1)
   assertEqual(desktop.space, 303)
   assertEqual(desktop.module.status().busy, false)
-  -- The left display's PiP takes focus back, within the transition.
   desktop.visible[303], desktop.visible[101], desktop.space = true, nil, 101
   desktop:focus(50)
   desktop:advance(2)
@@ -1450,7 +1439,6 @@ test("an activation onto the other display before its PiP takes focus waits for 
   desktop.module.switchSpace(3)
   desktop:advance(0.1)
   assertEqual(desktop.space, 303)
-  -- The PiP's app activates on the left display, then its PiP becomes key.
   desktop.visible[303], desktop.visible[101], desktop.space = true, nil, 101
   desktop:activate(70)
   desktop:focus(50)
@@ -1496,7 +1484,6 @@ test("shortcuts reuse the Space list's displays; native transitions look one up"
   desktop:advance(0.3)
   assertEqual(desktop.space, 303)
   assertEqual(#desktop.clicks, 1)
-  -- The desktop click lands on the job's screen, clear of the PiP there.
   assert(desktop.clicks[1].x >= 1000 and outside(desktop.clicks[1], desktop:row(50).frame))
   assertEqual(desktop.displayReads, 0)
   desktop:arrive(101, true)

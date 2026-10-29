@@ -5,7 +5,7 @@ local function test(name, body)
   passed = passed + 1
   print("PASS " .. name)
 end
--- hs.axuielement.observer keeps a stopped observer's callback: count observers alive only through it.
+-- A stopped hs.axuielement.observer keeps its callback: count observers alive only through it.
 local function leaked(observers)
   local here, registry = debug.getinfo(1, "S").source, {}
   local weak = setmetatable({}, { __mode = "k" })
@@ -201,7 +201,7 @@ local function setup(options)
         _orderedwinids = function()
           return { 200, 100 }
         end,
-        -- On-screen, front to back. Without `all`, only those behind the first titled "Dock".
+        -- On-screen, front to back.
         list = function(all)
           local rows = { model.visible and { kCGWindowOwnerPID = 42 } or nil }
           rows[#rows + 1] = { kCGWindowOwnerPID = 7, kCGWindowName = model.dock and "Dock" or nil }

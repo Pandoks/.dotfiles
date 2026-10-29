@@ -33,8 +33,7 @@ local function rect(left, top, width, height)
   })
 end
 
--- A 1000x600 display showing Space 1 and, to its right, one showing Space 2. Windows are
--- {id, app, title?, space?}; Space 3 has no display, and Space 4 is another on the first.
+-- Spaces 1 and 4 on a 1000x600 display, Space 2 on one to its right, Space 3 on none.
 local function fakeDesktop(windowSpecs)
   local desktop = {
     subscribers = {},
@@ -107,7 +106,6 @@ local function fakeDesktop(windowSpecs)
     windowMoved = "moved",
     new = function(predicate)
       return {
-        -- Like the real filter, only subscribed events are delivered.
         subscribe = function(_, events, callback)
           for _, event in ipairs(type(events) == "table" and events or { events }) do
             desktop.subscribers[event] = callback
@@ -166,7 +164,7 @@ local function fakeDesktop(windowSpecs)
         end,
       },
       screen = {
-        -- Like Hammerspoon, a hint that isn't a UUID matches screen names, so "" matches the first.
+        -- hs.screen.find matches names too, so "" matches the first.
         find = function(hint)
           local left = ({ display = 0, other = 1000, [""] = 0 })[hint]
           return left
@@ -252,7 +250,6 @@ local function fakeDesktop(windowSpecs)
       callback(nil, nil, name, id)
     end
   end
-  -- The user moves a window to `frame` by hand.
   function desktop:drag(id, frame)
     self.frames[id] = frame
     for _, entry in ipairs(self.windows) do
