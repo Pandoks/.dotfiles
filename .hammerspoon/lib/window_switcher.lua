@@ -41,7 +41,7 @@ end
 local function describe(rows)
   local focused = hs.window.focusedWindow()
   local focusedID = focused and focused:id()
-  local apps, out = {}, {}
+  local apps, windows = {}, {}
   for _, row in ipairs(rows) do
     local app = apps[row.pid]
     if app == nil then
@@ -49,7 +49,7 @@ local function describe(rows)
       apps[row.pid] = app
     end
     if app then
-      out[#out + 1] = {
+      windows[#windows + 1] = {
         id = row.id,
         pid = row.pid,
         app = app:name(),
@@ -64,7 +64,7 @@ local function describe(rows)
       }
     end
   end
-  return out
+  return windows
 end
 
 -- Keyed by bundle: macOS can reuse an exited app's PID.
@@ -709,9 +709,9 @@ local function step(direction)
       if a["has-focus"] ~= b["has-focus"] then
         return a["has-focus"]
       end
-      local ar, br = recent[a.id] or 0, recent[b.id] or 0
-      if ar ~= br then
-        return ar > br
+      local recentA, recentB = recent[a.id] or 0, recent[b.id] or 0
+      if recentA ~= recentB then
+        return recentA > recentB
       end
       return a.id < b.id
     end)

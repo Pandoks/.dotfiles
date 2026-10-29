@@ -17,7 +17,7 @@ function utils.spaces()
   end
 
   ---@type ManagedSpace[]
-  local result = {}
+  local spaces = {}
   for _, display in ipairs(data) do
     local uuid = display["Display Identifier"]
     if uuid == "Main" then
@@ -25,11 +25,11 @@ function utils.spaces()
     end
     for _, space in ipairs(display.Spaces or {}) do
       space.display = uuid
-      result[#result + 1] = space
+      spaces[#spaces + 1] = space
     end
   end
 
-  return result
+  return spaces
 end
 
 ---Quote for /bin/sh: single quotes disable every kind of expansion.
