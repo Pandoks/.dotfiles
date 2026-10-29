@@ -1,5 +1,4 @@
 #!/bin/sh
-# Exercise Hammerspoon modules without launching their UI.
 set -eu
 
 test_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)

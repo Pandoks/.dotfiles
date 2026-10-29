@@ -1,11 +1,10 @@
 require("lib.logger").install()
-require("hs.ipc") -- `hs` CLI access for debugging
+require("hs.ipc") -- `hs` CLI
 require("lib.toast").install({ theme = "metal" })
 hs.loadSpoon("SpoonInstall")
 
 local install = spoon.SpoonInstall
 
--- Generates hs.* type annotations for lua_ls when they are missing or stale.
 install:andUse("EmmyLua")
 
 require("windows")
@@ -26,8 +25,4 @@ rawset(hs, "shutdownCallback", function()
   end
 end)
 
-require("secrets")
--- template for secrets:
--- hs.hotkey.bind({ "" }, "", function()
---  hs.eventtap.keyStrokes("")
--- end)
+require("secrets") -- gitignored: hotkeys that type secrets
