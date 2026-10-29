@@ -222,7 +222,7 @@ local function harness(options)
   end
   local types = { mouseMoved = 1, scrollWheel = 2, keyDown = 3, keyUp = 4, flagsChanged = 5 }
   local keys = { a = 0, tab = 48, escape = 53, left = 123, right = 124, ["return"] = 36 }
-  local properties = {
+  local propertyCodes = {
     scrollWheelEventIsContinuous = 1,
     scrollWheelEventPointDeltaAxis1 = 2,
     scrollWheelEventDeltaAxis1 = 3,
@@ -367,7 +367,7 @@ local function harness(options)
       end,
     },
     eventtap = {
-      event = { types = types, properties = properties },
+      event = { types = types, properties = propertyCodes },
       new = function(_, callback)
         local object = chainObject()
         object.callback = callback
