@@ -137,7 +137,7 @@ end
 
 local types = hs.eventtap.event.types
 local ups = { [types.leftMouseUp] = true, [types.rightMouseUp] = true, [types.otherMouseUp] = true }
-local clicked, dropped, last = {}, {}, 0
+local clicked, dropped, last = {}, {}, "any"
 -- Drops the rest of a multi-click that closed a toast, each up with its down.
 local tap = hs.eventtap.new({
   types.leftMouseDown,
@@ -155,8 +155,8 @@ local tap = hs.eventtap.new({
     return drop
   end
   local state = event:getProperty(hs.eventtap.event.properties.mouseEventClickState)
-  local drop = clicked[button] and state > 1
-  clicked[button], dropped[button] = drop, drop
+  local drop = (clicked[button] or clicked.any) and state > 1
+  clicked[button], clicked.any, dropped[button] = drop, nil, drop
   return drop
 end)
 
@@ -200,7 +200,6 @@ local function wrap(canvas, text, style, lines)
   return joined, size(joined)
 end
 
--- Past the cap, a screen drops its oldest unpressed timed toasts, never its newest.
 local function cap()
   local stacks = {}
   for _, entry in ipairs(shown) do
@@ -219,10 +218,10 @@ local function cap()
   end
 end
 
--- A toast whose display is gone moves to the primary one.
 local displays = hs.screen.watcher.new(function()
+  local primary = hs.screen.primaryScreen()
   for _, entry in ipairs(shown) do
-    entry.screen = hs.screen.find(entry.screen:id()) or hs.screen.primaryScreen()
+    entry.screen = hs.screen.find(entry.screen:id()) or primary or entry.screen
   end
   cap()
   layout()
@@ -365,7 +364,9 @@ function toast.show(text, options)
   canvas:mouseCallback(function(_, message)
     held[id] = message == "mouseDown" or nil
     if held[id] then
-      -- In time for this click's up. Never stopped: stopping it mid-click drops the up.
+      -- Known once the tap sees this click's up, which a tap started now misses if quick.
+      -- Never stopped: stopping it from its callback drops an up.
+      last = "any"
       tap:start()
       return
     end

@@ -74,7 +74,7 @@ local toast = assert(loadfile(
           end
         end,
         primaryScreen = function()
-          return main
+          return plugged[1]
         end,
         watcher = {
           new = function(fn)
@@ -264,6 +264,12 @@ local toast = assert(loadfile(
     end,
   }, { __index = _G })
 ))()
+local ids, show = {}, toast.show
+function toast.show(...)
+  local id = show(...)
+  ids[#ids + 1] = id
+  return id
+end
 local passed = 0
 local function test(name, fn)
   fn()
@@ -347,9 +353,10 @@ local function hold(point, state, button, first)
     first()
   end
   deliver(1)
+  -- missed: the up passed before the tap started, as a quick first click's can.
   return not swallowed and front,
-    function()
-      assert(not through(down + 1) == not swallowed, "a click's down and up went different ways")
+    function(missed)
+      assert(missed or not through(down + 1) == not swallowed, "a click's down and up split")
       if front then
         -- A window ordered out under a held click comes back (live, only a left single click).
         front.ghost = front.out
@@ -404,12 +411,10 @@ local function fade(canvas)
   return math.floor(frames / 3 + 0.5) / 20
 end
 local function clear()
-  for _, canvas in ipairs(canvases) do
-    if rawget(canvas, "click") then
-      canvas.click(canvas, "mouseUp")
-    end
+  for _, id in ipairs(ids) do
+    toast.close(id, 0)
   end
-  canvases, timers, glasses, focused, system = {}, {}, {}, main, "Dark"
+  ids, canvases, timers, glasses, focused, system = {}, {}, {}, {}, main, "Dark"
   plugged = { main, side }
 end
 
@@ -466,10 +471,10 @@ end)
 test("a multi-click closes only its toast, and the rest of it reaches nothing", function()
   -- The bottom toast is triple-clicked.
   for _, case in ipairs({
+    { "older", "newer", button = 1, held = 0 }, -- right, left held; first: a press starts the tap
     { "lone" },
     { "older", "newer" },
     { "lone", late = "late" }, -- shown between the clicks
-    { "older", "newer", button = 1, held = 0 }, -- right, with left held
     { "older", "newer", button = 3, held = 2 }, -- button 4, with the middle held
     { "older", "newer", single = true },
   }) do
@@ -508,6 +513,18 @@ test("a multi-click closes only its toast, and the rest of it reaches nothing", 
     )
     clear()
   end
+  toast.show("lone")
+  local point = inside(canvases[1])
+  tap.on = false -- as after a load
+  local _, release = hold(point, 1, 1)
+  release(true)
+  assert(press(point, 2, 1) == false, "the rest of a quick first click got through")
+  local away = { x = 5, y = 30 }
+  assert(
+    press(away, 1, 0) == nil and press(away, 2, 0) == nil,
+    "a later double-click was swallowed"
+  )
+  clear()
 end)
 
 test("a toast pressed as it times out or all close waits for its release", function()
@@ -882,8 +899,12 @@ end)
 test("a toast whose display is unplugged moves to the primary one, within its cap", function()
   focused = side
   toast.show("Working…", { seconds = false })
-  plugged = { main }
   assert(displays, "nothing watches the displays")
+  displays()
+  assert(canvases[1].at.x >= 1000, "it left a display still plugged in")
+  plugged = {}
+  assert(pcall(displays), "no display listed broke it")
+  plugged = { main }
   displays()
   assert(canvases[1].at.x < 1000 and bottom(canvases[1]) == 609, "it stayed on the gone display")
   clear()
@@ -892,14 +913,15 @@ test("a toast whose display is unplugged moves to the primary one, within its ca
   end
   focused = side
   toast.show("Working…", { seconds = false })
-  toast.show("side")
+  toast.show("side 1")
+  toast.show("side 2")
   plugged = { main }
   displays()
-  assert(canvases[1].deleted and fade(canvases[1]) == 0, "the cap kept six, or faded one")
-  for i = 2, 6 do
+  assert(canvases[1].deleted and canvases[2].deleted, "the cap kept more than five")
+  for i = 3, 7 do
     assert(not canvases[i].deleted and canvases[i].at.x < 1000, "it stayed on the gone display")
   end
-  assert(bottom(canvases[5]) == canvases[6].at.y - 8 and bottom(canvases[6]) == 609, "unstacked")
+  assert(bottom(canvases[6]) == canvases[7].at.y - 8 and bottom(canvases[7]) == 609, "unstacked")
   clear()
 end)
 
