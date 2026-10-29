@@ -157,7 +157,7 @@ local function fakeDesktop(windowSpecs)
       }
     end,
   }
-  local env = setmetatable({
+  local environment = setmetatable({
     print = function() end,
     hs = {
       geometry = {
@@ -244,7 +244,7 @@ local function fakeDesktop(windowSpecs)
       error("unexpected require " .. name)
     end,
   }, { __index = _G })
-  desktop.tiling = assert(loadfile(root .. "/tiling.lua", "t", env))()
+  desktop.tiling = assert(loadfile(root .. "/tiling.lua", "t", environment))()
   desktop.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Nightly)" })
   function desktop:event(name, id)
     local callback = self.subscribers[name]
