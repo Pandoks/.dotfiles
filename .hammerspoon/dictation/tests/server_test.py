@@ -322,6 +322,7 @@ check(
         ("The meeting at three thirty was cancelled.", "The meeting at 3:30 was cancelled."),
         ("Nineteen ninety nine was a great year.", "1999 was a great year."),
         ("Raise the limit to two thousand.", "Raise the limit to 2,000."),
+        ("Run it on port three thousand.", "Run it on port 3000."),
         ("No one, two people came.", "No one, 2 people came."),
         ("At one point, five people left.", "At one point, 5 people left."),
         ("The server returned a five-oh-three.", "The server returned a 503."),
@@ -638,6 +639,7 @@ check(
             ),
             ("Print the labels in red, actually, make them blue.", "Print the labels in blue."),
             ("Set the font to Arial, sorry, make that Helvetica.", "Set the font to Helvetica."),
+            ("Install the old driver, I mean the new one.", "Install the new driver."),
             (
                 "Please print ten copies of the report, sorry, twelve.",
                 "Please print twelve copies of the report.",
@@ -650,7 +652,7 @@ check(
             ("The review is Thursday. Uh, sorry, Friday.", "The review is Friday."),
             ("We need five chairs, I mean six.", "We need six chairs."),
             ("Send the draft to Sam, sorry, I meant Kate.", "Send the draft to Kate."),
-            ("Write the hook in Lua, what I meant to say was Python.", "Write the hook in Python."),
+            ("Set the limit to 20, what I meant to say is 30.", "Set the limit to 30."),
             ("Write the script in Python, no, what I meant was Bash.", "Write the script in Bash."),
             ("Move the sync to Wednesday. What I mean is Thursday.", "Move the sync to Thursday."),
             ("Is that right? So we ship it.", "Is that right? We ship it."),
@@ -822,6 +824,10 @@ check(
                 "So the plan is to update the docs and release it on Friday.",
             ),
             "So the plan is. First we update the docs. Then we release it on Friday.",
+        ),
+        (
+            ("Two things first fix the bug.", "Two things: fix the bug."),
+            "Two things: first fix the bug.",
         ),
         (
             (

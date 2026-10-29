@@ -347,9 +347,9 @@ def restore(raw, out):
                 for c, e in cues(i1, i2)
             ):
                 continue
-            # ...or a cue and its correction, moved up to the words it replaced.
+            # ...or a cue and its correction, moved up to the words it replaced ("one" as its noun).
             first = [cue for cue in cues(i1, i2) if cue[0] == i1]
-            if moved and first and set(spoken[first[0][1] : i2]) <= set(typed):
+            if moved and first and set(spoken[first[0][1] : i2]) - {"one"} <= set(typed):
                 continue
             bad.append((i1, i2, j1, j2))
         return bad
@@ -391,9 +391,11 @@ def restore(raw, out):
             piece = said[: spans[i2][2] if size else len(said)]
         elif j1 == size:  # left out at the end: with what was said after it
             start, end, piece = outs[j1 - 1][2], len(text), said[spans[i1 - 1][2] :]
-        elif any(mark(k) for k in range(i1, i2 + 1)) or re.fullmatch(
-            r"\S*|:\s+", text[outs[j1 - 1][2] : outs[j1][1]]
-        ):  # joined or a colon: "localhost:3000", "Subject: …"
+        elif (
+            any(mark(k) for k in range(i1, i2 + 1))
+            or "colon" in spoken[i1:i2]
+            or re.fullmatch(r"\S*", text[outs[j1 - 1][2] : outs[j1][1]])
+        ):  # joined or a said colon: "localhost:3000", "Subject colon …"
             start, end = outs[j1 - 1][2], outs[j1][1]  # the gaps as said: "here? Can", "me, we"
             piece = said[spans[i1 - 1][2] : spans[i2][1]]
         else:  # before the next word kept
@@ -545,7 +547,7 @@ def digits(text, names):
         dated |= previous == "year" and not counted  # "the year 2000", not "last year 2,000 people"
         named = number % 1000 and not counted
         year = 2000 <= number < 2100 and (dated or named) and not re.match(r"(?i) of\b", after)
-        return str(number) if year else f"{number:,}"
+        return str(number) if year or previous == "port" else f"{number:,}"
 
     return RUN.sub(convert, text)
 
