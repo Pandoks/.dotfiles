@@ -8,7 +8,8 @@ The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
 tracking failures with popups and no retries, and shutdown. It also checks that quit
-apps release their observers. The switcher suite checks that explicit action failures
+apps release their observers, and that a Space change re-scans apps with windows in front
+of a window titled "Dock". The switcher suite checks that explicit action failures
 still log and show popups.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
@@ -115,7 +116,8 @@ Finished jobs release their timers.
 It also checks PiP activation redirects, display boundaries, repeated presses during
 a pending switch, and Mission Control key passthrough and focus suppression. Its window
 model keeps untracked, minimized, hidden, layer-3, and other-display windows out of the
-candidates.
+candidates. A window titled "Dock" hides nothing in front of it from focus restoration or
+PiP redirects, and the shown Dock (layer 20) is not cover.
 
 Ctrl-Left/Right use `window_manager.space` outside Mission Control and stop at the current display's
 first/last Space. Numbered shortcuts use global Mission Control indices. Shortcuts take
