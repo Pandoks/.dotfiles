@@ -21,6 +21,7 @@ local function display(x)
   return screen
 end
 local main, side = display(0), display(1000)
+local plugged, displays = { main, side }, nil
 ---@type file*?
 local focused = main
 local windows = { __index = {
@@ -65,9 +66,26 @@ local toast = assert(loadfile(
         return kinds[name]
       end,
       screen = {
-        find = function(uuid)
-          return ({ ["0"] = main, ["1000"] = side })[uuid]
+        find = function(hint)
+          for _, screen in ipairs(plugged) do
+            if hint == screens.__index.id(screen) or hint == tostring(at[screen]) then
+              return screen
+            end
+          end
         end,
+        primaryScreen = function()
+          return main
+        end,
+        watcher = {
+          new = function(fn)
+            return {
+              start = function(self)
+                displays = fn
+                return self
+              end,
+            }
+          end,
+        },
       },
       spaces = {
         focusedSpace = function()
@@ -392,6 +410,7 @@ local function clear()
     end
   end
   canvases, timers, glasses, focused, system = {}, {}, {}, main, "Dark"
+  plugged = { main, side }
 end
 
 test("a failure sits at the bottom right, titled by its source, with a red cross", function()
@@ -452,6 +471,7 @@ test("a multi-click closes only its toast, and the rest of it reaches nothing", 
     { "lone", late = "late" }, -- shown between the clicks
     { "older", "newer", button = 1, held = 0 }, -- right, with left held
     { "older", "newer", button = 3, held = 2 }, -- button 4, with the middle held
+    { "older", "newer", single = true },
   }) do
     for _, text in ipairs(case) do
       toast.show(text)
@@ -463,13 +483,16 @@ test("a multi-click closes only its toast, and the rest of it reaches nothing", 
       end
     end
     local point, away = inside(target), { x = 5, y = 30 }
-    -- Another button's double-click is held through the toast's, and let go during it.
-    press(away, 1, case.held or 1)
-    local _, other = hold(away, 2, case.held or 1)
+    -- Another button's double-click, or single click, ends after the toast's first click, held.
+    if not case.single then
+      press(away, 1, case.held or 1)
+    end
     assert(
       press(point, 1, case.button) == target and not rawget(target, "click"),
       "the click missed it"
     )
+    local beneath, other = hold(away, case.single and 1 or 2, case.held or 1)
+    assert(beneath == nil, "another button's click was swallowed")
     assert(not target.ghost, "its window came back when the click was let go")
     if case.late then
       toast.show(case.late)
@@ -853,6 +876,30 @@ test("the cap drops a screen's oldest unpressed timed toast, never a kept one", 
   end
   toast.show("timed")
   assert(not canvases[7].deleted, "the cap dropped the toast it was making room for")
+  clear()
+end)
+
+test("a toast whose display is unplugged moves to the primary one, within its cap", function()
+  focused = side
+  toast.show("Working…", { seconds = false })
+  plugged = { main }
+  assert(displays, "nothing watches the displays")
+  displays()
+  assert(canvases[1].at.x < 1000 and bottom(canvases[1]) == 609, "it stayed on the gone display")
+  clear()
+  for i = 1, 4 do
+    toast.show("main " .. i)
+  end
+  focused = side
+  toast.show("Working…", { seconds = false })
+  toast.show("side")
+  plugged = { main }
+  displays()
+  assert(canvases[1].deleted and fade(canvases[1]) == 0, "the cap kept six, or faded one")
+  for i = 2, 6 do
+    assert(not canvases[i].deleted and canvases[i].at.x < 1000, "it stayed on the gone display")
+  end
+  assert(bottom(canvases[5]) == canvases[6].at.y - 8 and bottom(canvases[6]) == 609, "unstacked")
   clear()
 end)
 

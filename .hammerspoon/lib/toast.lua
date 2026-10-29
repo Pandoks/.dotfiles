@@ -137,7 +137,7 @@ end
 
 local types = hs.eventtap.event.types
 local ups = { [types.leftMouseUp] = true, [types.rightMouseUp] = true, [types.otherMouseUp] = true }
-local clicked, dropped = false, {}
+local clicked, dropped, last = {}, {}, 0
 -- Drops the rest of a multi-click that closed a toast, each up with its down.
 local tap = hs.eventtap.new({
   types.leftMouseDown,
@@ -149,12 +149,14 @@ local tap = hs.eventtap.new({
 }, function(event)
   local button = event:getProperty(hs.eventtap.event.properties.mouseEventButtonNumber)
   if ups[event:getType()] then
+    last = button
     local drop = dropped[button]
     dropped[button] = nil
     return drop
   end
-  local drop = clicked and event:getProperty(hs.eventtap.event.properties.mouseEventClickState) > 1
-  clicked, dropped[button] = drop, drop
+  local state = event:getProperty(hs.eventtap.event.properties.mouseEventClickState)
+  local drop = clicked[button] and state > 1
+  clicked[button], dropped[button] = drop, drop
   return drop
 end)
 
@@ -197,6 +199,34 @@ local function wrap(canvas, text, style, lines)
   local joined = table.concat(out, "\n")
   return joined, size(joined)
 end
+
+-- Past the cap, a screen drops its oldest unpressed timed toasts, never its newest.
+local function cap()
+  local stacks = {}
+  for _, entry in ipairs(shown) do
+    local key = entry.screen:id()
+    stacks[key] = stacks[key] or {}
+    table.insert(stacks[key], entry)
+  end
+  for _, stack in pairs(stacks) do
+    local over = #stack - most
+    for i = 1, #stack - 1 do
+      if over > 0 and stack[i].timer and not held[stack[i].id] then
+        toast.close(stack[i].id, 0) -- at once: the stack shifts into its place
+        over = over - 1
+      end
+    end
+  end
+end
+
+-- A toast whose display is gone moves to the primary one.
+local displays = hs.screen.watcher.new(function()
+  for _, entry in ipairs(shown) do
+    entry.screen = hs.screen.find(entry.screen:id()) or hs.screen.primaryScreen()
+  end
+  cap()
+  layout()
+end)
 
 ---@class ToastOptions
 ---@field failure? boolean
@@ -335,12 +365,12 @@ function toast.show(text, options)
   canvas:mouseCallback(function(_, message)
     held[id] = message == "mouseDown" or nil
     if held[id] then
+      -- In time for this click's up. Never stopped: stopping it mid-click drops the up.
+      tap:start()
       return
     end
     toast.close(id)
-    clicked = true
-    -- Never stopped: stopping it from its callback drops that click's mouse-up.
-    tap:start()
+    clicked[last] = true
   end)
   local entry = {
     id = id,
@@ -354,21 +384,9 @@ function toast.show(text, options)
   }
   arm(entry, seconds)
   shown[#shown + 1] = entry
-  local on = {}
-  for _, other in ipairs(shown) do
-    if other.screen:id() == screen:id() then
-      on[#on + 1] = other
-    end
-  end
-  if #on > most then
-    for i = 1, #on - 1 do
-      if on[i].timer and not held[on[i].id] then
-        toast.close(on[i].id, 0) -- at once: the stack shifts into its place
-        break
-      end
-    end
-  end
+  cap()
   layout()
+  displays:start()
   canvas:show(0.15)
   if theme.glass then
     entry.glass = assert(native).glass(canvas, radius, 0.15, dark)
