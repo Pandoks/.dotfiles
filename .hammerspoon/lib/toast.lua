@@ -364,7 +364,7 @@ function toast.show(text, options)
   canvas:mouseCallback(function(_, message)
     held[id] = message == "mouseDown" or nil
     if held[id] then
-      -- Known once the tap sees this click's up, which a tap started now misses if quick.
+      -- A tap started now can miss a quick click's up, leaving the button unknown.
       -- Never stopped: stopping it from its callback drops an up.
       last = "any"
       tap:start()
