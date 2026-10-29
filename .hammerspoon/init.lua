@@ -25,4 +25,8 @@ rawset(hs, "shutdownCallback", function()
   end
 end)
 
-require("secrets") -- gitignored: hotkeys that type secrets
+require("secrets")
+-- template for secrets:
+-- hs.hotkey.bind({ "" }, "", function()
+--  hs.eventtap.keyStrokes("")
+-- end)
