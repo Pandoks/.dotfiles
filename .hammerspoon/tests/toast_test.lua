@@ -805,6 +805,7 @@ end)
 
 test("an hs.alert with non-number seconds stays until closed by its id", function()
   toast.install()
+  assert(not pcall(alert.closeAll, true), "a fade of true was taken with none shown")
   local id = alert.show("Working…", "indefinite")
   alert.show("other", 1)
   assert(#timers == 1, "the indefinite one got a timer")
