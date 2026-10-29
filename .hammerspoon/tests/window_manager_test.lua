@@ -1,11 +1,11 @@
 local root = assert(arg[1])
 local passed = 0
-local function test(name, fn)
-  fn()
+local function test(name, body)
+  body()
   passed = passed + 1
   print("PASS " .. name)
 end
-local function eq(actual, expected, label)
+local function assertEqual(actual, expected, label)
   if actual ~= expected then
     error(
       string.format(
@@ -24,11 +24,11 @@ local function leaked(timers)
   local here, registry = debug.getinfo(1, "S").source, {}
   local weak = setmetatable({}, { __mode = "k" })
   for i = #timers, 1, -1 do
-    local t = timers[i]
-    if not t.active then
+    local timer = timers[i]
+    if not timer.active then
       table.remove(timers, i)
-      if debug.getinfo(t.callback, "S").source ~= here then
-        registry[#registry + 1], weak[t] = t.callback, true
+      if debug.getinfo(timer.callback, "S").source ~= here then
+        registry[#registry + 1], weak[timer] = timer.callback, true
       end
     end
   end
@@ -49,21 +49,21 @@ end
 
 -- Four Spaces on one display; the Dock lands each batch of swipes and reports once.
 local function harness()
-  local h = { current = 100, steps = 0, inflight = {}, results = {}, timers = {} }
+  local desktop = { current = 100, steps = 0, inflight = {}, results = {}, timers = {} }
   local spaces = {}
   for i = 1, 4 do
     spaces[i] = { ManagedSpaceID = i * 100, display = "d" }
   end
-  local watcher
-  local env = setmetatable({
+  local spaceChanged
+  local environment = setmetatable({
     hs = {
       spaces = {
         spaceDisplay = function(space)
-          return not h.displayGone and space and "d" or nil
+          return not desktop.displayGone and space and "d" or nil
         end,
         watcher = {
-          new = function(fn)
-            watcher = fn
+          new = function(callback)
+            spaceChanged = callback
             return {
               start = function(self)
                 return self
@@ -72,10 +72,10 @@ local function harness()
           end,
         },
         activeSpaces = function()
-          if h.unavailable then
+          if desktop.unavailable then
             return nil, "Spaces unavailable"
           end
-          return { d = h.current }
+          return { d = desktop.current }
         end,
       },
       screen = {
@@ -89,12 +89,12 @@ local function harness()
       },
       timer = {
         doAfter = function(_, callback)
-          local t = { callback = callback, active = true }
-          function t:stop()
+          local timer = { callback = callback, active = true }
+          function timer:stop()
             self.active = false
           end
-          h.timers[#h.timers + 1] = t
-          return t
+          desktop.timers[#desktop.timers + 1] = timer
+          return timer
         end,
       },
     },
@@ -106,99 +106,99 @@ local function harness()
         native = function()
           return {
             move = function(right, count)
-              h.steps = h.steps + count
-              h.inflight[#h.inflight + 1] = (right and 100 or -100) * count
+              desktop.steps = desktop.steps + count
+              desktop.inflight[#desktop.inflight + 1] = (right and 100 or -100) * count
               return true
             end,
             spaces = function(ids)
-              return { [ids[1]] = h.windowSpace }
+              return { [ids[1]] = desktop.windowSpace }
             end,
             focus = function(_, id, done)
-              h.focused = id
+              desktop.focused = id
               done(true)
             end,
             windows = function()
-              h.listed = (h.listed or 0) + 1
+              desktop.listed = (desktop.listed or 0) + 1
             end,
           }
         end,
       }
     end,
   }, { __index = _G })
-  h.windowManager = assert(loadfile(root .. "/window_manager.lua", "t", env))()
-  function h:space(index)
+  desktop.windowManager = assert(loadfile(root .. "/window_manager.lua", "t", environment))()
+  function desktop:space(index)
     self.windowManager.space(index, function(ok, err)
       self.results[index] = ok and "ok" or err
     end)
   end
-  function h:settle()
+  function desktop:settle()
     while #self.inflight > 0 do
       self.current = self.current + table.remove(self.inflight, 1)
-      h.notifications = (h.notifications or 0) + 1
-      watcher()
+      desktop.notifications = (desktop.notifications or 0) + 1
+      spaceChanged()
     end
   end
-  return h
+  return desktop
 end
 
 test("a jump sends every swipe at once and reports when it arrives", function()
-  local h = harness()
-  h:space(4)
-  eq(#h.inflight, 1, "one batch")
-  h:settle()
-  eq(h.current, 400)
-  eq(h.steps, 3)
-  eq(h.notifications, 1, "no Space between is shown")
-  eq(h.results[4], "ok")
+  local desktop = harness()
+  desktop:space(4)
+  assertEqual(#desktop.inflight, 1, "one batch")
+  desktop:settle()
+  assertEqual(desktop.current, 400)
+  assertEqual(desktop.steps, 3)
+  assertEqual(desktop.notifications, 1, "no Space between is shown")
+  assertEqual(desktop.results[4], "ok")
 end)
 
 test("presses during a jump wait for its swipes to land, then continue from there", function()
   for _, case in ipairs({ { second = 1, steps = 2 }, { second = 3, steps = 2 } }) do
-    local h = harness()
-    h:space(2)
-    h:space(case.second)
-    eq(#h.inflight, 1, "no swipes posted while others are in flight")
-    h:settle()
-    eq(h.current, case.second * 100, "lands on the latest press")
-    eq(h.steps, case.steps)
-    eq(h.results[2], "superseded")
-    eq(h.results[case.second], "ok")
+    local desktop = harness()
+    desktop:space(2)
+    desktop:space(case.second)
+    assertEqual(#desktop.inflight, 1, "no swipes posted while others are in flight")
+    desktop:settle()
+    assertEqual(desktop.current, case.second * 100, "lands on the latest press")
+    assertEqual(desktop.steps, case.steps)
+    assertEqual(desktop.results[2], "superseded")
+    assertEqual(desktop.results[case.second], "ok")
   end
 end)
 
 test("finished jumps release their timers", function()
-  local h = harness()
-  h:space(2)
-  h:settle()
-  eq(h.results[2], "ok")
-  eq(leaked(h.timers), 0)
+  local desktop = harness()
+  desktop:space(2)
+  desktop:settle()
+  assertEqual(desktop.results[2], "ok")
+  assertEqual(leaked(desktop.timers), 0)
 end)
 
 test("an unreadable Space layout fails at once instead of waiting for the timeout", function()
-  local h = harness()
-  h.unavailable = true
-  h:space(3)
-  eq(h.results[3], "Spaces unavailable")
-  eq(h.steps, 0)
+  local desktop = harness()
+  desktop.unavailable = true
+  desktop:space(3)
+  assertEqual(desktop.results[3], "Spaces unavailable")
+  assertEqual(desktop.steps, 0)
 end)
 
 test(
   "focusing a window whose display can't be found fails instead of skipping its Space",
   function()
-    local h = harness()
-    h.windowSpace, h.displayGone = 300, true
+    local desktop = harness()
+    desktop.windowSpace, desktop.displayGone = 300, true
     local result
-    h.windowManager.focus(10, 7, function(ok, err)
+    desktop.windowManager.focus(10, 7, function(ok, err)
       result = ok and "ok" or err
     end)
-    eq(result, "display unavailable for Space 300")
-    eq(h.focused, nil, "not focused without showing its Space")
-    eq(h.steps, 0)
+    assertEqual(result, "display unavailable for Space 300")
+    assertEqual(desktop.focused, nil, "not focused without showing its Space")
+    assertEqual(desktop.steps, 0)
   end
 )
 
 test("loading starts one window search, so the first Cmd-Tab is cached", function()
-  eq(harness().listed, 1)
+  assertEqual(harness().listed, 1)
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")

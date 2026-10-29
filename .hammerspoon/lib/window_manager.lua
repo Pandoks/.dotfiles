@@ -104,8 +104,8 @@ function windowManager.space(index, done)
     done(false, err)
     return
   end
-  local now = active[display]
-  if not screen or not now then
+  local current = active[display]
+  if not screen or not current then
     done(false, "display unavailable")
     return
   end
@@ -120,13 +120,13 @@ function windowManager.space(index, done)
   elseif jump then
     finish(false, "superseded")
   end
-  if now == target.ManagedSpaceID then
+  if current == target.ManagedSpaceID then
     done(true)
     return
   end
   local origin
   for position, space in ipairs(spaces) do
-    if space.ManagedSpaceID == now then
+    if space.ManagedSpaceID == current then
       origin = position
     end
   end
@@ -137,7 +137,7 @@ function windowManager.space(index, done)
   jump = {
     space = target.ManagedSpaceID,
     index = index,
-    landing = now,
+    landing = current,
     from = origin,
     display = display,
     point = screen:frame().center,

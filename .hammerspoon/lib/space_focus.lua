@@ -43,9 +43,9 @@ local function snapshot(frame)
   for _, info in
     ipairs(hs.window.list() --[[@as table[] ]])
   do
-    local id, pid, layer, b =
+    local id, pid, layer, bounds =
       info.kCGWindowNumber, info.kCGWindowOwnerPID, info.kCGWindowLayer, info.kCGWindowBounds
-    local x, y = b.X + b.Width / 2, b.Y + b.Height / 2
+    local x, y = bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2
     local inside = x >= frame.x and x < frame.x + frame.w and y >= frame.y and y < frame.y + frame.h
     if layer >= 0 and layer < 20 and (inside or id == focusedID) then
       local row = {
@@ -53,7 +53,7 @@ local function snapshot(frame)
         pid = pid,
         app = info.kCGWindowOwnerName,
         title = titleOf(info),
-        frame = { x = b.X, y = b.Y, w = b.Width, h = b.Height },
+        frame = { x = bounds.X, y = bounds.Y, w = bounds.Width, h = bounds.Height },
         inside = inside,
       }
       if inside then
@@ -146,18 +146,18 @@ local function defer(job, callback)
 end
 
 local function desktopPoint(screen, rows)
-  local f = screen:frame()
-  for _, fy in ipairs({ 0.5, 0.35, 0.65, 0.2, 0.8 }) do
-    for _, fx in ipairs({ 0.5, 0.35, 0.65, 0.2, 0.8 }) do
-      local point = { x = f.x + f.w * fx, y = f.y + f.h * fy }
+  local frame = screen:frame()
+  for _, vertical in ipairs({ 0.5, 0.35, 0.65, 0.2, 0.8 }) do
+    for _, horizontal in ipairs({ 0.5, 0.35, 0.65, 0.2, 0.8 }) do
+      local point = { x = frame.x + frame.w * horizontal, y = frame.y + frame.h * vertical }
       local covered = false
       for _, row in ipairs(rows) do
-        local r = row.frame
+        local windowFrame = row.frame
         if
-          point.x >= r.x - 8
-          and point.x < r.x + r.w + 8
-          and point.y >= r.y - 8
-          and point.y < r.y + r.h + 8
+          point.x >= windowFrame.x - 8
+          and point.x < windowFrame.x + windowFrame.w + 8
+          and point.y >= windowFrame.y - 8
+          and point.y < windowFrame.y + windowFrame.h + 8
         then
           covered = true
           break
@@ -435,13 +435,13 @@ local function leavePiP(id, pid)
       break
     end
   end
-  local b = info and info.kCGWindowBounds
+  local bounds = info and info.kCGWindowBounds
   if
-    not b
+    not bounds
     or not isPiP(titleOf(info))
     or hs.geometry
       .new(hs.mouse.absolutePosition())
-      :inside({ x = b.X, y = b.Y, w = b.Width, h = b.Height })
+      :inside({ x = bounds.X, y = bounds.Y, w = bounds.Width, h = bounds.Height })
   then
     return
   end

@@ -89,9 +89,9 @@ local function openOrFocusWindow(profile)
   end
   launching[launchKey] = true
 
-  local launchArgs = { "-W", "-n", "-b", profile.bundleId, "--args" }
-  for _, arg in ipairs(profile.args or {}) do
-    table.insert(launchArgs, arg)
+  local arguments = { "-W", "-n", "-b", profile.bundleId, "--args" }
+  for _, argument in ipairs(profile.args or {}) do
+    table.insert(arguments, argument)
   end
 
   hs.task
@@ -100,7 +100,7 @@ local function openOrFocusWindow(profile)
       if exitCode ~= 0 then
         print("Launch failed", launchKey)
       end
-    end, launchArgs)
+    end, arguments)
     :start()
   print("Launching window", launchKey)
 end

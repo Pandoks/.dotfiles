@@ -25,9 +25,9 @@ local utils = assert(loadfile(
   }, { __index = _G })
 ))()
 local passed = 0
-local function test(name, fn)
+local function test(name, body)
   calls, screens = 0, 0
-  fn()
+  body()
   passed = passed + 1
   print("PASS " .. name)
 end

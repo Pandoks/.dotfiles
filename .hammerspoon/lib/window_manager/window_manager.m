@@ -102,12 +102,12 @@ static CGEventRef withPayload(CGEventRef event) {
   if (moving) [payload appendBytes:&motion length:sizeof motion];
 
   // Fields are (size, tag << 14 | field, value), sorted by field; insert the payload in order.
-  NSMutableData *out = [NSMutableData dataWithBytes:bytes length:4];
+  NSMutableData *serialized = [NSMutableData dataWithBytes:bytes length:4];
   BOOL inserted = NO;
   void (^insert)(void) = ^{
     uint16_t head[2] = { OSSwapHostToBigInt16((uint16_t)payload.length), OSSwapHostToBigInt16(payloadField) };
-    [out appendBytes:head length:sizeof head];
-    [out appendData:payload];
+    [serialized appendBytes:head length:sizeof head];
+    [serialized appendData:payload];
   };
   for (CFIndex offset = 4; offset + 4 <= length;) {
     uint16_t size = OSReadBigInt16(bytes, offset), tagged = OSReadBigInt16(bytes, offset + 2);
@@ -118,12 +118,12 @@ static CGEventRef withPayload(CGEventRef event) {
       insert();
       inserted = YES;
     }
-    if (field != payloadField) [out appendBytes:bytes + offset length:4 + width];
+    if (field != payloadField) [serialized appendBytes:bytes + offset length:4 + width];
     offset += 4 + width;
   }
   if (!inserted) insert();
   CFRelease(data);
-  return CGEventCreateFromData(NULL, (__bridge CFDataRef)out);
+  return CGEventCreateFromData(NULL, (__bridge CFDataRef)serialized);
 }
 
 // The Dock ignores a swipe without a companion gesture event.

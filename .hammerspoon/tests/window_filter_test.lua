@@ -1,7 +1,7 @@
 local root = assert(arg[1])
 local passed = 0
-local function test(name, callback)
-  callback()
+local function test(name, body)
+  body()
   passed = passed + 1
   print("PASS " .. name)
 end
@@ -13,8 +13,8 @@ local function leaked(observers)
     local observer = observers[i]
     if not observer.active then
       table.remove(observers, i)
-      if debug.getinfo(observer.fn, "S").source ~= here then
-        registry[#registry + 1], weak[observer] = observer.fn, true
+      if debug.getinfo(observer.handler, "S").source ~= here then
+        registry[#registry + 1], weak[observer] = observer.handler, true
       end
     end
   end
@@ -240,7 +240,7 @@ local function setup(options)
               self.registered[target][name] = nil
             end
             function observer:callback(callback)
-              self.fn = callback
+              self.handler = callback
             end
             function observer:start()
               self.active = true
@@ -266,7 +266,7 @@ local function setup(options)
   model.filter = model.module.new()
   function model:emit(target, event, observer)
     observer = observer or self.observers[#self.observers]
-    observer.fn(observer, target, event)
+    observer.handler(observer, target, event)
   end
   return model
 end
