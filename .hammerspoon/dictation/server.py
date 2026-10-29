@@ -253,8 +253,7 @@ def restore(raw, out):
     def repeated(k, kept, reach):  # said again within `reach` words, that copy kept: "test testing"
         if spoken[k] in (*VALUE, "dash", "dot", "slash") or spoken[k].replace(",", "").isdecimal():
             return False  # said twice on purpose: "seven seventeen", "dash dash save"
-        nearby = [i for i in range(k - reach, k + reach + 1) if i in kept]
-        return any(alike(spoken[k], spoken[i]) for i in nearby)
+        return any(alike(spoken[k], spoken[i]) for i in kept if abs(i - k) <= reach)
 
     def filler(k):  # its word count, if set off by a comma or opening or ending a sentence
         found = match(k, FILLER)
@@ -415,8 +414,12 @@ def restore(raw, out):
 
 DECADE = {w[:-1] + "ies": VALUE[w] for w in TENS}  # "nineteen eighties" -> "1980s"
 ENDS = "|".join(sorted([*ORDINAL, *DECADE], key=len, reverse=True))
-# "two hundred and five", not "five hundred and six hundred"
-AND = "|".join(rf"(?<={s}) and(?! (?:(?:{'|'.join(UNITS + TENS)})[ -])+{s}\b)" for s in SCALES)
+# "two hundred and five", not "five hundred and six hundred" or "…thousand and two million"
+AND = "|".join(
+    rf"(?<={s}) and(?! (?:(?:{'|'.join(UNITS + TENS + [*SCALES][:n])})[ -])+"
+    rf"(?:{'|'.join([*SCALES][n:] if n else [s])})\b)"
+    for n, s in enumerate(SCALES)
+)
 OH = rf"(?P<oh>(?:[ -]oh\b)+)(?=[ -](?:{WORD})\b)|(?:[ -]oh\b){{2,}}"  # "four oh four"
 RUN = re.compile(  # a run of number words, never in a path or name ("~/two", "three.js")
     rf"(?i)(?<![\w./~@#$-])(?:a (?=(?:{'|'.join(SCALES)})\b))?(?:{WORD})(?:(?:{AND})? (?:{WORD})\b"
