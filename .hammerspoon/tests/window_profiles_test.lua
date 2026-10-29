@@ -32,7 +32,7 @@ local openOrFocusWindow = assert(loadfile(
     require = function(name)
       assert(name == "lib.logger")
       return {
-        -- Its print reportRaises while a dead CLI is registered.
+        -- Its print raises while a dead CLI is registered.
         error = function(message)
           errors[#errors + 1] = message
           if reportRaises then

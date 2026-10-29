@@ -4,11 +4,11 @@ local logger = require("lib.logger")
 local launching = {}
 
 ---@param bundleId string
----@param code integer
----@param err string
-local function report(bundleId, code, err)
-  if code ~= 0 then
-    logger.error(string.format("Could not launch %s (exit %d): %s", bundleId, code, err))
+---@param exitCode integer
+---@param stdErr string
+local function report(bundleId, exitCode, stdErr)
+  if exitCode ~= 0 then
+    logger.error(string.format("Could not launch %s (exit %d): %s", bundleId, exitCode, stdErr))
   end
 end
 
@@ -78,8 +78,8 @@ local function openOrFocusWindow(profile)
 
   if profile.match == nil then
     hs.task
-      .new("/usr/bin/open", function(code, _, err)
-        report(profile.bundleId, code, err)
+      .new("/usr/bin/open", function(exitCode, _, stdErr)
+        report(profile.bundleId, exitCode, stdErr)
       end, { "-b", profile.bundleId })
       :start()
     print("Launching app", profile.bundleId)
@@ -101,9 +101,9 @@ local function openOrFocusWindow(profile)
   end
 
   hs.task
-    .new("/usr/bin/open", function(code, _, err)
+    .new("/usr/bin/open", function(exitCode, _, stdErr)
       launching[launchKey] = nil
-      report(profile.bundleId, code, err)
+      report(profile.bundleId, exitCode, stdErr)
     end, arguments)
     :start()
   print("Launching window", launchKey)
