@@ -624,7 +624,7 @@ check(
             ("Send the logs to Oki, no wait, send them to Sam.", "Send the logs to Sam."),
             ("Remind Oki on Friday, actually, remind him on Thursday.", "Remind Oki on Thursday."),
             ("Visit Grandma on Sunday, wait, visit her on Saturday.", "Visit Grandma on Saturday."),
-            ("Ask Kate about the budget, no wait, ask her boss.", "Ask her boss about the budget."),
+            ("Delete my main branch. Sorry, the feature one.", "Delete the feature branch."),
             (
                 "Book two rooms, sorry, three rooms for Tuesday. Can you do that?",
                 "Book three rooms for Tuesday. Can you do that?",
@@ -770,6 +770,7 @@ check(
             ("Send the logs to Oki. Actually, send them to Sam too.", "Send the logs to Sam too."),
             ("Lock the doors at 9, actually, lock them again at 12.", "Lock the doors at 12."),
             ("Add Sam to the invite, sorry, add Kate also.", "Add Kate to the invite."),
+            ("Ask Kate about the budget, no wait, ask her boss.", "Ask her boss about the budget."),
             (
                 "Move the files to the archive tonight, wait, move them to the backup drive.",
                 "Move the files to the backup drive tonight.",
@@ -833,6 +834,10 @@ check(
         (
             ("Two things first fix the bug.", "Two things: fix the bug."),
             "Two things: first fix the bug.",
+        ),
+        (
+            ("Use the paper cups, I mean the plastic ones.", "Use the plastic ones."),
+            "Use the plastic cups.",
         ),
         (
             (

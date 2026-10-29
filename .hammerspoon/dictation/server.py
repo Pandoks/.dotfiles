@@ -316,10 +316,14 @@ def restore(raw, out):
                 respaced &= not any(re.search(r"\d \d", " ".join(words)) for words in (run, new))
                 if respaced or len(run) == len(new) == 1 and misheard(spans[i1][0], outs[j1][0]):
                     continue
+                if run == ["one"] and len(new) == 1 and new[0] in spoken[:i1] and cues(0, i1):
+                    continue  # the noun a correction's "one" stands for: "the feature branch"
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
                 listed = re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[i2 - 1][2]])
                 said_later = any(set(new) <= set(spoken[c:]) for c, _ in cues(i2, total))
-                if listed or not trusted or not said_later:
+                # Not a pronoun standing for words left out: "her boss" for "Kate".
+                pronoun = set(new) & {"it", "them", "him", "her", "his", "their"}
+                if listed or not trusted or not said_later or pronoun and not set(run) & set(typed):
                     bad.append((i1, i2, j1, j2))
                     continue
                 moved += new
@@ -356,6 +360,20 @@ def restore(raw, out):
     ]
     bad, text = unexplained(forward), written
     if not bad or not unexplained(backward):
+        # A kept "the X one" gets the noun said before its cue: "the plastic cups".
+        equal = [op for op in forward if op[0] == "equal"]
+        kept = {i: j for _, i1, i2, j1, j2 in equal for i, j in zip(range(i1, i2), range(j1, j2))}
+        determiners = ("the", "a", "an", "my", "your", "our", "his", "her", "their", "this", "that")
+        for i in sorted(kept, reverse=True):
+            one = said[spans[i][1] : spans[i][2]].lower() in ("one", "ones") and i > 1
+            if one and spoken[i - 2] in determiners and spoken[i - 1] not in (*determiners, *VALUE):
+                cue = [c for c in range(1, i) if c not in kept and match(c, CUE)]
+                c = next((c for c in reversed(cue) if c - 1 not in cue), 0)
+                while c > 1 and spoken[c - 1] in ("or", "well"):
+                    c -= 1
+                if c and "one" not in spoken[:c] and spoken[c - 1] not in (*typed, *VALUE):
+                    noun = said[spans[c - 1][1] : spans[c - 1][2]]
+                    text = text[: outs[kept[i]][1]] + noun + text[outs[kept[i]][2] :]
         return text
     # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
     whole = [w for *_, w in spans], [w for *_, w in outs]
