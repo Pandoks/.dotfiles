@@ -414,9 +414,9 @@ def restore(raw, out):
 
 DECADE = {w[:-1] + "ies": VALUE[w] for w in TENS}  # "nineteen eighties" -> "1980s"
 ENDS = "|".join(sorted([*ORDINAL, *DECADE], key=len, reverse=True))
-# "two hundred and five", not "five hundred and six hundred" or "…thousand and two million"
+# "two hundred and five thousand", not "five hundred and six hundred" or "…thousand and two million"
 AND = "|".join(
-    rf"(?<={s}) and(?! (?:(?:{'|'.join(UNITS + TENS + [*SCALES][:n])})[ -])+"
+    rf"(?<={s}) and(?! (?:(?:{'|'.join(UNITS + TENS + [*SCALES][:n] + ['hundred and'])})[ -])+"
     rf"(?:{'|'.join([*SCALES][n:] if n else [s])})\b)"
     for n, s in enumerate(SCALES)
 )
