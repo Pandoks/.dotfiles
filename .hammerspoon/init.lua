@@ -25,8 +25,19 @@ rawset(hs, "shutdownCallback", function()
   end
 end)
 
-require("secrets")
+-- Gitignored, so only where it was set up.
+if hs.fs.attributes(hs.configdir .. "/secrets.lua") then
+  require("secrets")
+end
 -- template for secrets:
 -- hs.hotkey.bind({ "" }, "", function()
 --  hs.eventtap.keyStrokes("")
 -- end)
+
+-- MLX needs Apple Silicon and macOS 14+; last, so a load error in it stops nothing else.
+if
+  (hs.processInfo.arch == "arm64" or hs.processInfo.isRosetta)
+  and hs.host.operatingSystemVersion()["major"] >= 14
+then
+  require("dictation")
+end
