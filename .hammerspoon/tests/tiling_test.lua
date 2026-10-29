@@ -415,6 +415,9 @@ test("a window moved to another display tiles there, after the drag when there i
   h.buttons = { true }
   h:drag(1, rect(100, 100, 300, 300))
   eq(h:frame(1), "100,100 300x300", "a drag crossing back is left alone")
+  h.windows[2].row.title = "renamed"
+  h:event("title", 2)
+  eq(h:frame(1), "100,100 300x300", "other window events wait for the release too")
   eq(h:frame(2), "0,0 1000x600")
   h.buttons = {}
   h.release()

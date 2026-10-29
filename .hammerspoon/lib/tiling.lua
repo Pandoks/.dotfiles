@@ -30,6 +30,7 @@ local tiled = {} ---@type table<integer, TileWindow>
 local floating = {} ---@type table<integer, boolean>
 local moving = {} ---@type table<integer, integer> frame updates in flight per window
 local stopped = false
+local pending = false -- a resync waiting for the left mouse release
 
 local function isPiP(title)
   title = (title or ""):lower():gsub("[^%a]", "")
@@ -165,10 +166,17 @@ local function manageable(window)
 end
 
 -- Reconcile trees with the tracked windows, then lay out every Space that changed.
-local function sync()
+---@param released? boolean
+local function sync(released)
   if stopped then
     return
   end
+  -- Mid-drag, it would tile a window dragged onto another Space under the cursor.
+  if not released and hs.mouse.getButtons()[1] then
+    pending = true
+    return
+  end
+  pending = false
   local changed, seen, ids, windows = {}, {}, {}, {}
   for _, window in ipairs(tiling.windows:getWindows()) do
     if manageable(window) then
@@ -481,7 +489,6 @@ end)
 
 -- Windows moved or resized by hand snap back to their tile, after the drag when there is one.
 local dragged = {} ---@type table<integer, boolean>
-local crossed = false
 tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   local entry = tiled[id]
   -- A tiled window that stopped qualifying (e.g. entering fullscreen) leaves the tree instead.
@@ -491,11 +498,7 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   end
   local space = entry and windowManager.native.spaces({ id })[id]
   if space and space ~= entry.space then
-    if hs.mouse.getButtons()[1] then
-      crossed = true
-    else
-      sync()
-    end
+    sync()
     return
   end
   local tile = entry and not moving[id] and frames(entry.space)[entry.leaf]
@@ -510,9 +513,6 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
 end)
 -- A Mission Control drop changes a window's Space ~0.6 s after the release, with no window event.
 tiling.settle = hs.timer.delayed.new(1, function()
-  if hs.mouse.getButtons()[1] then
-    return
-  end
   local ids = {}
   for id in pairs(tiled) do
     ids[#ids + 1] = id
@@ -527,9 +527,9 @@ tiling.settle = hs.timer.delayed.new(1, function()
 end)
 tiling.release = hs.eventtap
   .new({ hs.eventtap.event.types.leftMouseUp }, function()
-    if crossed then
-      crossed = false
-      sync()
+    -- The button still reads as held here.
+    if pending then
+      sync(true)
     end
     for space in pairs(dragged) do
       apply(space)
@@ -539,7 +539,11 @@ tiling.release = hs.eventtap
     return false
   end)
   :start() --[[@as hs.eventtap]]
-tiling.spaces = hs.spaces.watcher.new(sync):start() --[[@as hs.spaces.watcher]]
+tiling.spaces = hs.spaces.watcher
+  .new(function()
+    sync()
+  end)
+  :start() --[[@as hs.spaces.watcher]]
 tiling.screens = hs.screen.watcher
   .new(function()
     for space in pairs(trees) do
