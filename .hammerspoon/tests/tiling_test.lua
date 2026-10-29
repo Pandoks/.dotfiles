@@ -186,8 +186,12 @@ local function harness(rows)
       timer = {
         delayed = {
           new = function(_, fn)
-            h.settle = fn
-            return { start = function() end, stop = function() end }
+            return {
+              start = function()
+                h.settle = fn
+              end,
+              stop = function() end,
+            }
           end,
         },
       },
@@ -426,6 +430,7 @@ test("a window moved to another Space on the same display retiles both once rele
   h.settle()
   eq(h:frame(2), "500,0 500x600", "a new drag waits for its own release")
   h.buttons = {}
+  h.release()
   h.settle()
   eq(h:frame(2), "0,0 1000x600", "the window left behind takes the Space")
   eq(h:frame(1), "0,0 1000x600", "the moved window fills its new Space")

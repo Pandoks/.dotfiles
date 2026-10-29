@@ -489,7 +489,6 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
     sync()
     return
   end
-  -- One moved to another display retiles there, after the drag when there is one.
   local space = entry and windowManager.native.spaces({ id })[id]
   if space and space ~= entry.space then
     if hs.mouse.getButtons()[1] then
@@ -509,7 +508,7 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
     apply(entry.space)
   end
 end)
--- A Mission Control drop moves a window to another Space ~0.6 s after the release, without moving it.
+-- A Mission Control drop changes a window's Space ~0.6 s after the release, with no window event.
 tiling.settle = hs.timer.delayed.new(1, function()
   if hs.mouse.getButtons()[1] then
     return
