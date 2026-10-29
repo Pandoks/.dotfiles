@@ -2,7 +2,6 @@ local filter = require("lib.window_filter")
 local logger = require("lib.logger")
 local windowManager = require("lib.window_manager")
 
--- Tiled apps, set by `tiling.manage`.
 local apps = {} ---@type table<string, boolean>
 
 ---@class TileLeaf
@@ -28,7 +27,7 @@ local tiling = {}
 local trees = {} ---@type table<integer, TileNode>
 local tiled = {} ---@type table<integer, TileWindow>
 local floating = {} ---@type table<integer, boolean>
-local moving = {} ---@type table<integer, integer> frame updates in flight per window
+local moving = {} ---@type table<integer, integer> in-flight frame updates
 local stopped = false
 local resyncOnRelease = false
 
@@ -40,7 +39,6 @@ end
 ---@param space integer
 ---@return hs.geometry?
 local function area(space)
-  -- A string hint matches screen names too, so a missing display must not reach `find`.
   local display = hs.spaces.spaceDisplay(space)
   local screen = display and hs.screen.find(display)
   return screen and screen:frame()
@@ -95,7 +93,6 @@ local function apply(space)
   end
 end
 
--- Puts `new` where `old` sits in its parent, or at the root.
 ---@param space integer
 ---@param old TileNode
 ---@param new TileNode
@@ -120,7 +117,6 @@ local function insert(space, id, pid)
   if not root then
     trees[space] = leaf
   else
-    -- Split the last window along its longer side; the new window takes the second half.
     local target = root
     while target.second do
       target = target.second
@@ -165,7 +161,6 @@ local function manageable(window)
     and not floating[window:id()]
 end
 
--- Reconcile trees with the tracked windows, then lay out every Space that changed.
 ---@param mouseReleased? boolean
 local function sync(mouseReleased)
   if stopped then
@@ -184,7 +179,7 @@ local function sync(mouseReleased)
       windows[#windows + 1] = window
     end
   end
-  -- Most recently used first, so a reload builds the same layout.
+  -- Most recent first; insertion order sets the layout.
   local spaces = windowManager.native.spaces(ids)
   for index, window in ipairs(windows) do
     local id = ids[index]
@@ -223,7 +218,7 @@ local function current(window)
   return entry
 end
 
--- Nearest tiled window facing `direction`: smallest gap, then closest center, then top-left.
+-- Smallest gap, then closest center, then top-left.
 ---@param from hs.geometry
 ---@param direction string
 ---@param candidates table<integer, hs.geometry>
@@ -271,7 +266,6 @@ local function peers(space, skip)
   return framesById
 end
 
--- Candidates include tiled windows on other displays.
 ---@param direction "north"|"south"|"east"|"west"
 function tiling.focus(direction)
   local window = hs.window.focusedWindow()
@@ -293,7 +287,7 @@ function tiling.focus(direction)
         candidates[peerId] = frame
       end
     else
-      -- On another display, a zoomed window is the only one showing.
+      -- If one is zoomed, it's the only one showing.
       local shown = frames(space)
       for leaf, frame in pairs(shown) do
         if leaf.zoom then
@@ -348,7 +342,6 @@ function tiling.swap(direction)
   apply(focused.space)
 end
 
--- The focused window splits its neighbor, on the side it moved toward.
 ---@param direction "north"|"south"|"east"|"west"
 function tiling.warp(direction)
   local focused, other = pair(direction)
@@ -400,7 +393,7 @@ local function bounds(node, space)
 end
 
 ---@param edge "left"|"right"|"top"|"bottom"
----@param delta number points; negative moves the edge left or up
+---@param delta number points; negative moves left or up
 function tiling.resize(edge, delta)
   local entry = current(hs.window.focusedWindow())
   if not entry then
@@ -487,11 +480,10 @@ tiling.windows:subscribe({
   sync()
 end)
 
--- Windows moved or resized by hand snap back to their tile, after the drag when there is one.
 local spacesToSnapBack = {} ---@type table<integer, boolean>
 tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   local entry = tiled[id]
-  -- A tiled window that stopped qualifying (e.g. entering fullscreen) leaves the tree instead.
+  -- Stopped qualifying (e.g. entered fullscreen): leave the tree, don't snap back.
   if entry and not manageable(window) then
     sync()
     return
@@ -554,7 +546,7 @@ tiling.screenWatcher = hs.screen.watcher
   :start() --[[@as hs.screen.watcher]]
 sync()
 
----@param names string[] app names to tile
+---@param names string[]
 function tiling.manage(names)
   apps = {}
   for _, name in ipairs(names) do
@@ -563,7 +555,7 @@ function tiling.manage(names)
   sync()
 end
 
--- Exposed for the Hammerspoon console.
+-- For the Hammerspoon console.
 function tiling.status()
   local statusById = {}
   for id, entry in pairs(tiled) do

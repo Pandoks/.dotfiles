@@ -5,7 +5,7 @@ local function test(name, body)
   passed = passed + 1
   print("PASS " .. name)
 end
--- hs.axuielement.observer keeps a stopped observer's callback: count observers alive only through it.
+-- A stopped hs.axuielement.observer keeps its callback: count observers alive only through it.
 local function leaked(observers)
   local here, registry = debug.getinfo(1, "S").source, {}
   local weak = setmetatable({}, { __mode = "k" })
@@ -201,8 +201,16 @@ local function setup(options)
         _orderedwinids = function()
           return { 200, 100 }
         end,
-        list = function()
-          return { { kCGWindowOwnerPID = 7 }, model.visible and { kCGWindowOwnerPID = 42 } or nil }
+        -- On-screen, front to back.
+        list = function(all)
+          local rows = { model.visible and { kCGWindowOwnerPID = 42 } or nil }
+          rows[#rows + 1] = { kCGWindowOwnerPID = 7, kCGWindowName = model.dock and "Dock" or nil }
+          for i, row in ipairs(rows) do
+            if not all and row.kCGWindowName == "Dock" then
+              return { table.unpack(rows, i + 1) }
+            end
+          end
+          return rows
         end,
       },
       alert = {
@@ -680,6 +688,10 @@ test("Space changes re-scan only apps with on-screen windows", function()
   model.visible = true
   model.spaceCallback()
   assert(model.reads == reads + 1 and model.runningReads == running)
+  -- Even in front of a Finder window titled "Dock".
+  model.dock = true
+  model.spaceCallback()
+  assert(model.reads == reads + 2)
 end)
 
 test("an exited app without on-screen windows is detached on a Space change", function()

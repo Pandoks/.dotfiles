@@ -1,5 +1,4 @@
 local filter = require("lib.window_filter")
--- A window-based Cmd-Tab menu with PiP filtering.
 local previews = require("lib.previews")
 local windowManager = require("lib.window_manager")
 local switcher = {}
@@ -35,7 +34,6 @@ local function eligible(window)
   return window.role == "AXWindow"
 end
 
--- Native window rows, with the app state the menu reads.
 ---@param rows table[]
 ---@return table[]
 local function describe(rows)
@@ -91,7 +89,6 @@ local function layout(screen, count)
   local columns = math.min(count, math.max(1, math.floor((width - 20) / (minimum + 12))))
   local rows = math.max(1, math.floor((height - 20) / ((minimum - 16) * 9 / 16 + 52)))
   local best
-  -- Prefer more visible windows, then larger previews and fewer rows.
   for limit = 1, columns do
     local total = math.ceil(count / limit)
     local across = math.ceil(count / total)
@@ -142,7 +139,7 @@ local function draw(current)
   local padding, gap = 16, 12
   local columns, totalRows = grid.columns, grid.total
   local perRow, extraRows = math.floor(#windows / totalRows), #windows % totalRows
-  -- Spread the remainder over the first rows, so row counts differ by at most one.
+  -- First rows take the remainder, one extra window each.
   local function firstInRow(row)
     return row * perRow + math.min(row, extraRows) + 1
   end
@@ -229,7 +226,6 @@ local function draw(current)
     local rowWidth = rowColumns * cardWidth + (rowColumns - 1) * gap
     local x = (width - rowWidth) / 2 + (index - firstInRow(row)) * (cardWidth + gap)
     local y = padding + row * rowHeight - current.scrollOffset
-    -- Only visible portions of cards participate in pointer selection.
     local hitY = math.max(padding, y)
     local hitHeight = math.max(0, math.min(y + cardHeight, padding + viewportHeight) - hitY)
     current.cards[#current.cards + 1] = {
@@ -343,7 +339,6 @@ show = function(current)
         current.images[window.id] = cached.image
       end
     end
-    -- Paint cached images before requesting selected and visible previews.
     current.pointer = current.pointer or hs.mouse.absolutePosition()
     draw(current)
     if not hs.screenRecordingState() then
@@ -483,10 +478,9 @@ focus = function(window)
   job.deadline = hs.timer.doAfter(3, function()
     finish(job, "timed out " .. (job.watcher and "unhiding " or "focusing ") .. window.app)
   end)
-  -- Focusing a window on another Space switches to it without animation.
   local function moveAndFocus()
     job.target = window.id
-    -- Re-run by the window-focused event; reads focus in-process.
+    -- Re-run by the window-focused event.
     job.confirmFocus = function()
       if operation ~= job then
         return
@@ -589,7 +583,6 @@ focus = function(window)
   end)
 end
 
--- Share window recency without forcing callers to use the Cmd-Tab focus sequence.
 function switcher.mostRecent(windows)
   local target, timestamp
   for _, window in ipairs(windows) do
@@ -728,7 +721,7 @@ local function step(direction)
   end)
 end
 
--- Treat gaps and padding as part of the nearest visible card, inside the menu only.
+-- Gaps and padding pick the nearest visible card.
 local function cardAtPoint(current, x, y)
   if not current or not current.cards then
     return nil
@@ -768,7 +761,7 @@ switcher.canvas:mouseCallback(function(_, message, _, x, y)
   end
 end)
 
--- Observe pointer movement directly: inactive canvas windows can miss AppKit hover events.
+-- Inactive canvas windows can miss AppKit hover events.
 switcher.mouseTap = hs.eventtap.new({ types.mouseMoved, types.scrollWheel }, function(event)
   if not cycle or not cycle.cards then
     return false
@@ -789,7 +782,7 @@ switcher.mouseTap = hs.eventtap.new({ types.mouseMoved, types.scrollWheel }, fun
       cycle.revealSelected = false
       show(cycle)
     end
-    -- Consume scrolls over the menu, including at its edges, instead of the app below.
+    -- Consume even at scroll limits, so the app below doesn't scroll.
     return true
   end
   if previous and pointer.x == previous.x and pointer.y == previous.y then
@@ -835,7 +828,6 @@ switcher.tap = hs.eventtap
         swallowed[key] = true
         accept()
       else
-        -- Other shortcuts should not reach the application under the open menu.
         swallowed[key] = true
       end
       return true
@@ -846,7 +838,7 @@ switcher.tap = hs.eventtap
 
 -- Unfiltered, so title changes into and out of PiP still arrive.
 switcher.windows = filter.new()
--- Seed recency below any focus timestamp from front-to-back order; other Spaces stay unordered.
+-- Front-to-back seed, below any focus timestamp; other Spaces stay unordered.
 local ordered = (hs.window --[[@as { _orderedwinids: fun(): integer[] }]])._orderedwinids()
 for index, id in ipairs(ordered) do
   recent[id] = #ordered - index + 1
@@ -948,7 +940,7 @@ switcher.windows:subscribe({
   if not capture and (not current or current.released) then
     return
   end
-  -- Windows entering PiP leave like closed ones; windows leaving it join like new ones.
+  -- Entering PiP acts as a close, leaving it as a create.
   local title = window:title() or ""
   if isPiP(title) then
     if event == filter.windowTitleChanged then
@@ -965,7 +957,6 @@ switcher.windows:subscribe({
   end
   local pid = app:pid()
   if capture and hs.screenRecordingState() then
-    -- Keep this capture alive after the menu closes, without polling or retries.
     if captures[id] then
       captures[id].cancel()
     end
@@ -1027,12 +1018,10 @@ switcher.windows:subscribe({
   end
 end)
 
--- Busy from the Cmd-Tab press, before the menu shows, until the chosen window has focus.
 function switcher.isBusy()
   return operation ~= nil or cycle ~= nil or switcher.canvas:isShowing()
 end
 
--- Useful from the Hammerspoon console when checking what the menu contains.
 function switcher.status()
   local result = {
     active = switcher.tap:isEnabled(),

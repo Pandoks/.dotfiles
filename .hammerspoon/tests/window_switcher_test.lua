@@ -1,5 +1,3 @@
--- Run with Lua 5.4: lua test_switcher.lua /path/to/lib
--- The production modules run unchanged in an isolated Hammerspoon/windowManager model.
 local root = assert(arg[1], "pass a lib directory")
 local passed, failed = 0, 0
 local function assertEqual(actual, expected, label)
@@ -168,7 +166,6 @@ local function harness(options)
       })
     end
   end
-  -- Native rows: app name and focus/hidden state come from hs.application and hs.window.
   function desktop:rows()
     local rows = {}
     for i, window in ipairs(self.windows) do
@@ -184,7 +181,6 @@ local function harness(options)
     end
     return rows
   end
-  -- lib.window_manager replies on a later run-loop turn; `intercept` can answer instead.
   local windowManager = {}
   local function call(name, id, done, reply)
     desktop.commands[#desktop.commands + 1] = id and name .. " " .. id or name
@@ -301,7 +297,7 @@ local function harness(options)
   local function hidden(pid)
     return (owner(pid) or {})["is-hidden"]
   end
-  -- lib.window_filter, after admission: `desktop.tracked` holds the admitted minimizable dialogs.
+  -- `desktop.tracked`: windows lib.window_filter admitted (minimizable dialogs).
   local filter = {
     blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = true },
     new = function()
@@ -313,7 +309,6 @@ local function harness(options)
           return window
         end
       end
-      -- Like Filter:delete, which drops every callback.
       function object:delete()
         self.subscriptions = {}
       end
@@ -585,7 +580,6 @@ local function harness(options)
     }
     return window
   end
-  -- Delivers an event for a window lib.window_filter has already admitted.
   function desktop:notify(event, row)
     local callback = self.menu.windows.subscriptions[event]
     if callback then

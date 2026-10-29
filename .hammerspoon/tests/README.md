@@ -8,7 +8,8 @@ The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
 tracking failures with popups and no retries, and shutdown. It also checks that quit
-apps release their observers. The switcher suite checks that explicit action failures
+apps release their observers, and that a Space change re-scans apps with windows in front
+of a window titled "Dock". The switcher suite checks that explicit action failures
 still log and show popups.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
@@ -115,7 +116,8 @@ Finished jobs release their timers.
 It also checks PiP activation redirects, display boundaries, repeated presses during
 a pending switch, and Mission Control key passthrough and focus suppression. Its window
 model keeps untracked, minimized, hidden, layer-3, and other-display windows out of the
-candidates.
+candidates. A window titled "Dock" hides nothing in front of it from focus restoration or
+PiP redirects, and the shown Dock (layer 20) is not cover.
 
 Ctrl-Left/Right use `window_manager.space` outside Mission Control and stop at the current display's
 first/last Space. Numbered shortcuts use global Mission Control indices. Shortcuts take
@@ -164,13 +166,18 @@ window has focus. Switcher busy checks do
 not inspect screen-recording permission. Focus validation checks the current Space after the
 other state checks, so a Space change during those checks cannot focus an old window.
 
-Focus restoration reads the Space synchronously in-process: `hs.window.list()` for the
+Focus restoration reads the Space synchronously in-process: `hs.window.list(true)` for the
 WindowServer's front-to-back on-screen windows, limited to those centered in the Space
 display's `fullFrame()`, plus `hs.window.focusedWindow()` and
 `lib.window_filter.windowsOf` for tracked windows. Candidates are tracked layer-0
 windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
 This never waits behind a busy app; it measured about 2-3 ms. A Space whose display
 cannot be found fails once with a popup.
+Without `true`, the list keeps only the windows behind the first one titled "Dock", from any
+app. With Screen Recording and the Dock hidden, a Finder window on a folder named Dock hides
+every window in front of it, including the PiP. The PiP lookups and `lib.window_filter`'s
+Space re-scan pass `true` too. Either way the list holds only on-screen windows: none
+minimized, hidden, or on another Space.
 
 Space information, including each Space's display UUID, comes from one native snapshot
 per lookup. Cmd-Tab and Space

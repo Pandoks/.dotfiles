@@ -2,13 +2,13 @@
 local utils = {}
 
 ---@class ManagedSpace
----@field ManagedSpaceID integer native CGS id (`hs.spaces.focusedSpace()`)
----@field id64 integer same id as `ManagedSpaceID` in practice
----@field type integer 0 = user, 4 = fullscreen
----@field uuid string empty for some Spaces (often the first)
----@field display string UUID of the Space's screen
+---@field ManagedSpaceID integer `hs.spaces` id
+---@field id64 integer
+---@field type integer
+---@field uuid string
+---@field display string screen UUID
 
----@return ManagedSpace[]? spaces 1-based; `spaces[i]` is Mission Control index `i`
+---@return ManagedSpace[]? spaces `spaces[i]` is Mission Control index `i`
 ---@return string? errorMessage
 function utils.spaces()
   local data, err = hs.spaces.data_managedDisplaySpaces()
@@ -32,14 +32,13 @@ function utils.spaces()
   return spaces
 end
 
----Quote for /bin/sh: single quotes disable every kind of expansion.
 ---@param value string
 ---@return string
 function utils.quote(value)
   return "'" .. value:gsub("'", "'\\''") .. "'"
 end
 
--- The source/ABI cache key also makes dyld load rebuilt modules as fresh images.
+-- The source/ABI key in the filename makes dyld load rebuilds as fresh images.
 ---@param name string
 ---@return table
 function utils.native(name)

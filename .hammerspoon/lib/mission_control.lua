@@ -11,7 +11,7 @@ local function attach(dock)
   end
 end
 
--- macOS 27 posts no Dock overview notifications, so read the Dock's "mc" element when asked.
+-- macOS 27 posts no Dock AXExpose notifications.
 function module.isActive()
   assert(not failure, failure)
   if stopped or not element then

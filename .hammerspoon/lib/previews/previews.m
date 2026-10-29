@@ -69,7 +69,7 @@ static void deliver(Batch *batch, LSRefTable references, int callback, LSGCCanar
   if (!atomic_load(&batch->cancelled)) {
     if (id) lua_pushinteger(state, id); else lua_pushnil(state);
     if (image) {
-      // A bitmap representation avoids retaining a full-size or lazily rendered snapshot.
+      // A bitmap representation avoids retaining a lazily rendered snapshot.
       NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithCGImage:image];
       bitmap.size = NSMakeSize((CGFloat)CGImageGetWidth(image) / 2, (CGFloat)CGImageGetHeight(image) / 2);
       NSImage *result = [[NSImage alloc] initWithSize:bitmap.size];
