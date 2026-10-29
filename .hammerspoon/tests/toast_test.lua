@@ -720,6 +720,33 @@ test("system redraws shown toasts in place as macOS switches, until installed ot
   system = "Dark"
 end)
 
+test("installing again redraws shown toasts in place, in its theme and appearance", function()
+  toast.install({ appearance = "dark" })
+  toast.show("Config reloaded", { seconds = false })
+  toast.show("Tiling: no window", { failure = true })
+  local dark, y, count = rim(canvases[1]), canvases[2].at.y, #timers
+  toast.install({ appearance = "light" })
+  assert(inks(canvases[1])[1] < 0.5 and rim(canvases[1]) ~= dark, "it stayed dark")
+  toast.install({ theme = "glass", appearance = "light" })
+  for i, canvas in ipairs(canvases) do
+    assert(not find(canvas, "rectangle"), "a rim over the glass")
+    assert(
+      glasses[i] and glasses[i].canvas == canvas and glasses[i].dark == false,
+      "no light glass"
+    )
+  end
+  toast.install({ theme = "glass", appearance = "dark" })
+  assert(#glasses == 2 and glasses[1].dark == true, "its glass was doubled or stayed light")
+  toast.install({ appearance = "dark" })
+  assert(rim(canvases[1]) == dark and glasses[1].fade == 0 and glasses[2].fade == 0, "glass stayed")
+  assert(
+    #canvases == 2 and #timers == count and canvases[2].at.y == y,
+    "a toast was remade or moved"
+  )
+  assert(drawn(canvases[1]) and drawn(canvases[2]) and find(canvases[2], "circle"))
+  clear()
+end)
+
 test("glass that can't be built fails the load, as an unknown theme does", function()
   unbuilt = true
   local ok, problem = pcall(toast.install, { theme = "glass" })

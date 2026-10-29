@@ -60,6 +60,7 @@ local watcher
 ---@field screen hs.screen
 ---@field timer? hs.timer
 ---@field glass? ToastGlass
+---@field radius number
 ---@field paint fun()
 
 ---@type ToastEntry[]
@@ -348,6 +349,7 @@ function toast.show(text, options)
     image = options.image ~= nil,
     canvas = canvas,
     screen = screen,
+    radius = radius,
     paint = paint,
   }
   arm(entry, seconds)
@@ -372,6 +374,20 @@ function toast.show(text, options)
     entry.glass = assert(native).glass(canvas, radius, 0.15, dark)
   end
   return id
+end
+
+local function repaint()
+  for _, entry in ipairs(shown) do
+    entry.paint()
+    if entry.glass and not theme.glass then
+      entry.glass:hide(0)
+      entry.glass = nil
+    elseif entry.glass then
+      entry.glass:paint(dark)
+    elseif theme.glass then
+      entry.glass = assert(native).glass(entry.canvas, entry.radius, 0, dark)
+    end
+  end
 end
 
 -- Makes every hs.alert a toast.
@@ -400,17 +416,13 @@ function toast.install(options)
   if appearance == "system" then
     watcher = hs.distributednotifications.new(function()
       dark = hs.host.interfaceStyle() == "Dark"
-      for _, entry in ipairs(shown) do
-        entry.paint()
-        if entry.glass then
-          entry.glass:paint(dark)
-        end
-      end
+      repaint()
     end, "AppleInterfaceThemeChangedNotification")
     ---@cast watcher hs.distributednotifications
     watcher:start()
   end
   dark = appearance == "dark" or appearance == "system" and hs.host.interfaceStyle() == "Dark"
+  repaint()
   local styled = hs.getObjectMetatable("hs.styledtext")
   local screens, windows = hs.getObjectMetatable("hs.screen"), hs.getObjectMetatable("hs.window")
   local alert = hs.alert
