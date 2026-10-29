@@ -10,9 +10,9 @@ logger.path = directory .. "/config.log"
 
 ---@param message string
 function logger.error(message)
-  toast.show(message:match("[^\n]+") or message, { failure = true, seconds = 5 })
   -- hs.ipc's print raises while a dead `hs` CLI is registered.
   pcall(print, message)
+  toast.show(message:match("[^\n]+") or message, { failure = true, seconds = 5 })
 end
 
 function logger.install()

@@ -80,4 +80,25 @@ for _, message in ipairs({ "", "\nstack traceback:" }) do
 end
 assert(alerts[2] == "" and alerts[3] == "stack traceback:", tostring(alerts[3]))
 print("PASS an empty or line-break-first error still alerts")
-print("RESULT 6 passed, 0 failed")
+local logs = {}
+local raising = assert(loadfile(
+  root .. "/logger.lua",
+  "t",
+  setmetatable({
+    print = function(message)
+      logs[#logs + 1] = message
+    end,
+    require = function()
+      return {
+        show = function()
+          error("no glass")
+        end,
+      }
+    end,
+  }, { __index = _G })
+))()
+local ok, problem = pcall(raising.error, "Tiling: no window")
+assert(not ok and tostring(problem):find("no glass", 1, true), "the toast's error was lost")
+assert(logs[1] == "Tiling: no window", "not logged before a toast that raised")
+print("PASS an error is logged before its toast, which may raise")
+print("RESULT 7 passed, 0 failed")
