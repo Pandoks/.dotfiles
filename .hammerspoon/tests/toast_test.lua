@@ -287,6 +287,9 @@ end
 local function bottom(canvas)
   return canvas.at.y + canvas.frame.h
 end
+local function inside(canvas)
+  return { x = canvas.at.x + 5, y = canvas.at.y + 5 }
+end
 -- A down via the tap (false: swallowed; nil: reached beneath; else the toast hit) and its release.
 local function hold(point, state, button, first)
   button = button or 0
@@ -388,7 +391,7 @@ local function clear()
       canvas.click(canvas, "mouseUp")
     end
   end
-  canvases, timers, glasses, focused = {}, {}, {}, main
+  canvases, timers, glasses, focused, system = {}, {}, {}, main, "Dark"
 end
 
 test("a failure sits at the bottom right, titled by its source, with a red cross", function()
@@ -436,7 +439,7 @@ test("a closed toast lets clicks through while it fades", function()
   local canvas = canvases[1]
   wait(2.5)
   assert(canvas.opacity > 0 and canvas.opacity < 1, "it did not fade")
-  assert(press({ x = canvas.at.x + 5, y = canvas.at.y + 5 }, 1) == nil, "the fading toast took it")
+  assert(press(inside(canvas), 1) == nil, "the fading toast took it")
   assert(fade(canvas) == 2.5)
   clear()
 end)
@@ -459,7 +462,7 @@ test("a multi-click closes only its toast, and the rest of it reaches nothing", 
         target = canvas
       end
     end
-    local point, away = { x = target.at.x + 5, y = target.at.y + 5 }, { x = 5, y = 30 }
+    local point, away = inside(target), { x = 5, y = 30 }
     -- Another button's double-click is held through the toast's, and let go during it.
     press(away, 1, case.held or 1)
     local _, other = hold(away, 2, case.held or 1)
@@ -489,7 +492,7 @@ test("a toast pressed as it times out or all close waits for its release", funct
   toast.show("older")
   toast.show("pressed")
   local older, pressed = canvases[1], canvases[2]
-  local hit, release = hold({ x = pressed.at.x + 5, y = pressed.at.y + 5 }, 1)
+  local hit, release = hold(inside(pressed), 1)
   assert(hit == pressed)
   timers[2].fn()
   alert.closeAll()
@@ -516,7 +519,7 @@ test("a toast closed under a press it has not heard of ends at alpha 0, after an
       toast.show(text)
     end
     local target = canvases[#canvases]
-    local _, release = hold({ x = target.at.x + 5, y = target.at.y + 5 }, 1, nil, case[3])
+    local _, release = hold(inside(target), 1, nil, case[3])
     assert(case[2] == 0 or target.opacity == 1, "its fade was not seen")
     -- Let go once its window is ordered out, before any timer set for after its fade.
     assert(fade(target) == case[2], "it stayed or did not fade as asked")
@@ -635,7 +638,6 @@ test("light and dark each draw their own colors, and system starts as macOS is",
     end
     assert(name == "glass" or rims["true"] ~= rims["false"], name .. ": light has the dark rim")
   end
-  system = "Dark"
 end)
 
 test("system redraws shown toasts in place as macOS switches, until installed otherwise", function()
@@ -675,7 +677,7 @@ test("system redraws shown toasts in place as macOS switches, until installed ot
     assert(drawn(canvases[2]), "it timed out early")
     wait(0.1)
     assert(not drawn(canvases[2]), "its timeout moved")
-    local hit = press({ x = canvases[1].at.x + 5, y = canvases[1].at.y + 5 }, 1)
+    local hit = press(inside(canvases[1]), 1)
     assert(hit == canvases[1] and fade(hit) == 0.25, "a click no longer closes it")
     clear()
   end
@@ -684,7 +686,6 @@ test("system redraws shown toasts in place as macOS switches, until installed ot
   local count = #watchers
   toast.install({ appearance = "dark" })
   assert(#watchers == count, "an explicit appearance follows macOS")
-  system = "Dark"
 end)
 
 test("installing again redraws shown toasts in place, in its theme and appearance", function()
@@ -737,7 +738,7 @@ test("glass: each toast has its own, hidden with the toast's fade, under shadowe
     assert(element.type ~= "text" or element.text.style.shadow, "glass text has no shadow")
   end
   assert(#glasses == 2 and glasses[1].canvas == first and glasses[2].canvas == second)
-  press({ x = second.at.x + 5, y = second.at.y + 5 }, 1)
+  press(inside(second), 1)
   alert.closeAll()
   assert(glasses[2].fade == fade(second) and glasses[1].fade == fade(first), "a glass stayed")
   toast.install()
@@ -841,7 +842,7 @@ test("the cap drops a screen's oldest unpressed timed toast, never a kept one", 
   for i = 1, 5 do
     toast.show("toast " .. i)
   end
-  local _, release = hold({ x = canvases[1].at.x + 5, y = canvases[1].at.y + 5 }, 1)
+  local _, release = hold(inside(canvases[1]), 1)
   toast.show("sixth")
   assert(not canvases[1].deleted, "the cap dropped the pressed toast")
   assert(canvases[2].deleted, "the cap dropped no unpressed toast")
