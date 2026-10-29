@@ -541,6 +541,7 @@ tiling.release = hs.eventtap
   :start() --[[@as hs.eventtap]]
 tiling.spaces = hs.spaces.watcher
   .new(function()
+    -- It passes the Space, not `released`.
     sync()
   end)
   :start() --[[@as hs.spaces.watcher]]
