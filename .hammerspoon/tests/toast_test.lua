@@ -15,9 +15,9 @@ screens.__index = {
     return { x = at[self], y = 25, w = 1000, h = 600 }
   end,
 }
-local function display(x)
+local function display(left)
   local screen = debug.setmetatable(assert(io.open("/dev/null")), screens)
-  at[screen] = x
+  at[screen] = left
   return screen
 end
 local main, side = display(0), display(1000)
@@ -46,8 +46,8 @@ local toast = assert(loadfile(
         end,
       },
       distributednotifications = {
-        new = function(fn, name)
-          local watcher = { fn = fn, name = name }
+        new = function(callback, name)
+          local watcher = { callback = callback, name = name }
           function watcher.start()
             watcher.on = true
             return watcher
@@ -77,10 +77,10 @@ local toast = assert(loadfile(
           return plugged[1]
         end,
         watcher = {
-          new = function(fn)
+          new = function(callback)
             return {
               start = function(self)
-                displays = fn
+                displays = callback
                 return self
               end,
             }
@@ -121,8 +121,8 @@ local toast = assert(loadfile(
           properties = { mouseEventClickState = 1, mouseEventButtonNumber = 3 },
         },
         -- No stop: toast.lua never stops the tap.
-        new = function(mask, fn)
-          tap = { fn = fn, types = {} }
+        new = function(mask, callback)
+          tap = { callback = callback, types = {} }
           for _, kind in ipairs(mask) do
             tap.types[kind] = not tap.types[kind] -- toggled, as libeventtap's mask bit is
           end
@@ -137,10 +137,10 @@ local toast = assert(loadfile(
           return clock
         end,
         -- Holds its callback in the registry until collected, as hs.timer does.
-        doAfter = function(seconds, fn)
+        doAfter = function(seconds, callback)
           local timer, ref =
-            { seconds = seconds, fn = fn, at = clock + math.floor(seconds * 1e9) }, {}
-          debug.getregistry()[ref] = fn
+            { seconds = seconds, callback = callback, at = clock + math.floor(seconds * 1e9) }, {}
+          debug.getregistry()[ref] = callback
           setmetatable(timer, {
             __gc = function()
               debug.getregistry()[ref] = nil
@@ -159,11 +159,11 @@ local toast = assert(loadfile(
           local canvas = { elements = {}, visible = false, deleted = false, calls = {} }
           function canvas.minimumTextSize(_, text)
             measured = measured + 1
-            local w, lines = 0, 0
+            local width, lines = 0, 0
             for line in text.text:gmatch("[^\n]+") do
-              w, lines = math.max(w, 7 * #line), lines + 1
+              width, lines = math.max(width, 7 * #line), lines + 1
             end
-            return { w = w, h = 16 * lines }
+            return { w = width, h = 16 * lines }
           end
           function canvas.size(_, size)
             canvas.frame = size or canvas.frame
@@ -182,12 +182,12 @@ local toast = assert(loadfile(
           end
           -- Without one, its window ignores clicks.
           function canvas.mouseCallback(_, ...)
-            local fn = ...
+            local callback = ...
             assert(
-              select("#", ...) == 1 and (fn == nil or type(fn) == "function"),
+              select("#", ...) == 1 and (callback == nil or type(callback) == "function"),
               "not a function or nil"
             )
-            canvas.click = fn
+            canvas.click = callback
           end
           function canvas.show()
             canvas.visible = true
@@ -271,8 +271,8 @@ function toast.show(...)
   return id
 end
 local passed = 0
-local function test(name, fn)
-  fn()
+local function test(name, body)
+  body()
   passed = passed + 1
   print("PASS " .. name)
 end
@@ -322,7 +322,7 @@ local function hold(point, state, button, first)
     return tap
       and tap.on
       and tap.types[kind]
-      and tap.fn({
+      and tap.callback({
         getProperty = function(_, key)
           assert(key == 1 or key == 3, "not the click state or button")
           return key == 1 and state or button
@@ -397,7 +397,7 @@ local function wait(seconds)
     alive[1], timers[first] = timers[first], false
     collectgarbage()
     if alive[1] then
-      alive[1].fn()
+      alive[1].callback()
     end
   end
 end
@@ -439,10 +439,10 @@ test("a newer toast stacks below the older, which drops back when it goes", func
     texts(first) == "first" and not find(first, "circle") and not find(first, "image"),
     "an info toast has an icon"
   )
-  timers[2].fn()
+  timers[2].callback()
   assert(second.deleted and not first.deleted and bottom(first) == 609)
   assert(fade(second) == 0, "it faded while the toast above moved into its place")
-  timers[1].fn()
+  timers[1].callback()
   assert(fade(first) == 0.25, "the oldest did not fade")
   clear()
 end)
@@ -453,7 +453,7 @@ test("a toast stays on its screen when focus and the stack change", function()
   toast.show("on side")
   assert(canvases[1].at.x < 1000 and canvases[2].at.x >= 1000, "a toast moved screens")
   assert(bottom(canvases[1]) == 609 and bottom(canvases[2]) == 609, "screens share one stack")
-  timers[2].fn()
+  timers[2].callback()
   assert(fade(canvases[2]) == 0.25, "the side screen's oldest did not fade")
   clear()
 end)
@@ -534,7 +534,7 @@ test("a toast pressed as it times out or all close waits for its release", funct
   local older, pressed = canvases[1], canvases[2]
   local hit, release = hold(inside(pressed), 1)
   assert(hit == pressed)
-  timers[2].fn()
+  timers[2].callback()
   alert.closeAll()
   assert(fade(older) == 0.25, "the oldest did not fade")
   assert(rawget(pressed, "click"), "a pressed toast closed")
@@ -545,9 +545,9 @@ test("a toast pressed as it times out or all close waits for its release", funct
 end)
 
 test("a toast closed under a press it has not heard of ends at alpha 0, after any fade", function()
-  local function fire(i)
+  local function fire(index)
     return function()
-      timers[i].fn()
+      timers[index].callback()
     end
   end
   local closed = setmetatable({}, { __mode = "k" })
@@ -695,10 +695,10 @@ test("system redraws shown toasts in place as macOS switches, until installed ot
       before[i].look = name == "glass" or rim(canvas)
     end
     wait(1)
-    watcher.fn("AppleInterfaceThemeChangedNotification")
+    watcher.callback("AppleInterfaceThemeChangedNotification")
     assert(inks(canvases[1])[1] < 0.5, name .. ": it switched while macOS stayed light")
     system = "Dark"
-    watcher.fn("AppleInterfaceThemeChangedNotification")
+    watcher.callback("AppleInterfaceThemeChangedNotification")
     assert(#canvases == 2 and #timers == 1, "a toast was shown or timed again")
     for i, canvas in ipairs(canvases) do
       local moved = canvas.at.x ~= before[i].x or canvas.at.y ~= before[i].y

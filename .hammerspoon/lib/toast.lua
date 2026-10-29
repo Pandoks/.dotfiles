@@ -180,23 +180,23 @@ local function wrap(canvas, text, style, lines)
   local function size(value)
     return canvas:minimumTextSize(hs.styledtext.new(value, style)) --[[@as ToastSize]]
   end
-  local out, line = {}, nil
+  local wrapped, line = {}, nil
   for paragraph in (text:gsub("\n+$", "") .. "\n"):gmatch("([^\n]*)\n") do
     for word in paragraph:gmatch("%S+") do
       local longer = line and line .. " " .. word or word
       -- Not measured on the last line, which would be quadratic.
-      if line and #out < lines - 1 and size(longer).w > limit then
-        out[#out + 1], line = line, word
+      if line and #wrapped < lines - 1 and size(longer).w > limit then
+        wrapped[#wrapped + 1], line = line, word
       else
         line = longer
       end
     end
-    if #out < lines - 1 then
-      out[#out + 1], line = line or "", nil
+    if #wrapped < lines - 1 then
+      wrapped[#wrapped + 1], line = line or "", nil
     end
   end
-  out[#out + 1] = line
-  local joined = table.concat(out, "\n")
+  wrapped[#wrapped + 1] = line
+  local joined = table.concat(wrapped, "\n")
   return joined, size(joined)
 end
 
