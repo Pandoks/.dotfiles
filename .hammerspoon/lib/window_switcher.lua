@@ -456,12 +456,12 @@ local function finish(job, message)
     job.watcher:stop()
     job.watcher = nil
   end
-  operation = nil
   if message then
     hs.alert.show("Could not switch to that window")
     -- hs.ipc's print raises while a dead CLI is registered.
     pcall(hs.printf, "Window switcher: %s", message)
   end
+  operation = nil
   if queuedWindow and not stopped then
     local window = queuedWindow
     queuedWindow = nil
