@@ -166,8 +166,7 @@ packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 ## Hub
 
-The homelab hub hosts [CLIProxyAPI] and the [Beszel] dashboard. On the
-machine tagged `tag:hub`:
+The `tag:hub` machine hosts [CLIProxyAPI] and [Beszel]:
 
 ```sh
 mise -E hub bootstrap --yes
@@ -176,27 +175,16 @@ sudo tailscale serve --service=svc:cliproxyapi-ci --https=443 http://127.0.0.1:8
 sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 ```
 
-### CLIProxyAPI
-
-Claude Code and Codex route through it. Keep Tailscale connected, run `/login`
-once in Claude Code for claude.ai connectors, and don't set
+**CLIProxyAPI:** set `management.secret-key` in `~/.cli-proxy-api/config.yaml`
+(never commit it), restart `dev.mise.cli-proxy-api`, then add accounts at
+`https://cliproxyapi.<tailnet>.ts.net/management.html` with **WebSockets** on
+for Codex accounts. In Claude Code, run `/login` once and don't set
 `ANTHROPIC_AUTH_TOKEN`.
 
-Set the dashboard password in `management.secret-key` of
-`~/.cli-proxy-api/config.yaml`, then run
-`systemctl --user restart dev.mise.cli-proxy-api` (it's hashed on start). Add
-accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html`, and turn on
-**WebSockets (websockets)** for each Codex account under **Auth Files**. The
-config links into this public repo, so never commit `secret-key` or API keys.
-
-### Beszel
-
-Create the admin account at `https://beszel.<tailnet>.ts.net` and turn on a
-permanent universal token under **Settings → Tokens**.
-
-Every machine's agent stays idle until it has the hub's public key (from **Add
-System**) in `~/.config/beszel/key` and the token in `~/.config/beszel/token`
-(mode `600`, never committed). Then restart it:
+**Beszel:** create the admin and a permanent universal token at
+`https://beszel.<tailnet>.ts.net`. On each machine, save the hub key (from
+**Add System**) to `~/.config/beszel/key` and the token to
+`~/.config/beszel/token`, then restart the agent:
 
 ```sh
 systemctl --user restart dev.mise.beszel-agent                # Linux
