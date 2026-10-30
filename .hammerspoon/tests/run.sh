@@ -25,4 +25,5 @@ clang -Wall -Wextra -Werror \
 "$test_build/lua" "$test_dir/window_manager_test.lua" "$test_dir/../lib"
 
 "$test_build/lua" "$test_dir/logger_test.lua" "$test_dir/../lib"
+"$test_build/lua" "$test_dir/window_profiles_test.lua" "$test_dir/../lib"
 "$test_build/lua" "$test_dir/native_loader_test.lua" "$test_dir/../lib" "$test_build/cache"

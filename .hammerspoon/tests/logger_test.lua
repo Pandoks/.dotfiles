@@ -51,4 +51,23 @@ for _, failure in ipairs({ "mkdir", "open", "write", "close" }) do
   assert(alerts[1]:find(failure .. " failed", 1, true))
   print("PASS file logger " .. failure .. " failure logs, alerts, and never retries")
 end
-print("RESULT 4 passed, 0 failed")
+local alerts = {}
+local logger = assert(loadfile(
+  root .. "/logger.lua",
+  "t",
+  setmetatable({
+    print = function()
+      error("ipc port is no longer valid") -- hs.ipc's, with a dead `hs` CLI registered
+    end,
+    hs = {
+      alert = {
+        show = function(message)
+          alerts[#alerts + 1] = message
+        end,
+      },
+    },
+  }, { __index = _G })
+))()
+assert(pcall(logger.error, "Tiling: no window\ndetail") and alerts[1] == "Tiling: no window")
+print("PASS an error alerts even when print raises")
+print("RESULT 5 passed, 0 failed")

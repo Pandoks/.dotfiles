@@ -270,7 +270,7 @@ For a live check after reloading Hammerspoon:
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
 
-The logger Lua regressions also run with `tests/run.sh`.
+The logger and window profiles Lua regressions also run with `tests/run.sh`.
 
 Audit checks (substitute the installed executable paths if needed):
 
