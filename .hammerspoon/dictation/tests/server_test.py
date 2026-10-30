@@ -1082,9 +1082,7 @@ class Stub(server.Engine):
         pass
 server.Engine = Stub
 """
-events, stderr = serve(
-    stubbed, [{"id": number, "wav": "x.wav", "app": "x"} for number in (1, 2, 3)]
-)
+events, stderr = serve(stubbed, [{"id": id, "wav": "x.wav", "app": "x"} for id in (1, 2, 3)])
 assert [event["event"] for event in events] == ["ready", "error", "final", "error"], (
     events,
     stderr,

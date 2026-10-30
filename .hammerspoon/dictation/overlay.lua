@@ -9,7 +9,7 @@ local stroke = 1
 local thickness = 0.038
 local spread = 0.80
 local peak = 0.34
-local fadeFrames = 12 -- frames
+local fadeFrames = 12
 local width, barWidth = height * aspect, height * thickness
 
 function overlay.new()

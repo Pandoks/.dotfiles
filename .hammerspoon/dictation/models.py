@@ -16,9 +16,7 @@ def pinned(revision):
 def letters(piece):
     if re.fullmatch(r"<[^<>]+>", piece):
         return ""  # special pieces (<unk>, v3's <|en|>) are never boosted or part of a word
-    return "".join(
-        character for character in piece.lower() if character.isalnum() or character == "'"
-    )
+    return "".join(letter for letter in piece.lower() if letter.isalnum() or letter == "'")
 
 
 def read(path, rate=16000, _dtype=None):  # the recorder's 16 kHz mono s16le wav, with no ffmpeg

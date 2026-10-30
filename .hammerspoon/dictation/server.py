@@ -54,11 +54,7 @@ ALONE = (r"(?<![\w./~@+#=\\:${-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 
 
 def fold(word):  # "José" -> "jose"
-    return "".join(
-        character
-        for character in unicodedata.normalize("NFKD", word.lower())
-        if character.isalnum()
-    )
+    return "".join(filter(str.isalnum, unicodedata.normalize("NFKD", word.lower())))
 
 
 # A stall alone, not in a path, address, or word: "~/um", "hm.com", "uh-huh", "uh huh".
@@ -88,15 +84,13 @@ def strip_stalls(text):
             ),
             text,
         )
-    stripped = re.sub(r"\s{2,}", " ", STALL_RE.sub("", text))
+    text = re.sub(r"\s{2,}", " ", STALL_RE.sub("", text))
     # A stutter, often across a pause ("the, um, the", "the... The"); "an A a day" stays.
     pause = r"(?:\.\.\.|…)?"
-    stripped = re.sub(
-        rf"(?<=\b[Tt]he){pause} [Tt]he\b|(?<=\b[Aa]n){pause} [Aa]n\b|(?<=\ba){pause} a\b",
-        "",
-        stripped,
+    text = re.sub(
+        rf"(?<=\b[Tt]he){pause} [Tt]he\b|(?<=\b[Aa]n){pause} [Aa]n\b|(?<=\ba){pause} a\b", "", text
     )
-    return stripped.strip()
+    return text.strip()
 
 
 def ensure_question(raw, text):
@@ -172,9 +166,8 @@ UNITS += ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "sev
 UNITS += ["eighteen", "nineteen"]
 TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
 SCALES = {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
-VALUE = {word: number for number, word in enumerate(UNITS)} | {
-    word: 20 + 10 * number for number, word in enumerate(TENS)
-}
+VALUE = {word: number for number, word in enumerate(UNITS)}
+VALUE |= {word: 20 + 10 * number for number, word in enumerate(TENS)}
 VALUE |= SCALES | {"oh": 0}  # "oh" is a zero digit: "four oh four"
 ORDINAL = {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight"}
 ORDINAL |= {"ninth": "nine", "twelfth": "twelve"} | {word[:-1] + "ieth": word for word in TENS}
@@ -211,18 +204,10 @@ def alike(word, form):  # the same word, its contraction ("it's"), or a longer f
     return len(word) > 3 and form.startswith(word)
 
 
-def misheard(spoken, typed):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
-    if (
-        re.search(r"\d", spoken + typed)
-        or spoken in VALUE
-        or {spoken, typed} <= VALUE.keys() | ORDINAL.keys()
-    ):
+def misheard(old, new):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
+    if re.search(r"\d", old + new) or old in VALUE or {old, new} <= VALUE.keys() | ORDINAL.keys():
         return False  # "15000" -> "150000", "fifteenth" -> "fiftieth" is another number
-    return (
-        spoken[0] == typed[0]
-        and len(spoken) > 4
-        and difflib.get_close_matches(spoken, [typed], 1, 0.81)
-    )
+    return old[0] == new[0] and len(old) > 4 and difflib.get_close_matches(old, [new], 1, 0.81)
 
 
 BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
@@ -265,41 +250,36 @@ def restore(raw, cleaned):
     # "İ" lowercases to two characters, which would shift every later word's position.
     raw, cleaned = (text.replace("’", "'").replace("İ", "I") for text in (raw, cleaned))
     spoken_spans, typed_spans = tokens(raw), tokens(cleaned)
-    spoken, typed = [w for w, *_ in spoken_spans], [w for w, *_ in typed_spans]
+    spoken, typed = [word for word, *_ in spoken_spans], [word for word, *_ in typed_spans]
     raw, spoken_count = raw.lower(), len(spoken)  # cues and fillers said in any case
 
-    def match(position, pattern):  # `pattern` said from spoken word position on
-        return re.compile(rf"(?:{pattern})\b").match(raw, spoken_spans[position][1])
+    def match(index, pattern):  # `pattern` said from spoken word `index` on
+        return re.compile(rf"(?:{pattern})\b").match(raw, spoken_spans[index][1])
 
-    def before(position):  # the sentence said before spoken word position, stalls left out
-        sentence = re.split(r"[.!?]", raw[: spoken_spans[position][1]])[-1]
+    def before(index):  # the sentence said before spoken word `index`, stalls left out
+        sentence = re.split(r"[.!?]", raw[: spoken_spans[index][1]])[-1]
         return HESITATION_RE.sub("", sentence).strip()
 
-    def mark(position):  # a mark said between spoken words position - 1 and position: "here? Can"
-        return re.search(
-            r"[^\w\s]", said[spoken_spans[position - 1][2] : spoken_spans[position][1]]
-        )
+    def mark(index):  # a mark said in the gap before spoken word `index`: "here? Can"
+        return re.search(r"[^\w\s]", said[spoken_spans[index - 1][2] : spoken_spans[index][1]])
 
-    def repeated(
-        position, kept, reach
-    ):  # said again within `reach` words, that copy kept: "test testing"
+    # Said again within `reach` words, that copy kept: "test testing".
+    def repeated(index, kept, reach):
         if (
-            spoken[position] in (*VALUE, "dash", "dot", "slash")
-            or spoken[position].replace(",", "").isdecimal()
+            spoken[index] in (*VALUE, "dash", "dot", "slash")
+            or spoken[index].replace(",", "").isdecimal()
         ):
             return False  # said twice on purpose: "seven seventeen", "dash dash save"
         return any(
-            alike(spoken[position], spoken[other])
-            for other in kept
-            if abs(other - position) <= reach
+            alike(spoken[index], spoken[other]) for other in kept if abs(other - index) <= reach
         )
 
-    def filler(position):  # its word count, if set off by a comma or opening or ending a sentence
-        found = match(position, FILLER)
+    def filler(index):  # its word count, if set off by a comma or opening or ending a sentence
+        found = match(index, FILLER)
         name = found and found[0] == "like" and re.match(r" (?!I\b)[A-Z]", said[found.end() :])
-        if not found or match(position, LIKENS) or name:  # "It's like Slack but for email"
+        if not found or match(index, LIKENS) or name:  # "It's like Slack but for email"
             return 0
-        rest, sentence = raw[found.end() :], before(position)
+        rest, sentence = raw[found.end() :], before(index)
         commas = re.search(r"[,;]$", sentence) or re.match(r"\s*[,;]", rest)
         opens = not sentence and found[0] not in ("you know", "i mean")  # "So I think"
         ends = found[0] in TAGS and re.match(r"\s*([.!?]|$)", rest)  # "Fine, yeah."
@@ -307,95 +287,80 @@ def restore(raw, cleaned):
         likes = found[0] == "like" and last in LEADS
         return len(found[0].split()) if commas or opens or ends or likes else 0
 
-    def dropped(position, end, kept):  # spoken[position:end] is fillers and repeats
-        reach = end - position
-        while position < end and (step := filler(position) or repeated(position, kept, reach)):
-            position += step
-        return position == end
+    def dropped(index, end, kept):  # spoken[index:end] is fillers and repeats
+        reach = end - index
+        while index < end and (step := filler(index) or repeated(index, kept, reach)):
+            index += step
+        return index == end
 
     # Changes that aren't a left-out stall, filler, repeat, or correction; corrections the cleanup
     # moved up to the words they replace aren't `trusted` in a take that has others.
     def unexplained(opcodes, trusted=True):
-        kept = {
-            position
-            for tag, i1, i2, _, _ in opcodes
-            if tag == "equal"
-            for position in range(i1, i2)
-        }
+        kept = {index for tag, i1, i2, _, _ in opcodes if tag == "equal" for index in range(i1, i2)}
         added = {word for tag, _, _, j1, j2 in opcodes if tag == "insert" for word in typed[j1:j2]}
         bad = []
 
         def cues(start, end):  # (first, past) of each left-out correction cue in spoken[start:end]
             found = []
-            for position in range(start, end):
-                cue = match(position, CUE)
-                if position in kept or not cue:
+            for index in range(start, end):
+                cue = match(index, CUE)
+                if index in kept or not cue:
                     continue
                 # A "sorry" after a "not" or before a "you" in its clause apologises ("sorry, thank
                 # you", not "sorry, Tim, if you can"), unless a question follows.
-                after = raw[spoken_spans[position][2] :]
-                apology = re.search(r"\b(not|never|no)\b|n't", before(position))
+                after = raw[spoken_spans[index][2] :]
+                apology = re.search(r"\b(not|never|no)\b|n't", before(index))
                 apology = apology or re.match(r"[ ,]*[^.!?,;]*\byou\b", raw[cue.end() :])
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
-                past = position + len(cue[0].split())
+                past = index + len(cue[0].split())
                 # Its verb again: "Oki, sorry, send them to Sam"
                 if (
                     past + 1 < spoken_count
                     and spoken[past + 1] in BACK
-                    and spoken[past] in spoken[:position]
+                    and spoken[past] in spoken[:index]
                 ):
                     past += 0 if re.match(ADDS, raw[spoken_spans[past + 1][2] :]) else 2
-                if (
-                    found and position <= found[-1][1]
-                ):  # one cue: "no wait", "wait, no", "I'm sorry"
+                if found and index <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
                     found[-1] = (found[-1][0], past)
                 else:
-                    found.append((position, past))
+                    found.append((index, past))
             return found
 
         moved = []  # words written in place of others, each said after a left-out cue
         for tag, i1, i2, j1, j2 in opcodes:
-            run, replacement = spoken[i1:i2], typed[j1:j2]
+            run, edit = spoken[i1:i2], typed[j1:j2]
             if tag == "insert":
                 bad.append((i1, i2, j1, j2))
                 continue
             if tag == "replace":
                 # Respaced ("e mail" -> "email", not "14.99" -> "1499"), or one misheard word.
-                respaced = "".join(run) == "".join(replacement)
-                respaced &= not any(
-                    re.search(r"\d \d", " ".join(words)) for words in (run, replacement)
-                )
+                respaced = "".join(run) == "".join(edit)
+                respaced &= not any(re.search(r"\d \d", " ".join(words)) for words in (run, edit))
                 if (
                     respaced
-                    or len(run) == len(replacement) == 1
+                    or len(run) == len(edit) == 1
                     and misheard(spoken_spans[i1][0], typed_spans[j1][0])
                 ):
                     continue
                 one_then_fillers = run[0] == "one" and dropped(i1 + 1, i2, kept)
-                if (
-                    one_then_fillers
-                    and len(replacement) == 1
-                    and replacement[0] in spoken[:i1]
-                    and cues(0, i1)
-                ):
+                if one_then_fillers and len(edit) == 1 and edit[0] in spoken[:i1] and cues(0, i1):
                     continue  # the noun a correction's "one" stands for: "the feature branch"
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
                 listed = re.search(
                     r"[,;] |\band\b", raw[spoken_spans[i1][1] : spoken_spans[i2 - 1][2]]
                 )
                 said_later = any(
-                    set(replacement) <= set(spoken[position:])
-                    for position, _ in cues(i2, spoken_count)
+                    set(edit) <= set(spoken[index:]) for index, _ in cues(i2, spoken_count)
                 )
                 # Not a pronoun standing for words left out: "her boss" for "Kate" or "the client".
                 pronouns = {"it", "them", "him", "her", "his", "their"}
                 replaced = set(run) - pronouns - DETERMINERS
-                dangles = set(replacement) & pronouns and replaced and not replaced & set(typed)
+                dangles = set(edit) & pronouns and replaced and not replaced & set(typed)
                 if listed or not trusted or not said_later or dangles:
                     bad.append((i1, i2, j1, j2))
                     continue
-                moved += replacement
+                moved += edit
                 continue
             if tag != "delete":
                 continue
@@ -406,13 +371,13 @@ def restore(raw, cleaned):
             # ...what a cue takes back ("Monday, sorry, Tuesday" or "four, sorry, four"), its own
             # words or those before the run, not two list items or a detail the cleanup moved...
             if i2 < spoken_count and any(
-                (position > i1 or past < i2)
+                (index > i1 or past < i2)
                 and spoken[past:i2] == spoken[i1 - (i2 - past) : i1]
                 and not re.search(
-                    r"[,;] |\band\b", raw[spoken_spans[i1][1] : spoken_spans[position - 1][2]]
+                    r"[,;] |\band\b", raw[spoken_spans[i1][1] : spoken_spans[index - 1][2]]
                 )
-                and spoken[position - 1] not in added
-                for position, past in cues(i1, i2)
+                and spoken[index - 1] not in added
+                for index, past in cues(i1, i2)
             ):
                 continue
             # ...or a cue and its correction, moved up to the words it replaced ("one" as its noun).
@@ -494,10 +459,8 @@ def restore(raw, cleaned):
         if j1 < j2:  # words changed, or added: as said, up to the next word kept
             last = j2 == typed_count and i2 == spoken_count
             start, end = typed_spans[j1][1], len(text) if last else typed_spans[j2][1]
-            quoted = i1 < i2 and said[spoken_spans[i1][1] - 1 : spoken_spans[i1][1]] in (
-                "'",
-                "’",
-            )  # "'cause"
+            # "'cause"
+            quoted = i1 < i2 and said[spoken_spans[i1][1] - 1 : spoken_spans[i1][1]] in ("'", "’")
             piece = (
                 said[spoken_spans[i1][1] - quoted : None if last else spoken_spans[i2][1]]
                 if i1 < i2
@@ -512,14 +475,12 @@ def restore(raw, cleaned):
         elif j1 == typed_count:  # left out at the end: with what was said after it
             start, end, piece = typed_spans[j1 - 1][2], len(text), said[spoken_spans[i1 - 1][2] :]
         elif (
-            any(mark(position) for position in range(i1, i2 + 1))
+            any(mark(index) for index in range(i1, i2 + 1))
             or "colon" in spoken[i1:i2]
             or re.fullmatch(r"\S*", text[typed_spans[j1 - 1][2] : typed_spans[j1][1]])
         ):  # joined or a said colon: "example.com", "Subject colon …"
-            start, end = (
-                typed_spans[j1 - 1][2],
-                typed_spans[j1][1],
-            )  # the gaps as said: "here? Can", "me, we"
+            # The gaps as said: "here? Can", "me, we".
+            start, end = typed_spans[j1 - 1][2], typed_spans[j1][1]
             piece = said[spoken_spans[i1 - 1][2] : spoken_spans[i2][1]]
         else:  # before the next word kept
             start = end = typed_spans[j1][1]
@@ -540,9 +501,7 @@ def restore(raw, cleaned):
             rest = piece + text[end : end + 1].lower() + text[end + 1 :]
         # A sentence the cleanup started keeps its capital: "Please send it", not "please send it".
         if re.search(r"(?:^|[.!?]\s+)$", text[:start]) and text[start : start + 1].isupper():
-            rest = re.sub(
-                r"^(\s*)([a-z]+)(?!\w)", lambda lead: lead[1] + lead[2].capitalize(), rest
-            )
+            rest = re.sub(r"^\s*[a-z]+(?!\w)", lambda lead: lead[0].title(), rest)
         text = text[:start] + rest
     text = strip_stalls(text)  # the cleanup's text has none: only what was put back
     # Words the alignment skips can't come back twice: "one oh one oh point five".
@@ -556,8 +515,8 @@ DECADE = {word[:-1] + "ies": VALUE[word] for word in TENS}  # "nineteen eighties
 ENDS = "|".join(sorted([*ORDINAL, *DECADE], key=len, reverse=True))
 # "two hundred and five thousand", not "five hundred and six hundred" or "…thousand and two million"
 AND = "|".join(
-    rf"(?<={scale}) and(?! (?:(?:{'|'.join(UNITS + TENS + [*SCALES][:rank] + ['hundred and'])})[ -])+"
-    rf"(?:{'|'.join([*SCALES][rank:] if rank else [scale])})\b)"
+    rf"(?<={scale}) and(?! (?:(?:{'|'.join(UNITS + TENS + [*SCALES][:rank] + ['hundred and'])})"
+    rf"[ -])+(?:{'|'.join([*SCALES][rank:] if rank else [scale])})\b)"
     for rank, scale in enumerate(SCALES)
 )
 OH = rf"(?P<oh>(?:[ -]oh\b)+)(?=[ -](?:{WORD})\b)|(?:[ -]oh\b){{2,}}"  # "four oh four"
@@ -615,9 +574,7 @@ def digits(text, names):
         group, before, after = match[0], text[: match.start()].lower(), text[match.end() :]
         previous = (re.findall(r"[\w']+", before) or [""])[-1]
         following = (re.findall(r"[\w']+", after) or [""])[0]
-        plural = (
-            following.lower() == "people" or re.fullmatch(r"\w{2,}[^s']s", following) is not None
-        )
+        plural = following.lower() == "people" or re.fullmatch(r"\w{2,}[^s']s", following)
         counted = (plural and following.lower() not in VERBS) or following.lower() in MEASURES
         words = [word for word in re.split(r"[ -]+", group.lower()) if word not in ("and", "a")]
         numbers = chunks(word for word in words if word in VALUE)
@@ -736,11 +693,7 @@ class Engine:
             # Never inside a name (ALONE) or a contraction ("it's"); "\LaTeX" as written.
             pattern = rf"{ALONE[0]}(?<!\w['’])(?:{alternation}){ALONE[1]}"
             text = re.sub(pattern, word.replace("\\", r"\\"), text, flags=re.IGNORECASE)
-        keys = {
-            fold(spelling): spelling
-            for spelling in spellings
-            if re.fullmatch(r"\w+(?:[ .'-]\w+)*", spelling)
-        }
+        keys = {fold(word): word for word in spellings if re.fullmatch(r"\w+(?:[ .'-]\w+)*", word)}
 
         def respell(match):
             word = fold(match[0])
