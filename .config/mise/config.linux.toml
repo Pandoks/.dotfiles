@@ -74,3 +74,15 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:docker-buildx" = "latest"
 "pacman:docker-compose" = "latest"
 "pacman:monero" = "latest"
+
+[bootstrap.directories."/etc/udev/rules.d"]
+
+# Ledger rules from github.com/LedgerHQ/udev-rules, plus MODE on the USB device:
+# monero-wallet-cli uses libusb, and uaccess skips SSH sessions
+[bootstrap.files."/etc/udev/rules.d/60-mise-ledger.rules"]
+content = '''
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="2581", ATTRS{idProduct}=="1b7c|2b7c|3b7c|4b7c", TAG+="uaccess", TAG+="udev-acl"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="2c97", TAG+="uaccess", TAG+="udev-acl"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="2c97", MODE="0666"
+KERNEL=="hidraw*", ATTRS{idVendor}=="2c97", MODE="0666"
+'''
