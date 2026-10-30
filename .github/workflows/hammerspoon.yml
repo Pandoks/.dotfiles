@@ -13,7 +13,7 @@ on:
 
 jobs:
   test:
-    # The tests stub Hammerspoon's APIs; they only need its LuaSkin framework, clang, and ffmpeg.
+    # Tests stub Hammerspoon's APIs; they only need its LuaSkin framework, clang, and ffmpeg.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7

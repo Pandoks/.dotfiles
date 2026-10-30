@@ -43,8 +43,7 @@ hs.hotkey.bind({ "alt" }, "w", function()
   openOrFocusWindow({ bundleId = "com.tinyspeck.slackmacgap" })
 end)
 hs.hotkey.bind({ "alt" }, "c", function()
-  ---Notion Calendar
-  openOrFocusWindow({ bundleId = "com.cron.electron" })
+  openOrFocusWindow({ bundleId = "com.cron.electron" }) -- Notion Calendar
 end)
 hs.hotkey.bind({ "alt" }, "i", function()
   openOrFocusWindow({ bundleId = "com.t3tools.t3code" })

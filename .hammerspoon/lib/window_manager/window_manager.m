@@ -80,7 +80,6 @@ static CGEventRef withPayload(CGEventRef event) {
     return NULL;
   }
 
-  // Build the HID queue element: a gesture, plus velocity when the swipe ends.
   int phase = (int)CGEventGetIntegerValueField(event, phaseField);
   double velocity = CGEventGetDoubleValueField(event, velocityXField);
   BOOL moving = velocity != 0 || phase == ended;
@@ -101,13 +100,13 @@ static CGEventRef withPayload(CGEventRef event) {
   [payload appendBytes:&gesture length:sizeof gesture];
   if (moving) [payload appendBytes:&motion length:sizeof motion];
 
-  // Fields are (size, tag << 14 | field, value), sorted by field; insert the payload in order.
-  NSMutableData *out = [NSMutableData dataWithBytes:bytes length:4];
+  // Fields are (size, tag << 14 | field, value), sorted by field.
+  NSMutableData *serialized = [NSMutableData dataWithBytes:bytes length:4];
   BOOL inserted = NO;
   void (^insert)(void) = ^{
     uint16_t head[2] = { OSSwapHostToBigInt16((uint16_t)payload.length), OSSwapHostToBigInt16(payloadField) };
-    [out appendBytes:head length:sizeof head];
-    [out appendData:payload];
+    [serialized appendBytes:head length:sizeof head];
+    [serialized appendData:payload];
   };
   for (CFIndex offset = 4; offset + 4 <= length;) {
     uint16_t size = OSReadBigInt16(bytes, offset), tagged = OSReadBigInt16(bytes, offset + 2);
@@ -118,12 +117,12 @@ static CGEventRef withPayload(CGEventRef event) {
       insert();
       inserted = YES;
     }
-    if (field != payloadField) [out appendBytes:bytes + offset length:4 + width];
+    if (field != payloadField) [serialized appendBytes:bytes + offset length:4 + width];
     offset += 4 + width;
   }
   if (!inserted) insert();
   CFRelease(data);
-  return CGEventCreateFromData(NULL, (__bridge CFDataRef)out);
+  return CGEventCreateFromData(NULL, (__bridge CFDataRef)serialized);
 }
 
 // The Dock ignores a swipe without a companion gesture event.
@@ -140,8 +139,6 @@ static BOOL post(CGEventRef event) {
   return YES;
 }
 
-/// move(right, count, x, y) -> ok, error; moves `count` Spaces on the display containing (x, y).
-/// Swipes posted together land on the last Space without showing the ones between.
 static int move(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TBOOLEAN, LS_TNUMBER | LS_TINTEGER, LS_TNUMBER, LS_TNUMBER, LS_TBREAK];
@@ -199,7 +196,7 @@ static id attribute(AXUIElementRef element, CFStringRef name) {
   return CFBridgingRelease(value);
 }
 
-// Per-app caches, touched only on that app's queue: found elements, and ids no search found.
+// Per-app, touched only on that app's queue; absent = ids no search found.
 static NSMutableDictionary<NSNumber *, NSMutableDictionary<NSNumber *, id> *> *elements;
 static NSMutableDictionary<NSNumber *, NSMutableSet<NSNumber *> *> *absent;
 
@@ -265,7 +262,6 @@ static void forget(pid_t pid, CGWindowID windowID) {
 
 #pragma mark - Lua callbacks
 
-// Runs `work` on the app's queue, then calls the Lua function at `argument` with (ok, error).
 static void schedule(lua_State *state, int argument, pid_t pid, NSString *(^work)(void)) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   int callback = LUA_NOREF;
@@ -294,7 +290,6 @@ static void schedule(lua_State *state, int argument, pid_t pid, NSString *(^work
   });
 }
 
-/// focus(pid, id, done) focuses and raises a window; done(ok, error).
 static int focus(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER, LS_TFUNCTION | LS_TOPTIONAL, LS_TBREAK];
@@ -327,7 +322,7 @@ static int focus(lua_State *state) {
   return 0;
 }
 
-/// frame(pid, id, x, y, w, h, done) moves a window; requests not yet started collapse to the latest.
+/// Requests not yet started collapse to the latest.
 static int frame(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER, LS_TNUMBER, LS_TNUMBER, LS_TNUMBER,
@@ -378,7 +373,6 @@ static int frame(lua_State *state) {
   return 0;
 }
 
-/// minimize(pid, id, minimized, done) minimizes or restores a window.
 static int minimize(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER, LS_TBOOLEAN, LS_TFUNCTION | LS_TOPTIONAL,
@@ -397,8 +391,6 @@ static int minimize(lua_State *state) {
   return 0;
 }
 
-/// windows(done) lists normal-layer windows on every Space with their Accessibility details;
-/// done(ok, error, rows) where each row is {id, pid, role, subrole, title, root, minimized}.
 static int windows(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TFUNCTION, LS_TBREAK];
@@ -420,7 +412,6 @@ static int windows(lua_State *state) {
     [ids addObject:info[(id)kCGWindowNumber]];
   }
 
-  // Query each app on its own queue, then answer once.
   lua_pushvalue(state, 1);
   int callback = [skin luaRef:refTable];
   LSGCCanary canary = [skin createGCCanary];
@@ -480,7 +471,6 @@ static int windows(lua_State *state) {
   return 0;
 }
 
-/// spaces(ids) -> {[id] = space}, the managed Space id holding each window (absent if none).
 static int spaces(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TTABLE, LS_TBREAK];

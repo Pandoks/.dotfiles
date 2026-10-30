@@ -177,6 +177,7 @@ On the machine tagged `tag:cliproxyapi`:
 ```sh
 mise -E cliproxyapi bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
+sudo tailscale serve --service=svc:cliproxyapi-ci --https=443 http://127.0.0.1:8318
 ```
 
 Set the dashboard password in `management.secret-key` of
