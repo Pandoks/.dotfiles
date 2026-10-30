@@ -5,6 +5,7 @@
 "brew:macmon" = "latest"
 "brew:mas" = "latest"
 "brew:rtorrent" = "latest"
+"brew:smartmontools" = "latest"
 "brew:tailscale" = "latest"
 "brew:tsui" = "latest"
 "brew:ykman" = "latest"
