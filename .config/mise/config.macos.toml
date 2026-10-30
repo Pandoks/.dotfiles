@@ -68,7 +68,7 @@ export KEY_FILE="$HOME/.config/beszel/key" TOKEN_FILE="$HOME/.config/beszel/toke
 [ -s "$TOKEN_FILE" ] || exit 0
 exec "$HOME/.local/share/mise/installs/github-henrygd-beszel/latest/beszel-agent"
 ''']
-environment = { PATH = "/opt/homebrew/bin:/usr/bin:/bin", HUB_URL = "https://beszel.tailb2c81d.ts.net", DISABLE_SSH = "true", GPU_COLLECTOR = "macmon" }
+environment = { PATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", HUB_URL = "https://beszel.tailb2c81d.ts.net", DISABLE_SSH = "true", GPU_COLLECTOR = "macmon" }
 run_at_load = true
 keep_alive_on_failure = true
 stdout_path = "~/Library/Logs/beszel-agent.log"
