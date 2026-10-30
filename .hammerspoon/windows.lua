@@ -2,7 +2,7 @@ local spaceFocus = require("lib.space_focus")
 local tiling = require("lib.tiling")
 local resizeStep = 20
 
-tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Nightly)" })
+tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Beta)" })
 
 hs.hotkey.bind({ "shift", "alt" }, "f", tiling.float)
 
