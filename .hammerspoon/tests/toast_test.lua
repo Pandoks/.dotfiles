@@ -270,8 +270,23 @@ function toast.show(...)
   shownIds[#shownIds + 1] = id
   return id
 end
+local function reset()
+  for _, id in ipairs(shownIds) do
+    toast.close(id, 0)
+  end
+  shownIds, canvases, timers, fakeGlasses, focusedScreen, macosInterfaceStyle =
+    {}, {}, {}, {}, mainScreen, "Dark"
+  pluggedScreens = { mainScreen, sideScreen }
+end
+local function assertEqual(actual, expected, label)
+  assert(
+    actual == expected,
+    (label or "value") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual)
+  )
+end
 local passed = 0
 local function test(name, body)
+  reset()
   body()
   passed = passed + 1
   print("PASS " .. name)
@@ -411,31 +426,19 @@ local function secondsUntilHidden(canvas)
   until not isDrawn(canvas) or frameCount == 600
   return math.floor(frameCount / 3 + 0.5) / 20
 end
-local function reset()
-  for _, id in ipairs(shownIds) do
-    toast.close(id, 0)
-  end
-  shownIds, canvases, timers, fakeGlasses, focusedScreen, macosInterfaceStyle =
-    {}, {}, {}, {}, mainScreen, "Dark"
-  pluggedScreens = { mainScreen, sideScreen }
-end
 
 test("a failure sits at the bottom right, titled by its source, with a red cross", function()
   toast.show("Tiling: no focused window", { failure = true, seconds = 5 })
   local canvas = canvases[1]
-  assert(textsOf(canvas) == "Tiling | No focused window", textsOf(canvas))
+  assertEqual(textsOf(canvas), "Tiling | No focused window")
   assert(findElement(canvas, "circle") and canvas.visible and timers[1].seconds == 5)
   assert(
     canvas.origin.x + canvas.frame.w == 1000 - 16 and bottomOf(canvas) == 609,
     "not bottom right"
   )
-  assert(
-    canvas.behaviorLabels == "canJoinAllSpaces fullScreenAuxiliary stationary",
-    canvas.behaviorLabels
-  )
+  assertEqual(canvas.behaviorLabels, "canJoinAllSpaces fullScreenAuxiliary stationary")
   assert(canvas.recordedCalls.clickActivating[1] == false)
   assert(canvas.recordedCalls.level[1] == 19, "not just below the Dock")
-  reset()
 end)
 
 test("a newer toast stacks below the older, which drops back when it goes", function()
@@ -457,7 +460,6 @@ test("a newer toast stacks below the older, which drops back when it goes", func
   )
   advanceClock(2)
   assert(secondsUntilHidden(firstCanvas) == 0.25, "the oldest did not fade")
-  reset()
 end)
 
 test("a toast stays on its screen when focus and the stack change", function()
@@ -468,7 +470,6 @@ test("a toast stays on its screen when focus and the stack change", function()
   assert(bottomOf(canvases[1]) == 609 and bottomOf(canvases[2]) == 609, "screens share one stack")
   timers[2].callback()
   assert(secondsUntilHidden(canvases[2]) == 0.25, "the side screen's oldest did not fade")
-  reset()
 end)
 
 test("a closed toast lets clicks through while it fades", function()
@@ -478,7 +479,6 @@ test("a closed toast lets clicks through while it fades", function()
   assert(canvas.opacity > 0 and canvas.opacity < 1, "it did not fade")
   assert(click(pointInside(canvas), 1) == nil, "the fading toast took it")
   assert(secondsUntilHidden(canvas) == 2.5)
-  reset()
 end)
 
 test("a multi-click closes only its toast, and the rest of it reaches nothing", function()
@@ -533,7 +533,6 @@ test("a multi-click closes only its toast, and the rest of it reaches nothing", 
     click(awayPoint, 1, 0) == nil and click(awayPoint, 2, 0) == nil,
     "a later double-click was swallowed"
   )
-  reset()
 end)
 
 test("a toast pressed as it times out or all close waits for its release", function()
@@ -550,7 +549,6 @@ test("a toast pressed as it times out or all close waits for its release", funct
   release()
   assert(secondsUntilHidden(pressed) == 0.25, "it did not fade once let go")
   assert(not pressed.reappeared, "its window came back when the click was let go")
-  reset()
 end)
 
 test("a toast closed under a press it has not heard of ends at alpha 0, after any fade", function()
@@ -592,7 +590,6 @@ test("a toast without a focused display is printed instead, never raising", func
     printedLines[1] and printedLines[1]:find("Tiling: lost", 1, true),
     tostring(printedLines[1])
   )
-  reset()
 end)
 
 test("the same toast again restarts its time on its screen instead of stacking", function()
@@ -607,7 +604,6 @@ test("the same toast again restarts its time on its screen instead of stacking",
   toast.show("new")
   toast.show("old")
   assert(#canvases == 2 and bottomOf(canvases[1]) == 609, "the repeat is not the newest")
-  reset()
 end)
 
 test("long text wraps to three lines, measured once a word until then", function()
@@ -619,32 +615,24 @@ test("long text wraps to three lines, measured once a word until then", function
   reset()
   toast.show("Tiling: " .. ("word "):rep(600))
   assert(select(2, textsOf(canvases[1]):gsub("\n", "")) == 2, textsOf(canvases[1]):sub(1, 80))
-  reset()
 end)
 
 test("a line break is kept, blank or not, unless trailing, and a name keeps its case", function()
   toast.install()
   alert.show("⌘A: Alpha\n⌘B: Beta\n⌘C: Gamma\n⌘D: Delta")
-  assert(
-    textsOf(canvases[1]) == "⌘A: Alpha\n⌘B: Beta\n⌘C: Gamma ⌘D: Delta",
-    textsOf(canvases[1])
-  )
+  assertEqual(textsOf(canvases[1]), "⌘A: Alpha\n⌘B: Beta\n⌘C: Gamma ⌘D: Delta")
   alert.show("Title\n\nDetail")
-  assert(textsOf(canvases[2]) == "Title\n\nDetail", textsOf(canvases[2]))
+  assertEqual(textsOf(canvases[2]), "Title\n\nDetail")
   toast.show("Space focus: macOS refused it")
-  assert(textsOf(canvases[3]) == "Space focus | macOS refused it", textsOf(canvases[3]))
+  assertEqual(textsOf(canvases[3]), "Space focus | macOS refused it")
   toast.show("Could not write Hammerspoon file log: denied")
-  assert(
-    textsOf(canvases[4]) == "Could not write Hammerspoon file log: denied",
-    textsOf(canvases[4])
-  )
+  assertEqual(textsOf(canvases[4]), "Could not write Hammerspoon file log: denied")
   toast.show("Синхронизация: готово") -- 13 characters, 26 bytes
-  assert(textsOf(canvases[5]) == "Синхронизация | готово", textsOf(canvases[5]))
+  assertEqual(textsOf(canvases[5]), "Синхронизация | готово")
   assert(pcall(toast.show, "caf\xe9: done"), "a title that isn't UTF-8 raised")
-  assert(textsOf(canvases[6]) == "caf\xe9 | Done", textsOf(canvases[6]))
+  assertEqual(textsOf(canvases[6]), "caf\xe9 | Done")
   alert.show("Done\n")
-  assert(textsOf(canvases[7]) == "Done", textsOf(canvases[7]))
-  reset()
+  assertEqual(textsOf(canvases[7]), "Done")
 end)
 
 test("install picks the theme, and an unknown one is logged and fails the load", function()
@@ -667,7 +655,6 @@ test("install picks the theme, and an unknown one is logged and fails the load",
   )
   toast.show("metal")
   assert(rimGrays(canvases[1]) ~= edgeRim, "the edge theme did not change the rim")
-  reset()
 end)
 
 test("light and dark each draw their own colors, and system starts as macOS is", function()
@@ -713,7 +700,7 @@ test("system redraws shown toasts in place as macOS switches, until installed ot
     toast.install({ theme = name })
     local watcher = fakeWatchers[#fakeWatchers]
     assert(watcher and watcher.running, "system does not follow macOS")
-    assert(watcher.name == "AppleInterfaceThemeChangedNotification", tostring(watcher.name))
+    assertEqual(watcher.name, "AppleInterfaceThemeChangedNotification")
     toast.show("Config reloaded", { seconds = false })
     toast.show("Tiling: no window", { failure = true })
     local beforeSwitch = {}
@@ -788,7 +775,6 @@ test("installing again redraws shown toasts in place, in its theme and appearanc
   assert(#fakeGlasses == 4 and fakeGlasses[3].canvas == canvases[1], "no glass after metal")
   toast.install({ appearance = "dark" })
   assert(isDrawn(canvases[1]) and isDrawn(canvases[2]) and findElement(canvases[2], "circle"))
-  reset()
 end)
 
 test("glass that can't be built fails the load, as an unknown theme does", function()
@@ -801,7 +787,6 @@ test("glass that can't be built fails the load, as an unknown theme does", funct
     findElement(canvases[1], "rectangle") and #fakeGlasses == 0,
     "a failed build changed the theme"
   )
-  reset()
 end)
 
 test("glass: each toast has its own, hidden with the toast's fade, under shadowed text", function()
@@ -831,7 +816,6 @@ test("glass: each toast has its own, hidden with the toast's fade, under shadowe
   toast.install()
   toast.show("metal")
   assert(not findElement(canvases[3], "text").text.style.shadow, "the glass shadow stayed")
-  reset()
 end)
 
 test("every hs.alert is a toast, with its seconds and screen", function()
@@ -854,14 +838,13 @@ test("every hs.alert is a toast, with its seconds and screen", function()
     return "styled"
   end
   alert.show(message)
-  assert(textsOf(canvases[4]) == "styled", textsOf(canvases[4]))
+  assertEqual(textsOf(canvases[4]), "styled")
   alert.show(io.stdout) -- not styled text
   assert(textsOf(canvases[5]):find("^file %("), textsOf(canvases[5]))
   alert.show("on the window's screen", fakeWindow, 2)
   alert.show("false is the default", false)
   assert(canvases[6].origin.x >= 1000 and timers[6].seconds == 2, "a window is not its screen")
   assert(timers[7] and timers[7].seconds == 2, "false is not hs.alert's 2 s default")
-  reset()
 end)
 
 test("an hs.alert with non-number seconds stays until closed by its id", function()
@@ -888,7 +871,6 @@ test("an hs.alert with non-number seconds stays until closed by its id", functio
   assert(not pcall(alert.closeSpecific, 999, true), "a fade of true was taken for an unknown id")
   alert.closeAll()
   assert(secondsUntilHidden(canvases[7]) == 0.25, "a failed close left a toast nothing can close")
-  reset()
 end)
 
 test("each hs.alert kept until closed has its own id, and an old id closes nothing", function()
@@ -909,7 +891,6 @@ test("each hs.alert kept until closed has its own id, and an old id closes nothi
   local againId = alert.show("Done", 2)
   alert.closeSpecific(timedId)
   assert(againId ~= timedId and not canvases[2].deleted, "an old id closed a later alert")
-  reset()
 end)
 
 test("the cap drops a screen's oldest unpressed timed toast, never a kept one", function()
@@ -949,7 +930,6 @@ test("the cap drops a screen's oldest unpressed timed toast, never a kept one", 
   end
   toast.show("timed")
   assert(not canvases[7].deleted, "the cap dropped the toast it was making room for")
-  reset()
 end)
 
 test("a toast whose display is unplugged moves to the primary one, within its cap", function()
@@ -987,14 +967,12 @@ test("a toast whose display is unplugged moves to the primary one, within its ca
     bottomOf(canvases[6]) == canvases[7].origin.y - 8 and bottomOf(canvases[7]) == 609,
     "unstacked"
   )
-  reset()
 end)
 
 test("a failure and a plain toast with the same text are not repeats", function()
   toast.show("Window list unavailable")
   toast.show("Window list unavailable", { failure = true })
   assert(#canvases == 2 and findElement(canvases[2], "circle"), "the failure merged")
-  reset()
 end)
 
 test("hs.alert.showWithImage shows its image as the icon, never repeated as plain", function()
@@ -1011,7 +989,6 @@ test("hs.alert.showWithImage shows its image as the icon, never repeated as plai
   assert(#canvases == 2 and not findElement(canvases[2], "image"), "the plain one kept the icon")
   alert.showWithImage("Synced", image, 2)
   assert(#canvases == 3, "the image merged into the plain one")
-  reset()
 end)
 
 test("an argument hs.alert would not take is an error, as in hs.alert", function()
@@ -1023,7 +1000,6 @@ test("an argument hs.alert would not take is an error, as in hs.alert", function
   assert(#canvases == 0, "a toast was shown")
   alert.show("kept", sideScreen, io.stdout)
   assert(#canvases == 1 and #timers == 0, "a userdata after the screen was no seconds")
-  reset()
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")
