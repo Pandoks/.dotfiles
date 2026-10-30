@@ -63,7 +63,6 @@ mkdir -p "$spoons"
 test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoon/Spoons/raw/master/Spoons/SpoonInstall.spoon.zip | bsdtar -xf - -C "$spoons"
 '''
 
-# Waits for ~/.config/beszel/key and token, then reports to the Beszel hub
 [bootstrap.macos.launchd.agents.beszel-agent]
 program = "/bin/sh"
 args = ["-c", '''

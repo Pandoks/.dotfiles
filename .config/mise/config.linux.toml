@@ -81,7 +81,6 @@ content = '''
 SUBSYSTEM=="usb", ATTR{idVendor}=="2c97", MODE="0666"
 '''
 
-# Waits for ~/.config/beszel/key and token, then reports to the Beszel hub
 [bootstrap.linux.systemd.units.beszel-agent]
 description = "Beszel Agent"
 after = ["network.target"]
