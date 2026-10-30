@@ -238,6 +238,7 @@ check(
         ("Between twenty-five hundred and thirty-five hundred.", "Between 2,500 and 3,500."),
         ("Between ten thousand and one hundred million.", "Between 10,000 and 100 million."),
         ("Between ten thousand and one hundred and ten thousand.", "Between 10,000 and 110,000."),
+        ("A hundred and six thousand and two hundred and fifty thousand.", "106,000 and 250,000."),
         ("Between one hundred and fifty and two hundred.", "Between 150 and 200."),
         ("We need a hundred million ARR.", "We need 100 million ARR."),
         ("Two point five million people.", "2.5 million people."),
@@ -619,6 +620,7 @@ check(
             ),
             ("Turn it on. On Friday.", "Turn it on Friday."),
             ("I need one ticket, no, two.", "I need two tickets."),
+            ("One.", "One."),
             ("I need two tickets, no, no, three.", "I need three tickets."),
             ("Book two rooms, no, sorry, three.", "Book three rooms."),
             ("Send the logs to Oki, no wait, send them to Sam.", "Send the logs to Sam."),
@@ -636,14 +638,15 @@ check(
             ("Don't merge it, scratch that, merge it.", "Merge it."),
             ("Set the theme to light, or rather, set it to dark.", "Set the theme to dark."),
             ("Paint the hallway green, actually, paint that gray.", "Paint the hallway gray."),
-            ("I'll take the blue one actually.", "I'll take the blue one."),
+            ("Hang the map on my door, wait, hang that flag.", "Hang that flag on my door."),
+            ("Take the blue one actually.", "Take the blue one."),
             (
                 "Set the timeout to 30 seconds actually. Make it 60 seconds.",
                 "Set the timeout to 60 seconds.",
             ),
             ("Print the labels in red, actually, make them blue.", "Print the labels in blue."),
             ("Set the font to Arial, sorry, make that Helvetica.", "Set the font to Helvetica."),
-            ("Install the old driver, I mean the new one.", "Install the new driver."),
+            ("Rent a big van for Friday, I mean a small one.", "Rent a small van for Friday."),
             (
                 "Please print ten copies of the report, sorry, twelve.",
                 "Please print twelve copies of the report.",
@@ -657,7 +660,7 @@ check(
             ("Send the draft to Sam, sorry, I meant Kate.", "Send the draft to Kate."),
             ("Set the limit to 20, what I meant to say is 30.", "Set the limit to 30."),
             ("Write the script in Python, no, what I meant was Bash.", "Write the script in Bash."),
-            ("Move the sync to Wednesday. What I mean is Thursday.", "Move the sync to Thursday."),
+            ("Meet at noon. What I mean is at one.", "Meet at one."),
             ("Is that right? So we ship it.", "Is that right? We ship it."),
             (
                 "Book it for Monday, sorry, Tuesday for your team, if you can.",
@@ -703,12 +706,21 @@ check(
             ("It's on the 2nd, 2nd floor.", "It's on the 2nd floor."),
             ("It's the forth quarter already.", "It's the fourth quarter already."),
             ("Um, so I think we should ship it.", "I think we should ship it."),
+            (
+                "Ship it Monday, actually Tuesday with the new one.",
+                "Ship it Tuesday with the new one.",
+            ),
+            ("We tried, you know, actually the newer one.", "We tried the newer one."),
+            ("Ask him about the schedule, actually, ask her.", "Ask her about the schedule."),
+            ("Run the old script, sorry, the new one-liner.", "Run the new one-liner."),
+            ("Or, well, sorry, the blue one.", "The blue one."),
         ]
     ],
     lambda pair: server.restore(*pair),
 )
 check(
-    "what a cleanup left out or changed beyond its rules is typed as said, or the take is rejected",
+    "what a cleanup left out or changed beyond its rules is typed as said, or the take is rejected;"
+    ' a kept "one" after a cue gets its noun',
     [
         ((raw, out), raw)
         for raw, out in [
@@ -771,6 +783,10 @@ check(
             ("Lock the doors at 9, actually, lock them again at 12.", "Lock the doors at 12."),
             ("Add Sam to the invite, sorry, add Kate also.", "Add Kate to the invite."),
             ("Ask Kate about the budget, no wait, ask her boss.", "Ask her boss about the budget."),
+            (
+                "Ask the landlord about the leak, sorry, ask his lawyer.",
+                "Ask his lawyer about the leak.",
+            ),
             (
                 "Move the files to the archive tonight, wait, move them to the backup drive.",
                 "Move the files to the backup drive tonight.",
@@ -838,6 +854,14 @@ check(
         (
             ("Use the paper cups, I mean the plastic ones.", "Use the plastic ones."),
             "Use the plastic cups.",
+        ),
+        (
+            ("Book night bus. Well, actually, the day one.", "Book the day one bus."),
+            "Book the day bus.",
+        ),
+        (
+            ("Open a PR, no wait, open up a draft one.", "Open up a draft one."),
+            "Open up a draft PR.",
         ),
         (
             (
