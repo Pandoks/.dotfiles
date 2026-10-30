@@ -711,9 +711,14 @@ check(
                 "Ship it Tuesday with the new one.",
             ),
             ("We tried, you know, actually the newer one.", "We tried the newer one."),
+            ("They shipped, basically, sorry, the latest one.", "They shipped the latest one."),
             ("Ask him about the schedule, actually, ask her.", "Ask her about the schedule."),
+            ("Pay them for the repairs, actually, pay her.", "Pay her for the repairs."),
             ("Run the old script, sorry, the new one-liner.", "Run the new one-liner."),
             ("Or, well, sorry, the blue one.", "The blue one."),
+            ("Ask Mike, actually, Dave, the tall one.", "Ask Dave, the tall one."),
+            ("Send the first one again, sorry, the second one.", "Send the second one."),
+            ("Grab the hammer. No. The wrench. The big one.", "Grab the wrench. The big one."),
         ]
     ],
     lambda pair: server.restore(*pair),
@@ -787,6 +792,7 @@ check(
                 "Ask the landlord about the leak, sorry, ask his lawyer.",
                 "Ask his lawyer about the leak.",
             ),
+            ("Ask the kids about the trip, sorry, ask their mom.", "Ask their mom about the trip."),
             (
                 "Move the files to the archive tonight, wait, move them to the backup drive.",
                 "Move the files to the backup drive tonight.",
@@ -852,7 +858,7 @@ check(
             "Two things: first fix the bug.",
         ),
         (
-            ("Use the paper cups, I mean the plastic ones.", "Use the plastic ones."),
+            ("Use the paper cups, sorry, uh, um, the plastic ones.", "Use the plastic ones."),
             "Use the plastic cups.",
         ),
         (
@@ -862,6 +868,28 @@ check(
         (
             ("Open a PR, no wait, open up a draft one.", "Open up a draft one."),
             "Open up a draft PR.",
+        ),
+        (
+            (
+                "Wear the formal shoes, what I mean is, no, the casual ones.",
+                "Wear the casual ones.",
+            ),
+            "Wear the casual shoes.",
+        ),
+        (
+            (
+                "Grab the red pen, sorry, the blue one, and the small pad, I mean the big one.",
+                "Grab the blue pen and the big one.",
+            ),
+            "Grab the blue pen and the big pad.",
+        ),
+        (
+            ("Book the early check-in, no, the late one.", "Book the late one."),
+            "Book the late check-in.",
+        ),
+        (
+            ("Take the early bus, no, the late one, okay.", "Take the late one."),
+            "Take the late bus.",
         ),
         (
             (

@@ -201,6 +201,8 @@ def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"
 
 
 BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
+DETERMINERS = {"no", "the", "a", "this", "that", "each", "every", "any", "some", "which"}
+DETERMINERS |= {"another", "other"}
 CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|scratch that|or rather"
 CUE += r"|(?:what )?i meant?(?: to say)?(?: was| is)?)"
 CUE += rf"(?:[,.]? make (?:{'|'.join(BACK)}))?"  # "sorry, make it 30", "actually. Make it 60"
@@ -230,9 +232,9 @@ LIKENS += rf"|(?<![\w,] )like (?:{OPENS})(?: [\w'-]+){{0,3}}(?=,)"
 
 def restore(raw, out):
     """`out` with each change from `raw`, other than a left-out stall, filler, repeat, or
-    self-correction, put back as said: "Just fix it." left out comes back, and a correction's
-    kept "one" gets its noun ("the plastic cups"). None if a change can't be put back cleanly:
-    inside a written word ("0.5" -> "0.05"), or an "oh" comes back twice."""
+    self-correction, put back as said: "Just fix it." left out comes back. If none comes back, a
+    correction's kept "one" gets its noun ("the plastic cups"). None if a change can't be put back
+    cleanly: inside a written word ("0.5" -> "0.05"), or an "oh" comes back twice."""
 
     said, written = raw, out  # as written, to put changes back
     # "İ" lowercases to two characters, which would shift every later word's position.
@@ -317,7 +319,8 @@ def restore(raw, out):
                 respaced &= not any(re.search(r"\d \d", " ".join(words)) for words in (run, new))
                 if respaced or len(run) == len(new) == 1 and misheard(spans[i1][0], outs[j1][0]):
                     continue
-                if run == ["one"] and len(new) == 1 and new[0] in spoken[:i1] and cues(0, i1):
+                one_then_fillers = run[0] == "one" and dropped(i1 + 1, i2, kept)
+                if one_then_fillers and len(new) == 1 and new[0] in spoken[:i1] and cues(0, i1):
                     continue  # the noun a correction's "one" stands for: "the feature branch"
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
                 listed = re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[i2 - 1][2]])
@@ -363,7 +366,7 @@ def restore(raw, out):
     ]
     bad, text = unexplained(forward), written
     if not bad or not unexplained(backward):
-        # A kept "the X one" gets the noun said before its cue: "the plastic cups".
+        # A kept "the X one" gets the noun said before its cue, hyphens included: "the stand-up".
         equal = [opcode[1:] for opcode in forward if opcode[0] == "equal"]
         kept = dict(pair for i1, i2, j1, j2 in equal for pair in zip(range(i1, i2), range(j1, j2)))
         determiners = ("the", "a", "an", "my", "your", "our", "his", "her", "their", "this", "that")
@@ -371,18 +374,25 @@ def restore(raw, out):
             if one < 2 or not match(one, r"ones?(?!['-])"):
                 continue  # not "one's" or "one-liner"
             if spoken[one - 2] in determiners and spoken[one - 1] not in (*determiners, *VALUE):
-                cues = [cue for cue in range(1, one) if cue not in kept and match(cue, CUE)]
-                cue = next((cue for cue in reversed(cues) if cue - 1 not in cues), 0)
+                cue_words = set()  # each word of a cue left out: "I mean, no" is one run
+                for start in range(1, one):
+                    if start not in kept and (found := match(start, CUE)):
+                        cue_words |= set(range(start, start + len(found[0].split())))
+                cue = max((cue for cue in cue_words if cue - 1 not in cue_words), default=0)
                 # Not a later "one": "Monday, sorry, Tuesday, and cancel the other one".
                 gap = re.sub(rf"\b(?:{CUE})\b", "", raw[spans[cue][1] : spans[one - 2][1]])
+                # Nor one describing the correction: "Monday, sorry, Tuesday, the busy one".
+                aside = re.search(r"\w[,.] *$", re.sub(rf"\b(?:{FILLER}|{HESITATIONS})\b", "", gap))
                 while cue and spoken[cue - 1] in ("or", "well"):
                     cue -= 1
                 if any(start + filler(start) == cue for start in range(max(cue - 2, 0), cue)):
                     continue  # a filler's cue: "I think, you know, actually the older one"
-                if cue and "one" not in spoken[:cue] and spoken[cue - 1] not in (*typed, *VALUE):
+                if "one" in spoken[cue - 2 : cue]:
+                    continue  # its own "one": "the red one works, no, the blue one does"
+                if cue and spoken[cue - 1] not in (*typed, *VALUE) and not aside:
                     earlier = {word for *_, word in spans[:cue]}
-                    if len(set(re.findall(r"[\w']+", gap)) - {*earlier, *BACK}) < 2:
-                        noun = said[spans[cue - 1][1] : spans[cue - 1][2]]
+                    if len({word for *_, word in tokens(gap)} - {*earlier, *BACK}) < 2:
+                        noun = re.findall(r"[\w'’-]+", said[: spans[cue - 1][2]])[-1]
                         text = text[: outs[kept[one]][1]] + noun + text[outs[kept[one]][2] :]
         return text
     # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
@@ -454,8 +464,6 @@ RUN = re.compile(  # a run of number words, never in a path or name ("~/two", "t
     rf"|-(?:{WORD})\b|{OH}| point(?:(?: oh\b)+|(?= (?:{WORD})\b)))*"
     rf"(?(oh)(?:[ -]oh\b)?)(?:(?:{AND})?[ -](?:{ENDS}))?\b(?![/@#]|\.\w)"
 )
-DETERMINERS = {"no", "the", "a", "this", "that", "each", "every", "any", "some", "which"}
-DETERMINERS |= {"another", "other"}
 VERBS = {"starts", "ends", "begins", "works", "opens", "closes", "comes", "happens", "means"}
 MEASURES = {"dollar", "inch", "foot", "pound", "euro", "cent", "mile", "page"}  # "20 dollar bills"
 
