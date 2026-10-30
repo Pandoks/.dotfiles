@@ -14,12 +14,15 @@ for _, failure in ipairs({ "mkdir", "open", "write", "close" }) do
           return nil, "mkdir failed"
         end,
       },
-      alert = {
+    },
+    require = function(name)
+      assert(name == "lib.toast")
+      return {
         show = function(message)
           alerts[#alerts + 1] = message
         end,
-      },
-    },
+      }
+    end,
     io = {
       open = function()
         attempts = attempts + 1
@@ -51,23 +54,42 @@ for _, failure in ipairs({ "mkdir", "open", "write", "close" }) do
   assert(alerts[1]:find(failure .. " failed", 1, true))
   print("PASS file logger " .. failure .. " failure logs, alerts, and never retries")
 end
+local function loadLogger(fakePrint, fakeShow)
+  return assert(loadfile(
+    root .. "/logger.lua",
+    "t",
+    setmetatable({
+      print = fakePrint,
+      require = function(name)
+        assert(name == "lib.toast")
+        return { show = fakeShow }
+      end,
+    }, { __index = _G })
+  ))()
+end
 local alerts = {}
-local logger = assert(loadfile(
-  root .. "/logger.lua",
-  "t",
-  setmetatable({
-    print = function()
-      error("ipc port is no longer valid") -- hs.ipc's, with a dead `hs` CLI registered
-    end,
-    hs = {
-      alert = {
-        show = function(message)
-          alerts[#alerts + 1] = message
-        end,
-      },
-    },
-  }, { __index = _G })
-))()
+local logger = loadLogger(function()
+  error("ipc port is no longer valid")
+end, function(message, options)
+  assert(type(message) == "string", "no text")
+  alerts[#alerts + 1] = message
+  assert(options.failure and options.seconds == 5, "not a 5 s failure toast")
+end)
 assert(pcall(logger.error, "Tiling: no window\ndetail") and alerts[1] == "Tiling: no window")
 print("PASS an error alerts even when print raises")
-print("RESULT 5 passed, 0 failed")
+for _, message in ipairs({ "", "\nstack traceback:" }) do
+  assert(pcall(logger.error, message), "raised on " .. ("%q"):format(message))
+end
+assert(alerts[2] == "" and alerts[3] == "stack traceback:", tostring(alerts[3]))
+print("PASS an empty or line-break-first error still alerts")
+local logs = {}
+local loggerWithRaisingToast = loadLogger(function(message)
+  logs[#logs + 1] = message
+end, function()
+  error("no glass")
+end)
+local ok, problem = pcall(loggerWithRaisingToast.error, "Tiling: no window")
+assert(not ok and tostring(problem):find("no glass", 1, true), "the toast's error was lost")
+assert(logs[1] == "Tiling: no window", "not logged before a toast that raised")
+print("PASS an error is logged before its toast, which may raise")
+print("RESULT 7 passed, 0 failed")

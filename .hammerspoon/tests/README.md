@@ -92,7 +92,7 @@ focus jobs release their timers.
 Menu layout responds to both dimensions of the usable frame of the focused Space's display,
 resolved through `hs.spaces.spaceDisplay(hs.spaces.focusedSpace())` because
 `hs.screen.mainScreen()` can stay on another display while a fullscreen app has focus. If
-that display cannot be resolved, Cmd-Tab logs, shows a popup, and opens no menu.
+that display cannot be resolved, Cmd-Tab logs and opens no menu.
 Width adds columns, height adds visible rows, and cards adapt between 180 and 320
 logical points (smaller only if a tiny display cannot fit one card). Preferred card
 size follows the shorter screen dimension, so ultrawides cannot inflate previews.
@@ -270,7 +270,10 @@ For a live check after reloading Hammerspoon:
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
 
-The logger and window profiles Lua regressions also run with `tests/run.sh`.
+The logger, window profiles and toast Lua regressions also run with `tests/run.sh`. The toast
+suite covers placement, stacking, repeats, click dismissal, wrapping, themes, light and dark,
+glass, and `hs.alert` routing. Toast looks, the glass window, and clicks were checked live on
+macOS 27.0.1.
 
 Audit checks (substitute the installed executable paths if needed):
 
