@@ -211,9 +211,11 @@ def misheard(old, new):  # same first letter, 5+ letters, and closer than "shoul
 
 
 BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
+SOME = ("these", "those", "some")  # a plural correction's determiner: "no, those blue ones"
 DETERMINERS = {"no", "the", "a", "this", "that", "each", "every", "any", "some", "which"}
 DETERMINERS |= {"another", "other"}
 CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|scratch that|or rather"
+CUE += r"|never mind|on second thought|you know what|come to think of it"
 CUE += r"|(?:what )?i meant?(?: to say)?(?: was| is)?)"
 CUE += rf"(?:[,.]? make (?:{'|'.join(BACK)}))?"  # "sorry, make it 30", "actually. Make it 60"
 ADDS = r"[^.!?,]*\b(?:too|also|as well|first)\b"  # a cue that adds: "Actually, send it to Sam too"
@@ -293,39 +295,41 @@ def restore(raw, cleaned):
             index += step
         return index == end
 
+    def cues(start, end, kept):  # (first, past) of each left-out cue in spoken[start:end]
+        found = []
+        for index in range(start, end):
+            cue = match(index, CUE)
+            if index in kept or not cue:
+                continue
+            # A "sorry" after a "not" or before a "you" in its clause apologises ("sorry, thank
+            # you", not "sorry, Tim, if you can"), unless a question follows.
+            after = raw[spoken_spans[index][2] :]
+            apology = re.search(r"\b(not|never|no)\b|n't", before(index))
+            apology = apology or re.match(r"[ ,]*[^.!?,;]*\byou\b", raw[cue.end() :])
+            if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
+                continue
+            past = index + len(cue[0].split())
+            while past < spoken_count and (step := filler(past)):  # "no, so, the long one"
+                past += step
+            # Its verb again: "Oki, sorry, send them to Sam"
+            if (
+                past + 1 < spoken_count
+                and spoken[past + 1] in BACK
+                and spoken[past] in spoken[:index]
+            ):
+                past += 0 if re.match(ADDS, raw[spoken_spans[past + 1][2] :]) else 2
+            if found and index <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
+                found[-1] = (found[-1][0], past)
+            else:
+                found.append((index, past))
+        return found
+
     # Changes that aren't a left-out stall, filler, repeat, or correction; corrections the cleanup
     # moved up to the words they replace aren't `trusted` in a take that has others.
     def unexplained(opcodes, trusted=True):
         kept = {index for tag, i1, i2, _, _ in opcodes if tag == "equal" for index in range(i1, i2)}
         added = {word for tag, _, _, j1, j2 in opcodes if tag == "insert" for word in typed[j1:j2]}
         bad = []
-
-        def cues(start, end):  # (first, past) of each left-out correction cue in spoken[start:end]
-            found = []
-            for index in range(start, end):
-                cue = match(index, CUE)
-                if index in kept or not cue:
-                    continue
-                # A "sorry" after a "not" or before a "you" in its clause apologises ("sorry, thank
-                # you", not "sorry, Tim, if you can"), unless a question follows.
-                after = raw[spoken_spans[index][2] :]
-                apology = re.search(r"\b(not|never|no)\b|n't", before(index))
-                apology = apology or re.match(r"[ ,]*[^.!?,;]*\byou\b", raw[cue.end() :])
-                if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
-                    continue
-                past = index + len(cue[0].split())
-                # Its verb again: "Oki, sorry, send them to Sam"
-                if (
-                    past + 1 < spoken_count
-                    and spoken[past + 1] in BACK
-                    and spoken[past] in spoken[:index]
-                ):
-                    past += 0 if re.match(ADDS, raw[spoken_spans[past + 1][2] :]) else 2
-                if found and index <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
-                    found[-1] = (found[-1][0], past)
-                else:
-                    found.append((index, past))
-            return found
 
         moved = []  # words written in place of others, each said after a left-out cue
         for tag, i1, i2, j1, j2 in opcodes:
@@ -344,14 +348,16 @@ def restore(raw, cleaned):
                 ):
                     continue
                 one_then_fillers = run[0] == "one" and dropped(i1 + 1, i2, kept)
-                if one_then_fillers and len(edit) == 1 and edit[0] in spoken[:i1] and cues(0, i1):
+                counted = edit[0] in VALUE or edit[0].isdecimal()  # "the two-seater"
+                single = len(edit) == 1 or "-".join(edit) in raw and not counted  # "the pop-up"
+                if one_then_fillers and single and edit[0] in spoken[:i1] and cues(0, i1, kept):
                     continue  # the noun a correction's "one" stands for: "the feature branch"
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
                 listed = re.search(
                     r"[,;] |\band\b", raw[spoken_spans[i1][1] : spoken_spans[i2 - 1][2]]
                 )
                 said_later = any(
-                    set(edit) <= set(spoken[index:]) for index, _ in cues(i2, spoken_count)
+                    set(edit) <= set(spoken[index:]) for index, _ in cues(i2, spoken_count, kept)
                 )
                 # Not a pronoun standing for words left out: "her boss" for "Kate" or "the client".
                 pronouns = {"it", "them", "him", "her", "his", "their"}
@@ -377,12 +383,12 @@ def restore(raw, cleaned):
                     r"[,;] |\band\b", raw[spoken_spans[i1][1] : spoken_spans[index - 1][2]]
                 )
                 and spoken[index - 1] not in added
-                for index, past in cues(i1, i2)
+                for index, past in cues(i1, i2, kept)
             ):
                 continue
             # ...or a cue and its correction, moved up to the words it replaced ("one" as its noun).
-            first = [cue for cue in cues(i1, i2) if cue[0] == i1]
-            if moved and first and set(spoken[first[0][1] : i2]) - {"one"} <= set(typed):
+            first = [cue for cue in cues(i1, i2, kept) if cue[0] == i1]
+            if moved and first and set(spoken[first[0][1] : i2]) - {"one", *SOME} <= set(typed):
                 continue
             bad.append((i1, i2, j1, j2))
         return bad
@@ -403,36 +409,38 @@ def restore(raw, cleaned):
             pair for i1, i2, j1, j2 in equal for pair in zip(range(i1, i2), range(j1, j2))
         )
         determiners = ("the", "a", "an", "my", "your", "our", "his", "her", "their", "this", "that")
+        determiners += SOME
+        subjects = ("i", "we", "you", "they", "he", "she")
+        pronouns = (*BACK, "this", "these", "those", "me", "us", "yours")
         for one in reversed(aligned):
-            if one < 2 or not match(one, r"ones?(?!['-])"):
+            if one < 3 or not match(one, r"ones?(?!['-])"):
                 continue  # not "one's" or "one-liner"
-            if spoken[one - 2] in determiners and spoken[one - 1] not in (*determiners, *VALUE):
-                cue_words = set()  # each word of a cue left out: "I mean, no" is one run
-                for start in range(1, one):
-                    if start not in aligned and (found := match(start, CUE)):
-                        cue_words |= set(range(start, start + len(found[0].split())))
-                cue = max((cue for cue in cue_words if cue - 1 not in cue_words), default=0)
-                # Not a later "one": "Monday, sorry, Tuesday, and cancel the other one".
-                gap = re.sub(
-                    rf"\b(?:{CUE})\b", "", raw[spoken_spans[cue][1] : spoken_spans[one - 2][1]]
-                )
-                # Nor one describing the correction: "Monday, sorry, Tuesday, the busy one".
-                aside = re.search(r"\w[,.] *$", re.sub(rf"\b(?:{FILLER}|{HESITATIONS})\b", "", gap))
-                while cue and spoken[cue - 1] in ("or", "well"):
-                    cue -= 1
-                if any(start + filler(start) == cue for start in range(max(cue - 2, 0), cue)):
-                    continue  # a filler's cue: "I think, you know, actually the older one"
-                if "one" in spoken[cue - 2 : cue]:
-                    continue  # its own "one": "the red one works, no, the blue one does"
-                if cue and spoken[cue - 1] not in (*typed, *VALUE) and not aside:
-                    earlier = {word for *_, word in spoken_spans[:cue]}
-                    if len({word for *_, word in tokens(gap)} - {*earlier, *BACK}) < 2:
-                        noun = re.findall(r"[\w'’-]+", said[: spoken_spans[cue - 1][2]])[-1]
-                        text = (
-                            text[: typed_spans[aligned[one]][1]]
-                            + noun
-                            + text[typed_spans[aligned[one]][2] :]
-                        )
+            determiner = one - 2 if spoken[one - 2] in determiners else one - 3  # "the big red one"
+            if spoken[determiner] not in determiners:
+                continue
+            cue, past = max(cues(1, one, aligned), default=(0, 0))
+            # Not a later "one": "Monday, sorry, Tuesday, and cancel the other one".
+            gap = raw[spoken_spans[past][1] : spoken_spans[determiner][1]]
+            # Nor one describing the correction: "Monday, sorry, Tuesday, the busy one".
+            aside = determiner > past and mark(determiner)
+            while cue and spoken[cue - 1] in ("or", "well"):
+                cue -= 1
+            if cue and filler(cue - 1) == 1:
+                continue  # a filler's cue: "They shipped, basically, sorry, the latest one"
+            if "one" in spoken[max(cue - 2, 0) : cue]:
+                continue  # its own "one": "the red one works, no, the blue one does"
+            if spoken[cue - 1] in pronouns or cue > 1 and spoken[cue - 2] in subjects:
+                continue  # a pronoun or a subject's verb: "Grab it, sorry", "I think, no"
+            noun = re.findall(r"[\w'’-]+", said[: spoken_spans[cue - 1][2]])[-1]
+            number = spoken[cue - 1] in VALUE or noun.isdecimal()  # "at 6:30"
+            if cue and spoken[cue - 1] not in typed and not number and not aside:
+                earlier = {word for *_, word in spoken_spans[:cue]}
+                if len({word for *_, word in tokens(gap)} - {*earlier, *BACK}) < 2:
+                    text = (
+                        text[: typed_spans[aligned[one]][1]]
+                        + noun
+                        + text[typed_spans[aligned[one]][2] :]
+                    )
         return text
     # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
     whole = [word for *_, word in spoken_spans], [word for *_, word in typed_spans]

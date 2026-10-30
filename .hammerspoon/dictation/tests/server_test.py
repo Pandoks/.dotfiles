@@ -720,8 +720,20 @@ check(
             ("Run the old script, sorry, the new one-liner.", "Run the new one-liner."),
             ("Or, well, sorry, the blue one.", "The blue one."),
             ("Ask Mike, actually, Dave, the tall one.", "Ask Dave, the tall one."),
+            ("Invite Jake, actually, Nina, um, the quiet one.", "Invite Nina, the quiet one."),
             ("Send the first one again, sorry, the second one.", "Send the second one."),
             ("Grab the hammer. No. The wrench. The big one.", "Grab the wrench. The big one."),
+            (
+                "Frankly, I mean, actually, the cheaper one is better.",
+                "Frankly, the cheaper one is better.",
+            ),
+            ("Can you grab it, sorry, the red one?", "Can you grab the red one?"),
+            ("We need, I think, actually, the longer ones.", "We need the longer ones."),
+            ("Take the short path, no, so, the long one.", "Take the long path."),
+            ("Use the red markers, no, those blue ones.", "Use the blue markers."),
+            ("Take the blue car, no, on second thought, the red one.", "Take the red car."),
+            ("Catch the bus at 7.45, sorry, the next one.", "Catch the bus at the next one."),
+            ("Take the train at six, no, the later one.", "Take the train at the later one."),
         ]
     ],
     lambda pair: server.restore(*pair),
@@ -796,6 +808,7 @@ check(
                 "Ask his lawyer about the leak.",
             ),
             ("Ask the kids about the trip, sorry, ask their mom.", "Ask their mom about the trip."),
+            ("Take the two-seater, sorry, the bigger one.", "Take the bigger one."),
             (
                 "Move the files to the archive tonight, wait, move them to the backup drive.",
                 "Move the files to the backup drive tonight.",
@@ -881,18 +894,43 @@ check(
         ),
         (
             (
-                "Grab the red pen, sorry, the blue one, and the small pad, I mean the big one.",
-                "Grab the blue pen and the big one.",
+                "Send the old bill, sorry, my new one, and the white lamp, I mean, that red one.",
+                "Send my new one and that red one.",
             ),
-            "Grab the blue pen and the big pad.",
+            "Send my new bill and that red lamp.",
         ),
         (
-            ("Book the early check-in, no, the late one.", "Book the late one."),
+            ("Book the check-in, no, the late one.", "Book the late one."),
             "Book the late check-in.",
         ),
         (
-            ("Take the early bus, no, the late one, okay.", "Take the late one."),
-            "Take the late bus.",
+            ("Wear the black hoodie, actually, the gray one, you know.", "Wear the gray one."),
+            "Wear the gray hoodie.",
+        ),
+        (
+            ("Heat the cast iron skillet. No, heat the non-stick one.", "Heat the non-stick one."),
+            "Heat the non-stick skillet.",
+        ),
+        (
+            ("Order the steel bolts, actually, some brass ones.", "Order some brass ones."),
+            "Order some brass bolts.",
+        ),
+        (("Take the five train, no, the six one.", "Take the six one."), "Take the six train."),
+        (
+            (
+                "Bring four short cables, actually, four of the long ones.",
+                "Bring four of the long ones.",
+            ),
+            "Bring four of the long cables.",
+        ),
+        (("Cut the short 2x4, sorry, the long one.", "Cut the long one."), "Cut the long 2x4."),
+        (("Flag the old mine, actually, the new one.", "Flag the new one."), "Flag the new mine."),
+        (
+            (
+                "Bake it in the deep dish, wait, okay, so, the shallow one.",
+                "Bake it in the shallow one.",
+            ),
+            "Bake it in the shallow dish.",
         ),
         (
             (

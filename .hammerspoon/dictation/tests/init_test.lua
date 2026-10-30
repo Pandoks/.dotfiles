@@ -231,8 +231,7 @@ local function app(bundle)
   }
 end
 
--- `ignoresWrites` takes writes but keeps its value (Chromium);
--- `unsettable` takes none (a terminal).
+-- Chromium ignores writes; a terminal takes none.
 local function field(before, ignoresWrites, unsettable, role)
   local element = { value = before }
   function element:attributeValue(name)
@@ -341,10 +340,16 @@ test("a terminal's or a Gecko app's field is pasted into, never written", functi
 end)
 
 test("a second paste before the restore puts back the clipboard from before the first", function()
+  local types = hs.pasteboard.allContentTypes
+  hs.pasteboard.allContentTypes = function()
+    return { {}, {} }
+  end
   handlers.onFinal({ id = dictate(field("a", true)), text = "one" })
+  hs.pasteboard.allContentTypes = types
   handlers.onFinal({ id = dictate(field("b", true)), text = "two" })
   timers[#timers]()
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
+  assert(alerts[1] and alerts[1]:find("first of 2", 1, true), tostring(alerts[1]))
 end)
 
 test("focus moved while transcribing writes nothing, says so, and saves the text", function()
