@@ -9,7 +9,7 @@ local stroke = 1
 local thickness = 0.038
 local spread = 0.80
 local peak = 0.34
-local fade = 12 -- frames
+local fadeFrames = 12 -- frames
 local width, barWidth = height * aspect, height * thickness
 
 function overlay.new()
@@ -23,9 +23,9 @@ function overlay.new()
     phase = 0,
   }, overlay)
   local bands = overlay.bands
-  for i = 1, 2 * bands - 1 do
-    self.baseline[i] = math.max(0, 1 - math.abs(i - bands) / (bands - 1)) ^ 2.4
-    self.bars[i] = 0
+  for bar = 1, 2 * bands - 1 do
+    self.baseline[bar] = math.max(0, 1 - math.abs(bar - bands) / (bands - 1)) ^ 2.4
+    self.bars[bar] = 0
   end
 
   local radius = (height - stroke) / 2
@@ -71,33 +71,33 @@ function overlay:layout()
   local pitch = span / (count - 1)
   local warmth = self.warmth * self.warmth * (3 - 2 * self.warmth) -- smoothstep
   local center = (count + 1) / 2
-  for i = 1, count do
+  for bar = 1, count do
     local amplitude, glow
     if self.thinking then
       -- A traveling shimmer.
-      local wave = 0.5 + 0.5 * math.sin(self.phase + i * 0.5)
-      amplitude = (0.25 + 0.35 * wave) * self.baseline[i]
+      local wave = 0.5 + 0.5 * math.sin(self.phase + bar * 0.5)
+      amplitude = (0.25 + 0.35 * wave) * self.baseline[bar]
       glow = 0.4 + 0.6 * wave ^ 2
     else
       -- A center ripple crossfades into the live levels.
-      local distance = math.abs(i - center)
+      local distance = math.abs(bar - center)
       local bloom = math.max(0, math.min(1, (self.phase * 4.6 - distance) / 4))
       local ripple = (0.5 + 0.5 * math.sin(self.phase * 1.3 - distance * 0.6)) ^ 2
-      local intro = bloom * (0.25 + 0.75 * self.baseline[i]) * (0.2 + 0.8 * ripple)
-      local live = math.max(self.baseline[i] * 0.12, self.bars[i])
+      local intro = bloom * (0.25 + 0.75 * self.baseline[bar]) * (0.2 + 0.8 * ripple)
+      local live = math.max(self.baseline[bar] * 0.12, self.bars[bar])
       amplitude = warmth * intro + (1 - warmth) * live
       glow = warmth * (1 - 0.6 * (1 - ripple * bloom))
-        + (1 - warmth) * (0.45 + 0.55 * math.min(1, self.bars[i] * 1.8))
+        + (1 - warmth) * (0.45 + 0.55 * math.min(1, self.bars[bar] * 1.8))
     end
-    local h = math.max(barWidth, height * peak * amplitude + barWidth * 0.85)
-    local x = width / 2 - span / 2 + (i - 1) * pitch
+    local barHeight = math.max(barWidth, height * peak * amplitude + barWidth * 0.85)
+    local barCenter = width / 2 - span / 2 + (bar - 1) * pitch
     -- Element 1 is the pill.
     self.canvas:elementAttribute(
-      i + 1,
+      bar + 1,
       "frame",
-      { x = x - barWidth / 2, y = height / 2 - h / 2, w = barWidth, h = h }
+      { x = barCenter - barWidth / 2, y = height / 2 - barHeight / 2, w = barWidth, h = barHeight }
     )
-    self.canvas:elementAttribute(i + 1, "fillColor", { white = 0.976, alpha = glow })
+    self.canvas:elementAttribute(bar + 1, "fillColor", { white = 0.976, alpha = glow })
   end
 end
 
@@ -106,13 +106,13 @@ end
 function overlay:update(bands)
   self.phase = self.phase + 0.35
   if bands then
-    self.warmth = math.max(0, self.warmth - 1 / fade)
+    self.warmth = math.max(0, self.warmth - 1 / fadeFrames)
     local center = (#self.bars + 1) // 2
-    for i = 1, #self.bars do
+    for bar = 1, #self.bars do
       -- Fast attack, slow release.
-      local target = math.max(0, math.min(1, bands[math.abs(i - center) + 1]))
-      local current = self.bars[i]
-      self.bars[i] = current + (target - current) * (target > current and 0.6 or 0.25)
+      local target = math.max(0, math.min(1, bands[math.abs(bar - center) + 1]))
+      local current = self.bars[bar]
+      self.bars[bar] = current + (target - current) * (target > current and 0.6 or 0.25)
     end
   end
   if bands or self.thinking or self.warmth > 0 then

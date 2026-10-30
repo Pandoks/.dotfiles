@@ -1,7 +1,7 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 package.path = root .. "/../?.lua;" .. package.path
-local date, clock = os.date, 0
+local realDate, clock = os.date, 0
 local history = assert(loadfile(
   root .. "/history.lua",
   "t",
@@ -9,7 +9,7 @@ local history = assert(loadfile(
     hs = { fs = fs },
     os = setmetatable({
       date = function(format)
-        return date(format, clock)
+        return realDate(format, clock)
       end,
     }, { __index = os }),
   }, { __index = _G })

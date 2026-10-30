@@ -19,15 +19,15 @@ for key, value in pairs(require("dictation.config")) do
 end
 -- JSON can't mix list and map keys.
 local function spelled(words)
-  local out = {}
+  local spellings = {}
   for key, value in pairs(words or {}) do
     if type(key) == "number" then
-      out[value] = {}
+      spellings[value] = {}
     else
-      out[key] = type(value) == "string" and { value } or value
+      spellings[key] = type(value) == "string" and { value } or value
     end
   end
-  return out
+  return spellings
 end
 config.words = spelled(config.words)
 for _, app in pairs(config.apps) do
@@ -82,24 +82,24 @@ end
 ---@param text string
 local function paste(text)
   -- Back-to-back pastes restore the clipboard from before the first.
-  local held = restore and hs.pasteboard.changeCount() == restore.count
-  local previous = held and restore.previous or hs.pasteboard.readAllData() or {}
-  local items = held and restore.items or #hs.pasteboard.allContentTypes()
+  local chained = restore and hs.pasteboard.changeCount() == restore.changeCount
+  local previous = chained and restore.previous or hs.pasteboard.readAllData() or {}
+  local itemCount = chained and restore.itemCount or #hs.pasteboard.allContentTypes()
   if not hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = text, [transient] = "" }) then
     error("could not write clipboard", 0)
   end
   if restore then
     restore.timer:stop()
   end
-  local count = hs.pasteboard.changeCount()
+  local changeCount = hs.pasteboard.changeCount()
   -- 1 s lets a busy app (Slack, VS Code) read it.
   restore = {
-    count = count,
+    changeCount = changeCount,
     previous = previous,
-    items = items,
+    itemCount = itemCount,
     timer = hs.timer.doAfter(1, function()
       restore = nil
-      if hs.pasteboard.changeCount() ~= count then
+      if hs.pasteboard.changeCount() ~= changeCount then
         return
       elseif next(previous) == nil then
         hs.pasteboard.clearContents()
@@ -108,8 +108,8 @@ local function paste(text)
       previous[transient] = ""
       if not hs.pasteboard.writeAllData(previous) then
         fail("could not restore the clipboard")
-      elseif items > 1 then
-        fail(("restored only the first of %d clipboard items"):format(items))
+      elseif itemCount > 1 then
+        fail(("restored only the first of %d clipboard items"):format(itemCount))
       end
     end),
   }
@@ -267,9 +267,9 @@ local engine, problem = Engine.new(config, {
   onError = function(message, id, heard)
     -- No id: the backend died with every take.
     local saved = false
-    for key in pairs(wavs) do
-      if key == id or not id then
-        saved = settle(key, heard)
+    for take in pairs(wavs) do
+      if take == id or not id then
+        saved = settle(take, heard)
       end
     end
     fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))

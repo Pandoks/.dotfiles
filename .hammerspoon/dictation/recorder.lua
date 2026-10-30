@@ -27,8 +27,8 @@ local size = 1024 -- FFT window, in samples
 
 -- Hann window.
 local window = {}
-for i = 1, size do
-  window[i] = 0.5 - 0.5 * math.cos(2 * math.pi * (i - 1) / (size - 1))
+for sample = 1, size do
+  window[sample] = 0.5 - 0.5 * math.cos(2 * math.pi * (sample - 1) / (size - 1))
 end
 
 -- mise's own binary, through its ffmpeg shim (a symlink): resolved once, as the shim adds ~15 ms.
@@ -40,33 +40,37 @@ recorder.ffmpeg = which and which:match("^(/.*/ffmpeg)%s*$")
 ---@param real number[]
 ---@param imaginary number[]
 local function fft(real, imaginary)
-  local n = #real
-  local j = 1
-  for i = 1, n - 1 do
-    if i < j then
-      real[i], real[j] = real[j], real[i]
-      imaginary[i], imaginary[j] = imaginary[j], imaginary[i]
+  local count = #real
+  local bitReversed = 1
+  for index = 1, count - 1 do
+    if index < bitReversed then
+      real[index], real[bitReversed] = real[bitReversed], real[index]
+      imaginary[index], imaginary[bitReversed] = imaginary[bitReversed], imaginary[index]
     end
-    local m = n // 2
-    while m >= 1 and j > m do
-      j = j - m
-      m = m // 2
+    local bit = count // 2
+    while bit >= 1 and bitReversed > bit do
+      bitReversed = bitReversed - bit
+      bit = bit // 2
     end
-    j = j + m
+    bitReversed = bitReversed + bit
   end
   local span = 2
-  while span <= n do
+  while span <= count do
     local angle = -2 * math.pi / span
-    local wr, wi = math.cos(angle), math.sin(angle)
-    for start = 1, n, span do
-      local cr, ci = 1, 0
-      for k = 0, span // 2 - 1 do
-        local a, b = start + k, start + k + span // 2
-        local tr = real[b] * cr - imaginary[b] * ci
-        local ti = real[b] * ci + imaginary[b] * cr
-        real[b], imaginary[b] = real[a] - tr, imaginary[a] - ti
-        real[a], imaginary[a] = real[a] + tr, imaginary[a] + ti
-        cr, ci = cr * wr - ci * wi, cr * wi + ci * wr
+    local stepReal, stepImaginary = math.cos(angle), math.sin(angle)
+    for start = 1, count, span do
+      local twiddleReal, twiddleImaginary = 1, 0
+      for offset = 0, span // 2 - 1 do
+        local upper, lower = start + offset, start + offset + span // 2
+        local productReal = real[lower] * twiddleReal - imaginary[lower] * twiddleImaginary
+        local productImaginary = real[lower] * twiddleImaginary + imaginary[lower] * twiddleReal
+        real[lower], imaginary[lower] =
+          real[upper] - productReal, imaginary[upper] - productImaginary
+        real[upper], imaginary[upper] =
+          real[upper] + productReal, imaginary[upper] + productImaginary
+        twiddleReal, twiddleImaginary =
+          twiddleReal * stepReal - twiddleImaginary * stepImaginary,
+          twiddleReal * stepImaginary + twiddleImaginary * stepReal
       end
     end
     span = span * 2
@@ -78,9 +82,9 @@ end
 ---@param from integer
 local function samples(pcm, from)
   local values, energy = {}, 0
-  for i = 1, size do
-    local value = string.unpack("<i2", pcm, from + 2 * i - 2) / 32768
-    values[i], energy = value, energy + value * value
+  for sample = 1, size do
+    local value = string.unpack("<i2", pcm, from + 2 * sample - 2) / 32768
+    values[sample], energy = value, energy + value * value
   end
   local rms = math.sqrt(energy / size) + 1e-9
   return values, math.max(0, math.min(1, (20 * math.log(rms, 10) + 50) / 40)), energy
@@ -170,9 +174,9 @@ function recorder.start(bands, onError)
   })
   -- Log-spaced bands from 80 Hz to just under Nyquist.
   local bins, nyquist = {}, rate / 2
-  for i = 0, bands do
-    local hz = 80 * (nyquist * 0.98 / 80) ^ (i / bands)
-    bins[i] = math.max(1, math.min(size // 2, math.floor(hz / nyquist * (size // 2))))
+  for edge = 0, bands do
+    local frequency = 80 * (nyquist * 0.98 / 80) ^ (edge / bands)
+    bins[edge] = math.max(1, math.min(size // 2, math.floor(frequency / nyquist * (size // 2))))
   end
   recording = {
     wav = wav,
@@ -195,24 +199,24 @@ end
 ---@param recording DictationRecording
 ---@return number[]? bands each 0..1: auto-gained shape times loudness over the room
 function recorder.analyze(recording)
-  local new = recording.fresh
+  local fresh = recording.fresh
   recording.fresh = ""
-  recording.offset = recording.offset + #new
-  local data = recording.tail .. new
-  recording.tail = data:sub(-size * 2)
-  if #new == 0 or #recording.tail < size * 2 then
+  recording.offset = recording.offset + #fresh
+  local pcm = recording.tail .. fresh
+  recording.tail = pcm:sub(-size * 2)
+  if #fresh == 0 or #recording.tail < size * 2 then
     return nil
   end
   local real, level, energy = samples(recording.tail, 1)
   -- Every window since the last frame counts toward the peak: a busy main thread can leave several.
   recording.peak = math.max(recording.peak, level)
-  for last = #data - size * 2, size * 2, -size * 2 do
-    local _, older = samples(data, last - size * 2 + 1)
+  for last = #pcm - size * 2, size * 2, -size * 2 do
+    local _, older = samples(pcm, last - size * 2 + 1)
     recording.peak = math.max(recording.peak, older)
   end
   local imaginary = {}
-  for i = 1, size do
-    real[i], imaginary[i] = real[i] * window[i], 0
+  for sample = 1, size do
+    real[sample], imaginary[sample] = real[sample] * window[sample], 0
   end
   -- Bars move only above the room's floor, which starts at most ~-38 dBFS: speech may open a take.
   if energy > 0 then
@@ -221,7 +225,7 @@ function recorder.analyze(recording)
   -- Full at ~11 dB over the room.
   local gain = math.max(0, math.min(1, (level - (recording.floor or level) - 0.08) / 0.2))
   fft(real, imaginary)
-  local bands, top, bins, peaks = {}, 0, recording.bins, recording.peaks
+  local bands, loudest, bins, peaks = {}, 0, recording.bins, recording.peaks
   for band = 1, #bins do
     local low, high = bins[band - 1], math.max(bins[band - 1] + 1, bins[band])
     local sum = 0
@@ -230,11 +234,12 @@ function recorder.analyze(recording)
     end
     bands[band] = math.sqrt(sum / (high - low)) -- perceptual compression
     peaks[band] = math.max((peaks[band] or 1e-4) * 0.999, bands[band])
-    top = math.max(top, peaks[band])
+    loudest = math.max(loudest, peaks[band])
   end
   -- Peaks floored at 0.4 of the loudest, or the first word after silence fills every band.
   for band = 1, #bins do
-    bands[band] = gain * math.min(1, bands[band] / (math.max(peaks[band], top * 0.4) + 1e-6)) ^ 0.5
+    bands[band] = gain
+      * math.min(1, bands[band] / (math.max(peaks[band], loudest * 0.4) + 1e-6)) ^ 0.5
   end
   return bands
 end

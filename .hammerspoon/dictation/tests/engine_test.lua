@@ -1,6 +1,6 @@
 local root, frameworks = assert(arg[1], "pass the dictation directory"), arg[2]
 local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
-local passed, alerts, output, exit, printed, inputs, dead = 0, {}, nil, nil, {}, {}, false
+local passed, alerts, output, exit, printed, inputs, ipcDead = 0, {}, nil, nil, {}, {}, false
 local terminated, reason
 
 local function test(name, callback)
@@ -13,7 +13,7 @@ end
 local environment = setmetatable({
   print = function(text)
     printed[#printed + 1] = text
-    assert(not dead, "ipc port is no longer valid") -- hs.ipc's, with a dead `hs` CLI registered
+    assert(not ipcDead, "ipc port is no longer valid") -- hs.ipc's, with a dead `hs` CLI registered
   end,
   hs = {
     fs = {
@@ -107,10 +107,10 @@ test("a print that raises leaves later replies read", function()
     onError = function() end,
   }))
   local feed = assert(output, "no backend task")
-  dead = true
+  ipcDead = true
   local ok = pcall(feed, nil, '{"event":"ready"}\n', "Loaded\n")
   local later = ok and pcall(feed, nil, '{"event":"final","id":1,"text":"a"}\n', "warning\n")
-  dead = false
+  ipcDead = false
   assert(ok and later and #finals == 1, "stopped reading")
 end)
 

@@ -1,5 +1,5 @@
 local root, scratch = arg[1], arg[3]
-local passed, rest = 0, ""
+local passed, undelivered = 0, ""
 local task, receive
 
 local function test(name, callback)
@@ -13,8 +13,8 @@ local stream = {
   listen = function(_, callback)
     receive = callback
     return function()
-      local left = rest
-      rest = ""
+      local left = undelivered
+      undelivered = ""
       return left
     end
   end,
@@ -62,9 +62,11 @@ local recorder = assert(loadfile(
 
 local function pcm(amplitude, count)
   local samples = {}
-  for i = 1, count do
-    samples[i] =
-      string.pack("<i2", math.floor(amplitude * 32767 * math.sin(i * 2 * math.pi * 440 / 16000)))
+  for sample = 1, count do
+    samples[sample] = string.pack(
+      "<i2",
+      math.floor(amplitude * 32767 * math.sin(sample * 2 * math.pi * 440 / 16000))
+    )
   end
   return table.concat(samples)
 end
@@ -107,7 +109,7 @@ test("every window since the last frame, and audio unread at exit, counts", func
     local peak, duration
     receive(pcm(0, 16000))
     recorder.analyze(recording)
-    rest = unread
+    undelivered = unread
     recorder.stop(recording, function(_, loudest, seconds)
       peak, duration = loudest, seconds
     end)

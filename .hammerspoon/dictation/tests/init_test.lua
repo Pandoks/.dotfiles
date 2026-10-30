@@ -1,9 +1,10 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 package.path = root .. "/../?.lua;" .. package.path
-local passed, alerts, strokes, timers, changes, takes, serial = 0, {}, {}, {}, 0, 0, 0
-local toggle, escape, handlers, done, focus, front, refused, recorded, sent, dead, settings, take
-local frame, broken, armed, shown, chained, unstartable
+local passed, alerts, strokes, timers, changes, takeCount, serial = 0, {}, {}, {}, 0, 0, 0
+local toggle, escape, handlers, deliver, focus, frontmost, refused, recorded, sent, ipcDead
+local settings, recording
+local tick, broken, armed, shown, chained, unstartable
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
 local directory = scratch .. "/init-history"
@@ -25,12 +26,14 @@ local function stub(fields)
   })
 end
 
-local function load(name, env)
-  return assert(loadfile(root .. "/" .. name .. ".lua", "t", setmetatable(env, { __index = _G })))()
+local function import(name, environment)
+  return assert(
+    loadfile(root .. "/" .. name .. ".lua", "t", setmetatable(environment, { __index = _G }))
+  )()
 end
 
-local config = load("defaults", {})
-local mine = load("config", {})
+local config = import("defaults", {})
+local mine = import("config", {})
 mine.words = { "Slack", Raycast = { "ray cast" } }
 mine.apps =
   { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } }, ["com.y"] = { style = "terse" } }
@@ -55,22 +58,22 @@ local hs = {
         assert(armed, "Escape is not bound")
         callback()
       end
-      local function log(on)
+      local function arm(on)
         return function()
           armed = on
-          assert(not dead, "ipc port is no longer valid")
+          assert(not ipcDead, "ipc port is no longer valid")
           return true
         end
       end
-      return { enable = log(true), disable = log(false) }
+      return { enable = arm(true), disable = arm(false) }
     end,
   },
   timer = {
     doEvery = function(_, callback)
-      frame = callback
+      tick = callback
       return stub({
         stop = function()
-          frame = nil
+          tick = nil
         end,
       })
     end,
@@ -96,7 +99,7 @@ local hs = {
   end,
   application = {
     frontmostApplication = function()
-      return front
+      return frontmost
     end,
   },
   axuielement = {
@@ -140,15 +143,15 @@ local hs = {
 local modules = {
   ["dictation.defaults"] = config,
   ["dictation.config"] = mine,
-  ["lib.logger"] = load("../lib/logger", {
+  ["lib.logger"] = import("../lib/logger", {
     hs = hs,
     print = function() end,
     require = function()
       return { show = hs.alert.show }
     end,
   }),
-  ["dictation.spacing"] = load("spacing", {}),
-  ["dictation.history"] = load("history", { hs = { fs = fs } }),
+  ["dictation.spacing"] = import("spacing", {}),
+  ["dictation.history"] = import("history", { hs = { fs = fs } }),
   ["dictation.overlay"] = {
     new = function()
       shown = true
@@ -170,15 +173,15 @@ local modules = {
       if unstartable then
         return nil, "could not start capture task"
       end
-      takes = takes + 1
-      recorded = ("%s/take%d.wav"):format(scratch, takes)
+      takeCount = takeCount + 1
+      recorded = ("%s/take%d.wav"):format(scratch, takeCount)
       assert(io.open(recorded, "w")):close()
-      take = { wav = recorded, fail = onError }
-      return take
+      recording = { wav = recorded, fail = onError }
+      return recording
     end,
     stop = function(capture, callback)
       capture.done = callback
-      done = function()
+      deliver = function()
         if capture.done then
           capture.done(capture.wav, 0.5, 1)
         end
@@ -212,7 +215,7 @@ local modules = {
     end,
   },
 }
-load("init", {
+import("init", {
   hs = hs,
   print = function() end,
   require = function(name)
@@ -228,8 +231,9 @@ local function app(bundle)
   }
 end
 
--- `deaf` takes writes but keeps its value (Chromium); `fixed` takes none (a terminal).
-local function field(before, deaf, fixed, role)
+-- `ignoresWrites` takes writes but keeps its value (Chromium);
+-- `unsettable` takes none (a terminal).
+local function field(before, ignoresWrites, unsettable, role)
   local element = { value = before }
   function element:attributeValue(name)
     return ({
@@ -240,11 +244,11 @@ local function field(before, deaf, fixed, role)
     })[name]
   end
   function element.isAttributeSettable()
-    return not fixed
+    return not unsettable
   end
   function element:setAttributeValue(_, text)
     self.written = text
-    if not deaf then
+    if not ignoresWrites then
       self.value = self.value .. text
     end
     return self
@@ -256,7 +260,7 @@ local function dictate(element)
   alerts, strokes, focus = {}, {}, element
   toggle()
   toggle()
-  done()
+  deliver()
   return serial
 end
 
@@ -280,13 +284,13 @@ end
 
 test("a field that takes the write gets the text spaced, saved, its recording deleted", function()
   local element = field("Hello")
-  front = app("com.apple.Notes")
+  frontmost = app("com.apple.Notes")
   handlers.onFinal({ id = dictate(element), text = "there." })
   assert(sent.app == "com.apple.Notes", tostring(sent.app))
   assert(element.value == "Hello there." and #strokes == 0 and #alerts == 0, element.value)
   assert(saved("there."), "not the text saved")
   assert(not fs.attributes(sent.wav) and wavs() == 0, "the recording is left")
-  assert(not shown and not frame and not armed, "the pill, its frames, or Escape outlived the take")
+  assert(not shown and not tick and not armed, "the pill, its frames, or Escape outlived the take")
 end)
 
 test("a write the field ignores (Chromium) is pasted, then the clipboard put back", function()
@@ -327,13 +331,13 @@ test("a terminal's or a Gecko app's field is pasted into, never written", functi
     { field("Hi"), "org.mozilla.firefox", " ls" }, -- applies writes late
   }) do
     local element, bundle, want = table.unpack(case)
-    front = app(bundle)
+    frontmost = app(bundle)
     handlers.onFinal({ id = dictate(element), text = "ls" })
     assert(element.written == nil and strokes[1] == "cmd+v", bundle)
     assert(clipboard["public.utf8-plain-text"] == want, clipboard["public.utf8-plain-text"])
     timers[#timers]()
   end
-  front = nil
+  frontmost = nil
 end)
 
 test("a second paste before the restore puts back the clipboard from before the first", function()
@@ -425,7 +429,7 @@ test("a take recording when the backend dies goes on, and is kept", function()
   handlers.onError("exited (code 1)")
   refused = true
   toggle()
-  done()
+  deliver()
   refused = nil
   assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
 end)
@@ -435,7 +439,7 @@ test("a stop ffmpeg doesn't finish in 2 s, slow apps aside, keeps the take and s
   local system = hs.axuielement.systemWideElement
   -- An app slow to answer: every timer started by then comes due first.
   hs.axuielement.systemWideElement = function()
-    assert(take.done, "a slow app kept the take recording")
+    assert(recording.done, "a slow app kept the take recording")
     for index = before + 1, #timers do
       timers[index]()
     end
@@ -459,7 +463,7 @@ test("a stop ffmpeg doesn't finish in 2 s, slow apps aside, keeps the take and s
   toggle()
   timers[#timers]()
   assert(tostring(alerts[1]):find("did not finish the recording", 1, true), tostring(alerts[1]))
-  assert(take.ended, "ffmpeg left running")
+  assert(recording.ended, "ffmpeg left running")
   assert(wavs() == count + 1 and not fs.attributes(recorded), "not kept")
   assert(not shown and not armed, "the take did not end")
 end)
@@ -497,20 +501,20 @@ end)
 
 test("a log line raising as Escape is bound or unbound leaves no take half done", function()
   local element = field("Hi")
-  focus, dead = element, true
+  focus, ipcDead = element, true
   pcall(toggle)
-  dead = false
+  ipcDead = false
   toggle()
-  done()
-  dead = true
+  deliver()
+  ipcDead = true
   pcall(handlers.onFinal, { id = serial, text = "one" })
-  dead = false
+  ipcDead = false
   handlers.onFinal({ id = dictate(element), text = "two" })
   assert(element.value == "Hi one two", element.value)
 end)
 
 test("clipboard mode copies the text, inserts nothing, and says if the copy fails", function()
-  local element, set = field("Hi"), hs.pasteboard.setContents
+  local element, setContents = field("Hi"), hs.pasteboard.setContents
   config.insert = "clipboard"
   handlers.onFinal({ id = dictate(element), text = "copied" })
   assert(not element.written and #strokes == 0, "inserted")
@@ -519,7 +523,7 @@ test("clipboard mode copies the text, inserts nothing, and says if the copy fail
     return false
   end
   handlers.onFinal({ id = dictate(element), text = "lost" })
-  config.insert, hs.pasteboard.setContents = "direct", set
+  config.insert, hs.pasteboard.setContents = "direct", setContents
   assert(
     alerts[1] == "Dictation: could not write clipboard (the text is in history)",
     tostring(alerts[1])
@@ -538,15 +542,15 @@ test("a failed capture keeps its audio and says why; the next press starts anew"
   local count = wavs()
   alerts, focus = {}, field("Hi")
   toggle()
-  take.fail("device lost")
+  recording.fail("device lost")
   assert(alerts[1] == "Dictation: recorder: device lost", tostring(alerts[1]))
   assert(wavs() == count + 1 and not fs.attributes(recorded), "not kept")
-  local started = takes
+  local started = takeCount
   alerts = {}
   toggle()
-  assert(takes == started + 1, "the next press did not start a take")
-  take.empty = true
-  take.fail("capture exited (code 0)")
+  assert(takeCount == started + 1, "the next press did not start a take")
+  recording.empty = true
+  recording.fail("capture exited (code 0)")
   assert(#alerts == 1 and wavs() == count + 1, "kept no audio: " .. tostring(alerts[2]))
 end)
 
@@ -564,7 +568,7 @@ test("a frame that raises ends the take and says so", function()
   alerts, focus = {}, field("Hi")
   toggle()
   broken = true
-  frame()
+  tick()
   broken = false
   assert(alerts[1] and alerts[1]:find("broken frame", 1, true), tostring(alerts[1]))
   assert(not fs.attributes(recorded), "the recording is left")
@@ -596,16 +600,16 @@ test("past the history cap a saved take prunes the oldest", function()
   config.history.maxMegabytes = 0
   handlers.onFinal({ id = dictate(field("Hi")), text = "newest" })
   config.history.maxMegabytes = 10
-  local texts = 0
+  local transcriptCount = 0
   for entry in fs.dir(directory) do
-    texts = texts + (entry:match("%.txt$") and 1 or 0)
+    transcriptCount = transcriptCount + (entry:match("%.txt$") and 1 or 0)
   end
-  assert(texts == 1, texts)
+  assert(transcriptCount == 1, transcriptCount)
 end)
 
 local function reload(swapped)
   local main, cancel, shutdown = toggle, escape, hs.shutdownCallback
-  load("init", {
+  import("init", {
     hs = hs,
     print = function() end,
     require = function(name)
@@ -650,7 +654,7 @@ end)
 test("an unknown setting in config.lua alerts", function()
   alerts = {}
   reload({
-    ["dictation.defaults"] = load("defaults", {}),
+    ["dictation.defaults"] = import("defaults", {}),
     ["dictation.config"] = { bogus = true },
     ["dictation.history"] = unprepared("stop"),
   })
@@ -661,7 +665,7 @@ test("a hotkey key hs.hotkey doesn't know stops the backend and says why", funct
   local stopped = false
   alerts = {}
   reload({
-    ["dictation.defaults"] = load("defaults", {}),
+    ["dictation.defaults"] = import("defaults", {}),
     ["dictation.config"] = { hotkey = { mods = {}, key = "bogus" } },
     ["dictation.history"] = { prepare = function() end },
     ["dictation.engine"] = {
@@ -698,7 +702,7 @@ test("shutdown puts the clipboard back and keeps every take", function()
   toggle()
   chained = false
   hs.shutdownCallback()
-  assert(take.ended, "ffmpeg left running")
+  assert(recording.ended, "ffmpeg left running")
   assert(chained, "the shutdown before it was skipped")
   assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
   assert(wavs() == count + 2 and not fs.attributes(recorded), "a recording is not kept")

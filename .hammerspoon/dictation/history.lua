@@ -3,9 +3,9 @@ local utils = require("lib.utils")
 local history = {}
 
 -- Transcripts are <timestamp>.txt; the folder's other files are never counted or deleted.
-local take = "^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d_?%d*%.txt$"
+local transcript = "^%d%d%d%d%-%d%d%-%d%d_%d%d%-%d%d%-%d%d_?%d*%.txt$"
 -- Transcript bytes, once prune() has listed the folder.
-local total
+local bytes
 
 ---@param settings DictationHistory
 local function folder(settings)
@@ -49,7 +49,7 @@ function history.save(text, settings)
     os.remove(path)
     return "could not write " .. path
   end
-  total = total and total + hs.fs.attributes(path, "blocks") * 512
+  bytes = bytes and bytes + hs.fs.attributes(path, "blocks") * 512
 end
 
 ---@param wav string
@@ -68,31 +68,31 @@ end
 ---@return string? failure
 function history.prune(settings)
   local limit = settings.maxMegabytes * 1024 * 1024
-  if total and total <= limit then
+  if bytes and bytes <= limit then
     return
   end
   local directory = folder(settings)
   local takes = {}
-  total = 0
+  bytes = 0
   for entry in hs.fs.dir(directory) do
-    local blocks = entry:match(take) and hs.fs.attributes(directory .. "/" .. entry, "blocks")
+    local blocks = entry:match(transcript) and hs.fs.attributes(directory .. "/" .. entry, "blocks")
     if blocks then
       takes[#takes + 1] = { name = entry, size = blocks * 512 }
-      total = total + blocks * 512
+      bytes = bytes + blocks * 512
     end
   end
-  table.sort(takes, function(a, b)
-    return a.name < b.name
+  table.sort(takes, function(older, newer)
+    return older.name < newer.name
   end)
-  for i = 1, #takes - 1 do
-    if total <= limit then
+  for index = 1, #takes - 1 do
+    if bytes <= limit then
       break
     end
-    local removed, problem = os.remove(directory .. "/" .. takes[i].name)
+    local removed, problem = os.remove(directory .. "/" .. takes[index].name)
     if not removed then
       return problem
     end
-    total = total - takes[i].size
+    bytes = bytes - takes[index].size
   end
 end
 

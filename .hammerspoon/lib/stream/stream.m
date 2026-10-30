@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 static LSRefTable references = LUA_NOREF;
-static const char *type = "stream.listener";
+static const char *metatableName = "stream.listener";
 // Reads off the main thread: a stalled reader would stall the writer's whole pipeline.
 static dispatch_queue_t queue;
 
@@ -131,7 +131,7 @@ static dispatch_queue_t queue;
 @end
 
 static int collect(lua_State *state) {
-  void **userdata = luaL_checkudata(state, 1, type);
+  void **userdata = luaL_checkudata(state, 1, metatableName);
   if (*userdata) {
     [(__bridge_transfer Stream *)*userdata finish:nil];
     *userdata = NULL;
@@ -140,7 +140,7 @@ static int collect(lua_State *state) {
 }
 
 static int stop(lua_State *state) {
-  void **userdata = luaL_checkudata(state, lua_upvalueindex(1), type);
+  void **userdata = luaL_checkudata(state, lua_upvalueindex(1), metatableName);
   NSString *error;
   NSData *rest = *userdata ? [(__bridge Stream *)*userdata finish:&error] : nil;
   lua_pushlstring(state, rest ? rest.bytes : "", rest.length);
@@ -185,7 +185,7 @@ static int serve(lua_State *state) {
   dispatch_resume(stream.listener);
   void **userdata = lua_newuserdata(state, sizeof(void *));
   *userdata = (__bridge_retained void *)stream;
-  luaL_setmetatable(state, type);
+  luaL_setmetatable(state, metatableName);
   lua_pushcclosure(state, stop, 1);
   return 1;
 }
@@ -208,7 +208,7 @@ int luaopen_stream(lua_State *state) {
     queue = dispatch_queue_create("stream.read", dispatch_queue_attr_make_with_qos_class(
       DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
   }
-  luaL_newmetatable(state, type);
+  luaL_newmetatable(state, metatableName);
   lua_pushcfunction(state, collect);
   lua_setfield(state, -2, "__gc");
   lua_pop(state, 1);

@@ -1,9 +1,9 @@
-local function set(chars)
-  local result = {}
-  for _, code in utf8.codes(chars) do
-    result[utf8.char(code)] = true
+local function set(characters)
+  local members = {}
+  for _, code in utf8.codes(characters) do
+    members[utf8.char(code)] = true
   end
-  return result
+  return members
 end
 
 local openers = set("([{“‘</")
@@ -22,16 +22,16 @@ local marks = {
   { 0xFF5B, 0xFF65 },
 }
 
-local function starts(char)
-  return char == "" or char:match("^%s$") or openers[char]
+local function starts(character)
+  return character == "" or character:match("^%s$") or openers[character]
 end
 
 -- A letter or digit in any script: "é", "日".
-local function wordy(char)
-  if #char < 2 then
-    return char:match("^%w$") ~= nil
+local function wordy(character)
+  if #character < 2 then
+    return character:match("^%w$") ~= nil
   end
-  local code = utf8.codepoint(char)
+  local code = utf8.codepoint(character)
   for _, block in ipairs(marks) do
     if code >= block[1] and code <= block[2] then
       return false
@@ -53,17 +53,17 @@ return function(text, value, range)
   local prior, before, last, after, beyond, units = "", "", "", "", "", skip
   for _, codepoint in utf8.codes(value:sub(utf8.offset(value, skip + 1) or #value + 1)) do
     -- Browsers store a typed trailing space in a contenteditable as U+00A0.
-    local char = codepoint == 0xA0 and " " or utf8.char(codepoint)
+    local character = codepoint == 0xA0 and " " or utf8.char(codepoint)
     if units >= range.location + (range.length or 0) then
       if after ~= "" then
-        beyond = char
+        beyond = character
         break
       end
-      after = char
+      after = character
     elseif units < range.location then
-      prior, before = before, char
+      prior, before = before, character
     else
-      last = char
+      last = character
     end
     units = units + (codepoint > 0xFFFF and 2 or 1)
   end
