@@ -16,7 +16,9 @@ def pinned(revision):
 def letters(piece):
     if re.fullmatch(r"<[^<>]+>", piece):
         return ""  # special pieces (<unk>, v3's <|en|>) are never boosted or part of a word
-    return "".join(c for c in piece.lower() if c.isalnum() or c == "'")
+    return "".join(
+        character for character in piece.lower() if character.isalnum() or character == "'"
+    )
 
 
 def read(path, rate=16000, _dtype=None):  # the recorder's 16 kHz mono s16le wav, with no ffmpeg
@@ -35,8 +37,10 @@ class Boosted:
 
     def __init__(self, model, words, bonus):
         # Every lowercase prefix of entries of only letters, digits, and apostrophes ("GitHub's").
-        full = {w.lower() for w in map(str.strip, words) if w and letters(w) == w.lower()}
-        self.prefixes = {w[:i] for w in full for i in range(1, len(w) + 1)}
+        entries = {
+            word.lower() for word in map(str.strip, words) if word and letters(word) == word.lower()
+        }
+        self.prefixes = {word[:length] for word in entries for length in range(1, len(word) + 1)}
         self.model, self.bonus = model, bonus
         self.word, self.seen, self.biases = "", None, {}
 
@@ -59,20 +63,20 @@ class Boosted:
         self.seen = hidden
         return self.model.decoder(token, hidden)
 
-    def joint(self, feature, decoder_out):
+    def joint(self, feature, prediction):
         import mlx.core as mx
 
         word = self.word or ""
         if word not in self.biases:
             bias = [0.0] * (len(self.vocabulary) + 1 + len(self.durations))
-            for i, piece in enumerate(self.vocabulary):
+            for token, piece in enumerate(self.vocabulary):
                 core, starts = letters(piece), piece.startswith("▁")
                 if core and (starts or word) and (core if starts else word + core) in self.prefixes:
                     # Zero for a first letter: it flips casing and splitting ("▁me" -> "▁M" "e").
-                    bias[i] = self.bonus * (len(core) - starts)
+                    bias[token] = self.bonus * (len(core) - starts)
             self.biases[word] = mx.array(bias)
         # Added to the logits, as to log-probs: the argmax is the same.
-        return self.model.joint(feature, decoder_out).astype(mx.float32) + self.biases[word]
+        return self.model.joint(feature, prediction).astype(mx.float32) + self.biases[word]
 
 
 class Speech:
@@ -208,16 +212,22 @@ class MlxLm(Cleaner):
         if self.prompt:
             # Every take starts with the prompt's tokens: prefilled once, then copied per take.
             takes = ([{"role": "user", "content": f"{self.prompt}\n\n{raw}"}] for raw in "ab")
-            a, b = map(self.render, takes)
-            self.prefix = a[: next(i for i, (x, y) in enumerate(zip(a, b)) if x != y)]
+            first, second = map(self.render, takes)
+            self.prefix = first[
+                : next(
+                    index
+                    for index, (token, other) in enumerate(zip(first, second))
+                    if token != other
+                )
+            ]
             self.cache = make_prompt_cache(self.llm)
             self.llm(mx.array(self.prefix)[None], cache=self.cache)
-            mx.eval([c.state for c in self.cache])
+            mx.eval([layer.state for layer in self.cache])
         # Word-initial letter tokens ("Ġtacos", "▁emacs"): a modern real-word list.
         self.words = frozenset(
-            t[1:].lower()
-            for t in self.tokenizer.get_vocab()  # pyright: ignore[reportCallIssue]
-            if t[:1] in "Ġ▁" and t[1:].isascii() and t[1:].isalpha()
+            token[1:].lower()
+            for token in self.tokenizer.get_vocab()  # pyright: ignore[reportCallIssue]
+            if token[:1] in "Ġ▁" and token[1:].isascii() and token[1:].isalpha()
         )
 
     def render(self, messages):
@@ -235,9 +245,9 @@ class MlxLm(Cleaner):
             prompt, cache = prompt[len(self.prefix) :], copy.deepcopy(self.cache)
         # Room to echo the dictation; a runaway is cut back to what was said. Greedy by default.
         limit = max(400, 2 * len(self.tokenizer.encode(raw)))  # pyright: ignore[reportCallIssue]
-        out = generate(self.llm, self.tokenizer, prompt, max_tokens=limit, prompt_cache=cache)
+        reply = generate(self.llm, self.tokenizer, prompt, max_tokens=limit, prompt_cache=cache)
         # Past the last "</think>": the template opens and closes an empty one, the model may again.
-        return out.rpartition("</think>")[2].strip()
+        return reply.rpartition("</think>")[2].strip()
 
 
 CLEANERS = {"mlx-lm": MlxLm}

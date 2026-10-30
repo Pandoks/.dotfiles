@@ -54,7 +54,11 @@ ALONE = (r"(?<![\w./~@+#=\\:${-])", r"(?![\w/@+#=\\-]|[.:]\S)")
 
 
 def fold(word):  # "José" -> "jose"
-    return "".join(c for c in unicodedata.normalize("NFKD", word.lower()) if c.isalnum())
+    return "".join(
+        character
+        for character in unicodedata.normalize("NFKD", word.lower())
+        if character.isalnum()
+    )
 
 
 # A stall alone, not in a path, address, or word: "~/um", "hm.com", "uh-huh", "uh huh".
@@ -74,16 +78,25 @@ def strip_stalls(text):
     while LEAD_STALL_RE.search(text):  # the next word may be a hum too: "Hum, hum, hum."
         # Only an all-lowercase next word takes the stall's capital ("iPhone" stays).
         text = LEAD_STALL_RE.sub(
-            lambda m: m[1] + (m[3].capitalize() if m[2][0].isupper() and m[3].islower() else m[3]),
+            lambda match: (
+                match[1]
+                + (
+                    match[3].capitalize()
+                    if match[2][0].isupper() and match[3].islower()
+                    else match[3]
+                )
+            ),
             text,
         )
-    out = re.sub(r"\s{2,}", " ", STALL_RE.sub("", text))
+    stripped = re.sub(r"\s{2,}", " ", STALL_RE.sub("", text))
     # A stutter, often across a pause ("the, um, the", "the... The"); "an A a day" stays.
     pause = r"(?:\.\.\.|…)?"
-    out = re.sub(
-        rf"(?<=\b[Tt]he){pause} [Tt]he\b|(?<=\b[Aa]n){pause} [Aa]n\b|(?<=\ba){pause} a\b", "", out
+    stripped = re.sub(
+        rf"(?<=\b[Tt]he){pause} [Tt]he\b|(?<=\b[Aa]n){pause} [Aa]n\b|(?<=\ba){pause} a\b",
+        "",
+        stripped,
     )
-    return out.strip()
+    return stripped.strip()
 
 
 def ensure_question(raw, text):
@@ -95,8 +108,8 @@ def ensure_question(raw, text):
     if text.count("?") >= raw.count("?"):
         return text
     # Not when the question was left out: "Sounds good, yeah?" -> "Sounds good."
-    asked = {fold(w) for w in re.split(r"[.!,;:]\s+", raw.strip())[-1].split()}
-    if not asked & {fold(w) for w in re.split(r"[.!?]\s+", text.strip())[-1].split()}:
+    asked = {fold(word) for word in re.split(r"[.!,;:]\s+", raw.strip())[-1].split()}
+    if not asked & {fold(word) for word in re.split(r"[.!?]\s+", text.strip())[-1].split()}:
         return text
     return re.sub(rf"[.!,;:]*(?={CLOSE}*$)", "?", text.rstrip(), count=1)
 
@@ -123,23 +136,25 @@ def ending(raw, text):
         # A comma or conjunction ends the wh-word's clause ("… or send it to"), not "Sam and I", nor
         # an aside after it or its subject ("who I'd, like, send") or before a subject ("which old
         # repo, like, we") unless a subordinator or wh-word, then a subject, come first ("If you…").
-        joins, wh = r"if|when|before|after|because|until", "what|which|who|where"
+        joins, interrogatives = r"if|when|before|after|because|until", "what|which|who|where"
         subject = r" (?:I|we|you|s?he|they)\b"
-        bare = re.sub(rf"(\b(?:{wh}|which \w+)(?:{subject}(?:'\w+)?)?),[^,.!?]*,", r"\1", raw)
-        whole = rf"[^,.!?]*\b(?i:once|{joins}|{wh})\b[^,.!?]*{subject}"
+        bare = re.sub(
+            rf"(\b(?:{interrogatives}|which \w+)(?:{subject}(?:'\w+)?)?),[^,.!?]*,", r"\1", raw
+        )
+        whole = rf"[^,.!?]*\b(?i:once|{joins}|{interrogatives})\b[^,.!?]*{subject}"
         held = rf"((?:^|[.!?,] )(?!{whole})[^,.!?]*)"
         bare = re.sub(rf"{held},(?! (?:and|but|or|so)\b)[^,.!?]*,(?={subject})", r"\1", bare)
         clause = re.split(rf"[.!?,]\s|\b(?:but|or|so|then|{joins}|and(?! [A-Z]\w* ))\b", bare)[-1]
-        stranded = re.search(rf"(?i)\b(?:{wh})\b", clause)
+        stranded = re.search(rf"(?i)\b(?:{interrogatives})\b", clause)
         if previous not in ("it", "this", "that", "them", "these", "those") or stranded:
             return text
     elif last not in CONTINUATION or (previous and words[-1].isupper()):
         return text  # an all-caps one after others is a name: "plan A", "the OR"
     unmarked = re.sub(rf"\s*[.!?…—]+(?={CLOSE}*$)", "", text.rstrip())
     # Words the cleanup cut come back ("go to the" -> "go."), after the mark said before them.
-    said = [fold(w) for w in words]
+    said = [fold(word) for word in words]
     end = fold((unmarked.split() or [""])[-1])
-    cut = next((n for n in (1, 2, 3) if n < len(said) and said[-n - 1] == end), 0)
+    cut = next((count for count in (1, 2, 3) if count < len(said) and said[-count - 1] == end), 0)
     if not cut or end == said[-1]:
         return unmarked
     tail, before = " ".join(words[-cut:]), words[-cut - 1]
@@ -157,11 +172,13 @@ UNITS += ["eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "sev
 UNITS += ["eighteen", "nineteen"]
 TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
 SCALES = {"hundred": 100, "thousand": 10**3, "million": 10**6, "billion": 10**9}
-VALUE = {w: n for n, w in enumerate(UNITS)} | {w: 20 + 10 * n for n, w in enumerate(TENS)}
+VALUE = {word: number for number, word in enumerate(UNITS)} | {
+    word: 20 + 10 * number for number, word in enumerate(TENS)
+}
 VALUE |= SCALES | {"oh": 0}  # "oh" is a zero digit: "four oh four"
 ORDINAL = {"first": "one", "second": "two", "third": "three", "fifth": "five", "eighth": "eight"}
-ORDINAL |= {"ninth": "nine", "twelfth": "twelve"} | {w[:-1] + "ieth": w for w in TENS}
-ORDINAL |= {w + "th": w for w in UNITS[4:] + [*SCALES] if w not in ORDINAL.values()}
+ORDINAL |= {"ninth": "nine", "twelfth": "twelve"} | {word[:-1] + "ieth": word for word in TENS}
+ORDINAL |= {word + "th": word for word in UNITS[4:] + [*SCALES] if word not in ORDINAL.values()}
 WORD = "|".join(sorted(VALUE.keys() - {"oh"}, key=len, reverse=True))
 
 
@@ -186,18 +203,26 @@ def tokens(text):
     return found
 
 
-def alike(a, b):  # the same word, its contraction ("it's"), or a longer form ("testing")
-    if a == b:
+def alike(word, form):  # the same word, its contraction ("it's"), or a longer form ("testing")
+    if word == form:
         return True
-    if "'" in b:  # "can't" says the opposite of "can"
-        return a == b.split("'")[0] and not b.endswith("'t")
-    return len(a) > 3 and b.startswith(a)
+    if "'" in form:  # "can't" says the opposite of "can"
+        return word == form.split("'")[0] and not form.endswith("'t")
+    return len(word) > 3 and form.startswith(word)
 
 
-def misheard(a, b):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
-    if re.search(r"\d", a + b) or a in VALUE or {a, b} <= VALUE.keys() | ORDINAL.keys():
+def misheard(spoken, typed):  # same first letter, 5+ letters, and closer than "should"/"shouldn't"
+    if (
+        re.search(r"\d", spoken + typed)
+        or spoken in VALUE
+        or {spoken, typed} <= VALUE.keys() | ORDINAL.keys()
+    ):
         return False  # "15000" -> "150000", "fifteenth" -> "fiftieth" is another number
-    return a[0] == b[0] and len(a) > 4 and difflib.get_close_matches(a, [b], 1, 0.81)
+    return (
+        spoken[0] == typed[0]
+        and len(spoken) > 4
+        and difflib.get_close_matches(spoken, [typed], 1, 0.81)
+    )
 
 
 BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
@@ -230,40 +255,51 @@ OPENS = r"most|all|any|every\w*|last|before|my|our|your|his|her|their"  # "Like 
 LIKENS += rf"|(?<![\w,] )like (?:{OPENS})(?: [\w'-]+){{0,3}}(?=,)"
 
 
-def restore(raw, out):
-    """`out` with each change from `raw`, other than a left-out stall, filler, repeat, or
+def restore(raw, cleaned):
+    """`cleaned` with each change from `raw`, other than a left-out stall, filler, repeat, or
     self-correction, put back as said: "Just fix it." left out comes back. If none comes back, a
     correction's kept "one" gets its noun ("the plastic cups"). None if a change can't be put back
     cleanly: inside a written word ("0.5" -> "0.05"), or an "oh" comes back twice."""
 
-    said, written = raw, out  # as written, to put changes back
+    said, written = raw, cleaned  # as written, to put changes back
     # "İ" lowercases to two characters, which would shift every later word's position.
-    raw, out = (text.replace("’", "'").replace("İ", "I") for text in (raw, out))
-    spans, outs = tokens(raw), tokens(out)
-    spoken, typed = [w for w, *_ in spans], [w for w, *_ in outs]
-    raw, total = raw.lower(), len(spoken)  # cues and fillers said in any case
+    raw, cleaned = (text.replace("’", "'").replace("İ", "I") for text in (raw, cleaned))
+    spoken_spans, typed_spans = tokens(raw), tokens(cleaned)
+    spoken, typed = [w for w, *_ in spoken_spans], [w for w, *_ in typed_spans]
+    raw, spoken_count = raw.lower(), len(spoken)  # cues and fillers said in any case
 
-    def match(k, pattern):  # `pattern` said from spoken word k on
-        return re.compile(rf"(?:{pattern})\b").match(raw, spans[k][1])
+    def match(position, pattern):  # `pattern` said from spoken word position on
+        return re.compile(rf"(?:{pattern})\b").match(raw, spoken_spans[position][1])
 
-    def before(k):  # the sentence said before spoken word k, stalls left out
-        sentence = re.split(r"[.!?]", raw[: spans[k][1]])[-1]
+    def before(position):  # the sentence said before spoken word position, stalls left out
+        sentence = re.split(r"[.!?]", raw[: spoken_spans[position][1]])[-1]
         return HESITATION_RE.sub("", sentence).strip()
 
-    def mark(k):  # a mark said between spoken words k - 1 and k: "here? Can"
-        return re.search(r"[^\w\s]", said[spans[k - 1][2] : spans[k][1]])
+    def mark(position):  # a mark said between spoken words position - 1 and position: "here? Can"
+        return re.search(
+            r"[^\w\s]", said[spoken_spans[position - 1][2] : spoken_spans[position][1]]
+        )
 
-    def repeated(k, kept, reach):  # said again within `reach` words, that copy kept: "test testing"
-        if spoken[k] in (*VALUE, "dash", "dot", "slash") or spoken[k].replace(",", "").isdecimal():
+    def repeated(
+        position, kept, reach
+    ):  # said again within `reach` words, that copy kept: "test testing"
+        if (
+            spoken[position] in (*VALUE, "dash", "dot", "slash")
+            or spoken[position].replace(",", "").isdecimal()
+        ):
             return False  # said twice on purpose: "seven seventeen", "dash dash save"
-        return any(alike(spoken[k], spoken[i]) for i in kept if abs(i - k) <= reach)
+        return any(
+            alike(spoken[position], spoken[other])
+            for other in kept
+            if abs(other - position) <= reach
+        )
 
-    def filler(k):  # its word count, if set off by a comma or opening or ending a sentence
-        found = match(k, FILLER)
+    def filler(position):  # its word count, if set off by a comma or opening or ending a sentence
+        found = match(position, FILLER)
         name = found and found[0] == "like" and re.match(r" (?!I\b)[A-Z]", said[found.end() :])
-        if not found or match(k, LIKENS) or name:  # "It's like Slack but for email"
+        if not found or match(position, LIKENS) or name:  # "It's like Slack but for email"
             return 0
-        rest, sentence = raw[found.end() :], before(k)
+        rest, sentence = raw[found.end() :], before(position)
         commas = re.search(r"[,;]$", sentence) or re.match(r"\s*[,;]", rest)
         opens = not sentence and found[0] not in ("you know", "i mean")  # "So I think"
         ends = found[0] in TAGS and re.match(r"\s*([.!?]|$)", rest)  # "Fine, yeah."
@@ -271,68 +307,95 @@ def restore(raw, out):
         likes = found[0] == "like" and last in LEADS
         return len(found[0].split()) if commas or opens or ends or likes else 0
 
-    def dropped(k, end, kept):  # spoken[k:end] is fillers and repeats
-        reach = end - k
-        while k < end and (step := filler(k) or repeated(k, kept, reach)):
-            k += step
-        return k == end
+    def dropped(position, end, kept):  # spoken[position:end] is fillers and repeats
+        reach = end - position
+        while position < end and (step := filler(position) or repeated(position, kept, reach)):
+            position += step
+        return position == end
 
     # Changes that aren't a left-out stall, filler, repeat, or correction; corrections the cleanup
     # moved up to the words they replace aren't `trusted` in a take that has others.
-    def unexplained(ops, trusted=True):
-        kept = {i for tag, i1, i2, _, _ in ops if tag == "equal" for i in range(i1, i2)}
-        added = {w for tag, _, _, j1, j2 in ops if tag == "insert" for w in typed[j1:j2]}
+    def unexplained(opcodes, trusted=True):
+        kept = {
+            position
+            for tag, i1, i2, _, _ in opcodes
+            if tag == "equal"
+            for position in range(i1, i2)
+        }
+        added = {word for tag, _, _, j1, j2 in opcodes if tag == "insert" for word in typed[j1:j2]}
         bad = []
 
         def cues(start, end):  # (first, past) of each left-out correction cue in spoken[start:end]
             found = []
-            for c in range(start, end):
-                cue = match(c, CUE)
-                if c in kept or not cue:
+            for position in range(start, end):
+                cue = match(position, CUE)
+                if position in kept or not cue:
                     continue
                 # A "sorry" after a "not" or before a "you" in its clause apologises ("sorry, thank
                 # you", not "sorry, Tim, if you can"), unless a question follows.
-                after = raw[spans[c][2] :]
-                apology = re.search(r"\b(not|never|no)\b|n't", before(c))
+                after = raw[spoken_spans[position][2] :]
+                apology = re.search(r"\b(not|never|no)\b|n't", before(position))
                 apology = apology or re.match(r"[ ,]*[^.!?,;]*\byou\b", raw[cue.end() :])
                 if "sorry" in cue[0] and not re.match(r"[^.!?]*\?", after) and apology:
                     continue
-                past = c + len(cue[0].split())
+                past = position + len(cue[0].split())
                 # Its verb again: "Oki, sorry, send them to Sam"
-                if past + 1 < total and spoken[past + 1] in BACK and spoken[past] in spoken[:c]:
-                    past += 0 if re.match(ADDS, raw[spans[past + 1][2] :]) else 2
-                if found and c <= found[-1][1]:  # one cue: "no wait", "wait, no", "I'm sorry"
+                if (
+                    past + 1 < spoken_count
+                    and spoken[past + 1] in BACK
+                    and spoken[past] in spoken[:position]
+                ):
+                    past += 0 if re.match(ADDS, raw[spoken_spans[past + 1][2] :]) else 2
+                if (
+                    found and position <= found[-1][1]
+                ):  # one cue: "no wait", "wait, no", "I'm sorry"
                     found[-1] = (found[-1][0], past)
                 else:
-                    found.append((c, past))
+                    found.append((position, past))
             return found
 
         moved = []  # words written in place of others, each said after a left-out cue
-        for tag, i1, i2, j1, j2 in ops:
-            run, new = spoken[i1:i2], typed[j1:j2]
+        for tag, i1, i2, j1, j2 in opcodes:
+            run, replacement = spoken[i1:i2], typed[j1:j2]
             if tag == "insert":
                 bad.append((i1, i2, j1, j2))
                 continue
             if tag == "replace":
                 # Respaced ("e mail" -> "email", not "14.99" -> "1499"), or one misheard word.
-                respaced = "".join(run) == "".join(new)
-                respaced &= not any(re.search(r"\d \d", " ".join(words)) for words in (run, new))
-                if respaced or len(run) == len(new) == 1 and misheard(spans[i1][0], outs[j1][0]):
+                respaced = "".join(run) == "".join(replacement)
+                respaced &= not any(
+                    re.search(r"\d \d", " ".join(words)) for words in (run, replacement)
+                )
+                if (
+                    respaced
+                    or len(run) == len(replacement) == 1
+                    and misheard(spoken_spans[i1][0], typed_spans[j1][0])
+                ):
                     continue
                 one_then_fillers = run[0] == "one" and dropped(i1 + 1, i2, kept)
-                if one_then_fillers and len(new) == 1 and new[0] in spoken[:i1] and cues(0, i1):
+                if (
+                    one_then_fillers
+                    and len(replacement) == 1
+                    and replacement[0] in spoken[:i1]
+                    and cues(0, i1)
+                ):
                     continue  # the noun a correction's "one" stands for: "the feature branch"
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
-                listed = re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[i2 - 1][2]])
-                said_later = any(set(new) <= set(spoken[c:]) for c, _ in cues(i2, total))
+                listed = re.search(
+                    r"[,;] |\band\b", raw[spoken_spans[i1][1] : spoken_spans[i2 - 1][2]]
+                )
+                said_later = any(
+                    set(replacement) <= set(spoken[position:])
+                    for position, _ in cues(i2, spoken_count)
+                )
                 # Not a pronoun standing for words left out: "her boss" for "Kate" or "the client".
                 pronouns = {"it", "them", "him", "her", "his", "their"}
                 replaced = set(run) - pronouns - DETERMINERS
-                dangles = set(new) & pronouns and replaced and not replaced & set(typed)
+                dangles = set(replacement) & pronouns and replaced and not replaced & set(typed)
                 if listed or not trusted or not said_later or dangles:
                     bad.append((i1, i2, j1, j2))
                     continue
-                moved += new
+                moved += replacement
                 continue
             if tag != "delete":
                 continue
@@ -342,12 +405,14 @@ def restore(raw, out):
                 continue
             # ...what a cue takes back ("Monday, sorry, Tuesday" or "four, sorry, four"), its own
             # words or those before the run, not two list items or a detail the cleanup moved...
-            if i2 < total and any(
-                (c > i1 or e < i2)
-                and spoken[e:i2] == spoken[i1 - (i2 - e) : i1]
-                and not re.search(r"[,;] |\band\b", raw[spans[i1][1] : spans[c - 1][2]])
-                and spoken[c - 1] not in added
-                for c, e in cues(i1, i2)
+            if i2 < spoken_count and any(
+                (position > i1 or past < i2)
+                and spoken[past:i2] == spoken[i1 - (i2 - past) : i1]
+                and not re.search(
+                    r"[,;] |\band\b", raw[spoken_spans[i1][1] : spoken_spans[position - 1][2]]
+                )
+                and spoken[position - 1] not in added
+                for position, past in cues(i1, i2)
             ):
                 continue
             # ...or a cue and its correction, moved up to the words it replaced ("one" as its noun).
@@ -360,27 +425,32 @@ def restore(raw, out):
     # Aligned from both ends, so either copy of a repeated word may be the kept one.
     forward = difflib.SequenceMatcher(None, spoken, typed, autojunk=False).get_opcodes()
     reverse = difflib.SequenceMatcher(None, spoken[::-1], typed[::-1], autojunk=False).get_opcodes()
-    size = len(typed)
+    typed_count = len(typed)
     backward = [
-        (tag, total - i2, total - i1, size - j2, size - j1) for tag, i1, i2, j1, j2 in reverse[::-1]
+        (tag, spoken_count - i2, spoken_count - i1, typed_count - j2, typed_count - j1)
+        for tag, i1, i2, j1, j2 in reverse[::-1]
     ]
     bad, text = unexplained(forward), written
     if not bad or not unexplained(backward):
         # A kept "the X one" gets the noun said before its cue, hyphens included: "the stand-up".
         equal = [opcode[1:] for opcode in forward if opcode[0] == "equal"]
-        kept = dict(pair for i1, i2, j1, j2 in equal for pair in zip(range(i1, i2), range(j1, j2)))
+        aligned = dict(
+            pair for i1, i2, j1, j2 in equal for pair in zip(range(i1, i2), range(j1, j2))
+        )
         determiners = ("the", "a", "an", "my", "your", "our", "his", "her", "their", "this", "that")
-        for one in reversed(kept):
+        for one in reversed(aligned):
             if one < 2 or not match(one, r"ones?(?!['-])"):
                 continue  # not "one's" or "one-liner"
             if spoken[one - 2] in determiners and spoken[one - 1] not in (*determiners, *VALUE):
                 cue_words = set()  # each word of a cue left out: "I mean, no" is one run
                 for start in range(1, one):
-                    if start not in kept and (found := match(start, CUE)):
+                    if start not in aligned and (found := match(start, CUE)):
                         cue_words |= set(range(start, start + len(found[0].split())))
                 cue = max((cue for cue in cue_words if cue - 1 not in cue_words), default=0)
                 # Not a later "one": "Monday, sorry, Tuesday, and cancel the other one".
-                gap = re.sub(rf"\b(?:{CUE})\b", "", raw[spans[cue][1] : spans[one - 2][1]])
+                gap = re.sub(
+                    rf"\b(?:{CUE})\b", "", raw[spoken_spans[cue][1] : spoken_spans[one - 2][1]]
+                )
                 # Nor one describing the correction: "Monday, sorry, Tuesday, the busy one".
                 aside = re.search(r"\w[,.] *$", re.sub(rf"\b(?:{FILLER}|{HESITATIONS})\b", "", gap))
                 while cue and spoken[cue - 1] in ("or", "well"):
@@ -390,57 +460,89 @@ def restore(raw, out):
                 if "one" in spoken[cue - 2 : cue]:
                     continue  # its own "one": "the red one works, no, the blue one does"
                 if cue and spoken[cue - 1] not in (*typed, *VALUE) and not aside:
-                    earlier = {word for *_, word in spans[:cue]}
+                    earlier = {word for *_, word in spoken_spans[:cue]}
                     if len({word for *_, word in tokens(gap)} - {*earlier, *BACK}) < 2:
-                        noun = re.findall(r"[\w'’-]+", said[: spans[cue - 1][2]])[-1]
-                        text = text[: outs[kept[one]][1]] + noun + text[outs[kept[one]][2] :]
+                        noun = re.findall(r"[\w'’-]+", said[: spoken_spans[cue - 1][2]])[-1]
+                        text = (
+                            text[: typed_spans[aligned[one]][1]]
+                            + noun
+                            + text[typed_spans[aligned[one]][2] :]
+                        )
         return text
     # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
-    whole = [w for *_, w in spans], [w for *_, w in outs]
+    whole = [word for *_, word in spoken_spans], [word for *_, word in typed_spans]
     forward = difflib.SequenceMatcher(None, *whole, autojunk=False).get_opcodes()
     # Back to front, so the positions before each change hold.
     for i1, i2, j1, j2 in reversed(unexplained(forward, trusted=False)):
         # A run before a kept copy of its first word may be the one after: "done. Is it done?"
-        while j1 == j2 and 0 < j1 < size - 1 and i2 + 1 < total and spoken[i1] == spoken[i2]:
+        while (
+            j1 == j2
+            and 0 < j1 < typed_count - 1
+            and i2 + 1 < spoken_count
+            and spoken[i1] == spoken[i2]
+        ):
             # Not if the gap said after its first word would become the cleanup's: "1.5 one".
-            gap = said[spans[i1][2] : spans[i1 + 1][1]]
+            gap = said[spoken_spans[i1][2] : spoken_spans[i1 + 1][1]]
             ends = mark(i2 + 1)
-            lost = gap.split() != written[outs[j1][2] : outs[j1 + 1][1]].split() and not ends
+            lost = (
+                gap.split() != written[typed_spans[j1][2] : typed_spans[j1 + 1][1]].split()
+                and not ends
+            )
             if spoken[i2 + 1] != typed[j1 + 1] or mark(i2) or lost or not re.search(r"\s", gap):
                 break
             i1, i2, j1, j2 = i1 + 1, i2 + 1, j1 + 1, j2 + 1
         if j1 < j2:  # words changed, or added: as said, up to the next word kept
-            last = j2 == size and i2 == total
-            start, end = outs[j1][1], len(text) if last else outs[j2][1]
-            quoted = i1 < i2 and said[spans[i1][1] - 1 : spans[i1][1]] in ("'", "’")  # "'cause"
-            piece = said[spans[i1][1] - quoted : None if last else spans[i2][1]] if i1 < i2 else ""
+            last = j2 == typed_count and i2 == spoken_count
+            start, end = typed_spans[j1][1], len(text) if last else typed_spans[j2][1]
+            quoted = i1 < i2 and said[spoken_spans[i1][1] - 1 : spoken_spans[i1][1]] in (
+                "'",
+                "’",
+            )  # "'cause"
+            piece = (
+                said[spoken_spans[i1][1] - quoted : None if last else spoken_spans[i2][1]]
+                if i1 < i2
+                else ""
+            )
             if i1 and j1:  # with the gap said before it: "is. First we", not "is First we"
-                start = outs[j1 - 1][2]
-                piece = said[spans[i1 - 1][2] : None if last else spans[i2][1]]
+                start = typed_spans[j1 - 1][2]
+                piece = said[spoken_spans[i1 - 1][2] : None if last else spoken_spans[i2][1]]
         elif not j1:  # left out at the start: through the first word kept, as said
-            start, end = 0, outs[0][2] if size else len(text)
-            piece = said[: spans[i2][2] if size else len(said)]
-        elif j1 == size:  # left out at the end: with what was said after it
-            start, end, piece = outs[j1 - 1][2], len(text), said[spans[i1 - 1][2] :]
+            start, end = 0, typed_spans[0][2] if typed_count else len(text)
+            piece = said[: spoken_spans[i2][2] if typed_count else len(said)]
+        elif j1 == typed_count:  # left out at the end: with what was said after it
+            start, end, piece = typed_spans[j1 - 1][2], len(text), said[spoken_spans[i1 - 1][2] :]
         elif (
-            any(mark(k) for k in range(i1, i2 + 1))
+            any(mark(position) for position in range(i1, i2 + 1))
             or "colon" in spoken[i1:i2]
-            or re.fullmatch(r"\S*", text[outs[j1 - 1][2] : outs[j1][1]])
+            or re.fullmatch(r"\S*", text[typed_spans[j1 - 1][2] : typed_spans[j1][1]])
         ):  # joined or a said colon: "example.com", "Subject colon …"
-            start, end = outs[j1 - 1][2], outs[j1][1]  # the gaps as said: "here? Can", "me, we"
-            piece = said[spans[i1 - 1][2] : spans[i2][1]]
+            start, end = (
+                typed_spans[j1 - 1][2],
+                typed_spans[j1][1],
+            )  # the gaps as said: "here? Can", "me, we"
+            piece = said[spoken_spans[i1 - 1][2] : spoken_spans[i2][1]]
         else:  # before the next word kept
-            start = end = outs[j1][1]
-            piece = said[spans[i1][1] : spans[i2][1]]
+            start = end = typed_spans[j1][1]
+            piece = said[spoken_spans[i1][1] : spoken_spans[i2][1]]
         rest = piece + text[end:]
-        if i2 < total and re.search(r"[.!?]\s+$", piece) and said[spans[i2][1]].isupper():
+        if (
+            i2 < spoken_count
+            and re.search(r"[.!?]\s+$", piece)
+            and said[spoken_spans[i2][1]].isupper()
+        ):
             rest = piece + text[end : end + 1].upper() + text[end + 1 :]
         # The said lowercase after the cleanup's end mark or colon: "And the", not "And The".
-        elif i2 < total and re.search(r"[.!?:]\s+$", text[:end]) and said[spans[i2][1]].islower():
+        elif (
+            i2 < spoken_count
+            and re.search(r"[.!?:]\s+$", text[:end])
+            and said[spoken_spans[i2][1]].islower()
+        ):
             rest = piece + text[end : end + 1].lower() + text[end + 1 :]
         # A sentence the cleanup started keeps its capital: "Please send it", not "please send it".
         if re.search(r"(?:^|[.!?]\s+)$", text[:start]) and text[start : start + 1].isupper():
-            rest = re.sub(r"^(\s*)([a-z]+)(?!\w)", lambda m: m[1] + m[2].capitalize(), rest)
+            rest = re.sub(
+                r"^(\s*)([a-z]+)(?!\w)", lambda lead: lead[1] + lead[2].capitalize(), rest
+            )
         text = text[:start] + rest
     text = strip_stalls(text)  # the cleanup's text has none: only what was put back
     # Words the alignment skips can't come back twice: "one oh one oh point five".
@@ -450,13 +552,13 @@ def restore(raw, out):
     return text if text != written.strip() else None
 
 
-DECADE = {w[:-1] + "ies": VALUE[w] for w in TENS}  # "nineteen eighties" -> "1980s"
+DECADE = {word[:-1] + "ies": VALUE[word] for word in TENS}  # "nineteen eighties" -> "1980s"
 ENDS = "|".join(sorted([*ORDINAL, *DECADE], key=len, reverse=True))
 # "two hundred and five thousand", not "five hundred and six hundred" or "…thousand and two million"
 AND = "|".join(
-    rf"(?<={s}) and(?! (?:(?:{'|'.join(UNITS + TENS + [*SCALES][:n] + ['hundred and'])})[ -])+"
-    rf"(?:{'|'.join([*SCALES][n:] if n else [s])})\b)"
-    for n, s in enumerate(SCALES)
+    rf"(?<={scale}) and(?! (?:(?:{'|'.join(UNITS + TENS + [*SCALES][:rank] + ['hundred and'])})[ -])+"
+    rf"(?:{'|'.join([*SCALES][rank:] if rank else [scale])})\b)"
+    for rank, scale in enumerate(SCALES)
 )
 OH = rf"(?P<oh>(?:[ -]oh\b)+)(?=[ -](?:{WORD})\b)|(?:[ -]oh\b){{2,}}"  # "four oh four"
 RUN = re.compile(  # a run of number words, never in a path or name ("~/two", "three.js")
@@ -469,23 +571,23 @@ MEASURES = {"dollar", "inch", "foot", "pound", "euro", "cent", "mile", "page"}  
 
 
 def chunks(words):  # "nineteen ninety nine" -> [19, 99]; "two thousand nineteen" -> [2019]
-    out = []  # [total, part under the last scale, last value, last scale]
-    for v in (VALUE[w] for w in words):
-        last = out[-1][2] if out else 0
+    groups = []  # [total, part under the last scale, last value, last scale]
+    for value in (VALUE[word] for word in words):
+        last = groups[-1][2] if groups else 0
         # Part of the number so far: a hundred or scale, anything after one, or a tens' unit.
-        joins = v and (v >= 100 or last >= 100 or last in range(20, 100, 10) and v < 10)
-        if not (out and joins):
-            out.append([0, 0, 0, 0])
-        total, part, _, scale = out[-1]
-        if v > 100:  # past the last scale it multiplies: "a thousand million"
-            total = ((total + part) or 1) * v if v > scale else total + (part or 1) * v
-            part, scale = 0, v
-        elif v == 100:
+        joins = value and (value >= 100 or last >= 100 or last in range(20, 100, 10) and value < 10)
+        if not (groups and joins):
+            groups.append([0, 0, 0, 0])
+        total, part, _, scale = groups[-1]
+        if value > 100:  # past the last scale it multiplies: "a thousand million"
+            total = ((total + part) or 1) * value if value > scale else total + (part or 1) * value
+            part, scale = 0, value
+        elif value == 100:
             part = (part or 1) * 100
         else:
-            part += v
-        out[-1] = [total, part, v, scale]
-    return [total + part for total, part, *_ in out]
+            part += value
+        groups[-1] = [total, part, value, scale]
+    return [total + part for total, part, *_ in groups]
 
 
 def digits(text, names):
@@ -504,21 +606,25 @@ def digits(text, names):
     pm = rf"(?=(?: ?(?:-|to|and) ?{hour}[.:][0-5]\d)? ?[ap]\.?m\b)"  # "3.30 to 4.30 pm"
     text = re.sub(at, r"\1 \2:\3", re.sub(span, r"\1 \2:\3", text))
     text = re.sub(rf"(?i)\b{hour}\.([0-5]\d){pm}", r"\1:\2", text)
-    named = (rf"(?<!\w){re.escape(name)}(?!\w)" for name in names)
-    kept = [found.span() for name in named for found in re.finditer(name, text, re.IGNORECASE)]
+    patterns = (rf"(?<!\w){re.escape(name)}(?!\w)" for name in names)
+    kept = [
+        found.span() for pattern in patterns for found in re.finditer(pattern, text, re.IGNORECASE)
+    ]
 
     def convert(match):
         group, before, after = match[0], text[: match.start()].lower(), text[match.end() :]
         previous = (re.findall(r"[\w']+", before) or [""])[-1]
-        word = (re.findall(r"[\w']+", after) or [""])[0]
-        plural = word.lower() == "people" or re.fullmatch(r"\w{2,}[^s']s", word) is not None
-        counted = (plural and word.lower() not in VERBS) or word.lower() in MEASURES
-        words = [w for w in re.split(r"[ -]+", group.lower()) if w not in ("and", "a")]
-        numbers = chunks(w for w in words if w in VALUE)
+        following = (re.findall(r"[\w']+", after) or [""])[0]
+        plural = (
+            following.lower() == "people" or re.fullmatch(r"\w{2,}[^s']s", following) is not None
+        )
+        counted = (plural and following.lower() not in VERBS) or following.lower() in MEASURES
+        words = [word for word in re.split(r"[ -]+", group.lower()) if word not in ("and", "a")]
+        numbers = chunks(word for word in words if word in VALUE)
         number = numbers[0]
         opens = re.search(r"(?:^|[.!?]\s+)$", before)
-        title = group[0].isupper() and (not opens or word[:1].isupper())  # "Ocean's Eleven"
-        if title or any(a < match.end() and match.start() < b for a, b in kept):
+        title = group[0].isupper() and (not opens or following[:1].isupper())  # "Ocean's Eleven"
+        if title or any(start < match.end() and match.start() < end for start, end in kept):
             return group
         if words[-1] in DECADE:
             if len(numbers) > 1 or not 10 <= number <= 99:
@@ -536,11 +642,11 @@ def digits(text, names):
         timed = previous in ("at", "by", "until", "till") or re.match(r"(?i) ?[ap]\.?m\b", after)
         if "point" in words:  # "one point oh five" -> "1.05", "two point five million"
             *rest, big = words if words[-1] in SCALES else [*words, ""]
-            parts = [p.split() for p in " ".join(rest).split("point")]
+            parts = [part.split() for part in " ".join(rest).split("point")]
             bad = not all(parts) or {*rest} & {*SCALES} or {*words} - {*VALUE, "point"}
             if bad or len(chunks(parts[0])) > 1 and "oh" not in parts[0]:
                 return group  # "one point two hundred thousand"
-            decimal = ".".join("".join(map(str, chunks(p))) for p in parts)
+            decimal = ".".join("".join(map(str, chunks(part))) for part in parts)
             return decimal + (f" {big}" if big else "")
         if "oh" in words:  # "four oh four" -> "404", "at eight oh oh" -> "at 8:00"
             tail = "".join(map(str, numbers[1:]))
@@ -557,10 +663,10 @@ def digits(text, names):
         if len(numbers) > 1 or bare:
             return group  # "two three four", "a billion dollar company"
         # The scale said once for both: "five or six thousand" -> "5,000 or 6,000".
-        scale = r"(hundred|thousand)\b(?! (?:thousand|million|billion)\b)"
-        shared = re.match(rf"(?i) (?:or|to) ((?:(?:{WORD})[ -])+?){scale}", after)
-        second = [w for w in re.split(r"[ -]+", shared[1].lower()) if w] if shared else []
-        if shared and not {*words, *second} & {*SCALES} and number < chunks(second)[0]:
+        multiplier = r"(hundred|thousand)\b(?! (?:thousand|million|billion)\b)"
+        shared = re.match(rf"(?i) (?:or|to) ((?:(?:{WORD})[ -])+?){multiplier}", after)
+        other = [word for word in re.split(r"[ -]+", shared[1].lower()) if word] if shared else []
+        if shared and not {*words, *other} & {*SCALES} and number < chunks(other)[0]:
             return f"{number * VALUE[shared[2].lower()]:,}"  # not "from ten to two thousand"
         # "one or two", "the steps one, two"; a noun's "one" takes no "and": "the old one and two"
         noun = re.search(rf"\b(?:{'|'.join(DETERMINERS)}) \w+ $", before)
@@ -588,7 +694,7 @@ def digits(text, names):
 
 class Engine:
     # Real words are never fuzzy-matched ("recast"); load() adds the tokenizer's ("tacos").
-    words = frozenset(w.lower() for w in Path("/usr/share/dict/words").read_text().split())
+    words = frozenset(word.lower() for word in Path("/usr/share/dict/words").read_text().split())
 
     def __init__(self, config):
         self.config, self.heard = config, None
@@ -626,18 +732,22 @@ class Engine:
         spellings = {word: [word, *heard] for word, heard in self.spellings(request).items()}
         # Longest first: "rey" inside "rey cast" is Raycast, not Ray.
         for word, forms in sorted(spellings.items(), key=lambda item: -max(map(len, item[1]))):
-            forms = "|".join(map(re.escape, sorted(forms, key=len, reverse=True)))
+            alternation = "|".join(map(re.escape, sorted(forms, key=len, reverse=True)))
             # Never inside a name (ALONE) or a contraction ("it's"); "\LaTeX" as written.
-            pattern = rf"{ALONE[0]}(?<!\w['’])(?:{forms}){ALONE[1]}"
+            pattern = rf"{ALONE[0]}(?<!\w['’])(?:{alternation}){ALONE[1]}"
             text = re.sub(pattern, word.replace("\\", r"\\"), text, flags=re.IGNORECASE)
-        keys = {fold(w): w for w in spellings if re.fullmatch(r"\w+(?:[ .'-]\w+)*", w)}
+        keys = {
+            fold(spelling): spelling
+            for spelling in spellings
+            if re.fullmatch(r"\w+(?:[ .'-]\w+)*", spelling)
+        }
 
         def respell(match):
             word = fold(match[0])
             if word in keys:
                 return keys[word]  # "ytdlp" -> "yt-dlp", "Jose" -> "José"
             suffixes = ("", "s", "es", "d", "ed", "ing")
-            if len(word) < 4 or any(word.removesuffix(s) in self.words for s in suffixes):
+            if len(word) < 4 or any(word.removesuffix(suffix) in self.words for suffix in suffixes):
                 return match[0]
             ratio, name = max(
                 (
@@ -657,16 +767,24 @@ class Engine:
 
         The boost pushes a word toward a vocabulary word letter by letter and can stop partway:
         "the older" -> "the old hammers" (Hammerspoon), "the mist" -> "the mis" (mise)."""
-        names = {w.lower() for w in self.spellings(request) if letters(w) == w.lower()}
+        names = {word.lower() for word in self.spellings(request) if letters(word) == word.lower()}
         plain, boosted = (self.spell(text, request).split() for text in (plain, boosted))
-        a, b = ([letters(w) for w in words] for words in (plain, boosted))
-        out = []
-        for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
-            gained = set(b[j1:j2]) - set(a[i1:i2])
+        plain_letters, boosted_letters = (
+            [letters(word) for word in words] for words in (plain, boosted)
+        )
+        merged = []
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
+            None, plain_letters, boosted_letters, autojunk=False
+        ).get_opcodes():
+            gained = set(boosted_letters[j1:j2]) - set(plain_letters[i1:i2])
             # Never for a stall: "Mm-hmm" -> "mise".
-            hums = a[i1:i2] and all(re.fullmatch(f"(?>{HESITATIONS})+", w) for w in a[i1:i2])
-            out += boosted[j1:j2] if op != "equal" and gained & names and not hums else plain[i1:i2]
-        return " ".join(out)
+            hums = plain_letters[i1:i2] and all(
+                re.fullmatch(f"(?>{HESITATIONS})+", word) for word in plain_letters[i1:i2]
+            )
+            merged += (
+                boosted[j1:j2] if tag != "equal" and gained & names and not hums else plain[i1:i2]
+            )
+        return " ".join(merged)
 
     def process(self, wav, request):
         names = list(self.spellings(request))
@@ -695,17 +813,17 @@ class Engine:
                 {"role": "system", "content": "\n".join(filter(None, system))},
                 {"role": "user", "content": FRAME.format(raw)},
             ]
-        out = self.cleaner.complete(messages, raw)
-        if not out.isprintable():  # a line break or control: a reformat ("- Eggs\n- Milk")
+        cleaned = self.cleaner.complete(messages, raw)
+        if not cleaned.isprintable():  # a line break or control: a reformat ("- Eggs\n- Milk")
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
-            out = raw
+            cleaned = raw
         # No words ("", "Hmm."): nothing was said if every word heard is one it may leave out.
-        if not tokens(out):
-            if restore(raw, out) != out:
+        if not tokens(cleaned):
+            if restore(raw, cleaned) != cleaned:
                 raise Rejected("the cleanup returned no words, so nothing was typed")
             return ""
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
-        text = ending(said, ensure_question(said, self.spell(strip_stalls(out), request)))
+        text = ending(said, ensure_question(said, self.spell(strip_stalls(cleaned), request)))
         restored = restore(raw, text)
         if restored != text:
             restored = restored and restore(raw, restored)  # a put-back "the X one" gets its noun

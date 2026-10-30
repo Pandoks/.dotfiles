@@ -468,10 +468,13 @@ check(
         ("She said, “uh, maybe.”", "She said, “maybe.”"),
         ('He said "fine" um.', 'He said "fine".'),
         *(
-            (f"{o}Yes.{c} Um, okay.", f"{o}Yes.{c} Okay.")
-            for o, c in ['""', "''", "“”", "‘’", "()", "[]"]
+            (f"{opener}Yes.{closer} Um, okay.", f"{opener}Yes.{closer} Okay.")
+            for opener, closer in ['""', "''", "“”", "‘’", "()", "[]"]
         ),
-        *((f"{o}Um, maybe.{c}", f"{o}Maybe.{c}") for o, c in ["“”", "‘’", "()", "[]"]),
+        *(
+            (f"{opener}Um, maybe.{closer}", f"{opener}Maybe.{closer}")
+            for opener, closer in ["“”", "‘’", "()", "[]"]
+        ),
         ('("Um, maybe.")', '("Maybe.")'),
         ('["Um, maybe."]', '["Maybe."]'),
     ],
@@ -727,8 +730,8 @@ check(
     "what a cleanup left out or changed beyond its rules is typed as said, or the take is rejected;"
     ' a kept "one" after a cue gets its noun',
     [
-        ((raw, out), raw)
-        for raw, out in [
+        ((raw, cleaned), raw)
+        for raw, cleaned in [
             ("It's always been like that.", "It's always been that."),
             ("He's like my best friend.", "He's my best friend."),
             ("I'm like I don't even know anymore.", "I don't even know anymore."),
@@ -1004,7 +1007,7 @@ except server.Rejected as error:
 print("PASS an empty cleanup is reported, not typed, and keeps what was heard")
 
 events, stderr = serve("", [], config='{"speech": {"backend": "nope"}}')
-assert [e["event"] for e in events] == ["error"] and "id" not in events[0], events
+assert [event["event"] for event in events] == ["error"] and "id" not in events[0], events
 assert "nope" in events[0]["msg"] and "Traceback" in stderr, (events, stderr)
 failing = """
 class Failing(server.Engine):
@@ -1019,7 +1022,9 @@ config = json.dumps(
     }
 )
 events, stderr = serve(failing, [], config=config)
-assert [e["event"] for e in events] == ["error"] and "no weights" in events[0]["msg"], events
+assert [event["event"] for event in events] == ["error"] and "no weights" in events[0]["msg"], (
+    events
+)
 print("PASS a failed load reports an error and never ready")
 # Hammerspoon never closes stdin.
 chatty = """
@@ -1043,7 +1048,7 @@ live = subprocess.Popen(
     stderr=subprocess.PIPE,
     text=True,
     cwd=Path(server.__file__).parent,
-    env={k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"},
+    env={key: value for key, value in os.environ.items() if key != "PYTHONUNBUFFERED"},
 )
 deadline = threading.Timer(60, live.kill)
 deadline.start()
@@ -1060,7 +1065,7 @@ finally:
     live.wait()
 assert "native chatter" in live.stderr.read(), "native output was lost"
 print("PASS replies and prints arrive while stdin is still open, native output on stderr")
-takes = """
+stubbed = """
 from types import SimpleNamespace
 heard = iter(["Add 0.5 cups.", "Send it."])
 def transcribe(wav, hint):
@@ -1072,13 +1077,18 @@ class Stub(server.Engine):
         self.config, self.heard = config, None
         self.speech = SimpleNamespace(transcribe=transcribe, boost=0)
         self.cleaner = SimpleNamespace(prompt="p")
-        self.cleaner.complete = lambda m, raw: raw.replace("0.5", "0.05")
+        self.cleaner.complete = lambda messages, raw: raw.replace("0.5", "0.05")
     def load(self):
         pass
 server.Engine = Stub
 """
-events, stderr = serve(takes, [{"id": i, "wav": "x.wav", "app": "x"} for i in (1, 2, 3)])
-assert [e["event"] for e in events] == ["ready", "error", "final", "error"], (events, stderr)
+events, stderr = serve(
+    stubbed, [{"id": number, "wav": "x.wav", "app": "x"} for number in (1, 2, 3)]
+)
+assert [event["event"] for event in events] == ["ready", "error", "final", "error"], (
+    events,
+    stderr,
+)
 assert events[1]["heard"] == "Add 0.5 cups." and "rewrote" in events[1]["msg"], events
 assert events[2] == {"event": "final", "id": 2, "text": "Send it."}, events
 assert events[3]["heard"] is None and "speech model failed" in events[3]["msg"], events
@@ -1269,11 +1279,11 @@ class Model:
         self.logits = logits
 
     def decoder(self, token, state):
-        out = mx.array([[[-1.0 if token is None else float(token[0, 0])]]])
-        return out, (out, -out)
+        last = mx.array([[[-1.0 if token is None else float(token[0, 0])]]])
+        return last, (last, -last)
 
-    def joint(self, feature, decoder_out):
-        return self.logits[int(decoder_out[0, 0, 0])][int(feature[0, 0, 0])].reshape(1, 1, 1, -1)
+    def joint(self, feature, prediction):
+        return self.logits[int(prediction[0, 0, 0])][int(feature[0, 0, 0])].reshape(1, 1, 1, -1)
 
     def decode(self, greedy, steps):
         """Run ParakeetTDT.decode, which calls decode_greedy as Parakeet replaces it."""
@@ -1281,7 +1291,7 @@ class Model:
         features = mx.arange(steps, dtype=mx.float32).reshape(1, steps, 1)
         tokens, states = ParakeetTDT.decode(self, features)  # pyright: ignore[reportArgumentType]
         state = states[0] and [part.item() for part in states[0]]
-        return [(t.id, t.start, t.duration, t.text) for t in tokens[0]], state
+        return [(token.id, token.start, token.duration, token.text) for token in tokens[0]], state
 
 
 # Joint outputs are tokens, blank, durations; rows are indexed by last token, -1 = none yet.
