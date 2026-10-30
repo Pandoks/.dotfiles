@@ -469,7 +469,7 @@ local function finish(job, message)
   end
 end
 
-focus = function(window)
+focus = function(window, fresh)
   if operation then
     queuedWindow = window
     return
@@ -503,22 +503,7 @@ focus = function(window)
       job.confirmFocus()
     end)
   end
-  -- Requery: the window may have moved or closed while the menu was open.
-  windowManager.windows(function(ok, err, rows)
-    if operation ~= job then
-      return
-    end
-    local row
-    for _, candidate in ipairs(ok and describe(rows) or {}) do
-      if candidate.id == window.id then
-        row = candidate
-        break
-      end
-    end
-    if not row or not eligible(row) or row.pid ~= window.pid then
-      finish(job, err or "window is no longer available")
-      return
-    end
+  local function activate(row)
     window = row
     local restoring = false
     local function restore()
@@ -581,6 +566,35 @@ focus = function(window)
     if unhidden or not app:isHidden() then
       restore()
     end
+  end
+  -- Before the menu shows, the cycle's own list is recent. Focusing and unhiding start after
+  -- the event tap has passed Cmd-up on; the job holds the timer so it isn't collected first.
+  if fresh then
+    job.start = hs.timer.doAfter(0, function()
+      job.start = nil
+      if operation == job then
+        activate(window)
+      end
+    end)
+    return
+  end
+  -- Requery: the window may have moved or closed while the menu was open.
+  windowManager.windows(function(ok, err, rows)
+    if operation ~= job then
+      return
+    end
+    local row
+    for _, candidate in ipairs(ok and describe(rows) or {}) do
+      if candidate.id == window.id then
+        row = candidate
+        break
+      end
+    end
+    if not row or not eligible(row) or row.pid ~= window.pid then
+      finish(job, err or "window is no longer available")
+      return
+    end
+    activate(row)
   end)
 end
 
@@ -607,7 +621,7 @@ local function accept()
     cycle = nil
     local window = current.windows[current.selected]
     if window then
-      focus(window)
+      focus(window, not current.showRequested and not current.stale)
     end
   end
 end
@@ -937,6 +951,15 @@ switcher.windows:subscribe({
   filter.windowUnhidden,
 }, function(window, name, event, id)
   local current = cycle
+  -- The pending list may predate this change, so a quick switch requeries.
+  if
+    current
+    and not current.windows
+    and event ~= filter.windowMoved
+    and event ~= filter.windowTitleChanged
+  then
+    current.stale = true
+  end
   local capture = event == filter.windowMinimized or event == filter.windowHidden
   if not capture and (not current or current.released) then
     return
@@ -1063,6 +1086,10 @@ function switcher.stop()
     operation = nil
     job.deadline:stop()
     job.deadline = nil
+    if job.start then
+      job.start:stop()
+      job.start = nil
+    end
     if job.watcher then
       job.watcher:stop()
       job.watcher = nil
