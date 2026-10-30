@@ -243,7 +243,7 @@ local function fakeDesktop(windowSpecs)
     end,
   }, { __index = _G })
   desktop.tiling = assert(loadfile(root .. "/tiling.lua", "t", environment))()
-  desktop.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Nightly)" })
+  desktop.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Beta)" })
   function desktop:event(name, id)
     local callback = self.subscribers[name]
     if callback then
