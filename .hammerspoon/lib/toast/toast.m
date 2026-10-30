@@ -4,16 +4,6 @@
 
 static const char *glassMetatableName = "toast.glass";
 
-// A reload dlcloses this while a fade's completion block may still run.
-static BOOL keepImageLoaded(void) {
-  static void *ownHandle;
-  if (ownHandle) return YES;
-  Dl_info imageInfo;
-  if (!dladdr(&glassMetatableName, &imageInfo)) return NO;
-  ownHandle = dlopen(imageInfo.dli_fname, RTLD_NOW | RTLD_LOCAL);
-  return ownHandle != NULL;
-}
-
 // Full glass without key focus; otherwise a subdued blur.
 @interface ToastPanel : NSPanel
 @end
@@ -100,7 +90,14 @@ static const luaL_Reg functions[] = {
 };
 
 int luaopen_toast(lua_State *state) {
-  if (!keepImageLoaded()) return luaL_error(state, "could not retain toast library");
+  // A reload dlcloses this while a fade's completion block may still run.
+  static void *ownHandle;
+  if (!ownHandle) {
+    Dl_info imageInfo;
+    if (!dladdr(&glassMetatableName, &imageInfo) || !(ownHandle = dlopen(imageInfo.dli_fname, RTLD_NOW | RTLD_LOCAL))) {
+      return luaL_error(state, "could not retain toast library");
+    }
+  }
   if (!NSClassFromString(@"NSGlassEffectView")) return luaL_error(state, "Liquid Glass needs macOS 26");
   if (![NSPanel instancesRespondToSelector:@selector(_hasActiveAppearanceIgnoringKeyFocus)]) {
     return luaL_error(state, "Liquid Glass: AppKit has no _hasActiveAppearanceIgnoringKeyFocus");
