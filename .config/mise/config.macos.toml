@@ -17,7 +17,7 @@
 "brew-cask:docker-desktop" = "latest"
 "brew-cask:font-hack-nerd-font" = "latest"
 "brew-cask:betterdisplay" = "latest"
-"brew-cask:t3-code@nightly" = "latest"
+"brew-cask:t3-code" = "latest"
 "brew-cask:gifox" = "latest"
 "brew-cask:grok-bot" = "latest"
 "brew-cask:notion-calendar" = "latest"

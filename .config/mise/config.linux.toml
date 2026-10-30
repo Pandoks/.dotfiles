@@ -1,5 +1,6 @@
 [tools]
 btop = "latest"
+"http:monero" = { version = "0.18.5.4", platforms = { linux-x64 = { url = "https://downloads.getmonero.org/cli/monero-linux-x64-v{{version}}.tar.bz2", checksum = "sha256:ba2928962c101b609434bf8c1b43ad59ebe96c5525977284ca599d8bf0f02d10" }, linux-arm64 = { url = "https://downloads.getmonero.org/cli/monero-linux-armv8-v{{version}}.tar.bz2", checksum = "sha256:d20d71e6522b41eb8e549c3425f7f4622c9c9a448fc7147525393fd0a6b59703" } } }
 
 [bootstrap.hooks.pre-packages]
 run = '''
@@ -72,3 +73,10 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:containerd" = "latest"
 "pacman:docker-buildx" = "latest"
 "pacman:docker-compose" = "latest"
+
+[bootstrap.directories."/etc/udev/rules.d"]
+
+[bootstrap.files."/etc/udev/rules.d/60-mise-ledger.rules"]
+content = '''
+SUBSYSTEM=="usb", ATTR{idVendor}=="2c97", MODE="0666"
+'''
