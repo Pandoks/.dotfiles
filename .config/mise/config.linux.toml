@@ -1,7 +1,8 @@
 [tools]
 btop = "latest"
-# Upstream build: Debian bookworm and Ubuntu jammy ship builds older than 0.18.1, which can't use a Ledger
-"http:monero" = { version = "latest", url = "https://downloads.getmonero.org/cli/monero-linux-x64-v{{version}}.tar.bz2", platforms = { linux-x64 = { url = "https://downloads.getmonero.org/cli/monero-linux-x64-v{{version}}.tar.bz2" }, linux-arm64 = { url = "https://downloads.getmonero.org/cli/monero-linux-armv8-v{{version}}.tar.bz2" } }, checksum_url = "https://www.getmonero.org/downloads/hashes.txt", version_list_url = "https://api.github.com/repos/monero-project/monero/releases?per_page=100", version_json_path = ".[].tag_name", version_expr = "sortVersions(versions)" }
+# Upstream build: Debian bookworm and Ubuntu jammy ship builds older than 0.18.1, which can't use a Ledger.
+# Pinned to the checksums in the signed https://www.getmonero.org/downloads/hashes.txt; update both together
+"http:monero" = { version = "0.18.5.4", platforms = { linux-x64 = { url = "https://downloads.getmonero.org/cli/monero-linux-x64-v{{version}}.tar.bz2", checksum = "sha256:ba2928962c101b609434bf8c1b43ad59ebe96c5525977284ca599d8bf0f02d10" }, linux-arm64 = { url = "https://downloads.getmonero.org/cli/monero-linux-armv8-v{{version}}.tar.bz2", checksum = "sha256:d20d71e6522b41eb8e549c3425f7f4622c9c9a448fc7147525393fd0a6b59703" } } }
 
 [bootstrap.hooks.pre-packages]
 run = '''
@@ -26,6 +27,7 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 run = '''
 if [ -d /run/systemd/system ]; then
   sudo systemctl enable --now fwupd-refresh.timer
+  sudo udevadm control --reload
 fi
 
 # Fix a misdetected laptop with: hostnamectl chassis laptop
