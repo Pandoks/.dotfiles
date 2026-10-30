@@ -2,7 +2,7 @@
 
 **Opinionated macOS and Linux workstation configuration, managed by [mise].**
 
-[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon_%7C_Intel-000000?style=flat-square&logo=apple&logoColor=white)](#supported-systems)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?style=flat-square&logo=apple&logoColor=white)](#supported-systems)
 [![Linux](https://img.shields.io/badge/Linux-Debian_%7C_Ubuntu_%7C_Arch-FCC624?style=flat-square&logo=linux&logoColor=black)](#supported-systems)
 [![mise](https://img.shields.io/badge/managed_with-mise-2F80ED?style=flat-square)](https://mise.jdx.dev/)
 [![Last commit](https://img.shields.io/github/last-commit/Pandoks/.dotfiles?style=flat-square)](https://github.com/Pandoks/.dotfiles/commits/master)
@@ -14,7 +14,7 @@ Zsh, and links application config.
 
 | System                          | Package manager |
 | ------------------------------- | --------------- |
-| macOS on Apple Silicon or Intel | Homebrew        |
+| macOS on Apple Silicon          | Homebrew        |
 | Debian / Ubuntu                 | apt             |
 | Arch Linux                      | pacman          |
 
@@ -41,7 +41,7 @@ sudo apt install -y mise
 sudo pacman -Syu --needed git mise
 ```
 
-### macOS (Apple Silicon or Intel)
+### macOS (Apple Silicon)
 
 Install the Xcode Command Line Tools and complete its prompt:
 
@@ -53,11 +53,7 @@ Then install [Homebrew] and mise:
 
 ```sh
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-if [[ -x /opt/homebrew/bin/brew ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-else
-  eval "$(/usr/local/bin/brew shellenv)"
-fi
+eval "$(/opt/homebrew/bin/brew shellenv)"
 brew install mise
 ```
 
@@ -66,23 +62,20 @@ brew install mise
 
 Some features need [SIP] partially disabled.
 
-1. Shut down. Hold power (Apple Silicon) or hold Command-R during startup (Intel).
-2. Apple Silicon: **Options → Continue**. Authenticate when prompted.
+1. Shut down, then hold power until startup options appear.
+2. **Options → Continue**. Authenticate when prompted.
 3. **Utilities → Terminal**, then run the command for your Mac and authenticate:
 
    ```sh
-   # Apple Silicon, macOS 13+
+   # macOS 13+
    csrutil enable --without fs --without debug --without nvram
 
-   # Apple Silicon, macOS 12
+   # macOS 12
    csrutil disable --with kext --with dtrace --with basesystem
-
-   # Intel, macOS 11+
-   csrutil disable --with kext --with dtrace --with nvram --with basesystem
    ```
 
-4. Restart into **normal macOS**. **Apple Silicon only:** open the regular
-   **Terminal** app and check existing boot arguments:
+4. Restart into **normal macOS**, open the regular **Terminal** app, and check
+   existing boot arguments:
 
    ```sh
    nvram boot-args
@@ -110,10 +103,9 @@ Some features need [SIP] partially disabled.
    **Restart again after changing boot arguments.**
 
 5. Check `csrutil status`. It may report `unknown (Custom Configuration)`;
-   that is expected. Filesystem Protections and Debugging Restrictions
-   should be disabled (plus NVRAM Protections on Apple Silicon), while Kext
-   Signing and DTrace Restrictions stay enabled. On Apple Silicon,
-   `nvram boot-args` should include `-arm64e_preview_abi`.
+   that is expected. Filesystem Protections, Debugging Restrictions, and NVRAM
+   Protections should be disabled, while Kext Signing and DTrace Restrictions
+   stay enabled. `nvram boot-args` should include `-arm64e_preview_abi`.
 
 </details>
 

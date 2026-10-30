@@ -50,14 +50,11 @@ function utils.native(name)
     file:close()
     local info = hs.processInfo
     local cache = string.format("%s/Library/Caches/%s/%s", os.getenv("HOME"), info.bundleID, name)
-    local binary =
-      string.format("%s/%s-%s-%s.%s-%s.so", cache, name, info.arch, info.version, info.build, hash)
+    local binary = string.format("%s/%s-%s.%s-%s.so", cache, name, info.version, info.build, hash)
     if not hs.fs.attributes(binary) then
       local frameworks = info.frameworksPath
       local arguments = {
         "clang",
-        "-arch",
-        info.arch,
         "-O2",
         "-Wall",
         "-Wextra",
