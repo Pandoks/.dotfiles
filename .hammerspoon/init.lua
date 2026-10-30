@@ -1,5 +1,5 @@
 require("lib.logger").install()
-require("hs.ipc") -- `hs` CLI
+require("hs.ipc") -- `hs` CLI; loads first so it survives a failed toast install
 require("lib.toast").install({ theme = "metal" })
 hs.loadSpoon("SpoonInstall")
 
