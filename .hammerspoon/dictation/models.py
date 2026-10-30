@@ -4,6 +4,10 @@ import os
 import re
 import wave
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from streaming import Stream
 
 
 def pinned(revision):
@@ -30,51 +34,6 @@ def read(path, rate=16000, _dtype=None):  # the recorder's 16 kHz mono s16le wav
     return mx.array(np.frombuffer(frames, np.int16)).astype(mx.float32) / 32768.0
 
 
-class Boosted:
-    """A Parakeet TDT model whose greedy decoder favors vocabulary spellings."""
-
-    def __init__(self, model, words, bonus):
-        # Every lowercase prefix of entries of only letters, digits, and apostrophes ("GitHub's").
-        entries = {word.lower() for word in words if letters(word) == word.lower()}
-        self.prefixes = {word[:length] for word in entries for length in range(1, len(word) + 1)}
-        self.model, self.bonus = model, bonus
-        self.word, self.seen, self.biases = "", None, {}
-
-    def __getattr__(self, name):
-        return getattr(self.model, name)
-
-    def decoder(self, token, hidden):
-        # A new decoder state follows each emitted piece, which extends the word or starts one.
-        if token is None:
-            self.word = ""
-        elif hidden is not self.seen:
-            piece = self.vocabulary[int(token.item())]
-            core = letters(piece)
-            if piece.startswith("▁") or not core:
-                self.word = core  # a new word, or punctuation ending one
-            elif self.word:
-                self.word += core
-            if self.word and self.word not in self.prefixes:
-                self.word = None  # it can no longer become a vocabulary word
-        self.seen = hidden
-        return self.model.decoder(token, hidden)
-
-    def joint(self, feature, prediction):
-        import mlx.core as mx
-
-        word = self.word or ""
-        if word not in self.biases:
-            bias = [0.0] * (len(self.vocabulary) + 1 + len(self.durations))
-            for token, piece in enumerate(self.vocabulary):
-                core, starts = letters(piece), piece.startswith("▁")
-                if core and (starts or word) and (core if starts else word + core) in self.prefixes:
-                    # Zero for a first letter: it flips casing and splitting ("▁me" -> "▁M" "e").
-                    bias[token] = self.bonus * (len(core) - starts)
-            self.biases[word] = mx.array(bias)
-        # Added to the logits, as to log-probs: the argmax is the same.
-        return self.model.joint(feature, prediction).astype(mx.float32) + self.biases[word]
-
-
 class Speech:
     boost = 0  # Parakeet TDT: log-prob bonus per matching vocabulary letter
 
@@ -84,6 +43,9 @@ class Speech:
     def load(self):
         raise NotImplementedError
 
+    def stream(self, hint) -> "Stream | None":  # None: it takes only the whole recording
+        return None
+
     def transcribe(self, wav, hint):
         raise NotImplementedError
 
@@ -91,54 +53,35 @@ class Speech:
 class Parakeet(Speech):
     def __init__(self, speech):
         super().__init__(speech)
-        self.boost, self.encoded = float(speech.get("boost") or 0), {}
+        self.boost = float(speech.get("boost") or 0)
 
     def load(self):
         import mlx.core as mx
-        import parakeet_mlx.parakeet
         from huggingface_hub import hf_hub_download
+        from mlx.utils import tree_map
         from parakeet_mlx import ParakeetTDT, from_pretrained
 
         # The two files from_pretrained reads, pinned; given a repo id it fetches the latest commit.
         config = hf_hub_download(self.repo, "config.json", revision=self.revision)
         hf_hub_download(self.repo, "model.safetensors", revision=self.revision)
         self.model = from_pretrained(os.path.dirname(config))
-        mx.eval(self.model.parameters())  # lazy: read the weights now, not in the first take
-        if self.boost and not isinstance(self.model, ParakeetTDT):
-            raise ValueError(f"speech.boost needs a Parakeet TDT model, not {self.repo}")
-        parakeet_mlx.parakeet.load_audio = read
-
-    def transcribe(self, wav, hint):
-        import numpy as np
-        from parakeet_mlx import ParakeetTDT
-        from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
-
-        model, boosting = self.model, bool(self.boost and hint)
-
-        def generate(mel, *, decoding_config):  # ParakeetTDT's, encoding each chunk once per take
-            key = np.asarray(mel).tobytes()
-            features = self.encoded.pop(key, None) or model.encoder(mel)
-            if boosting:
-                self.encoded[key] = features
-            tokens = model.decode(  # pyright: ignore[reportOptionalCall]
-                *features, config=decoding_config
-            )[0][0]
-            return [sentences_to_result(tokens_to_sentences(tokens, decoding_config.sentence))]
-
-        if self.boost:  # a TDT model (load checks); the unboosted pass reuses the encodings
-            model.generate = generate  # pyright: ignore[reportAttributeAccessIssue]
-        # Boosting swaps in a biased greedy decoder on this model instance only.
-        model.__dict__.pop("decode_greedy", None)
-        if boosting:
-            self.encoded = {}
-            model.decode_greedy = functools.partial(
-                ParakeetTDT.decode_greedy,
-                Boosted(model, hint, self.boost),  # pyright: ignore[reportArgumentType]
+        if not isinstance(self.model, ParakeetTDT):
+            raise TypeError(f"parakeet-mlx streams only Parakeet TDT models, not {self.repo}")
+        # float32: M1 GPUs have no bfloat16, and the encoder runs faster with the same tokens.
+        parameters = self.model.parameters()
+        self.model.update(
+            tree_map(
+                lambda array: array.astype(mx.float32) if array.dtype == mx.bfloat16 else array,
+                parameters,
             )
-        # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
-        text = model.transcribe(wav, chunk_duration=120).text
-        # Short-take garbage: special pieces (<unk>, v3's <|en|>) and rare-symbol runs ("ΨΨΨ").
-        return re.sub(r"<(?:unk|pad|\|[^<>|]*\|)>|(?<!\S)([^\x00-\x7F])\1{2,}(?!\S)", "", text)
+        )
+        mx.eval(self.model.parameters())  # lazy: read the weights now, not in the first take
+
+    def stream(self, hint):
+        import streaming
+
+        booster = self.boost and hint and streaming.Booster(self.model, hint, self.boost)
+        return streaming.Stream(self.model, booster or None)
 
 
 class Whisper(Speech):

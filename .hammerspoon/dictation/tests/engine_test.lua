@@ -1,7 +1,7 @@
 local root, frameworks = assert(arg[1], "pass the dictation directory"), arg[2]
 local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
 local passed, alerts, output, exit, printed, inputs, ipcDead = 0, {}, nil, nil, {}, {}, false
-local terminated, reason
+local terminated, reason, argv
 
 local function test(name, callback)
   local ok, failure = pcall(callback)
@@ -20,6 +20,14 @@ local environment = setmetatable({
       attributes = function()
         return { mode = "file" }
       end,
+      temporaryDirectory = function()
+        return "/tmp/"
+      end,
+    },
+    host = {
+      uuid = function()
+        return "UUID"
+      end,
     },
     json = json,
     alert = {
@@ -28,8 +36,8 @@ local environment = setmetatable({
       end,
     },
     task = {
-      new = function(_, onExit, stream)
-        output, exit = stream, onExit
+      new = function(_, onExit, stream, arguments)
+        output, exit, argv = stream, onExit, arguments
         return {
           start = function(self)
             return self
@@ -130,33 +138,29 @@ test("a long reply is read in one pass", function()
   assert(finals[1] == 200000 and os.clock() - start < 0.5, ("%.2f s"):format(os.clock() - start))
 end)
 
-test("a take waits for the one before it, never written over it", function()
+test("a line waits until the backend has read the one before it, never written over it", function()
   local backend = assert(engine.new({}, { onFinal = function() end, onError = function() end }))
   local feed = assert(output, "no backend task")
+  assert(argv[3] == backend.socket and backend.socket:find("^/tmp/dictation%-"), tostring(argv[3]))
   feed(nil, '{"event":"ready"}\n', "")
   inputs = {}
-  local first = assert(backend:transcribe("/tmp/a.wav", "com.apple.Notes"))
-  local second = assert(backend:transcribe("/tmp/b.wav"))
-  local third = assert(backend:transcribe("/tmp/c.wav"))
-  assert(#inputs == 1 and inputs[1].id == first, "a second request written before an answer")
-  assert(first ~= second and second ~= third, "two takes share an id")
-  local keys = {}
-  for key in pairs(inputs[1]) do
-    keys[#keys + 1] = key
-  end
-  table.sort(keys)
-  assert(table.concat(keys, " ") == "app id wav", "the request is not {id, wav, app}")
-  assert(inputs[1].wav == "/tmp/a.wav" and inputs[1].app == "com.apple.Notes", "wrong request")
-  feed(nil, '{"event":"error","id":99,"msg":"stray"}\n', "")
-  assert(#inputs == 1, "an answer to another request sent the next")
-  feed(nil, '{"event":"final","id":' .. first .. ',"te', "")
-  feed(nil, 'xt":"a"}\n', "")
-  assert(#inputs == 2 and inputs[2].id == second, "the next request not sent once answered")
-  feed(nil, '{"event":"error","id":' .. second .. ',"msg":"no speech"}\n', "")
-  assert(#inputs == 3 and inputs[3].id == third and inputs[3].wav == "/tmp/c.wav", "lost a take")
-  feed(nil, '{"event":"final","id":' .. third .. ',"text":"c"}\n', "")
-  assert(#inputs == 3, "a request sent twice")
-  assert(backend:transcribe("/tmp/d.wav") and #inputs == 4, "idle backend kept waiting")
+  local first = assert(backend:start(4242, "com.apple.Notes"))
+  assert(backend:transcribe(first, "/tmp/a.wav"))
+  local second = assert(backend:start(4343))
+  assert(first ~= second, "two takes share an id")
+  assert(#inputs == 1, "a second line written before the first was read")
+  assert(inputs[1].pid == 4242 and inputs[1].app == "com.apple.Notes", "wrong start line")
+  feed(nil, '{"event":"final","id":' .. first .. ',"text":"a"}\n', "")
+  assert(#inputs == 1, "a reply, not a read, sent the next line")
+  feed(nil, '{"event":"rece', "")
+  feed(nil, 'ived"}\n', "")
+  assert(#inputs == 2 and inputs[2].id == first and inputs[2].wav == "/tmp/a.wav", "lost a line")
+  assert(inputs[2].pid == nil and inputs[2].app == nil, "the stop line is not {id, wav}")
+  feed(nil, '{"event":"received"}\n', "")
+  assert(#inputs == 3 and inputs[3].id == second and inputs[3].pid == 4343, "lost a take")
+  feed(nil, '{"event":"received"}\n', "")
+  assert(#inputs == 3, "a line sent twice")
+  assert(backend:transcribe(second, "/tmp/b.wav") and #inputs == 4, "idle backend kept waiting")
 end)
 
 test("a backend that fails, dies, or says something unknown fails once and says why", function()
@@ -185,7 +189,7 @@ test("a backend that fails, dies, or says something unknown fails once and says 
     end
     die(1, "", "")
     assert(#failures == 1 and tostring(failures[1]):find(why, 1, true), tostring(failures[1]))
-    assert(not backend:transcribe("/tmp/x.wav"), "a dead backend took a take")
+    assert(not backend:start(1, "x"), "a dead backend took a take")
     assert(code or terminated, "the failed backend was left running")
   end
 end)

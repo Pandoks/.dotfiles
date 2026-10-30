@@ -54,7 +54,7 @@ end
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
-local overlay, recording, animation, deadline
+local overlay, recording, animation, deadline, started
 -- The request to type, and the field focused at its stop.
 local inflight, target, targetError
 local wavs = {}
@@ -203,7 +203,7 @@ local function finish(text, saved)
     deadline:stop()
   end
   recorder.cleanup(recording)
-  overlay, recording, animation, deadline = nil, nil, nil, nil
+  overlay, recording, animation, deadline, started = nil, nil, nil, nil, nil
   inflight, target, targetError = nil, nil, nil
   state = "idle"
   dictation.cancel:disable()
@@ -306,7 +306,7 @@ local function toggle()
     -- New each take: a reused one can drop off the spaces it joined.
     local pill = Overlay.new()
     overlay, state = pill, "recording"
-    local capture, failure = recorder.start(Overlay.bands, function(message)
+    local capture, failure = recorder.start(Overlay.bands, engine.socket, function(message)
       fail("recorder: " .. message)
       salvage()
       finish()
@@ -316,6 +316,12 @@ local function toggle()
       return finish()
     end
     recording = capture
+    local app = hs.application.frontmostApplication()
+    started, failure = engine:start(capture.pid, app and app:bundleID())
+    if not started then
+      fail(tostring(failure))
+      return finish()
+    end
     animation = hs.timer.doEvery(1 / 30, function()
       -- An error would stop the timer silently.
       local ok, trace = xpcall(function()
@@ -331,9 +337,7 @@ local function toggle()
     end
   elseif state == "recording" then
     state = "thinking"
-    local pill = overlay
-    local app = hs.application.frontmostApplication()
-    local bundle = app and app:bundleID()
+    local pill, id = overlay, started
     recorder.stop(recording, function(wav, peak, duration)
       assert(deadline):stop()
       deadline = nil
@@ -356,8 +360,8 @@ local function toggle()
         )
         return finish()
       end
-      local id, refused = engine:transcribe(wav, bundle)
-      if not id then
+      local sent, refused = engine:transcribe(id, wav)
+      if not sent then
         fail(tostring(refused))
         salvage()
         return finish()

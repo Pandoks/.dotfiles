@@ -3,7 +3,7 @@
 ---@class DictationConfig
 ---@field hotkey? { mods: string[], key: string } Starts and stops a take; Escape cancels it.
 ---@field words? DictationWords Names and jargon, spelled as written here.
----@field apps? table<string, { words?: DictationWords, style?: string }> By bundle id, plus global.
+---@field apps? table<string, { words?: DictationWords, style?: string }> By bundle id at start, plus global.
 ---@field style? string|false Instructions for a plain cleanup model; fails with an `adapter`.
 ---@field speech? DictationSpeech
 ---@field cleanup? DictationCleanup|false false = the heard text, spelled, stalls out, digits.

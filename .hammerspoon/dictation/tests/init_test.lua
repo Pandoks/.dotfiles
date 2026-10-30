@@ -2,7 +2,7 @@ local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 package.path = root .. "/../?.lua;" .. package.path
 local passed, alerts, strokes, timers, changes, takeCount, serial = 0, {}, {}, {}, 0, 0, 0
-local toggle, escape, handlers, deliver, focus, frontmost, refused, recorded, sent, ipcDead
+local toggle, escape, handlers, deliver, focus, frontmost, refused, recorded, sent, ipcDead, began
 local settings, recording
 local tick, broken, armed, shown, chained, unstartable
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
@@ -169,14 +169,15 @@ local modules = {
   },
   ["dictation.recorder"] = {
     ffmpeg = "/usr/bin/ffmpeg",
-    start = function(_, onError)
+    start = function(_, backend, onError)
       if unstartable then
         return nil, "could not start capture task"
       end
+      assert(backend == "/tmp/backend.sock", "ffmpeg streams elsewhere than the backend's socket")
       takeCount = takeCount + 1
       recorded = ("%s/take%d.wav"):format(scratch, takeCount)
       assert(io.open(recorded, "w")):close()
-      recording = { wav = recorded, fail = onError }
+      recording = { wav = recorded, fail = onError, pid = 4000 + takeCount }
       return recording
     end,
     stop = function(capture, callback)
@@ -203,13 +204,19 @@ local modules = {
       handlers, settings = callbacks, merged
       return {
         ready = true,
+        socket = "/tmp/backend.sock",
         stop = function() end,
-        transcribe = function(_, wav, app)
+        start = function(_, pid, app)
+          serial, began = serial + 1, { pid = pid, app = app }
+          return serial
+        end,
+        transcribe = function(_, id, wav)
           if refused then
             return nil, "backend is not ready"
           end
-          serial, sent = serial + 1, { wav = wav, app = app }
-          return serial
+          assert(id == serial, "a stop line for another take")
+          sent = { wav = wav, app = began.app, pid = began.pid }
+          return id
         end,
       }
     end,
@@ -285,7 +292,7 @@ test("a field that takes the write gets the text spaced, saved, its recording de
   local element = field("Hello")
   frontmost = app("com.apple.Notes")
   handlers.onFinal({ id = dictate(element), text = "there." })
-  assert(sent.app == "com.apple.Notes", tostring(sent.app))
+  assert(sent.app == "com.apple.Notes" and sent.pid == recording.pid, tostring(sent.app))
   assert(element.value == "Hello there." and #strokes == 0 and #alerts == 0, element.value)
   assert(saved("there."), "not the text saved")
   assert(not fs.attributes(sent.wav) and wavs() == 0, "the recording is left")
@@ -485,11 +492,11 @@ end)
 
 test("a take too short or too quiet is never sent, and is deleted", function()
   for setting, value in pairs({ minDuration = 2, minLevel = 0.75 }) do
-    local count = serial
+    sent = nil
     config[setting] = value
     dictate(field("Hi"))
     config[setting] = 0
-    assert(serial == count and not fs.attributes(recorded), setting)
+    assert(not sent and not fs.attributes(recorded), setting)
     if setting == "minLevel" then
       assert(#alerts > 0, "too quiet alerted nothing")
     end

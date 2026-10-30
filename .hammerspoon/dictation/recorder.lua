@@ -11,6 +11,7 @@ local utils = require("lib.utils")
 ---@field floor? number room loudness (0..1): falls instantly, rises slowly
 ---@field bins integer[] band edges in FFT bins, 0..bands
 ---@field task? hs.task nil once ffmpeg exits
+---@field pid integer ffmpeg's, which the backend pairs its stream with
 ---@field discarded? boolean cancelled or failed
 ---@field done? fun(wav: string, peak: number, duration: number)
 
@@ -91,8 +92,9 @@ local function samples(pcm, from)
 end
 
 ---@param bands integer
+---@param backend string the socket the backend reads the take from while it records
 ---@param onError fun(message: string)
-function recorder.start(bands, onError)
+function recorder.start(bands, backend, onError)
   -- Per-user 0700 temp dir, not the shared /tmp.
   local base = hs.fs.temporaryDirectory() .. "dictation-" .. hs.host.uuid()
   local wav, socket = base .. ".wav", base .. ".sock"
@@ -171,6 +173,17 @@ function recorder.start(bands, onError)
     "-flush_packets",
     "1",
     "unix:" .. socket,
+    "-filter:a",
+    highpass,
+    "-f",
+    "s16le",
+    "-ac",
+    "1",
+    "-ar",
+    tostring(rate),
+    "-flush_packets",
+    "1",
+    "unix:" .. backend,
   })
   -- Log-spaced bands from 80 Hz to just under Nyquist.
   local bins, nyquist = {}, rate / 2
@@ -188,11 +201,13 @@ function recorder.start(bands, onError)
     peaks = {},
     bins = bins,
     task = task,
+    pid = 0,
   }
   if not task:start() then
     close()
     return nil, "could not start capture task"
   end
+  recording.pid = task:pid()
   return recording
 end
 

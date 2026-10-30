@@ -1,21 +1,31 @@
-"""JSON lines on stdin and stdout, config as argv[1], stop with SIGTERM.
+"""JSON lines on stdin and stdout, config as argv[1], stop with SIGTERM. Takes stream 16 kHz mono
+s16le audio, while they record, into the unix socket at argv[2], one connection per ffmpeg.
 
-stdin:  {"id": 1, "wav": "/path.wav", "app": "com.tinyspeck.slackmacgap"}
+stdin:  {"id": 1, "pid": 4242, "app": "com.tinyspeck.slackmacgap"}  take 1 records, from ffmpeg 4242
+        {"id": 1, "wav": "/path.wav"}                               it stopped; the wav has its audio
 stdout: {"event": "ready"}                                        once the models are loaded
         {"event": "error", "msg": "..."}                          the load failed; it exits
+        {"event": "received"}                                     a stdin line was read
         {"event": "final", "id": 1, "text": "..."}                result
         {"event": "error", "id": 1, "msg": "...", "heard": ...}   the take failed
 Diagnostics and tracebacks go to stderr.
 """
 
 import difflib
+import hashlib
 import json
 import os
+import queue
 import re
+import socket
 import sys
+import threading
 import traceback
 import unicodedata
+import wave
 from pathlib import Path
+
+import numpy as np
 
 from models import CLEANERS, SPEECH, letters
 
@@ -771,12 +781,21 @@ class Engine:
             )
         return " ".join(merged)
 
+    def spoken(self, segments, request):
+        """What was heard, from each segment's plain and boosted (or None) decode: see merge."""
+        texts = (
+            plain if boosted is None else self.merge(plain, boosted, request)
+            for plain, boosted in segments
+        )
+        return " ".join(" ".join(texts).split())  # one line, as rules assume
+
     def process(self, wav, request):
-        names = list(self.spellings(request))
-        heard = " ".join(self.speech.transcribe(wav, names).split())  # one line, as rules assume
-        if self.speech.boost and names:  # decoded again unboosted: see merge
-            heard = self.merge(self.speech.transcribe(wav, []), heard, request)
+        heard = " ".join(self.speech.transcribe(wav, list(self.spellings(request))).split())
         self.heard = heard  # what was said, kept if a later step fails
+        return self.clean(heard, request)
+
+    def clean(self, heard, request):
+        names = list(self.spellings(request))
         raw = self.spell(heard, request)
         # A stall hides the last word ("and, uh.").
         said = strip_stalls(raw)
@@ -818,14 +837,145 @@ class Engine:
         return digits(ending(said, restored), names)
 
 
+class Take:
+    """A take from its first audio or start line to its reply."""
+
+    def __init__(self):
+        self.request = self.stream = self.reply = None
+        self.audio, self.ended, self.paused = b"", False, False
+        self.digest = hashlib.sha256()  # of all it streamed, checked against the wav
+        self.cleaned = {}  # heard text: what it types, or what it raised
+
+
+def answer(engine, take, emit):
+    """Replies once the take has both stopped and been transcribed."""
+    request = take.request
+    if take.reply is None and take.stream is None and "wav" in request:  # a runtime with no stream
+        take.reply = attempt(engine, lambda: engine.process(request["wav"], request))
+    if take.reply is None or "wav" not in request:
+        return False
+    if take.stream:
+        try:
+            with wave.open(request["wav"]) as audio:
+                frames = audio.readframes(audio.getnframes())
+            differs = hashlib.sha256(frames).digest() != take.digest.digest()
+            problem = differs and "the streamed audio differs from the wav"
+        except (OSError, wave.Error) as error:
+            problem = f"could not read the wav: {error}"
+        if problem:
+            take.reply = {"event": "error", "msg": problem, "heard": None}
+    emit({**take.reply, "id": request["id"]})
+    return True
+
+
+def attempt(engine, transcribe):
+    import mlx.core as mx
+
+    engine.heard = None
+    try:
+        return {"event": "final", "text": transcribe()}
+    except Exception as error:  # noqa: BLE001 - every take gets an answer, with what was heard
+        if not isinstance(error, Rejected):  # a verdict, not a bug: no traceback
+            traceback.print_exception(error)
+        return {"event": "error", "msg": str(error), "heard": engine.heard}
+    finally:
+        mx.clear_cache()  # MLX keeps freed buffers, up to most of RAM
+
+
+def cleaned(engine, take, heard):
+    """What `heard` types, cleaned at most once per take: a pause may have cleaned it already."""
+    if heard not in take.cleaned:
+        try:
+            take.cleaned[heard] = engine.clean(heard, take.request)
+        except Exception as error:  # noqa: BLE001 - raised again where it is typed
+            take.cleaned[heard] = error
+    if isinstance(take.cleaned[heard], Exception):
+        raise take.cleaned[heard]
+    return take.cleaned[heard]
+
+
+def serve(engine, events, emit):
+    takes = {}  # by ffmpeg pid
+
+    def feed(take, chunk):
+        data = take.audio + chunk
+        if take.stream is None:  # before its start line, or a runtime with no stream
+            take.audio = data if take.request is None else b""
+            return
+        whole = len(data) - len(data) % 2
+        take.audio = data[whole:]
+        take.digest.update(data[:whole])
+        samples = np.frombuffer(data[:whole], np.int16).astype(np.float32) / 32768.0
+        take.paused |= take.stream.feed(samples)
+
+    def finish(take):
+        def transcribe():
+            engine.heard = engine.spoken(take.stream.finish(), take.request)
+            reused = engine.heard in take.cleaned
+            print(f"cleanup at release: {'reused' if reused else 'ran'}", file=sys.stderr)
+            return cleaned(engine, take, engine.heard)
+
+        take.reply = attempt(engine, transcribe)
+
+    while True:
+        settling = [take for take in takes.values() if take.paused and not take.ended]
+        try:
+            event = events.get(block=not settling)
+        except queue.Empty:  # the transcript held still at a pause: clean it now, not at release
+            take = settling[-1]
+            take.paused = False
+            heard = engine.spoken(take.stream.texts(), take.request)
+            if heard:
+                try:
+                    cleaned(engine, take, heard)
+                except Exception:  # noqa: BLE001, S110 - kept in take.cleaned for the release
+                    pass
+            continue
+        if event is None:
+            return
+        kind, pid, data = event
+        request = json.loads(data) if kind == "line" else {}
+        if kind == "audio":
+            feed(takes.setdefault(pid, Take()), data)
+            continue
+        elif kind == "end":
+            take = takes.setdefault(pid, Take())
+            take.ended = True
+            if take.stream:
+                finish(take)
+        elif "pid" in request:
+            pid = request["pid"]
+            for other, take in list(takes.items()):  # no stop line by the next start: cancelled
+                if other != pid and "wav" not in (take.request or {}):
+                    del takes[other]
+            take = takes.setdefault(pid, Take())
+            take.request = request
+            take.stream = engine.speech.stream(list(engine.spellings(request)))
+            feed(take, b"")
+            if take.ended and take.stream:
+                finish(take)
+        else:
+            pid = next(
+                other
+                for other, take in takes.items()
+                if (take.request or {}).get("id") == request["id"]
+            )
+            take = takes[pid]
+            take.request = {**take.request, "wav": request["wav"]}
+        if take.request and answer(engine, take, emit):
+            del takes[pid]
+
+
 def main():
     # stdout is the protocol's alone: anything else printed, native code too, goes to stderr.
     protocol = os.fdopen(os.dup(1), "w", buffering=1)
     os.dup2(2, 1)
     sys.stdout = sys.stderr
+    lock = threading.Lock()  # the stdin reader acknowledges while the worker replies
 
     def emit(event):
-        protocol.write(json.dumps(event) + "\n")
+        with lock:
+            protocol.write(json.dumps(event) + "\n")
 
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     try:
@@ -833,23 +983,37 @@ def main():
 
         engine = Engine(json.loads(sys.argv[1]))
         engine.load()
+        listener = socket.socket(socket.AF_UNIX)
+        listener.bind(sys.argv[2])
+        listener.listen()
     except Exception as error:  # noqa: BLE001 - Hammerspoon shows why it failed
         traceback.print_exc()
         emit({"event": "error", "msg": f"load failed: {error!r}"})
         sys.exit(1)
-    # MLX keeps freed buffers (up to most of RAM): release the load's and each take's.
     mx.clear_cache()
+    events = queue.Queue()
+
+    def lines():
+        for line in sys.stdin:
+            emit({"event": "received"})  # hs.task drops a line sent before the last was written
+            events.put(("line", None, line))
+        events.put(None)
+
+    def read(connection):
+        pid = connection.getsockopt(0, 2)  # SOL_LOCAL, LOCAL_PEERPID: the ffmpeg that connected
+        with connection:
+            while chunk := connection.recv(1 << 16):
+                events.put(("audio", pid, chunk))
+        events.put(("end", pid, None))
+
+    def accept():
+        while True:
+            threading.Thread(target=read, args=(listener.accept()[0],), daemon=True).start()
+
     emit({"event": "ready"})
-    for line in sys.stdin:
-        request, engine.heard = json.loads(line), None
-        try:
-            text = engine.process(request["wav"], request)
-            emit({"event": "final", "id": request["id"], "text": text})
-        except Exception as error:  # noqa: BLE001 - every take gets an answer, with what was heard
-            emit({"event": "error", "id": request["id"], "msg": str(error), "heard": engine.heard})
-            if not isinstance(error, Rejected):  # a verdict, not a bug: no traceback
-                traceback.print_exc()
-        mx.clear_cache()
+    threading.Thread(target=lines, daemon=True).start()
+    threading.Thread(target=accept, daemon=True).start()
+    serve(engine, events, emit)
 
 
 if __name__ == "__main__":
