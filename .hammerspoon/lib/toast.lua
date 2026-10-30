@@ -222,15 +222,16 @@ local function enforceCap()
   end
 end
 
-local screenWatcher = hs.screen.watcher.new(function()
-  local primaryScreen = hs.screen.primaryScreen()
-  for _, entry in ipairs(shownToasts) do
-    entry.screen = hs.screen.find(entry.screen:id()) or primaryScreen or entry.screen
-  end
-  enforceCap()
-  layout()
-end)
-screenWatcher:start()
+toast.screenWatcher = hs.screen.watcher
+  .new(function()
+    local primaryScreen = hs.screen.primaryScreen()
+    for _, entry in ipairs(shownToasts) do
+      entry.screen = hs.screen.find(entry.screen:id()) or primaryScreen or entry.screen
+    end
+    enforceCap()
+    layout()
+  end)
+  :start() --[[@as hs.screen.watcher]]
 
 ---@class ToastOptions
 ---@field failure? boolean

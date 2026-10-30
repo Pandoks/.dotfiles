@@ -83,12 +83,17 @@ local toast = assert(loadfile(
         end,
         watcher = {
           new = function(callback)
-            return {
+            return setmetatable({
               start = function(self)
                 screenWatcherCallback = callback
                 return self
               end,
-            }
+            }, {
+              -- Collected, Hammerspoon's watcher stops.
+              __gc = function()
+                screenWatcherCallback = nil
+              end,
+            })
           end,
         },
       },
@@ -935,6 +940,7 @@ end)
 test("a toast whose display is unplugged moves to the primary one, within its cap", function()
   focusedScreen = sideScreen
   toast.show("Working…", { seconds = false })
+  collectgarbage()
   assert(screenWatcherCallback, "nothing watches the displays")
   screenWatcherCallback()
   assert(canvases[1].origin.x >= 1000, "it left a display still plugged in")
