@@ -57,7 +57,7 @@ except LocalEntryNotFoundError:  # a fresh checkout: about 26 MB, not the model
 tokenizer = load_tokenizer(Path(cleanup))
 stub = {"model": "stub", "revision": "0" * 40}
 engine.speech, engine.cleaner = SimpleNamespace(repo="stub", load=lambda: None), models.MlxLm(stub)
-with mock.patch("mlx_lm.load", lambda *_, **__: (None, tokenizer)):
+with mock.patch("mlx_lm.load", lambda *_, **__: (SimpleNamespace(model_type="stub"), tokenizer)):
     engine.load()
 
 
@@ -1212,27 +1212,36 @@ cleaner.llm, cleaner.tokenizer = None, tokenizer  # pyright: ignore[reportAttrib
 rendered, limits = [], []
 
 
-def generate(llm, tokenizer, prompt, max_tokens=None, prompt_cache=None):
+def generate_step(prompt, model, max_tokens=None, prompt_cache=None):
+    prompt = prompt.tolist()
     if prompt_cache:  # as mlx-lm does, the take extends the cache it is given
         prompt_cache[0].seen += prompt
         prompt = prompt_cache[0].seen
-    rendered.append(tokenizer.decode(prompt))
+    rendered.append(tokenizer.decode(prompt))  # pyright: ignore[reportCallIssue]
     limits.append(max_tokens)
-    return "Thinking about it.</think>\n\nFix the bug."
+    reply = tokenizer.encode("Thinking about it.</think>\n\nFix the bug.")  # pyright: ignore[reportCallIssue]
+    after = tokenizer.encode(" More.")  # pyright: ignore[reportCallIssue]
+    for token in [*reply, tokenizer.eos_token_id, *after]:
+        yield token, None
 
 
 long = "word " * 600
-with mock.patch("mlx_lm.generate", generate):
+with mock.patch("mlx_lm.generate.generate_step", generate_step):
     reply = cleaner.complete([{"role": "user", "content": "Fix the bug."}], "Fix the bug.")
     cleaner.complete([{"role": "user", "content": long}], long)
 assert reply == "Fix the bug.", reply
 assert rendered[0].endswith("<think>\n\n</think>\n\n"), rendered[0]
 # mlx-lm's default 256 would cut long takes; 600 words are 600+ tokens.
 assert limits[0] >= 400 and limits[1] > 600, limits
-print("PASS the cleanup skips thinking, has room to echo the take, and drops a stray think tag")
+print(
+    "PASS the cleanup skips thinking, has room to echo the take, stops at its end of turn,"
+    " and drops a stray think tag"
+)
 
 
 class Llm:
+    model_type = "stub"
+
     def make_cache(self):
         return [SimpleNamespace(state=[], seen=[])]
 
@@ -1270,7 +1279,7 @@ check(
     prompt,
 )
 adapted = load_adapter({"system_v2.txt": "Clean it."})
-with mock.patch("mlx_lm.generate", generate):
+with mock.patch("mlx_lm.generate.generate_step", generate_step):
     for raw in ("Fix the bug.", "Ship it."):
         take = [{"role": "user", "content": f"Clean it.\n\n{raw}"}]
         cleaner.complete(take, raw)

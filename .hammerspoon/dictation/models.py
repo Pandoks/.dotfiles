@@ -189,7 +189,7 @@ class Cleaner:
 
 
 class MlxLm(Cleaner):
-    cache = None
+    cache = fold = None
 
     def load(self):
         import mlx.core as mx
@@ -218,6 +218,14 @@ class MlxLm(Cleaner):
             self.cache = make_prompt_cache(self.llm)
             self.llm(mx.array(self.prefix)[None], cache=self.cache)
             mx.eval([layer.state for layer in self.cache])
+        if self.llm.model_type == "qwen3_5":
+            import speculative
+
+            probe = self.tokenizer.encode("Move the sync to Friday at noon.")  # pyright: ignore[reportCallIssue]
+            speculative.install(self.llm, self.cache or make_prompt_cache(self.llm), probe)
+            self.fold = functools.cache(
+                lambda token: self.tokenizer.decode([token]).strip().lower()  # pyright: ignore[reportCallIssue]
+            )
         # Word-initial letter tokens ("Ġtacos", "▁emacs"): a modern real-word list.
         self.words = frozenset(
             token[1:].lower()
@@ -231,17 +239,35 @@ class MlxLm(Cleaner):
         )
 
     def complete(self, messages, raw):
-        from mlx_lm import generate
+        import mlx.core as mx
+        from mlx_lm.generate import generate_step
+        from mlx_lm.models.cache import make_prompt_cache
 
         prompt, cache = self.render(messages), None
         if self.cache:
             if prompt[: len(self.prefix)] != self.prefix:
                 raise RuntimeError("the take's prompt does not start with the prefilled one")
             prompt, cache = prompt[len(self.prefix) :], copy.deepcopy(self.cache)
-        # Room to echo the dictation; a runaway is cut back to what was said. Greedy by default.
-        limit = max(400, 2 * len(self.tokenizer.encode(raw)))  # pyright: ignore[reportCallIssue]
-        reply = generate(self.llm, self.tokenizer, prompt, max_tokens=limit, prompt_cache=cache)
+        # Room to echo the dictation; a runaway is cut back to what was said. Greedy.
+        source = self.tokenizer.encode(raw)  # pyright: ignore[reportCallIssue]
+        limit, eos = max(400, 2 * len(source)), set(self.tokenizer.eos_token_ids)
+        if self.fold:
+            import speculative
+
+            end = self.tokenizer.convert_tokens_to_ids("<|im_end|>")  # pyright: ignore[reportCallIssue]
+            drafts = speculative.Drafts([*source, end], self.fold)
+            cache = cache or make_prompt_cache(self.llm)
+            tokens = speculative.generate(self.llm, prompt, cache, drafts, limit, eos)
+        else:  # mlx-lm's generate, without its per-call detokenizer: a copy of the vocabulary
+            tokens = []
+            for token, _ in generate_step(
+                mx.array(prompt), self.llm, max_tokens=limit, prompt_cache=cache
+            ):
+                if token in eos:
+                    break
+                tokens.append(token)
         # Past the last "</think>": the template opens and closes an empty one, the model may again.
+        reply = self.tokenizer.decode(tokens)  # pyright: ignore[reportCallIssue]
         return reply.rpartition("</think>")[2].strip()
 
 
