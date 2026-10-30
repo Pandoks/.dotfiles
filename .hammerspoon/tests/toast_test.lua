@@ -6,7 +6,7 @@ local fakeGlasses, glassBuildFails = {}, false
 ---@type string?
 local macosInterfaceStyle, fakeWatchers = "Dark", {}
 -- Userdata, as in Hammerspoon.
-local screenMetatable, styledTextMetatable, screenLefts = {}, {}, {}
+local screenMetatable, styledTextMetatable, imageMetatable, screenLefts = {}, {}, {}, {}
 screenMetatable.__index = {
   id = function(self)
     return screenLefts[self] / 1000 + 1
@@ -65,6 +65,7 @@ local toast = assert(loadfile(
           ["hs.styledtext"] = styledTextMetatable,
           ["hs.screen"] = screenMetatable,
           ["hs.window"] = windowMetatable,
+          ["hs.image"] = imageMetatable,
         }
         return metatablesByName[name]
       end,
@@ -605,7 +606,7 @@ test("a toast without a focused display is printed instead, never raising", func
   )
 end)
 
-test("the same toast again restarts its time on its screen instead of stacking", function()
+test("a repeat restarts an unheld toast's time on its screen instead of stacking", function()
   local id = toast.show("Window list unavailable", { seconds = 2 })
   assert(toast.show("Window list unavailable", { seconds = 2 }) == id, "a repeat lost its id")
   assert(#canvases == 1 and timers[1].stopped and timers[2].seconds == 2)
@@ -617,6 +618,12 @@ test("the same toast again restarts its time on its screen instead of stacking",
   toast.show("new")
   toast.show("old")
   assert(#canvases == 2 and bottomOf(canvases[1]) == 609, "the repeat is not the newest")
+  reset()
+  toast.show("held")
+  local _, release = holdClick(pointInside(canvases[1]), 1)
+  toast.show("held")
+  release()
+  assert(#canvases == 2 and isDrawn(canvases[2]), "a repeat merged into a held toast")
 end)
 
 test("long text wraps to three lines, measured once a word until then", function()
@@ -995,7 +1002,7 @@ end)
 
 test("hs.alert.showWithImage shows its image as the icon, never repeated as plain", function()
   toast.install()
-  local image = {}
+  local image = setmetatable({}, imageMetatable)
   alert.showWithImage("Synced", image, 2)
   local icon = findElement(canvases[1], "image")
   assert(icon and icon.image == image, "no image")
@@ -1015,6 +1022,8 @@ test("an argument hs.alert would not take is an error, as in hs.alert", function
   assert(not ok and tostring(problem):find("unexpected number", 1, true), tostring(problem))
   ok, problem = pcall(alert.show, "x", io.stdout)
   assert(not ok and tostring(problem):find("argument 2", 1, true), tostring(problem))
+  ok, problem = pcall(alert.showWithImage, "x", {})
+  assert(not ok and tostring(problem):find("hs.image", 1, true), tostring(problem))
   assert(#canvases == 0, "a toast was shown")
   alert.show("kept", sideScreen, io.stdout)
   assert(#canvases == 1 and #timers == 0, "a userdata after the screen was no seconds")

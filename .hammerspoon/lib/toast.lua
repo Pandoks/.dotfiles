@@ -247,6 +247,9 @@ toast.screenWatcher = hs.screen.watcher
 ---@return string?
 function toast.show(text, options)
   options = options or {}
+  if options.image and getmetatable(options.image) ~= hs.getObjectMetatable("hs.image") then
+    error("Toast: image is not an hs.image", 2)
+  end
   local seconds = options.seconds
   if seconds == nil then
     seconds = 3
@@ -261,7 +264,8 @@ function toast.show(text, options)
   for index, entry in ipairs(shownToasts) do
     local bothPlain = not options.image and not entry.hasImage
     local sameToast = entry.text == text and entry.failure == failure and bothPlain
-    if seconds and entry.timer and sameToast and entry.screen:id() == screen:id() then
+    local onSameScreen = entry.screen:id() == screen:id()
+    if seconds and entry.timer and sameToast and onSameScreen and not heldIds[entry.id] then
       restartTimeout(entry, seconds)
       table.insert(shownToasts, table.remove(shownToasts, index))
       layout()
