@@ -110,7 +110,7 @@ def ensure_question(raw, text):
 
 HESITATIONS = r"u+[hm]+|e+r+m*|h*u*m+|a+h+m*|o+h+"  # um, uh, er, erm, hmm, hum, mm, ah, ahm, oh
 HESITATION_RE = re.compile(LONE.format(HESITATIONS), re.IGNORECASE)
-FILLER = r"you know|i mean|like|actually|yeah|okay|ok|so|well|basically"
+FILLER = r"you know(?! what[,.?!])|i mean|like|actually|yeah|okay|ok|so|well|basically"
 
 # Words no finished sentence ends on; enforced here since the model adds a period anyway.
 CONTINUATION = {"the", "a", "an", "my", "your", "our", "their", "its", "every", "and", "but", "or"}
@@ -211,11 +211,13 @@ def misheard(old, new):  # same first letter, 5+ letters, and closer than "shoul
 
 
 BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
+PRONOUNS = {"it", "them", "him", "her", "his", "their"}  # words standing for words said before
+PARTICLES = ("up", "in", "on", "out", "off", "down")  # a noun said apart: "the sign up"
 SOME = ("these", "those", "some")  # a plural correction's determiner: "no, those blue ones"
 DETERMINERS = {"no", "the", "a", "this", "that", "each", "every", "any", "some", "which"}
 DETERMINERS |= {"another", "other"}
 CUE = r"(?:(?:i'm |i am |well,? |no,? )?sorry|wait|no|actually|scratch that|or rather"
-CUE += r"|never mind|on second thought|you know what|come to think of it"
+CUE += r"|never mind|on second thought|you know what(?=[,.?!])|come to think of it"
 CUE += r"|(?:what )?i meant?(?: to say)?(?: was| is)?)"
 CUE += rf"(?:[,.]? make (?:{'|'.join(BACK)}))?"  # "sorry, make it 30", "actually. Make it 60"
 ADDS = r"[^.!?,]*\b(?:too|also|as well|first)\b"  # a cue that adds: "Actually, send it to Sam too"
@@ -348,8 +350,9 @@ def restore(raw, cleaned):
                 ):
                     continue
                 one_then_fillers = run[0] == "one" and dropped(i1 + 1, i2, kept)
-                counted = edit[0] in VALUE or edit[0].isdecimal()  # "the two-seater"
-                single = len(edit) == 1 or "-".join(edit) in raw and not counted  # "the pop-up"
+                numeric = edit[0] in VALUE or edit[0].isdecimal()  # "the two-seater"
+                apart = edit[-1] in PARTICLES and " ".join(edit) in raw  # "the pop up"
+                single = len(edit) == 1 or ("-".join(edit) in raw or apart) and not numeric
                 if one_then_fillers and single and edit[0] in spoken[:i1] and cues(0, i1, kept):
                     continue  # the noun a correction's "one" stands for: "the feature branch"
                 # Otherwise said after a later cue: "two cabs, sorry, three cabs".
@@ -360,9 +363,8 @@ def restore(raw, cleaned):
                     set(edit) <= set(spoken[index:]) for index, _ in cues(i2, spoken_count, kept)
                 )
                 # Not a pronoun standing for words left out: "her boss" for "Kate" or "the client".
-                pronouns = {"it", "them", "him", "her", "his", "their"}
-                replaced = set(run) - pronouns - DETERMINERS
-                dangles = set(edit) & pronouns and replaced and not replaced & set(typed)
+                replaced = set(run) - PRONOUNS - DETERMINERS
+                dangles = set(edit) & PRONOUNS and replaced and not replaced & set(typed)
                 if listed or not trusted or not said_later or dangles:
                     bad.append((i1, i2, j1, j2))
                     continue
@@ -411,36 +413,43 @@ def restore(raw, cleaned):
         determiners = ("the", "a", "an", "my", "your", "our", "his", "her", "their", "this", "that")
         determiners += SOME
         subjects = ("i", "we", "you", "they", "he", "she")
-        pronouns = (*BACK, "this", "these", "those", "me", "us", "yours")
+        pronouns = (*PRONOUNS, *determiners, "me", "us", "yours", "hers", "ours", "theirs")
+        amount = rf"(?<![\w-])(?:at|for|past|to|(?:all|{WORD}) (?:in|on)) $"
         for one in reversed(aligned):
-            if one < 3 or not match(one, r"ones?(?!['-])"):
-                continue  # not "one's" or "one-liner"
+            if one < 3 or not match(one, r"(?<!-)ones?(?!['-])"):
+                continue  # not "one's", "one-liner" or "all-in-one"
+            if re.search(amount, raw[: spoken_spans[one][1]]):
+                continue  # a count or time: "a table for one", "a quarter past one", "two in one"
             determiner = one - 2 if spoken[one - 2] in determiners else one - 3  # "the big red one"
             if spoken[determiner] not in determiners:
                 continue
             cue, past = max(cues(1, one, aligned), default=(0, 0))
-            # Not a later "one": "Monday, sorry, Tuesday, and cancel the other one".
-            gap = raw[spoken_spans[past][1] : spoken_spans[determiner][1]]
-            # Nor one describing the correction: "Monday, sorry, Tuesday, the busy one".
-            aside = determiner > past and mark(determiner)
             while cue and spoken[cue - 1] in ("or", "well"):
                 cue -= 1
-            if cue and filler(cue - 1) == 1:
+            if not cue or filler(cue - 1) == 1:
                 continue  # a filler's cue: "They shipped, basically, sorry, the latest one"
             if "one" in spoken[max(cue - 2, 0) : cue]:
                 continue  # its own "one": "the red one works, no, the blue one does"
-            if spoken[cue - 1] in pronouns or cue > 1 and spoken[cue - 2] in subjects:
-                continue  # a pronoun or a subject's verb: "Grab it, sorry", "I think, no"
+            if spoken_spans[cue - 1][3] in pronouns or cue > 1 and spoken[cue - 2] in subjects:
+                continue  # a pronoun, determiner or verb: "it, sorry", "the, no", "I think, no"
             noun = re.findall(r"[\w'’-]+", said[: spoken_spans[cue - 1][2]])[-1]
-            number = spoken[cue - 1] in VALUE or noun.isdecimal()  # "at 6:30"
-            if cue and spoken[cue - 1] not in typed and not number and not aside:
+            if cue > 1 and noun.lower() in PARTICLES:  # "the pop up", not "the up"
+                noun = said[spoken_spans[cue - 2][1] : spoken_spans[cue - 1][2]]
+            # Not one describing the correction: "Monday, sorry, Tuesday, the busy one".
+            aside = determiner > past and mark(determiner)
+            number = spoken[cue - 1] in (*VALUE, *ORDINAL, "m") or noun.isdecimal()  # "4 p.m."
+            # A time said after a number ("4 PM", not "the PM"); "the 12 one" gets it back.
+            numbered_one = spoken[one - 1] in VALUE or spoken[one - 1].isdecimal()
+            numbered = cue > 1 and (spoken[cue - 2] in VALUE or spoken[cue - 2].isdecimal())
+            number |= spoken[cue - 1] in ("o'clock", "am", "pm") and numbered and not numbered_one
+            # Nor one a cue splits from its "the X": "the blue, sorry, one with the lid".
+            if spoken[cue - 1] not in typed and not number and not aside and past <= determiner:
+                # Nor a later "one": "Monday, sorry, Tuesday, and cancel the other one".
+                gap = raw[spoken_spans[past][1] : spoken_spans[determiner][1]]
                 earlier = {word for *_, word in spoken_spans[:cue]}
                 if len({word for *_, word in tokens(gap)} - {*earlier, *BACK}) < 2:
-                    text = (
-                        text[: typed_spans[aligned[one]][1]]
-                        + noun
-                        + text[typed_spans[aligned[one]][2] :]
-                    )
+                    _, start, end, _ = typed_spans[aligned[one]]
+                    text = text[:start] + noun + text[end:]
         return text
     # Put back against the words with their plurals: "a salad", not the cleanup's "salads".
     whole = [word for *_, word in spoken_spans], [word for *_, word in typed_spans]
@@ -606,13 +615,13 @@ def digits(text, names):
             return f"{number:,}{suffix}"
         timed = previous in ("at", "by", "until", "till") or re.match(r"(?i) ?[ap]\.?m\b", after)
         if "point" in words:  # "one point oh five" -> "1.05", "two point five million"
-            *rest, big = words if words[-1] in SCALES else [*words, ""]
+            *rest, magnitude = words if words[-1] in SCALES else [*words, ""]
             parts = [part.split() for part in " ".join(rest).split("point")]
             bad = not all(parts) or {*rest} & {*SCALES} or {*words} - {*VALUE, "point"}
             if bad or len(chunks(parts[0])) > 1 and "oh" not in parts[0]:
                 return group  # "one point two hundred thousand"
             decimal = ".".join("".join(map(str, chunks(part))) for part in parts)
-            return decimal + (f" {big}" if big else "")
+            return decimal + (f" {magnitude}" if magnitude else "")
         if "oh" in words:  # "four oh four" -> "404", "at eight oh oh" -> "at 8:00"
             tail = "".join(map(str, numbers[1:]))
             clock = timed and number <= 12 and len(tail) == 2  # not "a hundred oh five"

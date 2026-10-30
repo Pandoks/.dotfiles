@@ -719,8 +719,8 @@ check(
             ("Pay them for the repairs, actually, pay her.", "Pay her for the repairs."),
             ("Run the old script, sorry, the new one-liner.", "Run the new one-liner."),
             ("Or, well, sorry, the blue one.", "The blue one."),
-            ("Ask Mike, actually, Dave, the tall one.", "Ask Dave, the tall one."),
             ("Invite Jake, actually, Nina, um, the quiet one.", "Invite Nina, the quiet one."),
+            ("Call the vet, sorry, Dr. Lee, the one downtown.", "Call Dr. Lee, the one downtown."),
             ("Send the first one again, sorry, the second one.", "Send the second one."),
             ("Grab the hammer. No. The wrench. The big one.", "Grab the wrench. The big one."),
             (
@@ -728,12 +728,29 @@ check(
                 "Frankly, the cheaper one is better.",
             ),
             ("Can you grab it, sorry, the red one?", "Can you grab the red one?"),
+            ("Bring these, actually, the green ones.", "Bring the green ones."),
+            ("Pass me this, sorry, the blue one, please.", "Pass me the blue one, please."),
+            ("Open the, sorry, a new one.", "Open a new one."),
+            (
+                "I want one. Give me the red, actually, one that.",
+                "I want one. Give me the one that.",
+            ),
             ("We need, I think, actually, the longer ones.", "We need the longer ones."),
-            ("Take the short path, no, so, the long one.", "Take the long path."),
+            ("Grab the short ladder, no, you know, the long one.", "Grab the long ladder."),
             ("Use the red markers, no, those blue ones.", "Use the blue markers."),
             ("Take the blue car, no, on second thought, the red one.", "Take the red car."),
+            ("Grab me a coffee, never mind, a tea.", "Grab me a tea."),
             ("Catch the bus at 7.45, sorry, the next one.", "Catch the bus at the next one."),
             ("Take the train at six, no, the later one.", "Take the train at the later one."),
+            ("Grade the first, no, the second one.", "Grade the second one."),
+            ("Cancel the 4 p.m., no, the earlier one.", "Cancel the earlier one."),
+            ("Push the two o'clock, no, the earlier one.", "Push the earlier one."),
+            ("Buy the inkjet printer, actually, the all-in-one.", "Buy the all-in-one."),
+            (
+                "Set the alarm for noon, no, a quarter past one.",
+                "Set the alarm for a quarter past one.",
+            ),
+            ("That's, you know what the client asked for.", "That's what the client asked for."),
         ]
     ],
     lambda pair: server.restore(*pair),
@@ -858,6 +875,8 @@ check(
             ("Uh huh.", "Huh."),
             ("It costs one thousand dollars.", "It costs 1,000 dollars."),
             ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
+            ("I don't know if you know what happened.", "I don't know what happened."),
+            ("Ask her, you know what, I'll ask her myself.", "Ask her what, I'll ask her myself."),
         ]
     ]
     + [
@@ -874,8 +893,8 @@ check(
             "Two things: first fix the bug.",
         ),
         (
-            ("Use the paper cups, sorry, uh, um, the plastic ones.", "Use the plastic ones."),
-            "Use the plastic cups.",
+            ("Drive the truck, sorry, the van, um, the white one.", "Drive the van."),
+            "Drive the van the white one.",
         ),
         (
             ("Book night bus. Well, actually, the day one.", "Book the day one bus."),
@@ -886,11 +905,8 @@ check(
             "Open up a draft PR.",
         ),
         (
-            (
-                "Wear the formal shoes, what I mean is, no, the casual ones.",
-                "Wear the casual ones.",
-            ),
-            "Wear the casual shoes.",
+            ("Use the plastic jars, sorry, these glass ones.", "Use these glass ones."),
+            "Use these glass jars.",
         ),
         (
             (
@@ -903,6 +919,19 @@ check(
             ("Book the check-in, no, the late one.", "Book the late one."),
             "Book the late check-in.",
         ),
+        (
+            ("Close the pop up, no, the main one.", "Close the main one."),
+            "Close the main pop up.",
+        ),
+        (
+            ("Use the desk lamp, sorry, the clip on one.", "Use the clip on one."),
+            "Use the clip on lamp.",
+        ),
+        (
+            ("Book the six o'clock, sorry, the seven one.", "Book the seven one."),
+            "Book the seven o'clock.",
+        ),
+        (("Message the PM, wait, the new one.", "Message the new one."), "Message the new PM."),
         (
             ("Wear the black hoodie, actually, the gray one, you know.", "Wear the gray one."),
             "Wear the gray hoodie.",
