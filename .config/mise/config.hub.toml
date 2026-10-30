@@ -34,7 +34,7 @@ description = "Beszel Hub"
 after = ["network.target"]
 type = "simple"
 exec_start = "%h/.local/share/mise/installs/beszel-hub/latest/beszel serve --http 127.0.0.1:8090 --dir %h/.local/share/beszel"
-environment = { APP_URL = "https://beszel.tailb2c81d.ts.net" }
+environment = { APP_URL = "https://beszel.tailb2c81d.ts.net", AUTO_LOGIN = "hub@beszel.local", DISABLE_PASSWORD_AUTH = "true" }
 restart = "always"
 restart_sec = "10"
 wanted_by = ["default.target"]

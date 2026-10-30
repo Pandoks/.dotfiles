@@ -173,10 +173,10 @@ sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 for Codex accounts. In Claude Code, run `/login` once and don't set
 `ANTHROPIC_AUTH_TOKEN`.
 
-**Beszel:** create the admin and a permanent universal token at
-`https://beszel.<tailnet>.ts.net`. On each machine, save the hub key (from
-**Add System**) to `~/.config/beszel/key` and the token to
-`~/.config/beszel/token`, then restart the agent:
+**Beszel:** login is off. At `https://beszel.<tailnet>.ts.net`, create the
+user `hub@beszel.local` (any password) and a permanent universal token. On each
+machine, save the hub key (from **Add System**) to `~/.config/beszel/key` and
+the token to `~/.config/beszel/token`, then restart the agent:
 
 ```sh
 systemctl --user restart dev.mise.beszel-agent                # Linux
