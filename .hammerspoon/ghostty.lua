@@ -18,7 +18,7 @@ end
 
 hs.hotkey.bind({ "alt" }, "e", function()
   openOrFocusWindow(
-    ghosttyProfile("sieve", [[ssh -t sieve "/bin/zsh -lc 'exec tmux new-session -A -s Sieve'"]])
+    ghosttyProfile("t470", [[ssh -t t470 "zsh -lc 'exec tmux new-session -A -s T470'"]])
   )
 end)
 hs.hotkey.bind({ "alt" }, "r", function()

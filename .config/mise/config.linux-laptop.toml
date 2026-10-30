@@ -1,7 +1,9 @@
 [bootstrap.packages]
 "apt:acpid" = "latest"
+"apt:smartmontools" = "latest"
 
 "pacman:acpid" = "latest"
+"pacman:smartmontools" = "latest"
 
 [bootstrap.directories."/etc/systemd/logind.conf.d"]
 [bootstrap.directories."/etc/systemd/journald.conf.d"]
@@ -86,6 +88,7 @@ run = '''
 sudo systemctl reload systemd-logind
 sudo sysctl --system >/dev/null
 sudo systemctl enable --quiet systemd-pstore.service
+sudo setcap cap_dac_read_search,cap_sys_admin,cap_sys_rawio+ep "$(command -v smartctl)"
 
 grep -qw efi_pstore.pstore_disable=0 /proc/cmdline && exit 0
 if command -v mkinitcpio >/dev/null; then

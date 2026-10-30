@@ -2,8 +2,10 @@
 
 [bootstrap.packages]
 "brew:btop" = "latest"
+"brew:macmon" = "latest"
 "brew:mas" = "latest"
 "brew:rtorrent" = "latest"
+"brew:smartmontools" = "latest"
 "brew:tailscale" = "latest"
 "brew:tsui" = "latest"
 "brew:ykman" = "latest"
@@ -59,6 +61,19 @@ spoons="$HOME/.hammerspoon/Spoons"
 mkdir -p "$spoons"
 test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoon/Spoons/raw/master/Spoons/SpoonInstall.spoon.zip | bsdtar -xf - -C "$spoons"
 '''
+
+[bootstrap.macos.launchd.agents.beszel-agent]
+program = "/bin/sh"
+args = ["-c", '''
+export KEY_FILE="$HOME/.config/beszel/key" TOKEN_FILE="$HOME/.config/beszel/token" DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
+[ -s "$TOKEN_FILE" ] || exit 0
+exec "$HOME/.local/share/mise/installs/github-henrygd-beszel/latest/beszel-agent"
+''']
+environment = { PATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", HUB_URL = "https://beszel.tailb2c81d.ts.net", DISABLE_SSH = "true", GPU_COLLECTOR = "macmon" }
+run_at_load = true
+keep_alive_on_failure = true
+stdout_path = "~/Library/Logs/beszel-agent.log"
+stderr_path = "~/Library/Logs/beszel-agent.log"
 
 [dotfiles]
 "~/.zprofile" = "../../.zprofile"
