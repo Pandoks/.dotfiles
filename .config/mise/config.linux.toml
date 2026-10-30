@@ -1,5 +1,7 @@
 [tools]
 btop = "latest"
+# Upstream build: Debian bookworm and Ubuntu jammy ship builds older than 0.18.1, which can't use a Ledger
+"http:monero" = { version = "latest", url = "https://downloads.getmonero.org/cli/monero-linux-x64-v{{version}}.tar.bz2", platforms = { linux-x64 = { url = "https://downloads.getmonero.org/cli/monero-linux-x64-v{{version}}.tar.bz2" }, linux-arm64 = { url = "https://downloads.getmonero.org/cli/monero-linux-armv8-v{{version}}.tar.bz2" } }, checksum_url = "https://www.getmonero.org/downloads/hashes.txt", version_list_url = "https://api.github.com/repos/monero-project/monero/releases?per_page=100", version_json_path = ".[].tag_name", version_expr = "sortVersions(versions)" }
 
 [bootstrap.hooks.pre-packages]
 run = '''
@@ -55,7 +57,6 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "apt:containerd.io" = "latest"
 "apt:docker-buildx-plugin" = "latest"
 "apt:docker-compose-plugin" = "latest"
-"apt:monero" = "latest"
 
 "pacman:zsh" = "latest"
 "pacman:curl" = "latest"
@@ -73,7 +74,6 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:containerd" = "latest"
 "pacman:docker-buildx" = "latest"
 "pacman:docker-compose" = "latest"
-"pacman:monero" = "latest"
 
 [bootstrap.directories."/etc/udev/rules.d"]
 
