@@ -300,7 +300,7 @@ function toast.show(text, options)
     id = id,
     text = text,
     failure = failure,
-    hasImage = options.image ~= nil,
+    hasImage = options.image and true or false,
     canvas = canvas,
     screen = screen,
   }

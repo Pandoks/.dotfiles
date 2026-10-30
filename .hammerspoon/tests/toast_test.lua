@@ -1014,6 +1014,9 @@ test("hs.alert.showWithImage shows its image as the icon, never repeated as plai
   assert(#canvases == 2 and not findElement(canvases[2], "image"), "the plain one kept the icon")
   alert.showWithImage("Synced", image, 2)
   assert(#canvases == 3, "the image merged into the plain one")
+  alert.showWithImage("Plain", false, 2)
+  alert.show("Plain", 2)
+  assert(#canvases == 4, "a false image kept a repeat apart")
 end)
 
 test("an argument hs.alert would not take is an error, as in hs.alert", function()
