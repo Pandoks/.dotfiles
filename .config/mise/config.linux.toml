@@ -25,7 +25,6 @@ loginctl show-user "$user" -p Linger --value 2>/dev/null | grep -qx yes || sudo 
 run = '''
 if [ -d /run/systemd/system ]; then
   sudo systemctl enable --now fwupd-refresh.timer
-  sudo udevadm control --reload
 fi
 
 # Fix a misdetected laptop with: hostnamectl chassis laptop
