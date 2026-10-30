@@ -1,5 +1,9 @@
+[tool_alias]
+beszel-hub = "github:henrygd/beszel"
+
 [tools]
 "github:router-for-me/CLIProxyAPI" = "latest"
+beszel-hub = { version = "latest", asset_pattern = 'beszel_linux_{{ arch(x64="amd64", arm64="arm64") }}.tar.gz' }
 
 [dotfiles]
 "~/.cli-proxy-api/config.yaml" = "../../.cli-proxy-api/config.yaml"
@@ -20,6 +24,17 @@ description = "cli-proxy-api CI Service"
 after = ["network.target"]
 type = "simple"
 exec_start = "%h/.local/share/mise/installs/github-router-for-me-cli-proxy-api/latest/cli-proxy-api --config %h/.cli-proxy-api-ci/config.yaml"
+restart = "always"
+restart_sec = "10"
+wanted_by = ["default.target"]
+start = true
+
+[bootstrap.linux.systemd.units.beszel-hub]
+description = "Beszel Hub"
+after = ["network.target"]
+type = "simple"
+exec_start = "%h/.local/share/mise/installs/beszel-hub/latest/beszel serve --http 127.0.0.1:8090 --dir %h/.local/share/beszel"
+environment = { APP_URL = "https://beszel.tailb2c81d.ts.net" }
 restart = "always"
 restart_sec = "10"
 wanted_by = ["default.target"]

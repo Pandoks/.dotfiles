@@ -164,67 +164,44 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
-## CLIProxyAPI
+## Hub
 
-Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
-Keep Tailscale connected, run `/login` once in Claude Code for claude.ai
-connectors, and don't set `ANTHROPIC_AUTH_TOKEN`.
-
-### Host
-
-On the machine tagged `tag:cliproxyapi`:
+The homelab hub hosts [CLIProxyAPI] and the [Beszel] dashboard. On the
+machine tagged `tag:hub`:
 
 ```sh
-mise -E cliproxyapi bootstrap --yes
+mise -E hub bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 sudo tailscale serve --service=svc:cliproxyapi-ci --https=443 http://127.0.0.1:8318
+sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 ```
+
+### CLIProxyAPI
+
+Claude Code and Codex route through it. Keep Tailscale connected, run `/login`
+once in Claude Code for claude.ai connectors, and don't set
+`ANTHROPIC_AUTH_TOKEN`.
 
 Set the dashboard password in `management.secret-key` of
 `~/.cli-proxy-api/config.yaml`, then run
 `systemctl --user restart dev.mise.cli-proxy-api` (it's hashed on start). Add
-accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html`. The config
-links into this public repo, so never commit `secret-key` or API keys.
+accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html`, and turn on
+**WebSockets (websockets)** for each Codex account under **Auth Files**. The
+config links into this public repo, so never commit `secret-key` or API keys.
 
-Then enable WebSockets on each Codex account: **Auth Files**, open the account,
-turn on **WebSockets (websockets)**, and save. Codex already connects to the
-proxy over WebSockets, but the proxy only uses them upstream for accounts with
-this toggle on. It's stored in the account's auth file, not in this repo.
+### Beszel
 
-```sh
-mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
-```
-
-## Beszel
-
-[Beszel] shows CPU, GPU, memory, disk, and network for every machine at
-`https://beszel.<tailnet>.ts.net`. Bootstrap installs the agent everywhere;
-it stays idle until the machine has a key and token.
-
-### Hub
-
-On the machine tagged `tag:beszel`:
-
-```sh
-mise -E beszel bootstrap --yes
-sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
-```
-
-Create the admin account at `https://beszel.<tailnet>.ts.net`, then turn on a
+Create the admin account at `https://beszel.<tailnet>.ts.net` and turn on a
 permanent universal token under **Settings → Tokens**.
 
-### Agents
-
-On each machine, save the hub's public key (shown in **Add System**) to
-`~/.config/beszel/key` and the universal token to `~/.config/beszel/token`
-with mode `600`, then restart the agent. It registers under the hostname.
+Every machine's agent stays idle until it has the hub's public key (from **Add
+System**) in `~/.config/beszel/key` and the token in `~/.config/beszel/token`
+(mode `600`, never committed). Then restart it:
 
 ```sh
 systemctl --user restart dev.mise.beszel-agent                # Linux
 launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 ```
-
-The token stays local; never commit it.
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [Beszel]: https://beszel.dev/
