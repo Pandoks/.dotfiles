@@ -1518,6 +1518,10 @@ check(
 )
 
 
+kept = streaming.TAIL * streaming.FRAME  # the silence a segment keeps after its last sound
+padded = streaming.PADDED * streaming.FRAME
+
+
 def encodes(parts, chunk):
     """Lengths of audio Stream encodes, for loud and silent `parts` (seconds), fed `chunk` at a time."""
     lengths = []
@@ -1538,21 +1542,45 @@ def encodes(parts, chunk):
         stream = streaming.Stream(model, None)
         for start in range(0, len(audio), chunk):
             stream.feed(audio[start : start + chunk])
-        during = list(lengths)
+        cut = 144000 + padded in lengths  # 9 s of sound, then the silence kept, tiled
+        during = len(lengths)
         stream.finish()
-    return 147200 in during, lengths[len(during) :]
+    return cut, lengths[during:]
 
 
 check(
-    "a 400 ms pause cuts only an 8 s segment, at its middle; release encodes the rest, all of it",
+    "a segment ends TAIL after its last sound: where 400 ms of silence cuts one 8 s long, and at"
+    " release, which reuses a pause's encode and otherwise encodes all the audio",
     [
-        (((9, -0.5, 2), 2560), (True, [36800])),  # cut at 9.2 s; the 2.3 s left
-        (((9, -0.5, 2), 999), (True, [36800])),
+        (((9, -0.5, 2), 2560), (True, [8000 - kept + 32000])),  # cut at 9 s + TAIL; the rest
+        (((9, -0.5, 2), 999), (True, [8000 - kept + 32000])),
         (((5, -0.5, 2), 2560), (False, [120000])),  # too short to cut: all 7.5 s at release
         (((9, -0.5), 2560), (True, [])),  # no sound after the cut: nothing left to encode
+        (((2, -0.3), 2560), (False, [])),  # a release in a pause: the pause's encode
+        (((2, -0.02 * (streaming.TAIL - 1)), 2560), (False, [32000 + kept - 320])),  # before TAIL
     ],
     lambda case: encodes(*case),
 )
+heard_audio = []
+noisy = Model(mx.zeros((contexts, width)))
+noisy.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
+noisy.encoder = lambda audio: heard_audio.append(np.array(audio)) or (mx.zeros((1, 0, width)), None)  # pyright: ignore[reportAttributeAccessIssue]
+room = 0.002 * np.random.default_rng(0).standard_normal(16000).astype(
+    np.float32
+)  # -54 dBFS: silent
+speech = 0.3 * np.sin(np.arange(32000) / 3, dtype=np.float32)
+with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+    noisy_stream = streaming.Stream(noisy, None)
+    for start in range(0, 48000, 2560):
+        noisy_stream.feed(np.concatenate([speech, room])[start : start + 2560])
+paused = heard_audio[-1]
+noisy_stream.finish()
+assert len(heard_audio[-1]) == len(paused), "release encoded again in a pause"
+assert np.array_equal(paused[:32000], speech) and len(paused) == 32000 + padded, len(paused)
+assert np.array_equal(paused[32000:], np.tile(room[:kept], 4)[:padded]), (
+    "the pad is not the kept silence"
+)
+print("PASS a segment ends on the silence it kept after its last sound, tiled to PADDED")
 # Unboosted and boosted Parakeet decodes of TTS takes (`say -v Albert`, `-v Daniel`, ...).
 check(
     "a boosted word is kept only where it spells a vocabulary word, never over a stall",

@@ -26,9 +26,9 @@ macOS always handles it itself.
 `init.lua` drives a take: `recorder.lua` records the default input with ffmpeg, which also streams
 it over Unix sockets to the pill's equalizer (`overlay.lua`, through `lib/stream`) and to
 `server.py`, a resident Python process (JSON lines on stdin and stdout, via `engine.lua`). The
-backend transcribes while you speak, in segments cut at pauses, and cleans up what it has heard
-whenever you pause; at stop it encodes the last segment once more and, if the transcript is the one
-it already cleaned, types that. It fixes spellings, cleans up, and writes numbers as digits. Its guard aligns the cleaned
+backend transcribes while you speak, in segments cut at pauses, and 60 ms into each pause finishes
+the whole take from the audio a stop in that pause would use, cleanup included; a stop there types it
+at once. It fixes spellings, cleans up, and writes numbers as digits. Its guard aligns the cleaned
 words with what was heard: the cleanup may fix misheard words and drop stalls, fillers, repeats,
 and self-corrections, and whatever else it changed or left out is put back as said ("Can you fix
 it?" for "Can you fix it? Just fix it." is typed whole). A change that can't be put back cleanly,
@@ -76,8 +76,8 @@ adapter they fail the load. A plain model types self-corrections as said.
   still saved to `history.directory`. A take the backend fails before hearing anything or never
   answers (it died, or Hammerspoon reloaded), or whose capture failed or didn't finish within 2 s
   of stop (an unplugged mic), keeps its recording there as a `.wav` if it caught any audio.
-- What changed after your last pause is cleaned at stop: a long take with no pause before stop
-  waits for the cleanup of its last sentences, a run-on one with few sentence breaks for more.
+- The cleanup rewrites the whole take, starting 60 ms into the pause before stop: a long take still
+  waits for most of the cleanup of all of it.
 - Alerts show up to 3 lines of a failure's first line; the rest is in the Hammerspoon console and
   `~/Library/Logs/Hammerspoon/config.log`.
 

@@ -14,15 +14,10 @@ from parakeet_mlx.parakeet import DecodingConfig
 from models import letters
 
 RATE, FRAME = 16000, 320  # 20 ms frames
-PAUSE, SETTLED, VOICED = (
-    20,
-    5,
-    10,
-)  # frames: a cut, an update in the pause, the sound a segment needs
-SHORTEST, LONGEST = (
-    8 * 50,
-    30 * 50,
-)  # frames: no pause cut before 8 s; past 30 s, cut at the quietest
+# Frames: a pause that cuts, the silence a segment keeps after its last sound, the sound it needs.
+PAUSE, TAIL, VOICED = 20, 3, 10
+PADDED = 10  # frames that kept silence is tiled to: v2's text depends on the silence it ends on
+SHORTEST, LONGEST = 8 * 50, 30 * 50  # frames: no pause cut before 8 s; past 30 s, at the quietest
 REFRESH = RATE  # samples of new sound between updates
 SENTENCE = DecodingConfig().sentence
 # Short-take garbage: special pieces (<unk>, v3's <|en|>) and rare-symbol runs ("ΨΨΨ").
@@ -243,8 +238,9 @@ def text(tokens):
 
 class Stream:
     """A take's audio as it arrives. A 20 ms frame is silent 35 dB under the take's loudest (and under
-    -60 dBFS); 400 ms of silence cuts the open segment at its middle once the segment is 8 s long. The
-    open segment is encoded again after each second of sound and 100 ms into each pause."""
+    -60 dBFS). A segment's text comes from its audio up to TAIL frames after its last sound, tiled to
+    PADDED, so a pause gives the text a release in it would. 400 ms of silence cuts a segment 8 s long
+    there."""
 
     def __init__(self, model, booster):
         self.model = model
@@ -253,28 +249,38 @@ class Stream:
         self.levels, self.silent = [], []
         self.peak, self.run, self.voiced = -120.0, 0, 0
         self.closed = []  # per closed segment: plain text, boosted text or None
-        self.seen, self.updated = (
-            None,
-            0,
-        )  # (cuts, voiced frames) and open samples at the last update
+        self.encoded = None  # (closed segments, open samples, padded) of the last encode
 
     def texts(self):
-        """Every segment's (plain, boosted) so far, the open one as of its last update."""
+        """Every segment's (plain, boosted) so far, the open one as of its last encode."""
         plain, *boosted = (text(path.tokens) for path in self.paths)
         return [*self.closed, (plain, boosted[0] if boosted else None)]
 
-    def encode(self, audio):
+    def kept(self):
+        """Samples of the open segment its text comes from, and whether they end on kept silence."""
+        if self.run >= TAIL:
+            return (len(self.levels) - self.run + TAIL) * FRAME, True
+        return len(self.open), False
+
+    def encode(self, length, padded):
+        if self.encoded == (len(self.closed), length, padded):
+            return
+        audio = self.open[:length]
+        if padded:
+            silence = audio[-TAIL * FRAME :]
+            tiles = np.tile(silence, -(-PADDED // TAIL))[: PADDED * FRAME]
+            audio = np.concatenate([audio[: -TAIL * FRAME], tiles])
         features = self.model.encoder(get_logmel(mx.array(audio), self.model.preprocessor_config))[
             0
         ]
         mx.eval(features)
-        self.seen, self.updated = (len(self.closed), self.voiced), len(audio)
+        self.encoded = (len(self.closed), length, padded)
         for path in self.paths:
             path.update(features)
 
     def feed(self, samples):
-        """Returns whether the text is as of a pause: encoded 100 ms into it, or cut there."""
-        self.open, paused = np.concatenate([self.open, samples]), False
+        """Returns whether the open segment was just encoded as a release now would encode it."""
+        self.open = np.concatenate([self.open, samples])
         while (len(self.levels) + 1) * FRAME <= len(self.open):  # a cut shortens self.open
             frame = self.open[len(self.levels) * FRAME : (len(self.levels) + 1) * FRAME]
             level = float(10 * np.log10(np.mean(frame * frame) + 1e-12))
@@ -285,37 +291,31 @@ class Stream:
             self.run = self.run + 1 if silent else 0
             self.voiced += not silent
             if self.run >= PAUSE and self.voiced >= VOICED and len(self.levels) >= SHORTEST:
-                self.cut(len(self.levels) - self.run + PAUSE // 2)
-                paused = True
+                self.cut(len(self.levels) - self.run + TAIL, True)
             elif len(self.levels) >= LONGEST:
                 recent = range(len(self.levels) - 100, len(self.levels))
-                self.cut(min(recent, key=lambda index: self.levels[index]))
-        fresh = self.seen != (len(self.closed), self.voiced)
-        stale = len(self.open) - self.updated >= REFRESH
-        if fresh and self.voiced >= VOICED and (stale or self.run >= SETTLED):
-            self.encode(self.open)
-            paused = self.run >= SETTLED
-        return paused
+                self.cut(min(recent, key=lambda index: self.levels[index]), False)
+        if self.voiced < VOICED or self.encoded == (len(self.closed), *self.kept()):
+            return False
+        encoded = self.encoded[1] if self.encoded and self.encoded[0] == len(self.closed) else 0
+        if self.run >= TAIL or len(self.open) - encoded >= REFRESH:
+            self.encode(*self.kept())
+            return self.run >= TAIL
+        return False
 
-    def cut(self, frame):
-        self.encode(self.open[: frame * FRAME])
+    def cut(self, frame, padded):
+        self.encode(frame * FRAME, padded)
         self.closed = self.texts()
         self.paths = [Path(self.model, path.booster) for path in self.paths]
-        self.open, self.levels, self.silent = (
-            self.open[frame * FRAME :],
-            self.levels[frame:],
-            self.silent[frame:],
-        )
+        self.open, self.levels = self.open[frame * FRAME :], self.levels[frame:]
+        self.silent = self.silent[frame:]
         self.voiced = len(self.silent) - sum(self.silent)
-        self.run = next(
-            (index for index, silent in enumerate(reversed(self.silent)) if not silent),
-            len(self.silent),
-        )
-        self.seen, self.updated = None, 0
+        silences = (index for index, silent in enumerate(reversed(self.silent)) if not silent)
+        self.run, self.encoded = next(silences, len(self.silent)), None
 
     def finish(self):
-        """Every segment's (plain, boosted), the open one encoded once more with all its audio."""
-        if self.voiced and len(self.open) >= RATE // 10:
-            self.encode(self.open)
+        """Every segment's (plain, boosted), the open one from all its audio but the silence past TAIL."""
+        if self.voiced and self.kept()[0] >= RATE // 10:
+            self.encode(*self.kept())
             return self.texts()
         return self.closed
