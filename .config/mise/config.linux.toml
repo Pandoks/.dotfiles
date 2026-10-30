@@ -80,3 +80,15 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 content = '''
 SUBSYSTEM=="usb", ATTR{idVendor}=="2c97", MODE="0666"
 '''
+
+# Waits for ~/.config/beszel/key and token, then reports to the Beszel hub
+[bootstrap.linux.systemd.units.beszel-agent]
+description = "Beszel Agent"
+after = ["network.target"]
+type = "simple"
+exec_start = "/bin/sh -c '[ -s %h/.config/beszel/token ] || exit 0; exec %h/.local/share/mise/installs/github-henrygd-beszel/latest/beszel-agent'"
+environment = { HUB_URL = "https://beszel.tailb2c81d.ts.net", KEY_FILE = "%h/.config/beszel/key", TOKEN_FILE = "%h/.config/beszel/token", DISABLE_SSH = "true" }
+restart = "on-failure"
+restart_sec = "10"
+wanted_by = ["default.target"]
+start = true

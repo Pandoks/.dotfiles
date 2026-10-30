@@ -51,6 +51,9 @@ run = '''
 for cask in logi-options+ raycast; do
   brew list --cask "$cask" &>/dev/null || brew install --cask "$cask"
 done
+
+# GPU stats for the Beszel agent; macmon only supports Apple Silicon
+[ "$(uname -m)" != arm64 ] || brew list macmon &>/dev/null || brew install macmon
 '''
 
 [bootstrap.hooks.final]
@@ -59,6 +62,21 @@ spoons="$HOME/.hammerspoon/Spoons"
 mkdir -p "$spoons"
 test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoon/Spoons/raw/master/Spoons/SpoonInstall.spoon.zip | bsdtar -xf - -C "$spoons"
 '''
+
+# Waits for ~/.config/beszel/key and token, then reports to the Beszel hub
+[bootstrap.macos.launchd.agents.beszel-agent]
+program = "/bin/sh"
+args = ["-c", '''
+export KEY_FILE="$HOME/.config/beszel/key" TOKEN_FILE="$HOME/.config/beszel/token"
+[ -s "$TOKEN_FILE" ] || exit 0
+command -v macmon >/dev/null && export GPU_COLLECTOR=macmon
+exec "$HOME/.local/share/mise/installs/github-henrygd-beszel/latest/beszel-agent"
+''']
+environment = { PATH = "/opt/homebrew/bin:/usr/bin:/bin", HUB_URL = "https://beszel.tailb2c81d.ts.net", DISABLE_SSH = "true" }
+run_at_load = true
+keep_alive_on_failure = true
+stdout_path = "~/Library/Logs/beszel-agent.log"
+stderr_path = "~/Library/Logs/beszel-agent.log"
 
 [dotfiles]
 "~/.zprofile" = "../../.zprofile"

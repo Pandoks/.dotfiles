@@ -195,7 +195,39 @@ this toggle on. It's stored in the account's auth file, not in this repo.
 mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
 ```
 
+## Beszel
+
+[Beszel] shows CPU, GPU, memory, disk, and network for every machine at
+`https://beszel.<tailnet>.ts.net`. Bootstrap installs the agent everywhere;
+it stays idle until the machine has a key and token.
+
+### Hub
+
+On the machine tagged `tag:beszel`:
+
+```sh
+mise -E beszel bootstrap --yes
+sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
+```
+
+Create the admin account at `https://beszel.<tailnet>.ts.net`, then turn on a
+permanent universal token under **Settings → Tokens**.
+
+### Agents
+
+On each machine, save the hub's public key (shown in **Add System**) to
+`~/.config/beszel/key` and the universal token to `~/.config/beszel/token`
+with mode `600`, then restart the agent. It registers under the hostname.
+
+```sh
+systemctl --user restart dev.mise.beszel-agent                # Linux
+launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
+```
+
+The token stays local; never commit it.
+
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
+[Beszel]: https://beszel.dev/
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
