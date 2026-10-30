@@ -183,6 +183,10 @@ systemctl --user restart dev.mise.beszel-agent                # Linux
 launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 ```
 
+## Grok
+
+See [grok/README.md](grok/README.md).
+
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [Beszel]: https://beszel.dev/
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI

@@ -1,0 +1,33 @@
+downloads-dir = "~/grok/cache/proton-mail"
+envelope.list.datetime-local-tz = true
+message.send.save-copy = false
+
+mailbox.alias.inbox = "INBOX"
+mailbox.alias.sent = "Sent"
+mailbox.alias.drafts = "Drafts"
+mailbox.alias.trash = "Trash"
+mailbox.alias.junk = "Spam"
+mailbox.alias.archive = "Archive"
+{%- for key, email in vars %}
+{%- if key | replace(from="_PROTON_EMAIL", to="") != key and key | truncate(length=5, end="") == "GROK_" %}
+{%- set name = key | replace(from="GROK_", to="") | replace(from="_PROTON_EMAIL", to="") | lower %}
+{%- set password_key = key | replace(from="_EMAIL", to="_PASSWORD") %}
+{%- set password = vars[password_key] | default(value="") %}
+
+[accounts.{{ name }}]
+default = {{ name == vars.GROK_PROTON_DEFAULT | default(value="") | lower }}
+email = "{{ email }}"
+imap.server = "imap://127.0.0.1:1143"
+imap.starttls = true
+imap.tls.provider = "rustls"
+imap.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
+imap.sasl.plain.username = "{{ email }}"
+imap.sasl.plain.password.raw = "{{ password }}"
+smtp.server = "smtp://127.0.0.1:1025"
+smtp.starttls = true
+smtp.tls.provider = "rustls"
+smtp.tls.cert = "~/grok/config/himalaya/proton-bridge-cert.pem"
+smtp.sasl.plain.username = "{{ email }}"
+smtp.sasl.plain.password.raw = "{{ password }}"
+{%- endif %}
+{%- endfor %}
