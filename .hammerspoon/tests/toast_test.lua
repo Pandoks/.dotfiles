@@ -540,7 +540,7 @@ test("a multi-click closes only its toast, and the rest of it reaches nothing", 
   )
 end)
 
-test("a toast pressed as it times out or all close waits for its release", function()
+test("a toast pressed while closed waits for its release, then uses the close's fade", function()
   toast.install()
   toast.show("older")
   toast.show("pressed")
@@ -554,6 +554,11 @@ test("a toast pressed as it times out or all close waits for its release", funct
   release()
   assert(secondsUntilHidden(pressed) == 0.25, "it did not fade once let go")
   assert(not pressed.reappeared, "its window came back when the click was let go")
+  local heldId = alert.show("held", "indefinite")
+  local _, releaseHeld = holdClick(pointInside(canvases[3]), 1)
+  alert.closeSpecific(heldId, 0)
+  releaseHeld()
+  assert(secondsUntilHidden(canvases[3]) == 0, "a close at once faded once let go")
 end)
 
 test("a toast closed under a press it has not heard of ends at alpha 0, after any fade", function()
@@ -658,6 +663,9 @@ test("install picks the theme, and an unknown one is logged and fails the load",
     loggedErrors[2] and loggedErrors[2]:find("no appearance sepia", 1, true),
     tostring(loggedErrors[2])
   )
+  for _, invalidOptions in ipairs({ { theme = false }, { appearance = false } }) do
+    assert(not pcall(toast.install, invalidOptions), "false fell back to a default")
+  end
   toast.show("metal")
   assert(rimGrays(canvases[1]) ~= edgeRim, "the edge theme did not change the rim")
 end)
@@ -883,6 +891,7 @@ test("each hs.alert kept until closed has its own id, and an old id closes nothi
   local firstId = alert.show("Working…", "indefinite")
   local secondId = alert.show("Working…", "indefinite")
   assert(firstId ~= secondId and #canvases == 2, "two callers share one alert")
+  assertEqual(type(firstId), "string", "hs.alert's id type")
   alert.closeSpecific(firstId)
   assert(secondsUntilHidden(canvases[1]) == 0.25, "the closed one did not fade")
   assert(not canvases[2].deleted, "closing one closed the other")

@@ -52,7 +52,7 @@ local appearanceWatcher
 ---@alias ToastSize { w: number, h: number }
 
 ---@class ToastEntry
----@field id integer
+---@field id string
 ---@field text string
 ---@field failure boolean
 ---@field hasImage boolean
@@ -92,12 +92,14 @@ local function layout()
 end
 
 -- By id, as a callback holding its own timer is never collected.
----@param id integer?
+---@param id string?
 ---@param fade? number
 function toast.close(id, fade)
   local fadeSeconds = fade and math.max(fade, 0) or 0.25
   if heldIds[id] then
-    return -- its release closes it
+    ---@cast id string
+    heldIds[id] = fade or heldIds[id] -- its release closes it
+    return
   end
   for index, entry in ipairs(shownToasts) do
     if entry.id == id then
@@ -242,7 +244,7 @@ toast.screenWatcher = hs.screen.watcher
 -- "Tiling: no window" shows "Tiling" over "No window".
 ---@param text string
 ---@param options? ToastOptions
----@return integer?
+---@return string?
 function toast.show(text, options)
   options = options or {}
   local seconds = options.seconds
@@ -289,7 +291,7 @@ function toast.show(text, options)
     { w = textLeft + textWidth + padding, h = canvasHeight }, math.min(canvasHeight / 2, 20)
   canvas:size(canvasSize)
   lastToastId = lastToastId + 1
-  local id = lastToastId
+  local id = tostring(lastToastId)
   local entry = {
     id = id,
     text = text,
@@ -384,15 +386,17 @@ function toast.show(text, options)
   -- Closes on release, as a held left click would put its window back.
   canvas:canvasMouseEvents(true, true, false, false)
   canvas:mouseCallback(function(_, message)
-    heldIds[id] = message == "mouseDown" or nil
-    if heldIds[id] then
+    if message == "mouseDown" then
+      heldIds[id] = heldIds[id] or true
       -- A tap started now can miss a quick click's up, leaving the button unknown.
       -- Never stopped: stopping it from its callback drops an up.
       lastUpButton = "any"
       multiClickTap:start()
       return
     end
-    toast.close(id)
+    local closeFade = tonumber(heldIds[id]) -- a close's, if one came while held
+    heldIds[id] = nil
+    toast.close(id, closeFade)
     closedByButton[lastUpButton] = true
   end)
   restartTimeout(entry, seconds)
@@ -414,7 +418,8 @@ end
 ---@param options? { theme?: "metal"|"edge"|"flat"|"glass", appearance?: "system"|"light"|"dark" }
 function toast.install(options)
   options = options or {}
-  local themeName, appearance = options.theme or "metal", options.appearance or "system"
+  local themeName = options.theme == nil and "metal" or options.theme
+  local appearance = options.appearance == nil and "system" or options.appearance
   local problem
   if not themes[themeName] then
     problem = "Toast: no theme " .. tostring(themeName) .. "; use metal, edge, flat, or glass"
