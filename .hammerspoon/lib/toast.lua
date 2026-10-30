@@ -98,7 +98,7 @@ function toast.close(id, fade)
   local fadeSeconds = fade and math.max(fade, 0) or 0.25
   if heldIds[id] then
     ---@cast id string
-    heldIds[id] = fade or heldIds[id] -- its release closes it
+    heldIds[id] = heldIds[id] == true and fadeSeconds or heldIds[id] -- closed at its release
     return
   end
   for index, entry in ipairs(shownToasts) do
