@@ -60,8 +60,7 @@ local appearanceWatcher
 ---@field screen hs.screen
 ---@field timer? hs.timer
 ---@field glass? ToastGlass
----@field cornerRadius number
----@field paint fun()
+---@field paint fun(fadeSeconds: number)
 
 ---@type ToastEntry[]
 local shownToasts = {} -- oldest first
@@ -231,6 +230,7 @@ local screenWatcher = hs.screen.watcher.new(function()
   enforceCap()
   layout()
 end)
+screenWatcher:start()
 
 ---@class ToastOptions
 ---@field failure? boolean
@@ -287,7 +287,17 @@ function toast.show(text, options)
   local canvasSize, cornerRadius =
     { w = textLeft + textWidth + padding, h = canvasHeight }, math.min(canvasHeight / 2, 20)
   canvas:size(canvasSize)
-  local function paint()
+  lastToastId = lastToastId + 1
+  local id = lastToastId
+  local entry = {
+    id = id,
+    text = text,
+    failure = failure,
+    hasImage = options.image ~= nil,
+    canvas = canvas,
+    screen = screen,
+  }
+  function entry.paint(fadeSeconds)
     local palette = theme[darkAppearance and "dark" or "light"]
     local textShadow = palette.shadow
       and { offset = { h = 0, w = 0 }, blurRadius = 4, color = palette.shadow }
@@ -357,16 +367,21 @@ function toast.show(text, options)
       }
     end
     canvas:replaceElements(elements)
+    if entry.glass and not theme.glass then
+      entry.glass:hide(0)
+      entry.glass = nil
+    elseif entry.glass then
+      entry.glass:paint(darkAppearance)
+    elseif theme.glass then
+      entry.glass = assert(native).glass(canvas, cornerRadius, fadeSeconds, darkAppearance)
+    end
   end
-  paint()
   canvas:level(hs.canvas.windowLevels.dock - 1)
   canvas:behaviorAsLabels({ "canJoinAllSpaces", "stationary", "fullScreenAuxiliary" })
   canvas:clickActivating(false)
 
   -- Closes on release, as a held left click would put its window back.
   canvas:canvasMouseEvents(true, true, false, false)
-  lastToastId = lastToastId + 1
-  local id = lastToastId
   canvas:mouseCallback(function(_, message)
     heldIds[id] = message == "mouseDown" or nil
     if heldIds[id] then
@@ -379,39 +394,18 @@ function toast.show(text, options)
     toast.close(id)
     closedByButton[lastUpButton] = true
   end)
-  local entry = {
-    id = id,
-    text = text,
-    failure = failure,
-    hasImage = options.image ~= nil,
-    canvas = canvas,
-    screen = screen,
-    cornerRadius = cornerRadius,
-    paint = paint,
-  }
   restartTimeout(entry, seconds)
   shownToasts[#shownToasts + 1] = entry
   enforceCap()
   layout()
-  screenWatcher:start()
   canvas:show(0.15)
-  if theme.glass then
-    entry.glass = assert(native).glass(canvas, cornerRadius, 0.15, darkAppearance)
-  end
+  entry.paint(0.15)
   return id
 end
 
 local function repaint()
   for _, entry in ipairs(shownToasts) do
-    entry.paint()
-    if entry.glass and not theme.glass then
-      entry.glass:hide(0)
-      entry.glass = nil
-    elseif entry.glass then
-      entry.glass:paint(darkAppearance)
-    elseif theme.glass then
-      entry.glass = assert(native).glass(entry.canvas, entry.cornerRadius, 0, darkAppearance)
-    end
+    entry.paint(0)
   end
 end
 
