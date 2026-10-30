@@ -5,6 +5,7 @@
 "brew:macmon" = "latest"
 "brew:mas" = "latest"
 "brew:rtorrent" = "latest"
+"brew:smartmontools" = "latest"
 "brew:tailscale" = "latest"
 "brew:tsui" = "latest"
 "brew:ykman" = "latest"
@@ -64,7 +65,7 @@ test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoo
 [bootstrap.macos.launchd.agents.beszel-agent]
 program = "/bin/sh"
 args = ["-c", '''
-export KEY_FILE="$HOME/.config/beszel/key" TOKEN_FILE="$HOME/.config/beszel/token"
+export KEY_FILE="$HOME/.config/beszel/key" TOKEN_FILE="$HOME/.config/beszel/token" DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
 [ -s "$TOKEN_FILE" ] || exit 0
 exec "$HOME/.local/share/mise/installs/github-henrygd-beszel/latest/beszel-agent"
 ''']
