@@ -2,7 +2,7 @@
 
 **Opinionated macOS and Linux workstation configuration, managed by [mise].**
 
-[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon_%7C_Intel-000000?style=flat-square&logo=apple&logoColor=white)](#supported-systems)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?style=flat-square&logo=apple&logoColor=white)](#supported-systems)
 [![Linux](https://img.shields.io/badge/Linux-Debian_%7C_Ubuntu_%7C_Arch-FCC624?style=flat-square&logo=linux&logoColor=black)](#supported-systems)
 [![mise](https://img.shields.io/badge/managed_with-mise-2F80ED?style=flat-square)](https://mise.jdx.dev/)
 [![Last commit](https://img.shields.io/github/last-commit/Pandoks/.dotfiles?style=flat-square)](https://github.com/Pandoks/.dotfiles/commits/master)
@@ -14,7 +14,7 @@ Zsh, and links application config.
 
 | System                          | Package manager |
 | ------------------------------- | --------------- |
-| macOS on Apple Silicon or Intel | Homebrew        |
+| macOS on Apple Silicon          | Homebrew        |
 | Debian / Ubuntu                 | apt             |
 | Arch Linux                      | pacman          |
 
@@ -41,7 +41,7 @@ sudo apt install -y mise
 sudo pacman -Syu --needed git mise
 ```
 
-### macOS (Apple Silicon or Intel)
+### macOS (Apple Silicon)
 
 Install the Xcode Command Line Tools and complete its prompt:
 
@@ -53,11 +53,7 @@ Then install [Homebrew] and mise:
 
 ```sh
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-if [[ -x /opt/homebrew/bin/brew ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-else
-  eval "$(/usr/local/bin/brew shellenv)"
-fi
+eval "$(/opt/homebrew/bin/brew shellenv)"
 brew install mise
 ```
 
@@ -66,23 +62,20 @@ brew install mise
 
 Some features need [SIP] partially disabled.
 
-1. Shut down. Hold power (Apple Silicon) or hold Command-R during startup (Intel).
-2. Apple Silicon: **Options → Continue**. Authenticate when prompted.
+1. Shut down, then hold power until startup options appear.
+2. **Options → Continue**. Authenticate when prompted.
 3. **Utilities → Terminal**, then run the command for your Mac and authenticate:
 
    ```sh
-   # Apple Silicon, macOS 13+
+   # macOS 13+
    csrutil enable --without fs --without debug --without nvram
 
-   # Apple Silicon, macOS 12
+   # macOS 12
    csrutil disable --with kext --with dtrace --with basesystem
-
-   # Intel, macOS 11+
-   csrutil disable --with kext --with dtrace --with nvram --with basesystem
    ```
 
-4. Restart into **normal macOS**. **Apple Silicon only:** open the regular
-   **Terminal** app and check existing boot arguments:
+4. Restart into **normal macOS**, open the regular **Terminal** app, and check
+   existing boot arguments:
 
    ```sh
    nvram boot-args
@@ -110,10 +103,9 @@ Some features need [SIP] partially disabled.
    **Restart again after changing boot arguments.**
 
 5. Check `csrutil status`. It may report `unknown (Custom Configuration)`;
-   that is expected. Filesystem Protections and Debugging Restrictions
-   should be disabled (plus NVRAM Protections on Apple Silicon), while Kext
-   Signing and DTrace Restrictions stay enabled. On Apple Silicon,
-   `nvram boot-args` should include `-arm64e_preview_abi`.
+   that is expected. Filesystem Protections, Debugging Restrictions, and NVRAM
+   Protections should be disabled, while Kext Signing and DTrace Restrictions
+   stay enabled. `nvram boot-args` should include `-arm64e_preview_abi`.
 
 </details>
 
@@ -164,38 +156,35 @@ The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
-## CLIProxyAPI
+## Hub
 
-Claude Code and Codex route through the [CLIProxyAPI] service on the tailnet.
-Keep Tailscale connected, run `/login` once in Claude Code for claude.ai
-connectors, and don't set `ANTHROPIC_AUTH_TOKEN`.
-
-### Host
-
-On the machine tagged `tag:cliproxyapi`:
+The `tag:hub` machine hosts [CLIProxyAPI] and [Beszel]:
 
 ```sh
-mise -E cliproxyapi bootstrap --yes
+mise -E hub bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 sudo tailscale serve --service=svc:cliproxyapi-ci --https=443 http://127.0.0.1:8318
+sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 ```
 
-Set the dashboard password in `management.secret-key` of
-`~/.cli-proxy-api/config.yaml`, then run
-`systemctl --user restart dev.mise.cli-proxy-api` (it's hashed on start). Add
-accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html`. The config
-links into this public repo, so never commit `secret-key` or API keys.
+**CLIProxyAPI:** set `management.secret-key` in `~/.cli-proxy-api/config.yaml`
+(never commit it), restart `dev.mise.cli-proxy-api`, then add accounts at
+`https://cliproxyapi.<tailnet>.ts.net/management.html` with **WebSockets** on
+for Codex accounts. In Claude Code, run `/login` once and don't set
+`ANTHROPIC_AUTH_TOKEN`.
 
-Then enable WebSockets on each Codex account: **Auth Files**, open the account,
-turn on **WebSockets (websockets)**, and save. Codex already connects to the
-proxy over WebSockets, but the proxy only uses them upstream for accounts with
-this toggle on. It's stored in the account's auth file, not in this repo.
+**Beszel:** create the admin and a permanent universal token at
+`https://beszel.<tailnet>.ts.net`. On each machine, save the hub key (from
+**Add System**) to `~/.config/beszel/key` and the token to
+`~/.config/beszel/token`, then restart the agent:
 
 ```sh
-mise -E cliproxyapi bootstrap --yes && systemctl --user restart dev.mise.cli-proxy-api
+systemctl --user restart dev.mise.beszel-agent                # Linux
+launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 ```
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
+[Beszel]: https://beszel.dev/
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/

@@ -26,6 +26,7 @@ yazi = "latest"
 ffmpeg = "latest"
 go = "latest"
 "aqua:protonpass/pass-cli" = "latest"
+"github:henrygd/beszel" = { version = "latest", asset_pattern = 'beszel-agent_{{ os(macos="darwin") }}_{{ arch(x64="amd64", arm64="arm64") }}.tar.gz' }
 
 [settings]
 minimum_release_age_excludes = ["github:pingdotgg/t3code", "claude-code", "codex", "npm:@moonshot-ai/kimi-code", "opencode", "grok"]
