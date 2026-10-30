@@ -5,7 +5,7 @@
 
 static LSRefTable refTable = LUA_NOREF;
 static dispatch_queue_t workers[4];
-static size_t worker;
+static size_t nextWorker;
 typedef CFArrayRef (*Capture)(int, CGWindowID *, uint32_t, uint32_t);
 typedef CGError (*Owner)(int, CGWindowID, int *);
 typedef CGError (*Process)(int, pid_t *);
@@ -43,10 +43,10 @@ static CGImageRef thumbnail(CGImageRef image) {
   double scale = fmin(1, fmin(460.0 / (double)width, 260.0 / (double)height));
   width = (size_t)fmax(1, round((double)width * scale));
   height = (size_t)fmax(1, round((double)height * scale));
-  CGColorSpaceRef colors = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
   CGContextRef context = CGBitmapContextCreate(NULL, width, height, 8,
-    (width * 4 + 63) & ~(size_t)63, colors, (CGBitmapInfo)kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-  CGColorSpaceRelease(colors);
+    (width * 4 + 63) & ~(size_t)63, colorSpace, (CGBitmapInfo)kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+  CGColorSpaceRelease(colorSpace);
   if (!context) return NULL;
   CGContextSetInterpolationQuality(context, kCGInterpolationMedium);
   CGContextDrawImage(context, CGRectMake(0, 0, (CGFloat)width, (CGFloat)height), image);
@@ -69,7 +69,7 @@ static void deliver(Batch *batch, LSRefTable references, int callback, LSGCCanar
   if (!atomic_load(&batch->cancelled)) {
     if (id) lua_pushinteger(state, id); else lua_pushnil(state);
     if (image) {
-      // A bitmap representation avoids retaining a full-size or lazily rendered snapshot.
+      // A bitmap representation avoids retaining a lazily rendered snapshot.
       NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithCGImage:image];
       bitmap.size = NSMakeSize((CGFloat)CGImageGetWidth(image) / 2, (CGFloat)CGImageGetHeight(image) / 2);
       NSImage *result = [[NSImage alloc] initWithSize:bitmap.size];
@@ -150,7 +150,7 @@ static int capture(lua_State *state) {
   atomic_fetch_add(&batch->references, 1);
   dispatch_group_t group = dispatch_group_create();
   for (size_t index = 0; index < count; index++) {
-    dispatch_group_async(group, workers[worker++ % 4], ^{
+    dispatch_group_async(group, workers[nextWorker++ % 4], ^{
       @autoreleasepool {
         if (atomic_load(&batch->cancelled)) return;
         Preview *window = &batch->windows[index];
@@ -192,7 +192,7 @@ static const luaL_Reg functions[] = {
 
 int luaopen_previews(lua_State *state) {
   // Keep pending blocks executable when Lua unloads modules during reload.
-  static void *handle, *sky;
+  static void *handle, *skyLight;
   static BOOL initialized;
   if (!handle) {
     Dl_info info;
@@ -201,8 +201,8 @@ int luaopen_previews(lua_State *state) {
     }
   }
   if (!initialized) {
-    sky = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW | RTLD_LOCAL);
-    if (!sky) return luaL_error(state, "SkyLight unavailable");
+    skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW | RTLD_LOCAL);
+    if (!skyLight) return luaL_error(state, "SkyLight unavailable");
     int (*mainConnection)(void) = NULL;
     struct { const char *name; void *address; size_t size; } symbols[] = {
       { "CGSHWCaptureWindowList", &captureImage, sizeof captureImage },
@@ -211,7 +211,7 @@ int luaopen_previews(lua_State *state) {
       { "SLSMainConnectionID", &mainConnection, sizeof mainConnection },
     };
     for (size_t index = 0; index < sizeof symbols / sizeof *symbols; index++) {
-      void *symbol = dlsym(sky, symbols[index].name);
+      void *symbol = dlsym(skyLight, symbols[index].name);
       if (!symbol) return luaL_error(state, "%s unavailable", symbols[index].name);
       memcpy(symbols[index].address, &symbol, symbols[index].size);
     }

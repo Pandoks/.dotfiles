@@ -18,7 +18,7 @@ local windowManager = { native = native }
 ---@class SpaceJump
 ---@field space integer
 ---@field index number
----@field landing integer Space the swipes in flight end on
+---@field landing integer Space in-flight swipes end on
 ---@field from number Mission Control index of `landing`
 ---@field display string
 ---@field point hs.geometry
@@ -34,6 +34,7 @@ local function finish(ok, err)
   local job = assert(jump)
   jump = nil
   assert(job.timer):stop()
+  job.timer = nil
   job.done(ok, err)
 end
 
@@ -49,9 +50,9 @@ local function deadline(job)
   end)
 end
 
--- Swipes posted together move straight to the target, without showing the Spaces between.
+-- Swipes posted together skip showing the Spaces between.
 ---@param job SpaceJump
----@param origin number Mission Control index the swipes start from
+---@param origin number Mission Control index
 local function send(job, origin)
   job.landing, job.from = job.space, job.index
   local ok, err =
@@ -61,7 +62,7 @@ local function send(job, origin)
   end
 end
 
--- The Dock mishandles swipes posted while others are in flight, so later presses wait for them.
+-- The Dock mishandles swipes posted mid-flight, so later presses wait.
 local watcher = hs.spaces.watcher
   .new(function()
     local job = jump
@@ -103,8 +104,8 @@ function windowManager.space(index, done)
     done(false, err)
     return
   end
-  local now = active[display]
-  if not screen or not now then
+  local current = active[display]
+  if not screen or not current then
     done(false, "display unavailable")
     return
   end
@@ -119,13 +120,13 @@ function windowManager.space(index, done)
   elseif jump then
     finish(false, "superseded")
   end
-  if now == target.ManagedSpaceID then
+  if current == target.ManagedSpaceID then
     done(true)
     return
   end
   local origin
   for position, space in ipairs(spaces) do
-    if space.ManagedSpaceID == now then
+    if space.ManagedSpaceID == current then
       origin = position
     end
   end
@@ -136,7 +137,7 @@ function windowManager.space(index, done)
   jump = {
     space = target.ManagedSpaceID,
     index = index,
-    landing = now,
+    landing = current,
     from = origin,
     display = display,
     point = screen:frame().center,
@@ -152,13 +153,12 @@ function windowManager.spaceOf(id)
   return native.spaces({ id })[id]
 end
 
--- Shows the window's Space first when another one is on screen.
 ---@param pid integer
 ---@param id integer
 ---@param done? WindowManagerDone
 function windowManager.focus(pid, id, done)
   done = done or function() end
-  -- A window on no Space (e.g. minimized) is focused directly.
+  -- No Space, e.g. minimized.
   local space = windowManager.spaceOf(id)
   if not space then
     native.focus(pid, id, done)
@@ -193,7 +193,7 @@ windowManager.frame = native.frame
 windowManager.minimize = native.minimize
 windowManager.windows = native.windows
 
--- Cache windows on other Spaces now, so the first Cmd-Tab doesn't search for them.
+-- Cache other-Space windows so the first Cmd-Tab doesn't search.
 native.windows(function() end)
 
 function windowManager.stop()

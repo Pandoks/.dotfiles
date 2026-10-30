@@ -2,7 +2,6 @@ local filter = require("lib.window_filter")
 local logger = require("lib.logger")
 local windowManager = require("lib.window_manager")
 
--- Tiled apps, set by `tiling.manage`.
 local apps = {} ---@type table<string, boolean>
 
 ---@class TileLeaf
@@ -28,8 +27,9 @@ local tiling = {}
 local trees = {} ---@type table<integer, TileNode>
 local tiled = {} ---@type table<integer, TileWindow>
 local floating = {} ---@type table<integer, boolean>
-local moving = {} ---@type table<integer, integer> frame updates in flight per window
+local moving = {} ---@type table<integer, integer> in-flight frame updates
 local stopped = false
+local resyncOnRelease = false
 
 local function isPiP(title)
   title = (title or ""):lower():gsub("[^%a]", "")
@@ -39,7 +39,6 @@ end
 ---@param space integer
 ---@return hs.geometry?
 local function area(space)
-  -- A string hint matches screen names too, so a missing display must not reach `find`.
   local display = hs.spaces.spaceDisplay(space)
   local screen = display and hs.screen.find(display)
   return screen and screen:frame()
@@ -47,10 +46,10 @@ end
 
 ---@param node TileNode
 ---@param frame hs.geometry
----@param out table<TileNode, hs.geometry>
-local function measure(node, frame, out)
+---@param framesByNode table<TileNode, hs.geometry>
+local function measure(node, frame, framesByNode)
   if node.id then
-    out[node] = frame
+    framesByNode[node] = frame
     return
   end
   local first, second = hs.geometry.copy(frame), hs.geometry.copy(frame)
@@ -61,23 +60,23 @@ local function measure(node, frame, out)
     first.h = math.floor(frame.h * node.ratio)
     second.y, second.h = frame.y + first.h, frame.h - first.h
   end
-  measure(node.first, first, out)
-  measure(node.second, second, out)
+  measure(node.first, first, framesByNode)
+  measure(node.second, second, framesByNode)
 end
 
 ---@param space integer
 ---@return table<TileNode, hs.geometry>
 local function frames(space)
-  local out, tree, screen = {}, trees[space], area(space)
+  local framesByNode, tree, screen = {}, trees[space], area(space)
   if tree and screen then
-    measure(tree, screen, out)
-    for leaf in pairs(out) do
+    measure(tree, screen, framesByNode)
+    for leaf in pairs(framesByNode) do
       if leaf.zoom then
-        out[leaf] = screen
+        framesByNode[leaf] = screen
       end
     end
   end
-  return out
+  return framesByNode
 end
 
 ---@param space integer
@@ -94,7 +93,6 @@ local function apply(space)
   end
 end
 
--- Puts `new` where `old` sits in its parent, or at the root.
 ---@param space integer
 ---@param old TileNode
 ---@param new TileNode
@@ -119,7 +117,6 @@ local function insert(space, id, pid)
   if not root then
     trees[space] = leaf
   else
-    -- Split the last window along its longer side; the new window takes the second half.
     local target = root
     while target.second do
       target = target.second
@@ -164,43 +161,49 @@ local function manageable(window)
     and not floating[window:id()]
 end
 
--- Reconcile trees with the tracked windows, then lay out every Space that changed.
-local function sync()
+---@param mouseReleased? boolean
+local function sync(mouseReleased)
   if stopped then
     return
   end
-  local changed, seen, ids, windows = {}, {}, {}, {}
+  -- Mid-drag, it would tile a window dragged onto another Space under the cursor.
+  if not mouseReleased and hs.mouse.getButtons()[1] then
+    resyncOnRelease = true
+    return
+  end
+  resyncOnRelease = false
+  local changedSpaces, stillManaged, ids, windows = {}, {}, {}, {}
   for _, window in ipairs(tiling.windows:getWindows()) do
     if manageable(window) then
       ids[#ids + 1] = window:id()
       windows[#windows + 1] = window
     end
   end
-  -- Most recently used first, so a reload builds the same layout.
+  -- Most recent first; insertion order sets the layout.
   local spaces = windowManager.native.spaces(ids)
   for index, window in ipairs(windows) do
     local id = ids[index]
     local space = spaces[id]
     local entry = tiled[id]
     if space and area(space) then
-      seen[id] = true
+      stillManaged[id] = true
       if entry and entry.space ~= space then
-        changed[entry.space] = true
+        changedSpaces[entry.space] = true
         remove(id)
       end
       if not tiled[id] then
         insert(space, id, assert(window:application()):pid())
-        changed[space] = true
+        changedSpaces[space] = true
       end
     end
   end
   for id, entry in pairs(tiled) do
-    if not seen[id] then
-      changed[entry.space] = true
+    if not stillManaged[id] then
+      changedSpaces[entry.space] = true
       remove(id)
     end
   end
-  for space in pairs(changed) do
+  for space in pairs(changedSpaces) do
     apply(space)
   end
 end
@@ -215,7 +218,7 @@ local function current(window)
   return entry
 end
 
--- Nearest tiled window facing `direction`: smallest gap, then closest center, then top-left.
+-- Smallest gap, then closest center, then top-left.
 ---@param from hs.geometry
 ---@param direction string
 ---@param candidates table<integer, hs.geometry>
@@ -254,16 +257,15 @@ end
 ---@param skip integer
 ---@return table<integer, hs.geometry>
 local function peers(space, skip)
-  local out = {}
+  local framesById = {}
   for leaf, frame in pairs(frames(space)) do
     if leaf.id ~= skip and not leaf.zoom then
-      out[leaf.id] = frame
+      framesById[leaf.id] = frame
     end
   end
-  return out
+  return framesById
 end
 
--- Candidates include tiled windows on other displays.
 ---@param direction "north"|"south"|"east"|"west"
 function tiling.focus(direction)
   local window = hs.window.focusedWindow()
@@ -272,7 +274,7 @@ function tiling.focus(direction)
     return
   end
   local id = window:id() --[[@as integer]]
-  local own = windowManager.spaceOf(id)
+  local focusedSpace = windowManager.spaceOf(id)
   local candidates = {}
   local active, err = hs.spaces.activeSpaces()
   if not active then
@@ -280,12 +282,12 @@ function tiling.focus(direction)
     return
   end
   for _, space in pairs(active) do
-    if space == own then
-      for other, frame in pairs(peers(space, id)) do
-        candidates[other] = frame
+    if space == focusedSpace then
+      for peerId, frame in pairs(peers(space, id)) do
+        candidates[peerId] = frame
       end
     else
-      -- On another display, a zoomed window is the only one showing.
+      -- If one is zoomed, it's the only one showing.
       local shown = frames(space)
       for leaf, frame in pairs(shown) do
         if leaf.zoom then
@@ -340,7 +342,6 @@ function tiling.swap(direction)
   apply(focused.space)
 end
 
--- The focused window splits its neighbor, on the side it moved toward.
 ---@param direction "north"|"south"|"east"|"west"
 function tiling.warp(direction)
   local focused, other = pair(direction)
@@ -378,21 +379,21 @@ local function bounds(node, space)
   if not frame then
     return
   end
-  local out = hs.geometry.copy(frame)
+  local nodeFrame = hs.geometry.copy(frame)
   local cut = parent.vertical and math.floor(frame.w * parent.ratio)
     or math.floor(frame.h * parent.ratio)
   if parent.vertical then
-    out.w = parent.first == node and cut or frame.w - cut
-    out.x = parent.first == node and frame.x or frame.x + cut
+    nodeFrame.w = parent.first == node and cut or frame.w - cut
+    nodeFrame.x = parent.first == node and frame.x or frame.x + cut
   else
-    out.h = parent.first == node and cut or frame.h - cut
-    out.y = parent.first == node and frame.y or frame.y + cut
+    nodeFrame.h = parent.first == node and cut or frame.h - cut
+    nodeFrame.y = parent.first == node and frame.y or frame.y + cut
   end
-  return out
+  return nodeFrame
 end
 
 ---@param edge "left"|"right"|"top"|"bottom"
----@param delta number points; negative moves the edge left or up
+---@param delta number points; negative moves left or up
 function tiling.resize(edge, delta)
   local entry = current(hs.window.focusedWindow())
   if not entry then
@@ -479,12 +480,16 @@ tiling.windows:subscribe({
   sync()
 end)
 
--- Windows moved or resized by hand snap back to their tile, after the drag when there is one.
-local dragged = {} ---@type table<integer, boolean>
+local spacesToSnapBack = {} ---@type table<integer, boolean>
 tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   local entry = tiled[id]
-  -- A tiled window that stopped qualifying (e.g. entering fullscreen) leaves the tree instead.
+  -- Stopped qualifying (e.g. entered fullscreen): leave the tree, don't snap back.
   if entry and not manageable(window) then
+    sync()
+    return
+  end
+  local space = entry and windowManager.native.spaces({ id })[id]
+  if space and space ~= entry.space then
     sync()
     return
   end
@@ -493,22 +498,46 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
     return
   end
   if hs.mouse.getButtons()[1] then
-    dragged[entry.space] = true
+    spacesToSnapBack[entry.space] = true
   else
     apply(entry.space)
   end
 end)
-tiling.release = hs.eventtap
+-- A Mission Control drop changes a window's Space ~0.6 s after the release, with no window event.
+tiling.spaceCheckAfterDrop = hs.timer.delayed.new(1, function()
+  local ids = {}
+  for id in pairs(tiled) do
+    ids[#ids + 1] = id
+  end
+  local spaces = windowManager.native.spaces(ids)
+  for id, entry in pairs(tiled) do
+    if spaces[id] and spaces[id] ~= entry.space then
+      sync()
+      return
+    end
+  end
+end)
+tiling.mouseReleaseTap = hs.eventtap
   .new({ hs.eventtap.event.types.leftMouseUp }, function()
-    for space in pairs(dragged) do
+    -- The button still reads as held here.
+    if resyncOnRelease then
+      sync(true)
+    end
+    for space in pairs(spacesToSnapBack) do
       apply(space)
     end
-    dragged = {}
+    spacesToSnapBack = {}
+    tiling.spaceCheckAfterDrop:start()
     return false
   end)
   :start() --[[@as hs.eventtap]]
-tiling.spaces = hs.spaces.watcher.new(sync):start() --[[@as hs.spaces.watcher]]
-tiling.screens = hs.screen.watcher
+tiling.spaceWatcher = hs.spaces.watcher
+  .new(function()
+    -- It passes the Space, not `mouseReleased`.
+    sync()
+  end)
+  :start() --[[@as hs.spaces.watcher]]
+tiling.screenWatcher = hs.screen.watcher
   .new(function()
     for space in pairs(trees) do
       apply(space)
@@ -517,7 +546,7 @@ tiling.screens = hs.screen.watcher
   :start() --[[@as hs.screen.watcher]]
 sync()
 
----@param names string[] app names to tile
+---@param names string[]
 function tiling.manage(names)
   apps = {}
   for _, name in ipairs(names) do
@@ -526,20 +555,21 @@ function tiling.manage(names)
   sync()
 end
 
--- Exposed for the Hammerspoon console.
+-- For the Hammerspoon console.
 function tiling.status()
-  local out = {}
+  local statusById = {}
   for id, entry in pairs(tiled) do
-    out[id] = { space = entry.space, zoom = entry.leaf.zoom, floating = floating[id] }
+    statusById[id] = { space = entry.space, zoom = entry.leaf.zoom, floating = floating[id] }
   end
-  return out
+  return statusById
 end
 
 function tiling.stop()
   stopped = true
-  tiling.release:stop()
-  tiling.spaces:stop()
-  tiling.screens:stop()
+  tiling.mouseReleaseTap:stop()
+  tiling.spaceCheckAfterDrop:stop()
+  tiling.spaceWatcher:stop()
+  tiling.screenWatcher:stop()
   tiling.windows:delete()
 end
 

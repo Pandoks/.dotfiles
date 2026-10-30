@@ -4,6 +4,7 @@
 "pacman:acpid" = "latest"
 
 [bootstrap.directories."/etc/systemd/logind.conf.d"]
+[bootstrap.directories."/etc/systemd/journald.conf.d"]
 [bootstrap.directories."/etc/systemd/system/acpid.service.d"]
 [bootstrap.directories."/etc/cmdline.d"]
 [bootstrap.directories."/etc/default/grub.d"]
@@ -21,7 +22,15 @@ HandleLidSwitchExternalPower=ignore
 content = '''
 kernel.softlockup_panic = 1
 kernel.hardlockup_panic = 1
+kernel.hung_task_panic = 1
 kernel.panic = 10
+kernel.sysrq = 1
+'''
+
+[bootstrap.files."/etc/systemd/journald.conf.d/60-mise-crash.conf"]
+content = '''
+[Journal]
+SyncIntervalSec=10s
 '''
 
 [bootstrap.files."/etc/cmdline.d/60-mise-crash.conf"]
@@ -52,6 +61,13 @@ action=/usr/bin/systemd-cat -t laptop-panel /usr/local/libexec/laptop-panel open
 '''
 notify = ["acpid"]
 
+[bootstrap.files."/etc/acpi/events/power-log"]
+content = '''
+event=^(ac_adapter|battery)
+action=/usr/bin/logger -p daemon.crit -t power-event %e
+'''
+notify = ["acpid"]
+
 [bootstrap.files."/etc/systemd/system/acpid.service.d/laptop-panel.conf"]
 content = '''
 [Unit]
@@ -69,6 +85,7 @@ on_change = "restart"
 run = '''
 sudo systemctl reload systemd-logind
 sudo sysctl --system >/dev/null
+sudo systemctl enable --quiet systemd-pstore.service
 
 grep -qw efi_pstore.pstore_disable=0 /proc/cmdline && exit 0
 if command -v mkinitcpio >/dev/null; then

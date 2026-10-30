@@ -7,17 +7,20 @@ Set `HAMMERSPOON_APP` if Hammerspoon is installed outside `/Applications`.
 The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
-tracking failures with popups and no retries, and shutdown. The switcher suite
-checks that explicit action failures still log and show popups.
+tracking failures with popups and no retries, and shutdown. It also checks that quit
+apps release their observers, and that a Space change re-scans apps with windows in front
+of a window titled "Dock". The switcher suite checks that explicit action failures
+still log and show popups.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
 checks the frames it requests: longer-side splits for new windows, the app
 allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that never
 falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
-that a Space jump posts all its swipes at once and reports once on arrival, and that
-a press during a jump continues from that jump's target. It also checks that loading starts
-one background window search, so the first Cmd-Tab finds windows on other Spaces cached.
+that a Space jump posts all its swipes at once and reports once on arrival, that a press
+during a jump continues from that jump's target, and that finished jumps release their timers.
+It also checks that loading starts one background window search, so the first Cmd-Tab finds
+windows on other Spaces cached.
 Neither touches the real window server; the native gesture, focus, and Accessibility calls in
 `lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
 
@@ -83,7 +86,8 @@ Hammerspoon, send input, or focus windows.
 
 The suite covers pointer boundaries, gaps, incomplete rows, scrolling and clipping,
 keyboard navigation, clicks, focus-first ordering, stale replies, timeouts,
-concurrent requests, and unavailable or reused windows.
+concurrent requests, and unavailable or reused windows. Cancelled menus and finished
+focus jobs release their timers.
 
 Menu layout responds to both dimensions of the usable frame of the focused Space's display,
 resolved through `hs.spaces.spaceDisplay(hs.spaces.focusedSpace())` because
@@ -108,10 +112,12 @@ The Space-focus suite also checks numbered/Ctrl-arrow shortcuts, Space arrival
 before or after the `window_manager.space` reply, arrival timeouts, superseded requests,
 direct Space notifications, late PiP focus, per-Space window identity, empty desktop fallback,
 explicit mouse intent, superseded replies, shutdown, and idle snapshot activity.
+Finished jobs release their timers.
 It also checks PiP activation redirects, display boundaries, repeated presses during
 a pending switch, and Mission Control key passthrough and focus suppression. Its window
 model keeps untracked, minimized, hidden, layer-3, and other-display windows out of the
-candidates.
+candidates. A window titled "Dock" hides nothing in front of it from focus restoration or
+PiP redirects, and the shown Dock (layer 20) is not cover.
 
 Ctrl-Left/Right use `window_manager.space` outside Mission Control and stop at the current display's
 first/last Space. Numbered shortcuts use global Mission Control indices. Shortcuts take
@@ -160,13 +166,18 @@ window has focus. Switcher busy checks do
 not inspect screen-recording permission. Focus validation checks the current Space after the
 other state checks, so a Space change during those checks cannot focus an old window.
 
-Focus restoration reads the Space synchronously in-process: `hs.window.list()` for the
+Focus restoration reads the Space synchronously in-process: `hs.window.list(true)` for the
 WindowServer's front-to-back on-screen windows, limited to those centered in the Space
 display's `fullFrame()`, plus `hs.window.focusedWindow()` and
 `lib.window_filter.windowsOf` for tracked windows. Candidates are tracked layer-0
 windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
 This never waits behind a busy app; it measured about 2-3 ms. A Space whose display
 cannot be found fails once with a popup.
+Without `true`, the list keeps only the windows behind the first one titled "Dock", from any
+app. With Screen Recording and the Dock hidden, a Finder window on a folder named Dock hides
+every window in front of it, including the PiP. The PiP lookups and `lib.window_filter`'s
+Space re-scan pass `true` too. Either way the list holds only on-screen windows: none
+minimized, hidden, or on another Space.
 
 Space information, including each Space's display UUID, comes from one native snapshot
 per lookup. Cmd-Tab and Space
@@ -259,9 +270,10 @@ For a live check after reloading Hammerspoon:
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
 
-The logger and toast Lua regressions also run with `tests/run.sh`. The toast suite covers
-placement, stacking, repeats, click dismissal, wrapping, themes, light and dark, glass, and
-`hs.alert` routing. Toast looks, the glass window, and clicks were checked live on macOS 27.0.1.
+The logger, window profiles and toast Lua regressions also run with `tests/run.sh`. The toast
+suite covers placement, stacking, repeats, click dismissal, wrapping, themes, light and dark,
+glass, and `hs.alert` routing. Toast looks, the glass window, and clicks were checked live on
+macOS 27.0.1.
 
 Audit checks (substitute the installed executable paths if needed):
 
