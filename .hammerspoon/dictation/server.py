@@ -211,8 +211,9 @@ def misheard(old, new):  # same first letter, 5+ letters, and closer than "shoul
 
 
 BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
-PRONOUNS = {"it", "them", "him", "her", "his", "their"}  # words standing for words said before
+PRONOUNS = {"it", "them", "him", "her", "his", "their"}
 PARTICLES = ("up", "in", "on", "out", "off", "down")  # a noun said apart: "the sign up"
+WHEN = r"\d+[ap]m|earl\w*|lat(?:e|er|est)|next|last|first|morning|afternoon|evening|night"
 SOME = ("these", "those", "some")  # a plural correction's determiner: "no, those blue ones"
 DETERMINERS = {"no", "the", "a", "this", "that", "each", "every", "any", "some", "which"}
 DETERMINERS |= {"another", "other"}
@@ -372,6 +373,12 @@ def restore(raw, cleaned):
                 continue
             if tag != "delete":
                 continue
+            # Not the "you know" of a tag the cleanup sets off: "It's late, what I mean?"
+            you_know = spoken[i1:i2] == ["you", "know"] and typed[j1 : j1 + 1] == ["what"]
+            tagged = re.match(r" what i(?: mean|'m saying)[,.?!]", raw[spoken_spans[i2 - 1][2] :])
+            if you_know and tagged and re.search(r"[,.;:]\s*$", cleaned[: typed_spans[j1][1]]):
+                bad.append((i1, i2, j1, j2))
+                continue
             # A deleted run: fillers and repeats, from its start or one word back...
             shift = i1 and spoken[i1 - 1] == spoken[i2 - 1]  # "that, you know, you have"
             if dropped(i1, i2, kept) or shift and dropped(i1 - 1, i2 - 1, kept):
@@ -413,16 +420,18 @@ def restore(raw, cleaned):
         determiners = ("the", "a", "an", "my", "your", "our", "his", "her", "their", "this", "that")
         determiners += SOME
         subjects = ("i", "we", "you", "they", "he", "she")
-        pronouns = (*PRONOUNS, *determiners, "me", "us", "yours", "hers", "ours", "theirs")
+        not_nouns = (*PRONOUNS, *determiners, "me", "us", "yours", "hers", "ours", "theirs")
+        not_nouns += ("there", "its", "it's")  # "their" heard as "there"
         amount = rf"(?<![\w-])(?:at|for|past|to|(?:all|{WORD}) (?:in|on)) $"
+        numbers = {index for index, word in enumerate(spoken) if word in VALUE or word.isdecimal()}
         for one in reversed(aligned):
             if one < 3 or not match(one, r"(?<!-)ones?(?!['-])"):
                 continue  # not "one's", "one-liner" or "all-in-one"
             if re.search(amount, raw[: spoken_spans[one][1]]):
                 continue  # a count or time: "a table for one", "a quarter past one", "two in one"
-            determiner = one - 2 if spoken[one - 2] in determiners else one - 3  # "the big red one"
-            if spoken[determiner] not in determiners:
-                continue
+            determiner = one - 2 if spoken_spans[one - 2][3] in determiners else one - 3
+            if determiner < one - 2 and spoken[determiner] not in determiners:
+                continue  # "the big red one", not "this shop sells one" (tokens() reads "thi")
             cue, past = max(cues(1, one, aligned), default=(0, 0))
             while cue and spoken[cue - 1] in ("or", "well"):
                 cue -= 1
@@ -430,20 +439,24 @@ def restore(raw, cleaned):
                 continue  # a filler's cue: "They shipped, basically, sorry, the latest one"
             if "one" in spoken[max(cue - 2, 0) : cue]:
                 continue  # its own "one": "the red one works, no, the blue one does"
-            if spoken_spans[cue - 1][3] in pronouns or cue > 1 and spoken[cue - 2] in subjects:
+            if spoken_spans[cue - 1][3] in not_nouns or cue > 1 and spoken[cue - 2] in subjects:
                 continue  # a pronoun, determiner or verb: "it, sorry", "the, no", "I think, no"
             noun = re.findall(r"[\w'’-]+", said[: spoken_spans[cue - 1][2]])[-1]
             if cue > 1 and noun.lower() in PARTICLES:  # "the pop up", not "the up"
                 noun = said[spoken_spans[cue - 2][1] : spoken_spans[cue - 1][2]]
+            if noun == "mine" and not {*spoken[max(cue - 4, 0) : cue]} & {*determiners}:
+                continue  # "Take mine, sorry", not "the gold mine" or "Bingham Mine"
+            number = spoken[cue - 1] in (*VALUE, *ORDINAL, "m") or noun.isdecimal()  # "4 p.m."
+            # "the 9am, no, the later one"; "the Monday one" is the Monday 9am
+            clock = re.fullmatch(r"\d+[ap]m", spoken[cue - 1])
+            number |= bool(clock and re.fullmatch(WHEN, spoken[one - 1]))
+            # A time said after a number ("4 PM", not "the PM"); "the 12 one" gets it back.
+            if spoken[cue - 1] in ("o'clock", "am", "pm") and one - 1 not in numbers:
+                number |= cue - 2 in numbers
             # Not one describing the correction: "Monday, sorry, Tuesday, the busy one".
             aside = determiner > past and mark(determiner)
-            number = spoken[cue - 1] in (*VALUE, *ORDINAL, "m") or noun.isdecimal()  # "4 p.m."
-            # A time said after a number ("4 PM", not "the PM"); "the 12 one" gets it back.
-            numbered_one = spoken[one - 1] in VALUE or spoken[one - 1].isdecimal()
-            numbered = cue > 1 and (spoken[cue - 2] in VALUE or spoken[cue - 2].isdecimal())
-            number |= spoken[cue - 1] in ("o'clock", "am", "pm") and numbered and not numbered_one
             # Nor one a cue splits from its "the X": "the blue, sorry, one with the lid".
-            if spoken[cue - 1] not in typed and not number and not aside and past <= determiner:
+            if spoken[cue - 1] not in typed and not number and not aside and cue < determiner:
                 # Nor a later "one": "Monday, sorry, Tuesday, and cancel the other one".
                 gap = raw[spoken_spans[past][1] : spoken_spans[determiner][1]]
                 earlier = {word for *_, word in spoken_spans[:cue]}

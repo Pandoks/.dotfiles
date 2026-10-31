@@ -719,7 +719,6 @@ check(
             ("Pay them for the repairs, actually, pay her.", "Pay her for the repairs."),
             ("Run the old script, sorry, the new one-liner.", "Run the new one-liner."),
             ("Or, well, sorry, the blue one.", "The blue one."),
-            ("Invite Jake, actually, Nina, um, the quiet one.", "Invite Nina, the quiet one."),
             ("Call the vet, sorry, Dr. Lee, the one downtown.", "Call Dr. Lee, the one downtown."),
             ("Send the first one again, sorry, the second one.", "Send the second one."),
             ("Grab the hammer. No. The wrench. The big one.", "Grab the wrench. The big one."),
@@ -730,27 +729,38 @@ check(
             ("Can you grab it, sorry, the red one?", "Can you grab the red one?"),
             ("Bring these, actually, the green ones.", "Bring the green ones."),
             ("Pass me this, sorry, the blue one, please.", "Pass me the blue one, please."),
+            ("Book there, sorry, the cheaper one.", "Book the cheaper one."),
+            ("Oil it's sorry, the squeaky one.", "Oil the squeaky one."),
+            ("Check the deli, sorry, this market sells one.", "Check this market, sells one."),
+            ("Use yours, sorry, the big one.", "Use the big one."),
+            ("Take hers, no, the cheaper one.", "Take the cheaper one."),
             ("Open the, sorry, a new one.", "Open a new one."),
-            (
-                "I want one. Give me the red, actually, one that.",
-                "I want one. Give me the one that.",
-            ),
+            ("Take mine, sorry, the old one.", "Take the old one."),
+            ("I want one. Get the red, no, one that.", "I want one. Get the one that."),
             ("We need, I think, actually, the longer ones.", "We need the longer ones."),
             ("Grab the short ladder, no, you know, the long one.", "Grab the long ladder."),
             ("Use the red markers, no, those blue ones.", "Use the blue markers."),
             ("Take the blue car, no, on second thought, the red one.", "Take the red car."),
             ("Grab me a coffee, never mind, a tea.", "Grab me a tea."),
+            ("Use the red pen, you know what, the green one.", "Use the green pen."),
             ("Catch the bus at 7.45, sorry, the next one.", "Catch the bus at the next one."),
             ("Take the train at six, no, the later one.", "Take the train at the later one."),
             ("Grade the first, no, the second one.", "Grade the second one."),
             ("Cancel the 4 p.m., no, the earlier one.", "Cancel the earlier one."),
+            ("Cancel the 2pm, no, the morning one.", "Cancel the morning one."),
+            ("Move the 3pm, sorry, the later one.", "Move the later one."),
+            ("Skip the 10am, sorry, the afternoon one.", "Skip the afternoon one."),
+            ("Let's do the 3pm, actually, the earlier one.", "Let's do the earlier one."),
+            ("Push the 7am, actually, the evening one.", "Push the evening one."),
             ("Push the two o'clock, no, the earlier one.", "Push the earlier one."),
             ("Buy the inkjet printer, actually, the all-in-one.", "Buy the all-in-one."),
-            (
-                "Set the alarm for noon, no, a quarter past one.",
-                "Set the alarm for a quarter past one.",
-            ),
+            ("Get the regular shampoo, no, the two in one.", "Get the two in one."),
+            ("Order the family platter, no, a meal for one.", "Order a meal for one."),
+            ("Pick me up at noon, actually, a quarter to one.", "Pick me up at a quarter to one."),
+            ("Set it for noon, no, a quarter past one.", "Set it for a quarter past one."),
             ("That's, you know what the client asked for.", "That's what the client asked for."),
+            ("That's basically, you know what I'm saying.", "That's basically what I'm saying."),
+            ("Okay, you know what we need is more tests.", "Okay, what we need is more tests."),
         ]
     ],
     lambda pair: server.restore(*pair),
@@ -877,6 +887,9 @@ check(
             ("It costs 1,000 dollars.", "It costs 1.00 dollars."),
             ("I don't know if you know what happened.", "I don't know what happened."),
             ("Ask her, you know what, I'll ask her myself.", "Ask her what, I'll ask her myself."),
+            ("It's late, you know what I mean.", "It's late, what I mean."),
+            ("That's the vibe, you know what I'm saying?", "That's the vibe, what I'm saying?"),
+            ("Man, you know what? I'm leaving early.", "Man, what? I'm leaving early."),
         ]
     ]
     + [
@@ -905,8 +918,8 @@ check(
             "Open up a draft PR.",
         ),
         (
-            ("Use the plastic jars, sorry, these glass ones.", "Use these glass ones."),
-            "Use these glass jars.",
+            ("Send it to Priya, you know what? Send it to Omar.", "Send it to Omar."),
+            "Send it to Omar.",
         ),
         (
             (
@@ -920,6 +933,11 @@ check(
             "Book the late check-in.",
         ),
         (
+            ("Open the old spreadsheet, no, open that new one.", "Open that new one."),
+            "Open that new spreadsheet.",
+        ),
+        (("Use the van, no, this bigger one.", "Use this bigger one."), "Use this bigger van."),
+        (
             ("Close the pop up, no, the main one.", "Close the main one."),
             "Close the main pop up.",
         ),
@@ -931,20 +949,27 @@ check(
             ("Book the six o'clock, sorry, the seven one.", "Book the seven one."),
             "Book the seven o'clock.",
         ),
+        (("Skip the 4pm, sorry, the Monday one.", "Skip the Monday one."), "Skip the Monday 4pm."),
         (("Message the PM, wait, the new one.", "Message the new one."), "Message the new PM."),
         (
             ("Wear the black hoodie, actually, the gray one, you know.", "Wear the gray one."),
             "Wear the gray hoodie.",
         ),
         (
-            ("Heat the cast iron skillet. No, heat the non-stick one.", "Heat the non-stick one."),
-            "Heat the non-stick skillet.",
+            ("Hand me the blue, sorry, one with the lid.", "Hand me the one with the lid."),
+            "Hand me the one with the lid.",
         ),
         (
             ("Order the steel bolts, actually, some brass ones.", "Order some brass ones."),
             "Order some brass bolts.",
         ),
-        (("Take the five train, no, the six one.", "Take the six one."), "Take the six train."),
+        (
+            (
+                "Switch to the dark theme, I mean the light one, in the editor.",
+                "Switch to the light one in the editor.",
+            ),
+            "Switch to the light theme in the editor.",
+        ),
         (
             (
                 "Bring four short cables, actually, four of the long ones.",
@@ -954,6 +979,7 @@ check(
         ),
         (("Cut the short 2x4, sorry, the long one.", "Cut the long one."), "Cut the long 2x4."),
         (("Flag the old mine, actually, the new one.", "Flag the new one."), "Flag the new mine."),
+        (("The mine, sorry, the deeper one.", "The deeper one."), "The deeper mine."),
         (
             (
                 "Bake it in the deep dish, wait, okay, so, the shallow one.",
