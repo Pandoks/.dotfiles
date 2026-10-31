@@ -425,8 +425,8 @@ static int windows(lua_State *state) {
     NSNumber *pid = @(pidOf(iterator)), *windowID = @(windowOf(iterator));
     NSMutableSet *set = owners[pid] ?: (owners[pid] = [NSMutableSet set]);
     [set addObject:windowID];
-    BOOL real = (attributesOf(iterator) & shownAttribute) || (tagsOf(iterator) & (shownTag | minimizedTag | hiddenTag));
-    if (!real) continue;
+    uint64_t tags = tagsOf(iterator);
+    if (!(attributesOf(iterator) & shownAttribute) && !(tags & (shownTag | minimizedTag | hiddenTag))) continue;
     set = reals[pid] ?: (reals[pid] = [NSMutableSet set]);
     [set addObject:windowID];
   }
