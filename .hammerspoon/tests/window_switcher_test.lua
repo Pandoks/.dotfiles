@@ -1725,17 +1725,69 @@ test("closed or reused window is rejected before focus", function()
   assertEqual(#desktop.alerts, 1)
   assertEqual(desktop:commandCount("focus"), 0)
 end)
-test("hidden and minimized windows are restored before focus", function()
-  local desktop = harness()
-  desktop.windows[2]["is-hidden"] = true
-  desktop.windows[2]["is-minimized"] = true
-  desktop:open()
-  desktop:release()
-  desktop:advance(1)
-  assertEqual(desktop.windows[2]["is-hidden"], false)
-  assertEqual(desktop.windows[2]["is-minimized"], false)
-  assertEqual(desktop.windows[2]["has-focus"], true)
-  assertEqual(#desktop.alerts, 0)
+test(
+  "hidden and minimized windows are restored before focus, quick switches without requerying",
+  function()
+    for _, quick in ipairs({ false, true }) do
+      local desktop = harness()
+      desktop.windows[2]["is-hidden"] = true
+      desktop.windows[2]["is-minimized"] = true
+      if quick then
+        desktop:key("keyDown", "tab", { cmd = true })
+        desktop:advance(0.05)
+      else
+        desktop:open()
+      end
+      desktop:release()
+      if quick then
+        assertEqual(desktop.windows[2]["is-hidden"], true, "unhiding waits until the tap returns")
+      end
+      desktop:advance(1)
+      assertEqual(desktop.windows[2]["is-hidden"], false)
+      assertEqual(desktop.windows[2]["is-minimized"], false)
+      assertEqual(desktop.windows[2]["has-focus"], true)
+      assertEqual(#desktop.alerts, 0)
+      if quick then
+        assertEqual(desktop:commandCount("windows"), 1, "the cycle's list is reused")
+      end
+    end
+  end
+)
+test("a state change before a quick switch starts makes it restore before focus", function()
+  for _, when in ipairs({ "during the list", "after an early release", "after release" }) do
+    local reply
+    local desktop = harness({
+      intercept = function(model, name, done)
+        if name == "windows" and not reply then
+          local rows = model:rows()
+          reply = function()
+            done(true, nil, rows)
+          end
+          return true
+        end
+      end,
+    })
+    desktop:key("keyDown", "tab", { cmd = true })
+    desktop:advance(0.01)
+    if when == "after an early release" then
+      desktop:release()
+    elseif when == "after release" then
+      reply()
+      desktop:release()
+    end
+    desktop.windows[2]["is-minimized"] = true
+    desktop:notify("windowMinimized", desktop.windows[2])
+    if when ~= "after release" then
+      reply()
+    end
+    if when == "during the list" then
+      desktop:release()
+    end
+    desktop:advance(1)
+    assertEqual(desktop.windows[2]["is-minimized"], false, when)
+    assertEqual(desktop.windows[2]["has-focus"], true, when)
+    assertEqual(#desktop.alerts, 0, when)
+  end
 end)
 test("hidden and minimized previews dim at full size with distinct centered icons", function()
   local desktop = harness({ previews = true })
@@ -2102,6 +2154,10 @@ test("cancelled menus and finished focus jobs release their timers", function()
   desktop:open()
   desktop:key("keyDown", "escape", {})
   desktop:open()
+  desktop:release()
+  desktop:advance(5)
+  desktop:key("keyDown", "tab", { cmd = true })
+  desktop:advance(0.05)
   desktop:release()
   desktop:advance(5)
   assertEqual(desktop.menu.status().busy, false)

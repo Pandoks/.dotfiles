@@ -14,6 +14,12 @@ static AXUIElementRef (*remoteElement)(CFDataRef token);
 static CGError (*setFront)(ProcessSerialNumber *process, CGWindowID windowID, uint32_t mode);
 static CGError (*postRecord)(ProcessSerialNumber *process, uint8_t *bytes);
 static CFArrayRef (*copySpaces)(int connection, int mask, CFArrayRef windows);
+static CFTypeRef (*queryWindows)(int connection, CFArrayRef windows, int count);
+static CFTypeRef (*copyIterator)(CFTypeRef query);
+static bool (*advance)(CFTypeRef iterator);
+static uint32_t (*windowOf)(CFTypeRef iterator), (*parentOf)(CFTypeRef iterator);
+static int (*pidOf)(CFTypeRef iterator), (*levelOf)(CFTypeRef iterator);
+static uint64_t (*tagsOf)(CFTypeRef iterator), (*attributesOf)(CFTypeRef iterator);
 static int connection;
 
 // Lua closes loadlib handles on reload while queued blocks may still run.
@@ -201,35 +207,42 @@ static NSMutableDictionary<NSNumber *, NSMutableDictionary<NSNumber *, id> *> *e
 static NSMutableDictionary<NSNumber *, NSMutableSet<NSNumber *> *> *absent;
 
 // Windows on other Spaces aren't in AXWindows; unseen ids are searched once by remote token.
-static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wanted) {
+static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wanted, NSSet<NSNumber *> *searchable) {
   NSMutableDictionary *cache;
   NSMutableSet *skipped;
   @synchronized(elements) {
     cache = elements[@(pid)] ?: (elements[@(pid)] = [NSMutableDictionary dictionary]);
     skipped = absent[@(pid)] ?: (absent[@(pid)] = [NSMutableSet set]);
   }
-  NSMutableSet<NSNumber *> *missing = [wanted mutableCopy];
+  NSMutableSet<NSNumber *> *missing = [wanted mutableCopy], *unlisted = [wanted mutableCopy];
+  [unlisted minusSet:searchable];
   for (NSNumber *windowID in wanted) {
     if (cache[windowID]) [missing removeObject:windowID];
   }
-  if (!missing.count) return cache;
+  if (!missing.count && !unlisted.count) return cache;
 
   // AXWindows is rechecked every time: a window can gain its element after a search missed it.
   AXUIElementRef app = application(pid);
   for (id element in attribute(app, kAXWindowsAttribute) ?: @[]) {
     CGWindowID windowID = 0;
     if (_AXUIElementGetWindow((__bridge AXUIElementRef)element, &windowID) != kAXErrorSuccess) continue;
+    AXUIElementSetMessagingTimeout((__bridge AXUIElementRef)element, 1.0);
     cache[@(windowID)] = element;
     [missing removeObject:@(windowID)];
+    [unlisted removeObject:@(windowID)];
   }
   CFRelease(app);
+  // Unsearchable ids count only while AXWindows lists them.
+  [cache removeObjectsForKeys:unlisted.allObjects];
   [missing minusSet:skipped];
+  [missing intersectSet:searchable];
   if (!missing.count) return cache;
 
   uint8_t token[0x14] = { 0 };
   uint32_t magic = 0x636f636f;
   memcpy(token, &pid, sizeof pid);
   memcpy(token + 0x8, &magic, sizeof magic);
+  NSMutableSet<NSNumber *> *unread = [NSMutableSet set];
   for (uint64_t element = 0; element < 0x7fff && missing.count; element++) {
     memcpy(token + 0xc, &element, sizeof element);
     CFDataRef data = CFDataCreate(NULL, token, sizeof token);
@@ -239,17 +252,27 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     CGWindowID windowID = 0;
     if (_AXUIElementGetWindow(candidate, &windowID) == kAXErrorSuccess && [missing containsObject:@(windowID)]) {
       AXUIElementSetMessagingTimeout(candidate, 1.0);
-      cache[@(windowID)] = (__bridge id)candidate;
-      [missing removeObject:@(windowID)];
+      // Menu bars report their window's id too.
+      CFTypeRef role = NULL;
+      if (AXUIElementCopyAttributeValue(candidate, kAXRoleAttribute, &role) != kAXErrorSuccess) {
+        [unread addObject:@(windowID)];
+      } else if (CFEqual(role, kAXWindowRole)) {
+        cache[@(windowID)] = (__bridge id)candidate;
+        [missing removeObject:@(windowID)];
+      }
+      if (role) CFRelease(role);
     }
     CFRelease(candidate);
   }
+  // A timed-out read isn't proof of absence; search again next time.
+  [missing minusSet:unread];
   [skipped unionSet:missing];
   return cache;
 }
 
 static AXUIElementRef copyWindow(pid_t pid, CGWindowID windowID) {
-  id element = resolve(pid, [NSSet setWithObject:@(windowID)])[@(windowID)];
+  NSSet *wanted = [NSSet setWithObject:@(windowID)];
+  id element = resolve(pid, wanted, wanted)[@(windowID)];
   return element ? (AXUIElementRef)CFBridgingRetain(element) : NULL;
 }
 
@@ -395,22 +418,31 @@ static int windows(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TFUNCTION, LS_TBREAK];
 
-  // The window server knows every window; Accessibility tells which are real.
+  // yabai's bits. Menu-bar strips and closed find bars match none, so they're never searched.
+  enum : uint64_t { shownAttribute = 0x2, shownTag = 1ULL << 58, minimizedTag = 1ULL << 60, hiddenTag = 1ULL << 39 };
+  CFArrayRef list = CGWindowListCreate(kCGWindowListOptionAll, kCGNullWindowID);
+  NSMutableArray<NSNumber *> *ids = [NSMutableArray array];
+  for (CFIndex index = 0; list && index < CFArrayGetCount(list); index++) {
+    [ids addObject:@((CGWindowID)(uintptr_t)CFArrayGetValueAtIndex(list, index))];
+  }
+  if (list) CFRelease(list);
+  CFTypeRef query = queryWindows(connection, (__bridge CFArrayRef)ids, (int)ids.count);
+  CFTypeRef iterator = query ? copyIterator(query) : NULL;
+  NSString *failure = iterator ? nil : @"window server query failed";
   NSMutableDictionary<NSNumber *, NSMutableSet<NSNumber *> *> *owners = [NSMutableDictionary dictionary];
-  NSArray *list = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID));
-  // Background processes own windows too, but never answer for them.
-  NSMutableSet<NSNumber *> *apps = [NSMutableSet set];
-  for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
-    if (app.activationPolicy == NSApplicationActivationPolicyRegular) [apps addObject:@(app.processIdentifier)];
+  NSMutableDictionary<NSNumber *, NSMutableSet<NSNumber *> *> *reals = [NSMutableDictionary dictionary];
+  while (iterator && advance(iterator)) {
+    if (levelOf(iterator) || parentOf(iterator) || pidOf(iterator) == getpid()) continue;
+    NSNumber *pid = @(pidOf(iterator)), *windowID = @(windowOf(iterator));
+    NSMutableSet *set = owners[pid] ?: (owners[pid] = [NSMutableSet set]);
+    [set addObject:windowID];
+    uint64_t tags = tagsOf(iterator);
+    if (!(attributesOf(iterator) & shownAttribute) && !(tags & (shownTag | minimizedTag | hiddenTag))) continue;
+    set = reals[pid] ?: (reals[pid] = [NSMutableSet set]);
+    [set addObject:windowID];
   }
-  [apps removeObject:@(getpid())];
-  for (NSDictionary *info in list) {
-    if ([info[(id)kCGWindowLayer] intValue] != 0) continue;
-    pid_t pid = [info[(id)kCGWindowOwnerPID] intValue];
-    if (![apps containsObject:@(pid)]) continue;
-    NSMutableSet *ids = owners[@(pid)] ?: (owners[@(pid)] = [NSMutableSet set]);
-    [ids addObject:info[(id)kCGWindowNumber]];
-  }
+  if (iterator) CFRelease(iterator);
+  if (query) CFRelease(query);
 
   lua_pushvalue(state, 1);
   int callback = [skin luaRef:refTable];
@@ -418,36 +450,51 @@ static int windows(lua_State *state) {
   dispatch_group_t group = dispatch_group_create();
   NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
   for (NSNumber *owner in owners) {
-    NSSet *wanted = [owners[owner] copy];
+    NSSet *windows = [owners[owner] copy], *real = [reals[owner] copy] ?: [NSSet set];
     pid_t pid = owner.intValue;
     dispatch_group_async(group, queueFor(pid), ^{
+      // Background processes never answer. Off the main thread: policies refetch each run loop turn.
+      NSRunningApplication *running = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+      if (!running || running.activationPolicy != NSApplicationActivationPolicyRegular) return;
+      // Windows made while hidden were never shown but are in AXWindows.
+      NSSet *wanted = running.hidden ? windows : real;
+      if (!wanted.count) return;
       // Ids that left the window server may come back for new windows; search those again.
       @synchronized(elements) {
         [absent[@(pid)] intersectSet:wanted];
       }
       NSMutableArray *found = [NSMutableArray array];
-      NSDictionary<NSNumber *, id> *cache = resolve(pid, wanted);
+      NSDictionary<NSNumber *, id> *cache = resolve(pid, wanted, real);
+      AXUIElementRef app = application(pid);
+      NSArray *names = @[ (id)kAXRoleAttribute, (id)kAXSubroleAttribute, (id)kAXTitleAttribute,
+        (id)kAXMinimizedAttribute, (id)kAXParentAttribute ];
       for (NSNumber *key in wanted) {
         AXUIElementRef element = (__bridge AXUIElementRef)cache[key];
         if (!element) continue;
         CGWindowID windowID = key.unsignedIntValue;
-        id role = attribute(element, kAXRoleAttribute);
-        if (!role) {
+        // Missing attributes come back as AXValue errors.
+        CFArrayRef copied = NULL;
+        AXUIElementCopyMultipleAttributeValues(element, (__bridge CFArrayRef)names, 0, &copied);
+        NSMutableArray *values = [CFBridgingRelease(copied) mutableCopy];
+        for (NSUInteger index = 0; index < values.count; index++) {
+          if (CFGetTypeID((__bridge CFTypeRef)values[index]) == AXValueGetTypeID()) values[index] = NSNull.null;
+        }
+        if (values.count != names.count || values[0] == NSNull.null) {
           forget(pid, windowID);
           continue;
         }
-        id parent = attribute(element, kAXParentAttribute);
-        id parentRole = parent ? attribute((__bridge AXUIElementRef)parent, kAXRoleAttribute) : nil;
+        id parent = values[4];
         [found addObject:@{
           @"id": @(windowID),
           @"pid": @(pid),
-          @"role": role,
-          @"subrole": attribute(element, kAXSubroleAttribute) ?: @"",
-          @"title": attribute(element, kAXTitleAttribute) ?: @"",
-          @"root": @(!parent || [parentRole isEqual:(id)kAXApplicationRole]),
-          @"minimized": @([attribute(element, kAXMinimizedAttribute) boolValue]),
+          @"role": values[0],
+          @"subrole": values[1] == NSNull.null ? @"" : values[1],
+          @"title": values[2] == NSNull.null ? @"" : values[2],
+          @"root": @((BOOL)(parent == NSNull.null || CFEqual((__bridge CFTypeRef)parent, app))),
+          @"minimized": @([values[3] isEqual:@YES]),
         }];
       }
+      CFRelease(app);
       @synchronized(rows) {
         [rows addObjectsFromArray:found];
       }
@@ -462,8 +509,8 @@ static int windows(lua_State *state) {
     _lua_stackguard_entry(lua);
     [main pushLuaRef:refTable ref:callback];
     [main luaUnref:refTable ref:callback];
-    lua_pushboolean(lua, 1);
-    lua_pushnil(lua);
+    lua_pushboolean(lua, failure == nil);
+    if (failure) lua_pushstring(lua, failure.UTF8String); else lua_pushnil(lua);
     [main pushNSObject:rows];
     [main protectedCallAndError:@"window_manager windows callback" nargs:3 nresults:0];
     _lua_stackguard_exit(lua);
@@ -508,9 +555,12 @@ int luaopen_window_manager(lua_State *state) {
     void *services = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_NOW);
     if (!skyLight || !services) return luaL_error(state, "SkyLight unavailable");
     const char *names[] = { "SLSMainConnectionID", "_SLPSSetFrontProcessWithOptions", "SLPSPostEventRecordTo",
-      "SLSCopySpacesForWindows", "_AXUIElementCreateWithRemoteToken" };
-    void *found[5];
-    for (size_t index = 0; index < 5; index++) {
+      "SLSCopySpacesForWindows", "_AXUIElementCreateWithRemoteToken", "SLSWindowQueryWindows",
+      "SLSWindowQueryResultCopyWindows", "SLSWindowIteratorAdvance", "SLSWindowIteratorGetWindowID",
+      "SLSWindowIteratorGetParentID", "SLSWindowIteratorGetPID", "SLSWindowIteratorGetLevel",
+      "SLSWindowIteratorGetTags", "SLSWindowIteratorGetAttributes" };
+    void *found[sizeof names / sizeof *names];
+    for (size_t index = 0; index < sizeof names / sizeof *names; index++) {
       found[index] = dlsym(index == 4 ? services : skyLight, names[index]);
       if (!found[index]) return luaL_error(state, "%s unavailable", names[index]);
     }
@@ -520,6 +570,15 @@ int luaopen_window_manager(lua_State *state) {
     postRecord = found[2];
     copySpaces = found[3];
     remoteElement = found[4];
+    queryWindows = found[5];
+    copyIterator = found[6];
+    advance = found[7];
+    windowOf = found[8];
+    parentOf = found[9];
+    pidOf = found[10];
+    levelOf = found[11];
+    tagsOf = found[12];
+    attributesOf = found[13];
     queues = [NSMutableDictionary dictionary];
     elements = [NSMutableDictionary dictionary];
     absent = [NSMutableDictionary dictionary];
