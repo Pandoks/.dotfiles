@@ -1753,9 +1753,8 @@ test(
     end
   end
 )
-test("a state change during the initial query makes a quick switch restore before focus", function()
-  for _, early in ipairs({ false, true }) do
-    local label = early and "released before the list" or "released after the list"
+test("a state change before a quick switch starts makes it restore before focus", function()
+  for _, when in ipairs({ "during the list", "after an early release", "after release" }) do
     local reply
     local desktop = harness({
       intercept = function(model, name, done)
@@ -1770,19 +1769,24 @@ test("a state change during the initial query makes a quick switch restore befor
     })
     desktop:key("keyDown", "tab", { cmd = true })
     desktop:advance(0.01)
-    if early then
+    if when == "after an early release" then
+      desktop:release()
+    elseif when == "after release" then
+      reply()
       desktop:release()
     end
     desktop.windows[2]["is-minimized"] = true
     desktop:notify("windowMinimized", desktop.windows[2])
-    reply()
-    if not early then
+    if when ~= "after release" then
+      reply()
+    end
+    if when == "during the list" then
       desktop:release()
     end
     desktop:advance(1)
-    assertEqual(desktop.windows[2]["is-minimized"], false, label)
-    assertEqual(desktop.windows[2]["has-focus"], true, label)
-    assertEqual(#desktop.alerts, 0, label)
+    assertEqual(desktop.windows[2]["is-minimized"], false, when)
+    assertEqual(desktop.windows[2]["has-focus"], true, when)
+    assertEqual(#desktop.alerts, 0, when)
   end
 end)
 test("hidden and minimized previews dim at full size with distinct centered icons", function()

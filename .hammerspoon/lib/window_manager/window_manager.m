@@ -238,6 +238,7 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
   uint32_t magic = 0x636f636f;
   memcpy(token, &pid, sizeof pid);
   memcpy(token + 0x8, &magic, sizeof magic);
+  NSMutableSet<NSNumber *> *unread = [NSMutableSet set];
   for (uint64_t element = 0; element < 0x7fff && missing.count; element++) {
     memcpy(token + 0xc, &element, sizeof element);
     CFDataRef data = CFDataCreate(NULL, token, sizeof token);
@@ -248,13 +249,19 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     if (_AXUIElementGetWindow(candidate, &windowID) == kAXErrorSuccess && [missing containsObject:@(windowID)]) {
       AXUIElementSetMessagingTimeout(candidate, 1.0);
       // Menu bars report their window's id too.
-      if ([attribute(candidate, kAXRoleAttribute) isEqual:(id)kAXWindowRole]) {
+      CFTypeRef role = NULL;
+      if (AXUIElementCopyAttributeValue(candidate, kAXRoleAttribute, &role) != kAXErrorSuccess) {
+        [unread addObject:@(windowID)];
+      } else if (CFEqual(role, kAXWindowRole)) {
         cache[@(windowID)] = (__bridge id)candidate;
         [missing removeObject:@(windowID)];
       }
+      if (role) CFRelease(role);
     }
     CFRelease(candidate);
   }
+  // A timed-out read isn't proof of absence; search again next time.
+  [missing minusSet:unread];
   [skipped unionSet:missing];
   return cache;
 }
