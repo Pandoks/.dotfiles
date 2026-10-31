@@ -214,11 +214,12 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     cache = elements[@(pid)] ?: (elements[@(pid)] = [NSMutableDictionary dictionary]);
     skipped = absent[@(pid)] ?: (absent[@(pid)] = [NSMutableSet set]);
   }
-  NSMutableSet<NSNumber *> *missing = [wanted mutableCopy];
+  NSMutableSet<NSNumber *> *missing = [wanted mutableCopy], *unlisted = [wanted mutableCopy];
+  [unlisted minusSet:searchable];
   for (NSNumber *windowID in wanted) {
     if (cache[windowID]) [missing removeObject:windowID];
   }
-  if (!missing.count) return cache;
+  if (!missing.count && !unlisted.count) return cache;
 
   // AXWindows is rechecked every time: a window can gain its element after a search missed it.
   AXUIElementRef app = application(pid);
@@ -228,8 +229,11 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     AXUIElementSetMessagingTimeout((__bridge AXUIElementRef)element, 1.0);
     cache[@(windowID)] = element;
     [missing removeObject:@(windowID)];
+    [unlisted removeObject:@(windowID)];
   }
   CFRelease(app);
+  // Unsearchable ids count only while AXWindows lists them.
+  [cache removeObjectsForKeys:unlisted.allObjects];
   [missing minusSet:skipped];
   [missing intersectSet:searchable];
   if (!missing.count) return cache;
