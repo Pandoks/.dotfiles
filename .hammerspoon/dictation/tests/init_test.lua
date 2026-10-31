@@ -467,7 +467,7 @@ test("a stop ffmpeg doesn't finish in 2 s, slow apps aside, keeps the take and s
   assert(shown and #alerts == 0, "an earlier take's deadline ended the next one")
   toggle()
   timers[#timers]()
-  assert(tostring(alerts[1]):find("did not finish the recording", 1, true), tostring(alerts[1]))
+  assert(tostring(alerts[1]):find("the recording did not finish", 1, true), tostring(alerts[1]))
   assert(recording.ended, "ffmpeg left running")
   assert(wavs() == count + 1 and not fs.attributes(recorded), "not kept")
   assert(not shown and not armed, "the take did not end")
@@ -640,7 +640,7 @@ test("an unsecured history folder, no ffmpeg, or no venv leaves a hotkey that sa
       "could not create /x owner-only",
       { ["dictation.history"] = unprepared("could not create /x owner-only") },
     },
-    { "ffmpeg not found; run mise install", { ["dictation.recorder"] = {} } },
+    { "no ffmpeg found; run mise install", { ["dictation.recorder"] = {} } },
     { "backend venv missing", {} },
   }) do
     local problem, swapped = table.unpack(case)
@@ -663,7 +663,7 @@ test("an unknown setting in config.lua alerts", function()
     ["dictation.config"] = { bogus = true },
     ["dictation.history"] = unprepared("stop"),
   })
-  assert(alerts[1] == "Dictation: config.lua: unknown setting bogus", tostring(alerts[1]))
+  assert(alerts[1] == "Dictation: unknown setting bogus in config.lua", tostring(alerts[1]))
 end)
 
 test("a hotkey key hs.hotkey doesn't know stops the backend and says why", function()

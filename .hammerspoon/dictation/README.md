@@ -11,7 +11,7 @@ self-corrections, your word list fixes names, and the text goes into the focused
    whenever `uv.lock` changes.
 2. Grant **Hammerspoon** Microphone and Accessibility in **System Settings > Privacy & Security**.
 3. Reload Hammerspoon. The first start downloads the pinned models (about 4.3 GB) into
-   `~/.cache/huggingface`; the hotkey alerts "backend is still loading" until the console prints
+   `~/.cache/huggingface`; the hotkey alerts "Backend is still loading" until the console prints
    `Dictation: backend ready`. Later starts load them offline.
 
 Your settings are in `config.lua`: the hotkey and `words`, each name as it should be written,
@@ -76,7 +76,7 @@ adapter they fail the load. A plain model types self-corrections as said.
   of stop (an unplugged mic), keeps its recording there as a `.wav` if it caught any audio.
 - The cleanup rewrites the whole take: a sentence types about 1 s after stop, a 50 s take about
   4 s, a 2.5-minute take about 13 s (M1 Max).
-- Alerts show a failure's first line; the rest is in the Hammerspoon console and
+- Alerts show up to 3 lines of a failure's first line; the rest is in the Hammerspoon console and
   `~/Library/Logs/Hammerspoon/config.log`.
 
 ## Adding a runtime

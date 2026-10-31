@@ -13,7 +13,7 @@ end
 local config = require("dictation.defaults")
 for key, value in pairs(require("dictation.config")) do
   if config[key] == nil then
-    fail("config.lua: unknown setting " .. tostring(key))
+    fail("unknown setting " .. tostring(key) .. " in config.lua")
   end
   config[key] = value
 end
@@ -49,7 +49,7 @@ local unprepared = history.prepare(config.history)
 if unprepared then
   return disabled(unprepared)
 elseif not recorder.ffmpeg then
-  return disabled("ffmpeg not found; run mise install")
+  return disabled("no ffmpeg found; run mise install")
 end
 
 ---@type "idle"|"recording"|"thinking"
@@ -369,7 +369,7 @@ local function toggle()
     target, targetError = focused()
     -- An unplugged mic makes ffmpeg ignore SIGINT; counted from here, as focused() can block.
     deadline = hs.timer.doAfter(2, function()
-      fail("ffmpeg did not finish the recording in 2 s")
+      fail("the recording did not finish in 2 s")
       salvage()
       finish()
     end)

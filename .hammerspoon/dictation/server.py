@@ -213,7 +213,9 @@ def misheard(old, new):  # same first letter, 5+ letters, and closer than "shoul
 BACK = ("it", "that", "them", "him", "her")  # what a correction calls what it replaces
 PRONOUNS = {"it", "them", "him", "her", "his", "their"}
 PARTICLES = ("up", "in", "on", "out", "off", "down")  # a noun said apart: "the sign up"
-WHEN = r"\d+[ap]m|earl\w*|lat(?:e|er|est)|next|last|first|morning|afternoon|evening|night"
+WHEN = r"\d+[ap]m|earl\w*|lat(?:e|er|est)|next|last|first|second|third|final|previous|following"
+WHEN += r"|other|morning|afternoon|evening|night|noon|midnight|midday|breakfast|brunch"
+WHEN += r"|lunch(?:time)?|dinner|o'clock|[ap]?m"  # "the 10 a.m. one"
 SOME = ("these", "those", "some")  # a plural correction's determiner: "no, those blue ones"
 DETERMINERS = {"no", "the", "a", "this", "that", "each", "every", "any", "some", "which"}
 DETERMINERS |= {"another", "other"}
@@ -374,8 +376,9 @@ def restore(raw, cleaned):
             if tag != "delete":
                 continue
             # Not the "you know" of a tag the cleanup sets off: "It's late, what I mean?"
-            you_know = spoken[i1:i2] == ["you", "know"] and typed[j1 : j1 + 1] == ["what"]
-            tagged = re.match(r" what i(?: mean|'m saying)[,.?!]", raw[spoken_spans[i2 - 1][2] :])
+            you_know = spoken[i1:i2] == ["you", "know"]
+            tags = r" what i(?: mean|'m (?:saying|talking about|getting at|trying to say))[,.?!]"
+            tagged = re.match(tags, raw[spoken_spans[i2 - 1][2] :])
             if you_know and tagged and re.search(r"[,.;:]\s*$", cleaned[: typed_spans[j1][1]]):
                 bad.append((i1, i2, j1, j2))
                 continue
@@ -414,19 +417,17 @@ def restore(raw, cleaned):
     if not bad or not unexplained(backward):
         # A kept "the X one" gets the noun said before its cue, hyphens included: "the stand-up".
         equal = [opcode[1:] for opcode in forward if opcode[0] == "equal"]
-        aligned = dict(
-            pair for i1, i2, j1, j2 in equal for pair in zip(range(i1, i2), range(j1, j2))
-        )
+        aligned = {index: j1 + index - i1 for i1, i2, j1, _ in equal for index in range(i1, i2)}
         determiners = ("the", "a", "an", "my", "your", "our", "his", "her", "their", "this", "that")
         determiners += SOME
         subjects = ("i", "we", "you", "they", "he", "she")
         not_nouns = (*PRONOUNS, *determiners, "me", "us", "yours", "hers", "ours", "theirs")
-        not_nouns += ("there", "its", "it's")  # "their" heard as "there"
-        amount = rf"(?<![\w-])(?:at|for|past|to|(?:all|{WORD}) (?:in|on)) $"
+        not_nouns += ("there", "its", "it's")  # "their" and "its", as heard
+        amount = rf"(?<![\w-])(?:at|by|for|past|to|(?:all|{WORD}) (?:in|on)) $"
         numbers = {index for index, word in enumerate(spoken) if word in VALUE or word.isdecimal()}
         for one in reversed(aligned):
-            if one < 3 or not match(one, r"(?<!-)ones?(?!['-])"):
-                continue  # not "one's", "one-liner" or "all-in-one"
+            if one < 3 or not match(one, r"(?<!-)ones?(?!['-]| o'clock)"):
+                continue  # not "one's", "one-liner", "all-in-one" or "one o'clock"
             if re.search(amount, raw[: spoken_spans[one][1]]):
                 continue  # a count or time: "a table for one", "a quarter past one", "two in one"
             determiner = one - 2 if spoken_spans[one - 2][3] in determiners else one - 3
@@ -444,12 +445,13 @@ def restore(raw, cleaned):
             noun = re.findall(r"[\w'’-]+", said[: spoken_spans[cue - 1][2]])[-1]
             if cue > 1 and noun.lower() in PARTICLES:  # "the pop up", not "the up"
                 noun = said[spoken_spans[cue - 2][1] : spoken_spans[cue - 1][2]]
-            if noun == "mine" and not {*spoken[max(cue - 4, 0) : cue]} & {*determiners}:
+            if noun == "mine" and set(determiners).isdisjoint(spoken[max(cue - 4, 0) : cue]):
                 continue  # "Take mine, sorry", not "the gold mine" or "Bingham Mine"
             number = spoken[cue - 1] in (*VALUE, *ORDINAL, "m") or noun.isdecimal()  # "4 p.m."
-            # "the 9am, no, the later one"; "the Monday one" is the Monday 9am
-            clock = re.fullmatch(r"\d+[ap]m", spoken[cue - 1])
-            number |= bool(clock and re.fullmatch(WHEN, spoken[one - 1]))
+            # "the 9am, no, the later one" or "the 10:30 one"; "the Monday one" is the Monday 9am
+            if re.fullmatch(r"\d+[ap]m", spoken[cue - 1]):
+                number |= {*range(determiner + 1, one)} <= numbers  # not "the Route 9 one"
+                number |= bool(re.fullmatch(WHEN, spoken_spans[one - 1][3]))
             # A time said after a number ("4 PM", not "the PM"); "the 12 one" gets it back.
             if spoken[cue - 1] in ("o'clock", "am", "pm") and one - 1 not in numbers:
                 number |= cue - 2 in numbers
