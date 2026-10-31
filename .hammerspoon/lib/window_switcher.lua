@@ -567,8 +567,7 @@ focus = function(window, fresh)
       restore()
     end
   end
-  -- Before the menu shows, the cycle's own list is recent. Focusing and unhiding start after
-  -- the event tap has passed Cmd-up on; the job holds the timer so it isn't collected first.
+  -- The list is recent. Start after the tap returns; the job holds the timer against GC.
   if fresh then
     job.start = hs.timer.doAfter(0, function()
       job.start = nil
@@ -951,7 +950,7 @@ switcher.windows:subscribe({
   filter.windowUnhidden,
 }, function(window, name, event, id)
   local current = cycle
-  -- The pending list may predate this change, so a quick switch requeries.
+  -- The pending list may be out of date.
   if
     current
     and not current.windows

@@ -2152,7 +2152,6 @@ test("cancelled menus and finished focus jobs release their timers", function()
   desktop:open()
   desktop:release()
   desktop:advance(5)
-  -- A quick switch focuses without opening the menu.
   desktop:key("keyDown", "tab", { cmd = true })
   desktop:advance(0.05)
   desktop:release()

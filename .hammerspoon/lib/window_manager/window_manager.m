@@ -206,7 +206,7 @@ static id attribute(AXUIElementRef element, CFStringRef name) {
 static NSMutableDictionary<NSNumber *, NSMutableDictionary<NSNumber *, id> *> *elements;
 static NSMutableDictionary<NSNumber *, NSMutableSet<NSNumber *> *> *absent;
 
-// Windows on other Spaces aren't in AXWindows; unseen searchable ids are searched once by remote token.
+// Windows on other Spaces aren't in AXWindows; unseen ids are searched once by remote token.
 static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wanted, NSSet<NSNumber *> *searchable) {
   NSMutableDictionary *cache;
   NSMutableSet *skipped;
@@ -247,7 +247,7 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     CGWindowID windowID = 0;
     if (_AXUIElementGetWindow(candidate, &windowID) == kAXErrorSuccess && [missing containsObject:@(windowID)]) {
       AXUIElementSetMessagingTimeout(candidate, 1.0);
-      // A window's menu bar and controls report its id too.
+      // Menu bars report their window's id too.
       if ([attribute(candidate, kAXRoleAttribute) isEqual:(id)kAXWindowRole]) {
         cache[@(windowID)] = (__bridge id)candidate;
         [missing removeObject:@(windowID)];
@@ -407,8 +407,7 @@ static int windows(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TFUNCTION, LS_TBREAK];
 
-  // Real windows are top-level and shown on a Space (yabai also counts tag bit 58), minimized, or
-  // hidden with their app. Menu-bar strips and closed find bars aren't, so they're never searched.
+  // yabai's bits. Menu-bar strips and closed find bars match none, so they're never searched.
   enum : uint64_t { shownAttribute = 0x2, shownTag = 1ULL << 58, minimizedTag = 1ULL << 60, hiddenTag = 1ULL << 39 };
   CFArrayRef list = CGWindowListCreate(kCGWindowListOptionAll, kCGNullWindowID);
   NSMutableArray<NSNumber *> *ids = [NSMutableArray array];
@@ -426,7 +425,8 @@ static int windows(lua_State *state) {
     NSNumber *pid = @(pidOf(iterator)), *windowID = @(windowOf(iterator));
     NSMutableSet *set = owners[pid] ?: (owners[pid] = [NSMutableSet set]);
     [set addObject:windowID];
-    if (!((attributesOf(iterator) & shownAttribute) || (tagsOf(iterator) & (shownTag | minimizedTag | hiddenTag)))) continue;
+    BOOL real = (attributesOf(iterator) & shownAttribute) || (tagsOf(iterator) & (shownTag | minimizedTag | hiddenTag));
+    if (!real) continue;
     set = reals[pid] ?: (reals[pid] = [NSMutableSet set]);
     [set addObject:windowID];
   }
@@ -442,11 +442,10 @@ static int windows(lua_State *state) {
     NSSet *windows = [owners[owner] copy], *real = [reals[owner] copy] ?: [NSSet set];
     pid_t pid = owner.intValue;
     dispatch_group_async(group, queueFor(pid), ^{
-      // Background processes own windows too, but never answer for them. Checked off the main
-      // thread: activation policies are refetched from LaunchServices each run loop turn.
+      // Background processes never answer. Off the main thread: policies refetch each run loop turn.
       NSRunningApplication *running = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
       if (!running || running.activationPolicy != NSApplicationActivationPolicyRegular) return;
-      // Windows made while an app is hidden were never shown, but AXWindows lists them.
+      // Windows made while hidden were never shown but are in AXWindows.
       NSSet *wanted = running.hidden ? windows : real;
       if (!wanted.count) return;
       // Ids that left the window server may come back for new windows; search those again.
@@ -462,7 +461,7 @@ static int windows(lua_State *state) {
         AXUIElementRef element = (__bridge AXUIElementRef)cache[key];
         if (!element) continue;
         CGWindowID windowID = key.unsignedIntValue;
-        // One round trip; attributes the window lacks come back as AXValue errors.
+        // Missing attributes come back as AXValue errors.
         CFArrayRef copied = NULL;
         AXUIElementCopyMultipleAttributeValues(element, (__bridge CFArrayRef)names, 0, &copied);
         NSMutableArray *values = [CFBridgingRelease(copied) mutableCopy];
