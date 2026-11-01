@@ -35,9 +35,7 @@ class Boosted:
 
     def __init__(self, model, words, bonus):
         # Every lowercase prefix of entries of only letters, digits, and apostrophes ("GitHub's").
-        entries = {
-            word.lower() for word in map(str.strip, words) if word and letters(word) == word.lower()
-        }
+        entries = {word.lower() for word in words if letters(word) == word.lower()}
         self.prefixes = {word[:length] for word in entries for length in range(1, len(word) + 1)}
         self.model, self.bonus = model, bonus
         self.word, self.seen, self.biases = "", None, {}
@@ -133,10 +131,9 @@ class Parakeet(Speech):
         model.__dict__.pop("decode_greedy", None)
         if boosting:
             self.encoded = {}
-            boosted = Boosted(model, hint, self.boost)
             model.decode_greedy = functools.partial(
                 ParakeetTDT.decode_greedy,
-                boosted,  # pyright: ignore[reportArgumentType]
+                Boosted(model, hint, self.boost),  # pyright: ignore[reportArgumentType]
             )
         # Chunked like parakeet-mlx's CLI: one full-attention pass grows memory quadratically.
         text = model.transcribe(wav, chunk_duration=120).text

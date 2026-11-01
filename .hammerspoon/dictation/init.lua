@@ -181,8 +181,8 @@ local function insert(text)
   end
 end
 
----@param text string?
----@param saved boolean?
+---@param text? string
+---@param saved? boolean
 local function finish(text, saved)
   local ok, problem = true, nil
   if text and config.insert == "clipboard" then
@@ -228,7 +228,7 @@ local function salvage()
 end
 
 ---@param id integer
----@param text string?
+---@param text? string
 ---@return boolean saved
 local function settle(id, text)
   local wav = wavs[id]

@@ -16,7 +16,7 @@ function engine.new(config, handlers)
   end
   local settings = hs.json.encode(config)
   if not settings then
-    return nil, "config.lua holds a value JSON cannot encode (inf, nan, or a function)"
+    return nil, "a config.lua value JSON cannot encode (inf, nan, or a function)"
   end
   local self = setmetatable(
     { ready = false, stopped = false, serial = 0, buffer = "", errors = "", queued = {} },

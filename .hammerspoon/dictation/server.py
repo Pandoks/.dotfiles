@@ -123,7 +123,7 @@ DIRECTED = {"to", "with", "into", "onto", "from", "toward", "towards"}
 def ending(raw, text):
     """No end mark on a dictation that stops mid-thought ("I want to go to the")."""
     words = re.sub(rf"(?:[.!?,;:…—–]|{CLOSE})+$", "", raw.strip()).split()
-    if not words or re.search(r"[?!]\W*$", raw):
+    if re.search(r"[?!]\W*$", raw):
         return text  # "What if?" and "Oh my!" are complete
     last, previous = words[-1].lower(), words[-2].lower() if len(words) > 1 else ""
     if last in DIRECTED:  # "Send it to", not "That's who I gave it to"
@@ -413,8 +413,8 @@ def restore(raw, cleaned):
         (tag, spoken_count - i2, spoken_count - i1, typed_count - j2, typed_count - j1)
         for tag, i1, i2, j1, j2 in reverse[::-1]
     ]
-    bad, text = unexplained(forward), written
-    if not bad or not unexplained(backward):
+    text = written
+    if not unexplained(forward) or not unexplained(backward):
         # A kept "the X one" gets the noun said before its cue, hyphens included: "the stand-up".
         equal = [opcode[1:] for opcode in forward if opcode[0] == "equal"]
         aligned = {index: j1 + index - i1 for i1, i2, j1, _ in equal for index in range(i1, i2)}
@@ -450,7 +450,7 @@ def restore(raw, cleaned):
             number = spoken[cue - 1] in (*VALUE, *ORDINAL, "m") or noun.isdecimal()  # "4 p.m."
             # "the 9am, no, the later one" or "the 10:30 one"; "the Monday one" is the Monday 9am
             if re.fullmatch(r"\d+[ap]m", spoken[cue - 1]):
-                number |= {*range(determiner + 1, one)} <= numbers  # not "the Route 9 one"
+                number |= numbers.issuperset(range(determiner + 1, one))  # not "the Route 9 one"
                 number |= bool(re.fullmatch(WHEN, spoken_spans[one - 1][3]))
             # A time said after a number ("4 PM", not "the PM"); "the 12 one" gets it back.
             if spoken[cue - 1] in ("o'clock", "am", "pm") and one - 1 not in numbers:
@@ -489,7 +489,7 @@ def restore(raw, cleaned):
                 break
             i1, i2, j1, j2 = i1 + 1, i2 + 1, j1 + 1, j2 + 1
         if j1 < j2:  # words changed, or added: as said, up to the next word kept
-            last = j2 == typed_count and i2 == spoken_count
+            last = j2 == typed_count
             start, end = typed_spans[j1][1], len(text) if last else typed_spans[j2][1]
             # "'cause"
             quoted = i1 < i2 and said[spoken_spans[i1][1] - 1 : spoken_spans[i1][1]] in ("'", "’")
@@ -498,7 +498,7 @@ def restore(raw, cleaned):
                 if i1 < i2
                 else ""
             )
-            if i1 and j1:  # with the gap said before it: "is. First we", not "is First we"
+            if i1:  # with the gap said before it: "is. First we", not "is First we"
                 start = typed_spans[j1 - 1][2]
                 piece = said[spoken_spans[i1 - 1][2] : None if last else spoken_spans[i2][1]]
         elif not j1:  # left out at the start: through the first word kept, as said
