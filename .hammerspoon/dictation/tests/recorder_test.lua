@@ -217,10 +217,11 @@ test("ffmpeg streams the backend exactly the audio it writes to the wav", functi
   local script = [[cd %q
 nc -lU %q > eq.pcm 2> /dev/null < /dev/null & first=$!
 nc -lU %q > backend.pcm 2> /dev/null < /dev/null & second=$!
-sleep 0.3
+for _ in $(seq 100); do [ -S %q ] && [ -S %q ] && break; sleep 0.01; done
 %s & sleep 1; kill -INT $!; wait $!
 sleep 0.3; kill $first $second 2> /dev/null; true]]
-  assert(os.execute(script:format(scratch, equalizer, backend, table.concat(command, " "))))
+  local ffmpeg = table.concat(command, " ")
+  assert(os.execute(script:format(scratch, equalizer, backend, equalizer, backend, ffmpeg)))
   local function read(path)
     local file = assert(io.open(path, "rb"))
     local data = file:read("a")

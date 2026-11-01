@@ -434,15 +434,11 @@ test("a take whose transcript isn't saved keeps its recording in history", funct
   end
 end)
 
-test("a take recording when the backend dies goes on, and is kept", function()
+test("a take recording when the backend dies is kept then", function()
   local count = wavs()
   focus = field("Hi")
   toggle()
   handlers.onError("exited (code 1)")
-  refused = true
-  toggle()
-  deliver()
-  refused = nil
   assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
 end)
 

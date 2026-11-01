@@ -273,8 +273,11 @@ local engine, problem = Engine.new(config, {
       end
     end
     fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))
-    -- A take still recording goes on.
-    if inflight and (inflight == id or not id) then
+    -- No id: the backend died, and a take still recording can no longer stream to it.
+    if not id or inflight == id then
+      if recording then
+        salvage()
+      end
       finish()
     end
     local unpruned = saved and history.prune(config.history)

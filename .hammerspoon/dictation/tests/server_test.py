@@ -1,3 +1,5 @@
+import contextlib
+import io
 import itertools
 import json
 import os
@@ -17,13 +19,19 @@ import mlx.core as mx
 import numpy as np
 from huggingface_hub import snapshot_download
 from huggingface_hub.errors import LocalEntryNotFoundError
+from mlx import nn
+from mlx_lm.generate import generate_step as mlx_generate_step
+from mlx_lm.models.cache import KVCache
 from mlx_lm.utils import load_tokenizer
 from parakeet_mlx import ParakeetTDT
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import models
 import server
+import speculative
 import streaming
+
+mx.set_default_device(mx.cpu)  # tiny arrays: GPU round trips cost more
 
 engine = server.Engine(
     {
@@ -1267,17 +1275,20 @@ def generate_step(prompt, model, max_tokens=None, prompt_cache=None):
         yield token, None
 
 
-long = "word " * 600
+long, passes = "word " * 600, []
 with mock.patch("mlx_lm.generate.generate_step", generate_step):
-    reply = cleaner.complete([{"role": "user", "content": "Fix the bug."}], "Fix the bug.")
+    reply = cleaner.complete(
+        [{"role": "user", "content": "Fix the bug."}], "Fix the bug.", lambda: passes.append(1)
+    )
     cleaner.complete([{"role": "user", "content": long}], long)
 assert reply == "Fix the bug.", reply
+assert len(passes) == len(tokenizer.encode("Thinking about it.</think>\n\nFix the bug.")), passes  # pyright: ignore[reportCallIssue]
 assert rendered[0].endswith("<think>\n\n</think>\n\n"), rendered[0]
 # mlx-lm's default 256 would cut long takes; 600 words are 600+ tokens.
 assert limits[0] >= 400 and limits[1] > 600, limits
 print(
     "PASS the cleanup skips thinking, has room to echo the take, stops at its end of turn,"
-    " and drops a stray think tag"
+    " calls between() after each pass, and drops a stray think tag"
 )
 
 
@@ -1409,7 +1420,7 @@ check(
         ("Dial 000 now.", ["Dial", "000", "now."]),
         ("Use <div> here.", ["Use", "<div>", "here."]),
     ],
-    lambda text: streaming.GARBAGE.sub("", text).split(),
+    lambda text: streaming.text([streaming.AlignedToken(0, text, 0, 0)]).split(),
 )
 
 
@@ -1446,8 +1457,12 @@ class Model:
         self.joint = Joint(table, layers)
 
     def decoder(self, token, state):
-        last = mx.array([[[-1.0 if token is None else float(token[0, 0])]]])
-        return last, (last, -last)
+        # Like the LSTM, the output depends on every token so far.
+        seen = (0 if state is None else state[1].item()) * 3 + (
+            0 if token is None else token.item() + 1
+        )
+        last = mx.array([[[seen % 1009 % (contexts - 1) - 1]]])
+        return last, (last, mx.array([[[seen % 1009]]]))
 
 
 check(
@@ -1465,15 +1480,24 @@ def aligned(tokens):
     return [(token.id, token.start, token.duration, token.text) for token in tokens]
 
 
+def leaky(logits):  # not monotonic, as parakeet's joint (ReLU, then Linear) isn't
+    return mx.maximum(logits, -0.5 * logits)
+
+
 for seed in range(20):
     final, earlier = mx.random.normal((2, 1, 40, width), key=mx.random.key(seed))
-    model = Model(mx.random.normal((contexts, width), key=mx.random.key(100 + seed)), [mx.tanh])
+    final = final.at[..., len(Model.vocabulary)].add(3)  # mostly blanks, as speech is
+    model = Model(mx.random.normal((contexts, width), key=mx.random.key(100 + seed)), [leaky])
     upstream = aligned(ParakeetTDT.decode_greedy(model, final)[0][0])  # pyright: ignore[reportArgumentType]
     assert aligned(streaming.Path(model).update(final)) == upstream, f"seed {seed}: from scratch"
-    grown = streaming.Path(model)
+    booster = streaming.Booster(model, ["GitHub's", "me"], 4.5)
+    grown, boosted = streaming.Path(model), streaming.Path(model, booster)
     for frames, noise in ((12, 1.0), (25, 0.3), (33, 0.05)):  # re-encoded: every frame moves
         grown.update(final[:, :frames] + noise * earlier[:, :frames])
+        boosted.update(final[:, :frames] + noise * earlier[:, :frames])
     assert aligned(grown.update(final)) == upstream, f"seed {seed}: grown"
+    fresh = aligned(streaming.Path(model, booster).update(final))
+    assert aligned(boosted.update(final)) == fresh, f"seed {seed}: grown boosted"
 print(
     "PASS the streamed decode, from scratch or grown with every frame changing, is parakeet-mlx's"
 )
@@ -1558,6 +1582,8 @@ check(
         (((9, -0.5, 2), 999), (True, [8000 - kept + 32000])),
         (((5, -0.5, 2), 2560), (False, [120000])),  # too short to cut: all 7.5 s at release
         (((9, -0.5), 2560), (True, [])),  # no sound after the cut: nothing left to encode
+        (((9, -0.5, 0.1), 2560), (True, [])),  # a blip after the cut, under VOICED: no segment
+        (((29, -0.1, 3), 2560), (False, [49600])),  # 30 s: cut at the last 2 s's quietest
         (((2, -0.3), 2560), (False, [])),  # a release in a pause: the pause's encode
         (((2, -0.02 * (streaming.TAIL - 1)), 2560), (False, [32000 + kept - 320])),  # before TAIL
     ],
@@ -1573,29 +1599,40 @@ room = 0.002 * np.random.default_rng(0).standard_normal(16000).astype(
 speech = 0.3 * np.sin(np.arange(32000) / 3, dtype=np.float32)
 with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
     noisy_stream = streaming.Stream(noisy, None)
-    for start in range(0, 48000, 2560):
-        noisy_stream.feed(np.concatenate([speech, room])[start : start + 2560])
+    pauses = [
+        start
+        for start in range(0, 48000, 2560)
+        if noisy_stream.feed(np.concatenate([speech, room])[start : start + 2560])
+    ]
 paused = heard_audio[-1]
-noisy_stream.finish()
-assert len(heard_audio[-1]) == len(paused), "release encoded again in a pause"
+assert pauses == [30720], pauses  # once, as TAIL frames of silence complete
 assert np.array_equal(paused[:32000], speech) and len(paused) == 32000 + padded, len(paused)
 assert np.array_equal(paused[32000:], np.tile(room[:kept], 4)[:padded]), (
     "the pad is not the kept silence"
 )
-print("PASS a segment ends on the silence it kept after its last sound, tiled to PADDED")
+print(
+    "PASS a segment ends on the silence it kept after its last sound, tiled to PADDED, which feed"
+    " reports once"
+)
 worded = Model(mx.zeros((contexts, width)))  # every frame types "ok"
 worded.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
 worded.encoder = lambda audio: (mx.zeros((1, 1, width)), None)  # pyright: ignore[reportAttributeAccessIssue]
+parakeet = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})
+parakeet.model = worded  # pyright: ignore[reportAttributeAccessIssue]
 with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
-    worded_stream = streaming.Stream(worded, None)
+    worded_stream = parakeet.stream(["Okay"])
     worded_stream.feed(np.concatenate([np.tile(speech, 5)[:144000], np.zeros(1600, np.float32)]))
     at_pause = worded_stream.texts()
     worded_stream.feed(np.zeros(6400, np.float32))  # 400 ms: the cut
-assert at_pause and worded_stream.closed == worded_stream.texts() == at_pause, (
-    at_pause,
-    worded_stream.texts(),
+    cut = worded_stream.texts()
+    worded_stream.feed(speech)
+    segments = worded_stream.finish()
+assert at_pause == [("ok ok ok", "okay ok")] and worded_stream.closed == cut == at_pause, cut
+assert segments == at_pause * 2, segments
+print(
+    "PASS a cut in a pause leaves the transcript as the pause had it, every segment decoded plain"
+    " and boosted"
 )
-print("PASS a cut in a pause leaves the transcript as the pause had it")
 # Unboosted and boosted Parakeet decodes of TTS takes (`say -v Albert`, `-v Daniel`, ...).
 check(
     "a boosted word is kept only where it spells a vocabulary word, never over a stall",
@@ -1709,7 +1746,9 @@ def wav(text):
 def streamed(*items):
     replies = []
     cleaned.clear()
-    server.serve(streamer, Events([*items, None]), replies.append)
+    with contextlib.redirect_stderr(io.StringIO()) as log:
+        server.serve(streamer, Events([*items, None]), replies.append)
+    assert "Traceback" not in log.getvalue(), log.getvalue()  # a cancel is no bug
     return [(reply["id"], reply.get("text") or reply["msg"]) for reply in replies]
 
 
@@ -1723,13 +1762,17 @@ check(
         ((start, sound("Hi "), sound("there."), end, stop), [(1, "Hi there.")]),
         ((start, sound("Hi there."), end), []),
         ((start, sound("Hi"), stop), []),
+        (
+            (start, ("audio", 7, b"H"), ("audio", 7, sound("Hi there.")[2][1:]), end, stop),
+            [(1, "Hi there.")],
+        ),
     ],
     lambda items: streamed(*items),
 )
 cancelled = ("line", None, json.dumps({"id": 2, "pid": 8}))
 check(
-    "a take that never stops gets no reply, the next is typed from its own audio;"
-    " audio unlike its wav fails the take",
+    "a take that never stops gets no reply, and its cleanup stops at the next start; the next is"
+    " typed from its own audio",
     [
         (
             (
@@ -1741,11 +1784,10 @@ check(
                 end,
                 stop,
             ),
-            [(1, "Hi there.")],
+            ([(1, "Hi there.")], ["A", "Hi there.", "Hi there."]),
         ),
-        ((start, sound("Hi there!"), end, stop), [(1, "the streamed audio differs from the wav")]),
     ],
-    lambda items: streamed(*items),
+    lambda items: (streamed(*items), list(cleaned)),
 )
 paused = ("line", None, json.dumps({"id": 1, "wav": wav("Hi there.\0")}))
 held = ("line", None, json.dumps({"id": 1, "wav": wav("Hi\0 there.")}))
@@ -1778,4 +1820,46 @@ check(
         ),
     ],
     lambda items: (streamed(*items), list(cleaned)),
+)
+
+
+class Echo(nn.Module):
+    """Types `source` after the prefix, but 41-43 where its KV cache sums to a multiple of 5."""
+
+    def __init__(self, source, prefix):
+        super().__init__()
+        self.source, self.offset = mx.array(source), len(prefix) - 1
+
+    def __call__(self, inputs, cache):
+        rows = inputs.shape[1]
+        seen = cache[0].update_and_fetch(*[inputs[:, None, :, None].astype(mx.float32)] * 2)[0]
+        sums = mx.cumsum(seen[0, 0, :, 0].astype(mx.int32))[-rows:]
+        at = mx.clip(mx.arange(cache[0].offset - rows, cache[0].offset) - self.offset, 0, 17)
+        tokens = mx.where(sums % 5 == 0, 41 + sums % 3, self.source[at])
+        return (mx.arange(50) == tokens[:, None])[None].astype(mx.float32)
+
+
+mx.set_default_device(mx.gpu)  # wired_limit reads the GPU's limits
+source, prefix = [3, 8, 8, 1, 30, 7, 7, 7, 2, 9, 11, 4, 8, 1, 30, 6, 12, 49], [5, 6]
+echo, typed = Echo(source, prefix), []
+for token, _ in mlx_generate_step(mx.array(prefix), echo, max_tokens=40, prompt_cache=[KVCache()]):
+    if token == 49:
+        break
+    typed.append(token)
+stale = mock.Mock(side_effect=server.Stale)
+assert typed != source[: len(typed)] and len(typed) < 40, typed  # drafts rejected; eos reached
+assert (
+    speculative.generate(echo, prefix, [KVCache()], speculative.Drafts(source, int), 40, {49})
+    == typed
+)
+try:
+    speculative.generate(
+        echo, prefix, [KVCache()], speculative.Drafts(source, int), 40, {49}, stale
+    )
+    raise AssertionError("between() never stopped it")
+except server.Stale:
+    pass
+print(
+    "PASS speculative decoding types mlx-lm's greedy tokens, rolls back rejected drafts, and stops"
+    " for between()"
 )

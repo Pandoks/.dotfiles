@@ -59,7 +59,7 @@ class Booster:
 
 class Step(NamedTuple):
     frame: int
-    out: mx.array  # the prediction network's output this step's joint read
+    prediction: mx.array
     pending: tuple | None  # its state, taken on if this step emits
     last: int | None
     hidden: tuple | None
@@ -78,15 +78,8 @@ class Path:
         self.model, self.booster = model, booster
         self.vocabulary = len(model.vocabulary)
         self.steps, self.tokens, self.tail = [], [], None
-        self.state = (
-            0,
-            None,
-            None,
-            None,
-            None,
-            0,
-            "",
-        )  # frame, last, hidden, out, pending, symbols, word
+        # frame, last, hidden, prediction, pending, symbols, word
+        self.state = (0, None, None, None, None, 0, "")
 
     def decide(self, logits, words):  # token and duration index per row
         logits = logits.astype(mx.float32)
@@ -103,15 +96,19 @@ class Path:
     def update(self, features):
         """`features`: the whole segment's encoder output, [1, frames, width]."""
         if self.steps:
-            frames = mx.array([step.frame for step in self.steps])
-            outs = mx.concatenate([step.out.reshape(1, -1) for step in self.steps])
+            # Steps past the end of a shorter encode (a cut at the quietest frame) count as changed.
+            inside = bisect.bisect_left([step.frame for step in self.steps], features.shape[1])
+            steps = self.steps[:inside]
+            frames = mx.array([step.frame for step in steps])
+            predictions = mx.concatenate([step.prediction.reshape(1, -1) for step in steps])
             joint = self.model.joint
-            logits = joint.enc(features[0][frames]) + joint.pred(outs)
+            logits = joint.enc(features[0][frames]) + joint.pred(predictions)
             for layer in joint.joint_net:
                 logits = layer(logits)
-            now = self.decide(logits, [step.word for step in self.steps])
-            decided = mx.array([step.decision for step in self.steps])
+            now = self.decide(logits, [step.word for step in steps])
+            decided = mx.array([step.decision for step in steps])
             changed = cast(list[bool], mx.any(now != decided, axis=1).tolist())
+            changed += [True] * (len(self.steps) - inside)
             if any(changed):
                 first = changed.index(True)
                 step = self.steps[first]
@@ -127,7 +124,7 @@ class Path:
                     step.frame,
                     step.last,
                     step.hidden,
-                    step.out,
+                    step.prediction,
                     step.pending,
                     step.symbols,
                     step.word,
@@ -167,7 +164,7 @@ class Path:
                 resume.frame,
                 resume.last,
                 resume.hidden,
-                resume.out,
+                resume.prediction,
                 resume.pending,
                 resume.symbols,
                 resume.word,
@@ -175,28 +172,27 @@ class Path:
         return None
 
     def extend(self, features):
-        frame, last, hidden, out, pending, symbols, word = self.state
+        frame, last, hidden, prediction, pending, symbols, word = self.state
         model, length = self.model, features.shape[1]
         while frame < length:
             if self.tail is not None:
                 state = self.rejoin(self.tail, frame, last, symbols, word)
                 if state is not None:
-                    frame, last, hidden, out, pending, symbols, word = state
+                    frame, last, hidden, prediction, pending, symbols, word = state
                     continue
-            if (
-                out is None
-            ):  # the prediction network runs only after an emission: a blank leaves its input
+            # The prediction network runs only after an emission: a blank leaves its input.
+            if prediction is None:
                 prediction, (memory, cell) = model.decoder(
                     None if last is None else mx.array([[last]]), hidden
                 )
-                out = prediction.astype(features.dtype)
+                prediction = prediction.astype(features.dtype)
                 pending = (memory.astype(features.dtype), cell.astype(features.dtype))
-            logits = model.joint(features[:, frame : frame + 1], out)[0, 0]
+            logits = model.joint(features[:, frame : frame + 1], prediction)[0, 0]
             token, decision = cast(list[list[int]], self.decide(logits, [word]).tolist())[0]
             self.steps.append(
                 Step(
                     frame,
-                    out,
+                    prediction,
                     pending,
                     last,
                     hidden,
@@ -219,14 +215,14 @@ class Path:
                         text=text,
                     )
                 )
-                last, hidden, out = token, pending, None
+                last, hidden, prediction = token, pending, None
                 if self.booster:
                     word = self.booster.update(word, token)
             frame += duration
             symbols = 0 if duration else symbols + 1
             if not duration and model.max_symbols is not None and symbols >= model.max_symbols:
                 frame, symbols = frame + 1, 0
-        self.state = (frame, last, hidden, out, pending, symbols, word)
+        self.state = (frame, last, hidden, prediction, pending, symbols, word)
         self.tail = None
 
 
@@ -272,10 +268,11 @@ class Stream:
             silence = audio[-TAIL * FRAME :]
             tiles = np.tile(silence, -(-PADDED // TAIL))[: PADDED * FRAME]
             audio = np.concatenate([audio[: -TAIL * FRAME], tiles])
-        features = self.model.encoder(get_logmel(mx.array(audio), self.model.preprocessor_config))[
-            0
-        ]
+        mel = get_logmel(mx.array(audio), self.model.preprocessor_config)
+        features = self.model.encoder(mel)[0]
         mx.eval(features)
+        # Its buffers never fit a later encode, whose length is new: cached, they would fill RAM.
+        mx.clear_cache()
         self.encoded = (len(self.closed), length, padded)
         for path in self.paths:
             path.update(features)
@@ -317,7 +314,7 @@ class Stream:
 
     def finish(self):
         """Every segment's (plain, boosted), the open one from all its audio but the silence past TAIL."""
-        if self.voiced and self.kept()[0] >= RATE // 10:
+        if self.voiced >= VOICED:
             self.encode(*self.kept())
             return self.texts()
         return self.closed

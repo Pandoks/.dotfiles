@@ -1,9 +1,9 @@
 """Greedy decoding with mlx-lm's exact output, several tokens per pass, for Qwen3.5 models.
 
 Drafts copy the dictation, which the cleanup mostly echoes. A pass of at most ROWS tokens gives each
-row bit for bit what a one-token pass would: the 4-bit matmul keeps its kernel up to 5 rows (mlx
-0.32.2), attention and each LoRA product run one row at a time, and a rejected draft's GatedDeltaNet
-state is recomputed from that pass's own inputs. load() checks this on the GPU it runs on."""
+row bit for bit what a one-token pass would: its 4-bit products (M3 and later GPUs give 2-5 rows
+another kernel), attention and LoRA products run one row at a time, and a rejected draft's
+GatedDeltaNet state is recomputed from that pass's own inputs. load() checks this on its GPU."""
 
 import copy
 import itertools
@@ -23,18 +23,17 @@ SIBLINGS = (  # layers that read the same input share one first-factor product
     ("q_proj", "k_proj", "v_proj"),
     ("gate_proj", "up_proj"),
 )
-active = True  # False: every pass as shipped
-recording = None  # per GatedDeltaNet layer of the running pass: its conv input and update arguments
+recording = None  # per GatedDeltaNet layer of a verify pass: its conv input and update arguments
 
 
 attend = qwen3_next.scaled_dot_product_attention  # pyright: ignore[reportPrivateImportUsage]
 
 
 def attention(queries, keys, values, cache, scale, mask, **kwargs):
-    """Each row over the keys a one-token pass has: from ~1,000 keys on, MLX picks its kernel by
-    the row count."""
+    """Each row over the keys a one-token pass has: past 1,024 keys MLX splits them into more blocks
+    for several rows."""
     rows = queries.shape[2]
-    if not active or rows == 1 or rows > ROWS:
+    if recording is None or rows == 1:
         return attend(queries, keys, values, cache=cache, scale=scale, mask=mask, **kwargs)
     seen = keys.shape[2] - rows
     return mx.concatenate(
@@ -64,6 +63,31 @@ def tiled(weight):  # a copy per row: a broadcast one gets folded into one matri
     return mx.contiguous(mx.broadcast_to(weight, (ROWS, *weight.shape)))
 
 
+def rowwise(layer, x):  # MLX runs each row against a broadcast weight as a one-row product
+    rows, arrays = x.shape[-2], (layer.weight, layer.scales, layer.biases)
+    weight, scales, biases = (mx.broadcast_to(array, (rows, *array.shape)) for array in arrays)
+    product = mx.quantized_matmul(
+        x.reshape(rows, 1, -1),
+        weight,
+        scales,
+        biases,
+        group_size=layer.group_size,
+        bits=layer.bits,
+        mode=layer.mode,
+    )
+    return product.reshape(*x.shape[:-1], -1)
+
+
+class Quantized(nn.QuantizedLinear):
+    def __call__(self, x):
+        return super().__call__(x) if recording is None or x.shape[-2] == 1 else rowwise(self, x)
+
+
+class Embedding(nn.QuantizedEmbedding):  # the tied head
+    def as_linear(self, x):
+        return super().as_linear(x) if recording is None or x.shape[-2] == 1 else rowwise(self, x)
+
+
 class Conv(nn.Conv1d):
     def __call__(self, x):
         if recording is not None:
@@ -74,7 +98,7 @@ class Conv(nn.Conv1d):
 class Lora(LoRALinear):
     def __call__(self, x):
         rows = x.shape[-2]
-        if not active or rows > ROWS:  # the prompt, as shipped
+        if recording is None:
             return super().__call__(x)
         group = self.__dict__["group"]
         if group["input"] is not x:  # held, so a later input can't reuse its id
@@ -96,8 +120,8 @@ class Lora(LoRALinear):
 
 def install(model, cache, tokens):
     """Swaps in the exact layers, then checks a speculative pass and rollback against one-token passes
-    bit for bit after `cache` and after 1,100 more tokens, over `tokens` (5+)."""
-    global active, recording
+    bit for bit after `cache`, over `tokens` (5+)."""
+    global recording
     qwen3_5.gated_delta_update = recorded  # pyright: ignore[reportPrivateImportUsage]
     qwen3_next.scaled_dot_product_attention = attention  # pyright: ignore[reportPrivateImportUsage]
     modules = [module for _, module in model.named_modules()]
@@ -121,28 +145,26 @@ def install(model, cache, tokens):
     for module in modules:
         if isinstance(module, qwen3_5.GatedDeltaNet):
             module.conv1d.__class__ = Conv
-
-    def passes(start, chunks):
-        state = copy.deepcopy(start)
-        rows = [model(mx.array(chunk)[None], cache=state)[0] for chunk in chunks]
-        return state, mx.concatenate(rows)
-
+        elif type(module) is nn.QuantizedLinear:  # LoRA's own `linear` too
+            module.__class__ = Quantized
+        elif type(module) is nn.QuantizedEmbedding:
+            module.__class__ = Embedding
     with mx.stream(generation_stream):
-        longer = copy.deepcopy(cache)
-        model(mx.array((tokens * 1100)[:1100])[None], cache=longer)
-        for start in (cache, longer):
-            active = False
-            _, shipped = passes(start, [[token] for token in tokens[:5]])
-            active, recording = True, []
-            state, verified = passes(start, [tokens[:5]])
-            rollback(state, 2, 5)
-            recording = None
-            resumed = model(mx.array(tokens[2:3])[None], cache=state)[0]
-            if not (
-                mx.array_equal(verified, shipped).item()
-                and mx.array_equal(resumed, shipped[2:3]).item()
-            ):
-                raise RuntimeError("speculative decoding is not exact on this GPU")
+        state = copy.deepcopy(cache)
+        shipped = mx.concatenate(
+            [model(mx.array([[token]]), cache=state)[0] for token in tokens[:5]]
+        )
+        recording, state = [], copy.deepcopy(cache)
+        verified = model(mx.array([tokens[:5]]), cache=state)[0]
+        rollback(state, 2, 5)
+        # One row, through the grouped LoRA product.
+        resumed = model(mx.array(tokens[2:3])[None], cache=state)[0]
+        recording = None
+        if not (
+            mx.array_equal(verified, shipped).item()
+            and mx.array_equal(resumed, shipped[2:3]).item()
+        ):
+            raise RuntimeError("speculative decoding is not exact on this GPU")
 
 
 def rollback(cache, keep, rows):
@@ -180,6 +202,17 @@ class Drafts:
         return self.source[self.at : self.at + count]
 
 
+def greedy(logits):  # as mlx-lm samples: the argmax of the log-probabilities
+    return mx.argmax(logits - mx.logsumexp(logits, axis=-1, keepdims=True), axis=-1)
+
+
+def ahead(model, token, cache):
+    """The greedy token after `token`, queued on the GPU as generate_step queues its next step."""
+    following = greedy(model(token.reshape(1, 1), cache=cache)[0, -1])
+    mx.async_eval(following)
+    return following
+
+
 def generate(model, prompt, cache, drafts, limit, eos, between=None):
     """Greedy tokens for `prompt` after `cache`, the same as mlx-lm's generate_step gives."""
     global recording
@@ -190,27 +223,39 @@ def generate(model, prompt, cache, drafts, limit, eos, between=None):
             model(mx.array(prompt[:size])[None], cache=cache)
             mx.eval([entry.state for entry in cache])
             prompt = prompt[size:]
-        feed = prompt
+        feed, queued = prompt, None  # queued: the next token's pass, once drafts stop matching
         try:
             while True:
-                guesses = drafts.next(tokens, min(ROWS - len(feed), limit - len(tokens)))
-                recording = []
-                logits = model(mx.array(feed + guesses)[None], cache=cache)[0, len(feed) - 1 :]
-                best = cast(list[int], mx.argmax(logits, axis=-1).tolist())
-                accepted = next(
-                    (index for index, guess in enumerate(guesses) if guess != best[index]),
-                    len(guesses),
-                )
-                drafts.at += accepted
-                for token in guesses[:accepted] + [best[accepted]]:
+                if queued is None:
+                    guesses = drafts.next(tokens, min(ROWS - len(feed), limit - len(tokens)))
+                    recording = []
+                    logits = model(mx.array(feed + guesses)[None], cache=cache)[0, len(feed) - 1 :]
+                    best = cast(list[int], greedy(logits).tolist())
+                    accepted = next(
+                        (index for index, guess in enumerate(guesses) if guess != best[index]),
+                        len(guesses),
+                    )
+                    drafts.at += accepted
+                    if accepted < len(guesses):
+                        rollback(cache, len(feed) + accepted, len(feed) + len(guesses))
+                    recording = None
+                    new, feed = guesses[:accepted] + [best[accepted]], [best[accepted]]
+                    # Off the dictation: one-token passes, each queued before the last is read.
+                    if not accepted:
+                        queued = ahead(model, mx.array(feed), cache)
+                else:
+                    guess = drafts.next(tokens, 1)
+                    token, queued = queued, ahead(model, queued, cache)
+                    new = [token.item()]
+                    if guess == new:  # back on it: drafts again from the queued token
+                        new.append(queued.item())
+                        feed, queued = new[-1:], None
+                for token in new:
                     if token in eos:
                         return tokens
                     tokens.append(token)
                     if len(tokens) == limit:
                         return tokens
-                if accepted < len(guesses):
-                    rollback(cache, len(feed) + accepted, len(feed) + len(guesses))
-                feed = [best[accepted]]
                 if between:
                     between()
         finally:

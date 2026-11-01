@@ -21,7 +21,7 @@ local environment = setmetatable({
         return { mode = "file" }
       end,
       temporaryDirectory = function()
-        return "/tmp/"
+        return "/T/"
       end,
     },
     host = {
@@ -141,7 +141,7 @@ end)
 test("a line waits until the backend has read the one before it, never written over it", function()
   local backend = assert(engine.new({}, { onFinal = function() end, onError = function() end }))
   local feed = assert(output, "no backend task")
-  assert(argv[3] == backend.socket and backend.socket:find("^/tmp/dictation%-"), tostring(argv[3]))
+  assert(argv[3] == backend.socket and backend.socket:find("^/T/dictation%-"), tostring(argv[3]))
   feed(nil, '{"event":"ready"}\n', "")
   inputs = {}
   local first = assert(backend:start(4242, "com.apple.Notes"))

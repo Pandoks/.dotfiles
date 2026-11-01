@@ -13,7 +13,6 @@ Diagnostics and tracebacks go to stderr.
 
 import difflib
 import functools
-import hashlib
 import json
 import os
 import queue
@@ -23,7 +22,6 @@ import sys
 import threading
 import traceback
 import unicodedata
-import wave
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +33,7 @@ class Rejected(RuntimeError):
     pass
 
 
-class Stale(Exception):
+class Stale(Rejected):
     pass
 
 
@@ -848,7 +846,6 @@ class Take:
     def __init__(self):
         self.request = self.stream = self.reply = None
         self.audio, self.ended, self.paused = b"", False, False
-        self.digest = hashlib.sha256()  # of all it streamed, checked against the wav
         self.cleaned = {}  # heard text: what it types, or what it raised
 
 
@@ -859,16 +856,6 @@ def answer(engine, take, emit):
         take.reply = attempt(engine, lambda: engine.process(request["wav"], request))
     if take.reply is None or "wav" not in request:
         return False
-    if take.stream:
-        try:
-            with wave.open(request["wav"]) as audio:
-                frames = audio.readframes(audio.getnframes())
-            differs = hashlib.sha256(frames).digest() != take.digest.digest()
-            problem = differs and "the streamed audio differs from the wav"
-        except (OSError, wave.Error) as error:
-            problem = f"could not read the wav: {error}"
-        if problem:
-            take.reply = {"event": "error", "msg": problem, "heard": None}
     emit({**take.reply, "id": request["id"]})
     return True
 
@@ -880,7 +867,7 @@ def attempt(engine, transcribe):
     try:
         return {"event": "final", "text": transcribe()}
     except Exception as error:  # noqa: BLE001 - every take gets an answer, with what was heard
-        if not isinstance(error, Rejected):  # a verdict, not a bug: no traceback
+        if not isinstance(error, Rejected):  # a verdict or a cancel, not a bug: no traceback
             traceback.print_exception(error)
         return {"event": "error", "msg": str(error), "heard": engine.heard}
     finally:
@@ -902,8 +889,6 @@ def cleaned(engine, take, heard, between=None):
 
 
 def serve(engine, events, emit):
-    import mlx.core as mx
-
     takes = {}  # by ffmpeg pid
     held = []  # lines and ends read during a pause's cleanup, handled after it
 
@@ -914,7 +899,6 @@ def serve(engine, events, emit):
             return
         whole = len(data) - len(data) % 2
         take.audio = data[whole:]
-        take.digest.update(data[:whole])
         samples = np.frombuffer(data[:whole], np.int16).astype(np.float32) / 32768.0
         take.paused |= take.stream.feed(samples)
 
@@ -923,12 +907,13 @@ def serve(engine, events, emit):
             engine.heard = engine.spoken(take.stream.finish(), take.request)
             reused = engine.heard in take.cleaned
             print(f"cleanup at release: {'reused' if reused else 'ran'}", file=sys.stderr)
-            return cleaned(engine, take, engine.heard)
+            return cleaned(engine, take, engine.heard, functools.partial(between, take, None))
 
         take.reply = attempt(engine, transcribe)
 
     def between(take, segments):
-        """Keeps the stream fed during a pause's cleanup; stops it once what was heard changes."""
+        """Keeps the stream fed during a cleanup; stops it once what was heard changes, or once the
+        next take starts before this one's stop line (it was cancelled)."""
         while True:
             try:
                 event = events.get(block=False)
@@ -938,6 +923,12 @@ def serve(engine, events, emit):
                 feed(takes.setdefault(event[1], Take()), event[2])
             else:
                 held.append(event)
+        lines = [json.loads(event[2]) for event in held if event and event[0] == "line"]
+        stopped = "wav" in take.request or any(line["id"] == take.request["id"] for line in lines)
+        if not stopped and any("pid" in line for line in lines):
+            raise Stale
+        if segments is None:  # the release's own cleanup
+            return
         ended = any(event and event[0] == "end" and takes.get(event[1]) is take for event in held)
         if (take.stream.finish() if ended else take.stream.texts()) != segments:
             raise Stale
@@ -956,7 +947,6 @@ def serve(engine, events, emit):
                     cleaned(engine, take, heard, functools.partial(between, take, segments))
                 except Exception:  # noqa: BLE001, S110 - kept in take.cleaned for the release
                     pass
-                mx.clear_cache()
             continue
         if event is None:
             return
