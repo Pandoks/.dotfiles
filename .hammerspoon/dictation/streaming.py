@@ -252,9 +252,11 @@ class Stream:
         self.encoded = None  # (closed segments, open samples, padded) of the last encode
 
     def texts(self):
-        """Every segment's (plain, boosted) so far, the open one as of its last encode."""
+        """Every segment's (plain, boosted) so far, the open one as of its last encode if it has
+        words: a cut in a pause changes none."""
         plain, *boosted = (text(path.tokens) for path in self.paths)
-        return [*self.closed, (plain, boosted[0] if boosted else None)]
+        opened = [(plain, boosted[0] if boosted else None)] if plain or any(boosted) else []
+        return [*self.closed, *opened]
 
     def kept(self):
         """Samples of the open segment its text comes from, and whether they end on kept silence."""

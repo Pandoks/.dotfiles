@@ -74,7 +74,7 @@ def dictate(raw, cleaned=None, numbers=False):
     engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
     engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
         prompt="prompt",
-        complete=lambda messages, raw: raw if cleaned is None else cleaned,
+        complete=lambda messages, raw, between: raw if cleaned is None else cleaned,
     )
     try:
         if numbers:
@@ -1118,7 +1118,7 @@ check(
 )
 engine.speech = SimpleNamespace(transcribe=lambda wav, hint: "Mmm wha blah", boost=0)
 engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
-    prompt="prompt", complete=lambda messages, raw: ""
+    prompt="prompt", complete=lambda messages, raw, between: ""
 )
 try:
     engine.process("take.wav", {})
@@ -1161,7 +1161,7 @@ class Chatty(server.Engine):
         self.cleaner = None
     def load(self):
         print("loading...")
-    def clean(self, text, request):
+    def clean(self, text, request, between):
         print("[WARNING] again")
         os.write(1, b"native chatter\\n")  # as native code would, past sys.stdout
         return text + " samples"
@@ -1227,7 +1227,7 @@ class Stub(server.Engine):
         self.config, self.heard = config, None
         self.speech = SimpleNamespace(transcribe=transcribe, stream=lambda hint: None, boost=0)
         self.cleaner = SimpleNamespace(prompt="p")
-        self.cleaner.complete = lambda messages, raw: raw.replace("0.5", "0.05")
+        self.cleaner.complete = lambda messages, raw, between: raw.replace("0.5", "0.05")
     def load(self):
         pass
 server.Engine = Stub
@@ -1359,7 +1359,9 @@ plain = server.Engine(
 )
 prompts = []
 plain.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
-fake = SimpleNamespace(prompt=None, complete=lambda messages, raw: prompts.append(messages) or raw)
+fake = SimpleNamespace(
+    prompt=None, complete=lambda messages, raw, between: prompts.append(messages) or raw
+)
 plain.cleaner = fake  # pyright: ignore[reportAttributeAccessIssue]
 plain.process("Restart yabai.", {"app": "com.x"})
 plain.config = dict(plain.config, style=False)  # pyright: ignore[reportAttributeAccessIssue]
@@ -1581,6 +1583,19 @@ assert np.array_equal(paused[32000:], np.tile(room[:kept], 4)[:padded]), (
     "the pad is not the kept silence"
 )
 print("PASS a segment ends on the silence it kept after its last sound, tiled to PADDED")
+worded = Model(mx.zeros((contexts, width)))  # every frame types "ok"
+worded.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
+worded.encoder = lambda audio: (mx.zeros((1, 1, width)), None)  # pyright: ignore[reportAttributeAccessIssue]
+with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+    worded_stream = streaming.Stream(worded, None)
+    worded_stream.feed(np.concatenate([np.tile(speech, 5)[:144000], np.zeros(1600, np.float32)]))
+    at_pause = worded_stream.texts()
+    worded_stream.feed(np.zeros(6400, np.float32))  # 400 ms: the cut
+assert at_pause and worded_stream.closed == worded_stream.texts() == at_pause, (
+    at_pause,
+    worded_stream.texts(),
+)
+print("PASS a cut in a pause leaves the transcript as the pause had it")
 # Unboosted and boosted Parakeet decodes of TTS takes (`say -v Albert`, `-v Daniel`, ...).
 check(
     "a boosted word is kept only where it spells a vocabulary word, never over a stall",
@@ -1654,7 +1669,7 @@ class Events:
         self.items = list(items)
 
     def get(self, block=True):
-        item = self.items.pop(0)
+        item = self.items.pop(0) if self.items else "idle"
         if item != "idle":
             return item
         if not block:
@@ -1662,12 +1677,20 @@ class Events:
         return self.get()
 
 
-cleaned = []
+cleaned = []  # the take each cleanup pass ran on
+
+
+def complete(messages, raw, between):
+    for _ in range(2):
+        cleaned.append(raw)
+        if between:
+            between()
+    return raw
+
+
 streamer = server.Engine(dict(engine.config, words={}))
 streamer.speech = SimpleNamespace(stream=lambda hint: Spelled())  # pyright: ignore[reportAttributeAccessIssue]
-streamer.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
-    prompt="p", complete=lambda messages, raw: cleaned.append(raw) or raw
-)
+streamer.cleaner = SimpleNamespace(prompt="p", complete=complete)  # pyright: ignore[reportAttributeAccessIssue]
 folder = tempfile.mkdtemp()
 
 
@@ -1726,15 +1749,33 @@ check(
 )
 paused = ("line", None, json.dumps({"id": 1, "wav": wav("Hi there.\0")}))
 held = ("line", None, json.dumps({"id": 1, "wav": wav("Hi\0 there.")}))
+quiet = ("line", None, json.dumps({"id": 1, "wav": wav("Hi\0\0 there.")}))
 check(
-    "a transcript that held still at a pause is cleaned then, not again at release",
+    "a transcript that held still at a pause is cleaned then, not again at release; that cleanup"
+    " feeds the audio read meanwhile and stops once it changes what was heard",
     [
-        ((start, sound("Hi there.\0"), "idle", end, paused), ([(1, "Hi there.")], ["Hi there."])),
         (
-            (start, sound("Hi\0"), "idle", sound(" there."), end, held),
-            ([(1, "Hi there.")], ["Hi", "Hi there."]),
+            (start, sound("Hi there.\0"), "idle", end, paused),
+            ([(1, "Hi there.")], ["Hi there."] * 2),
         ),
-        ((start, sound("Hi there.\0"), end, paused), ([(1, "Hi there.")], ["Hi there."])),
+        (
+            (start, sound("Hi\0"), "idle", sound(" there."), "idle", end, held),
+            ([(1, "Hi there.")], ["Hi", "Hi there.", "Hi there."]),
+        ),
+        (
+            (
+                start,
+                sound("Hi\0"),
+                "idle",
+                sound("\0"),
+                "idle",
+                "idle",
+                sound(" there."),
+                end,
+                quiet,
+            ),
+            ([(1, "Hi there.")], ["Hi", "Hi", "Hi there.", "Hi there."]),
+        ),
     ],
     lambda items: (streamed(*items), list(cleaned)),
 )

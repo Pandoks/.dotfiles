@@ -127,7 +127,7 @@ class Cleaner:
     def load(self):
         raise NotImplementedError
 
-    def complete(self, messages, raw):
+    def complete(self, messages, raw, between=None):  # between(), after each pass, may raise
         raise NotImplementedError
 
 
@@ -181,7 +181,7 @@ class MlxLm(Cleaner):
             messages, add_generation_prompt=True, enable_thinking=False
         )
 
-    def complete(self, messages, raw):
+    def complete(self, messages, raw, between=None):
         import mlx.core as mx
         from mlx_lm.generate import generate_step
         from mlx_lm.models.cache import make_prompt_cache
@@ -200,7 +200,7 @@ class MlxLm(Cleaner):
             end = self.tokenizer.convert_tokens_to_ids("<|im_end|>")  # pyright: ignore[reportCallIssue]
             drafts = speculative.Drafts([*source, end], self.fold)
             cache = cache or make_prompt_cache(self.llm)
-            tokens = speculative.generate(self.llm, prompt, cache, drafts, limit, eos)
+            tokens = speculative.generate(self.llm, prompt, cache, drafts, limit, eos, between)
         else:  # mlx-lm's generate, without its per-call detokenizer: a copy of the vocabulary
             tokens = []
             for token, _ in generate_step(
@@ -209,6 +209,8 @@ class MlxLm(Cleaner):
                 if token in eos:
                     break
                 tokens.append(token)
+                if between:
+                    between()
         # Past the last "</think>": the template opens and closes an empty one, the model may again.
         reply = self.tokenizer.decode(tokens)  # pyright: ignore[reportCallIssue]
         return reply.rpartition("</think>")[2].strip()

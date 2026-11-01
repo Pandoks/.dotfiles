@@ -12,6 +12,7 @@ Diagnostics and tracebacks go to stderr.
 """
 
 import difflib
+import functools
 import hashlib
 import json
 import os
@@ -31,6 +32,10 @@ from models import CLEANERS, SPEECH, letters
 
 
 class Rejected(RuntimeError):
+    pass
+
+
+class Stale(Exception):
     pass
 
 
@@ -794,7 +799,7 @@ class Engine:
         self.heard = heard  # what was said, kept if a later step fails
         return self.clean(heard, request)
 
-    def clean(self, heard, request):
+    def clean(self, heard, request, between=None):
         names = list(self.spellings(request))
         raw = self.spell(heard, request)
         # A stall hides the last word ("and, uh.").
@@ -817,7 +822,7 @@ class Engine:
                 {"role": "system", "content": "\n".join(filter(None, system))},
                 {"role": "user", "content": FRAME.format(raw)},
             ]
-        cleaned = self.cleaner.complete(messages, raw)
+        cleaned = self.cleaner.complete(messages, raw, between)
         if not cleaned.isprintable():  # a line break or control: a reformat ("- Eggs\n- Milk")
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
             cleaned = raw
@@ -882,11 +887,13 @@ def attempt(engine, transcribe):
         mx.clear_cache()  # MLX keeps freed buffers, up to most of RAM
 
 
-def cleaned(engine, take, heard):
+def cleaned(engine, take, heard, between=None):
     """What `heard` types, cleaned at most once per take: a pause may have cleaned it already."""
     if heard not in take.cleaned:
         try:
-            take.cleaned[heard] = engine.clean(heard, take.request)
+            take.cleaned[heard] = engine.clean(heard, take.request, between)
+        except Stale:
+            raise
         except Exception as error:  # noqa: BLE001 - raised again where it is typed
             take.cleaned[heard] = error
     if isinstance(take.cleaned[heard], Exception):
@@ -895,7 +902,10 @@ def cleaned(engine, take, heard):
 
 
 def serve(engine, events, emit):
+    import mlx.core as mx
+
     takes = {}  # by ffmpeg pid
+    held = []  # lines and ends read during a pause's cleanup, handled after it
 
     def feed(take, chunk):
         data = take.audio + chunk
@@ -917,19 +927,36 @@ def serve(engine, events, emit):
 
         take.reply = attempt(engine, transcribe)
 
+    def between(take, segments):
+        """Keeps the stream fed during a pause's cleanup; stops it once what was heard changes."""
+        while True:
+            try:
+                event = events.get(block=False)
+            except queue.Empty:
+                break
+            if event and event[0] == "audio":
+                feed(takes.setdefault(event[1], Take()), event[2])
+            else:
+                held.append(event)
+        ended = any(event and event[0] == "end" and takes.get(event[1]) is take for event in held)
+        if (take.stream.finish() if ended else take.stream.texts()) != segments:
+            raise Stale
+
     while True:
         settling = [take for take in takes.values() if take.paused and not take.ended]
         try:
-            event = events.get(block=not settling)
+            event = held.pop(0) if held else events.get(block=not settling)
         except queue.Empty:  # the transcript held still at a pause: clean it now, not at release
             take = settling[-1]
             take.paused = False
-            heard = engine.spoken(take.stream.texts(), take.request)
+            segments = take.stream.texts()
+            heard = engine.spoken(segments, take.request)
             if heard:
                 try:
-                    cleaned(engine, take, heard)
+                    cleaned(engine, take, heard, functools.partial(between, take, segments))
                 except Exception:  # noqa: BLE001, S110 - kept in take.cleaned for the release
                     pass
+                mx.clear_cache()
             continue
         if event is None:
             return

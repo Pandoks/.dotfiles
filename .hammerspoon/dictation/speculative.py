@@ -180,7 +180,7 @@ class Drafts:
         return self.source[self.at : self.at + count]
 
 
-def generate(model, prompt, cache, drafts, limit, eos):
+def generate(model, prompt, cache, drafts, limit, eos, between=None):
     """Greedy tokens for `prompt` after `cache`, the same as mlx-lm's generate_step gives."""
     global recording
     tokens = []
@@ -211,5 +211,7 @@ def generate(model, prompt, cache, drafts, limit, eos):
                 if accepted < len(guesses):
                     rollback(cache, len(feed) + accepted, len(feed) + len(guesses))
                 feed = [best[accepted]]
+                if between:
+                    between()
         finally:
             recording = None
