@@ -1187,6 +1187,7 @@ plugins:
 
   store-sources:
     - https://raw.githubusercontent.com/Pandoks/cpa-plugin-paced-affinity/main/registry.json
+    - https://raw.githubusercontent.com/Pandoks/cpa-plugin-deepinfra-autoscale/main/registry.json
   configs:
     paced-affinity:
       enabled: true
