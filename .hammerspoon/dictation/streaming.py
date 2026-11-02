@@ -97,12 +97,12 @@ class Path:
         """`features`: the whole segment's encoder output, [1, frames, width]."""
         if self.steps:
             # Steps past the end of a shorter encode (a cut at the quietest frame) count as changed.
-            inside = bisect.bisect_left([step.frame for step in self.steps], features.shape[1])
+            frames = [step.frame for step in self.steps]
+            inside = bisect.bisect_left(frames, features.shape[1])
             steps = self.steps[:inside]
-            frames = mx.array([step.frame for step in steps])
             predictions = mx.concatenate([step.prediction.reshape(1, -1) for step in steps])
             joint = self.model.joint
-            logits = joint.enc(features[0][frames]) + joint.pred(predictions)
+            logits = joint.enc(features[0][mx.array(frames[:inside])]) + joint.pred(predictions)
             for layer in joint.joint_net:
                 logits = layer(logits)
             now = self.decide(logits, [step.word for step in steps])
@@ -277,8 +277,9 @@ class Stream:
         for path in self.paths:
             path.update(features)
 
-    def feed(self, samples):
-        """Returns whether the open segment was just encoded as a release now would encode it."""
+    def feed(self, samples, latest=True):
+        """Returns whether the open segment was just encoded as a release now would encode it. With
+        more audio already queued (not `latest`), the encode waits for it."""
         self.open = np.concatenate([self.open, samples])
         while (len(self.levels) + 1) * FRAME <= len(self.open):  # a cut shortens self.open
             frame = self.open[len(self.levels) * FRAME : (len(self.levels) + 1) * FRAME]
@@ -294,7 +295,7 @@ class Stream:
             elif len(self.levels) >= LONGEST:
                 recent = range(len(self.levels) - 100, len(self.levels))
                 self.cut(min(recent, key=lambda index: self.levels[index]), False)
-        if self.voiced < VOICED or self.encoded == (len(self.closed), *self.kept()):
+        if not latest or self.voiced < VOICED or self.encoded == (len(self.closed), *self.kept()):
             return False
         encoded = self.encoded[1] if self.encoded and self.encoded[0] == len(self.closed) else 0
         if self.run >= TAIL or len(self.open) - encoded >= REFRESH:
@@ -314,7 +315,7 @@ class Stream:
 
     def finish(self):
         """Every segment's (plain, boosted), the open one from all its audio but the silence past TAIL."""
-        if self.voiced >= VOICED:
+        if self.voiced >= VOICED or self.voiced and not self.closed:
             self.encode(*self.kept())
             return self.texts()
         return self.closed

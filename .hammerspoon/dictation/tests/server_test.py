@@ -1164,7 +1164,7 @@ class Chatty(server.Engine):
         print("[WARNING] Generating with a model that requires 9000 MB")
         self.config, self.heard = config, None
         self.speech = SimpleNamespace(stream=lambda hint: SimpleNamespace(
-            feed=lambda samples: bool(heard.append(len(samples))), finish=lambda: [(str(sum(heard)), None)]
+            feed=lambda samples, latest: bool(heard.append(len(samples))), finish=lambda: [(str(sum(heard)), None)]
         ))
         self.cleaner = None
     def load(self):
@@ -1548,12 +1548,15 @@ kept = streaming.TAIL * streaming.FRAME  # the silence a segment keeps after its
 padded = streaming.PADDED * streaming.FRAME
 
 
-def encodes(parts, chunk):
-    """Lengths of audio Stream encodes, for loud and silent `parts` (seconds), fed `chunk` at a time."""
+def encodes(parts, chunk, frames=0):
+    """Lengths of audio Stream encodes, for loud and silent `parts` (seconds), fed `chunk` at a time;
+    each encode is `frames` frames that type "ok"."""
     lengths = []
     model = Model(mx.zeros((contexts, width)))
     model.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
-    model.encoder = lambda audio: lengths.append(audio.shape[0]) or (mx.zeros((1, 0, width)), None)  # pyright: ignore[reportAttributeAccessIssue]
+    model.encoder = lambda audio: (  # pyright: ignore[reportAttributeAccessIssue]
+        lengths.append(audio.shape[0]) or (mx.zeros((1, frames, width)), None)
+    )
 
     def tone(seconds):
         return 0.3 * np.sin(np.arange(int(16000 * seconds)) / 3, dtype=np.float32)
@@ -1582,7 +1585,8 @@ check(
         (((9, -0.5, 2), 999), (True, [8000 - kept + 32000])),
         (((5, -0.5, 2), 2560), (False, [120000])),  # too short to cut: all 7.5 s at release
         (((9, -0.5), 2560), (True, [])),  # no sound after the cut: nothing left to encode
-        (((9, -0.5, 0.1), 2560), (True, [])),  # a blip after the cut, under VOICED: no segment
+        (((9, -0.5, 0.1), 2560, 1), (True, [])),  # a blip after words and a cut, under VOICED
+        (((0.1,), 2560), (False, [1600])),  # a take's only sound, under VOICED: a short word
         (((29, -0.1, 3), 2560), (False, [49600])),  # 30 s: cut at the last 2 s's quietest
         (((2, -0.3), 2560), (False, [])),  # a release in a pause: the pause's encode
         (((2, -0.02 * (streaming.TAIL - 1)), 2560), (False, [32000 + kept - 320])),  # before TAIL
@@ -1614,6 +1618,13 @@ print(
     "PASS a segment ends on the silence it kept after its last sound, tiled to PADDED, which feed"
     " reports once"
 )
+heard_audio.clear()
+with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+    behind = streaming.Stream(noisy, None)
+    for start in range(0, 48000, 2560):
+        behind.feed(np.tile(speech, 2)[:48000][start : start + 2560], start + 2560 >= 48000)
+assert [len(audio) for audio in heard_audio] == [48000], [len(audio) for audio in heard_audio]
+print("PASS a stream behind its audio encodes once, all of it, not once per second that came")
 worded = Model(mx.zeros((contexts, width)))  # every frame types "ok"
 worded.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
 worded.encoder = lambda audio: (mx.zeros((1, 1, width)), None)  # pyright: ignore[reportAttributeAccessIssue]
@@ -1682,13 +1693,17 @@ check(
 )
 
 
+latest = []  # each feed's: no more audio queued
+
+
 class Spelled:
     """A stream whose transcript is its samples as characters; a 0 sample is a pause."""
 
     def __init__(self):
         self.text = ""
 
-    def feed(self, samples):
+    def feed(self, samples, last=True):
+        latest.append(last)
         codes = np.round(samples * 32768).astype(int)
         self.text += "".join(chr(code) for code in codes if code)
         return 0 in codes
@@ -1704,6 +1719,9 @@ class Events:
 
     def __init__(self, items):
         self.items = list(items)
+
+    def empty(self):
+        return not self.items or self.items[0] == "idle"
 
     def get(self, block=True):
         item = self.items.pop(0) if self.items else "idle"
@@ -1769,10 +1787,15 @@ check(
     ],
     lambda items: streamed(*items),
 )
+latest.clear()
+streamed(start, sound("Hi "), sound("there."), "idle", end, stop)
+assert latest == [False, False, True], latest
+print("PASS a stream is told whether more audio is queued, so it encodes only the latest")
 cancelled = ("line", None, json.dumps({"id": 2, "pid": 8}))
+second = ("line", None, json.dumps({"id": 2, "wav": wav("A")}))
 check(
-    "a take that never stops gets no reply, and its cleanup stops at the next start; the next is"
-    " typed from its own audio",
+    "a take that never stops gets no reply, and its cleanup stops at the next start (a stopped"
+    " one's goes on); the next is typed from its own audio",
     [
         (
             (
@@ -1785,6 +1808,19 @@ check(
                 stop,
             ),
             ([(1, "Hi there.")], ["A", "Hi there.", "Hi there."]),
+        ),
+        (  # Escape after its stop line, then a new take: it is still answered
+            (
+                start,
+                sound("Hi there."),
+                end,
+                stop,
+                cancelled,
+                ("audio", 8, b"\x41\x00"),
+                ("end", 8, None),
+                second,
+            ),
+            ([(1, "Hi there."), (2, "A")], ["Hi there.", "Hi there.", "A", "A"]),
         ),
     ],
     lambda items: (streamed(*items), list(cleaned)),

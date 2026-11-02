@@ -900,13 +900,11 @@ def serve(engine, events, emit):
         whole = len(data) - len(data) % 2
         take.audio = data[whole:]
         samples = np.frombuffer(data[:whole], np.int16).astype(np.float32) / 32768.0
-        take.paused |= take.stream.feed(samples)
+        take.paused |= take.stream.feed(samples, events.empty())
 
     def finish(take):
         def transcribe():
             engine.heard = engine.spoken(take.stream.finish(), take.request)
-            reused = engine.heard in take.cleaned
-            print(f"cleanup at release: {'reused' if reused else 'ran'}", file=sys.stderr)
             return cleaned(engine, take, engine.heard, functools.partial(between, take, None))
 
         take.reply = attempt(engine, transcribe)

@@ -77,8 +77,8 @@ adapter they fail the load. A plain model types self-corrections as said.
   answers (it died, or Hammerspoon reloaded), or whose capture failed or didn't finish within 2 s
   of stop (an unplugged mic), keeps its recording there as a `.wav` if it caught any audio.
 - The cleanup rewrites the whole take, starting 60 ms into each pause and dropped once what it
-  heard changes: a take stopped mid-sentence waits for all of it, a 2.5-minute one about 5.5 s
-  (M1 Max).
+  heard changes: a take stopped mid-sentence waits for all of it, a 2.5-minute one about 6 s
+  (M1 Max), 7 s (M5).
 - Alerts show up to 3 lines of a failure's first line; the rest is in the Hammerspoon console and
   `~/Library/Logs/Hammerspoon/config.log`.
 

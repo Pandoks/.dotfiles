@@ -434,12 +434,17 @@ test("a take whose transcript isn't saved keeps its recording in history", funct
   end
 end)
 
-test("a take recording when the backend dies is kept then", function()
-  local count = wavs()
-  focus = field("Hi")
-  toggle()
-  handlers.onError("exited (code 1)")
-  assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
+test("a take recording or stopping when the backend dies is kept", function()
+  for _, stopped in ipairs({ false, true }) do
+    local count = wavs()
+    focus = field("Hi")
+    toggle()
+    if stopped then
+      toggle()
+    end
+    handlers.onError("exited (code 1)")
+    assert(wavs() == count + 1 and not fs.attributes(recorded), "the take was dropped")
+  end
 end)
 
 test("a stop ffmpeg doesn't finish in 2 s, slow apps aside, keeps the take and says so", function()
@@ -486,7 +491,7 @@ test("config.lua's settings replace the defaults, its words sent as one map", fu
   assert(next(words.Zed) == nil and words.Neovim[1] == "neo vim", json.encode(words))
 end)
 
-test("a take too short or too quiet is never sent, and is deleted", function()
+test("a take too short or too quiet gets no stop line, and is deleted", function()
   for setting, value in pairs({ minDuration = 2, minLevel = 0.75 }) do
     sent = nil
     config[setting] = value
