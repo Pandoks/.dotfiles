@@ -141,6 +141,7 @@ Authenticate services locally; credentials are not stored in this repository:
 gh auth login
 aws sso login --profile PROFILE_NAME
 pass-cli login
+protonvpn signin  # Linux
 chmod 700 "$HOME/.ssh"
 ```
 

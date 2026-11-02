@@ -56,6 +56,7 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "apt:containerd.io" = "latest"
 "apt:docker-buildx-plugin" = "latest"
 "apt:docker-compose-plugin" = "latest"
+"apt:proton-vpn-cli" = "latest"
 
 "pacman:zsh" = "latest"
 "pacman:curl" = "latest"
@@ -73,6 +74,7 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:containerd" = "latest"
 "pacman:docker-buildx" = "latest"
 "pacman:docker-compose" = "latest"
+"pacman:proton-vpn-cli" = "latest"
 
 [bootstrap.directories."/etc/udev/rules.d"]
 
