@@ -79,7 +79,9 @@ def check(name, cases, function):
 
 def dictate(raw, cleaned=None, numbers=False):
     """Engine.process on `raw`, the cleanup returning `cleaned` or its input; None if rejected."""
-    engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
+    engine.speech = SimpleNamespace(
+        transcribe=lambda wav, hint: wav, stream=lambda hint: None, boost=0
+    )
     engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
         prompt="prompt",
         complete=lambda messages, raw, between: raw if cleaned is None else cleaned,
@@ -232,7 +234,7 @@ check(
 )
 # No tokenizer words: only macOS's word list keeps real words.
 off = server.Engine(engine.config)
-off.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
+off.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, stream=lambda hint: None, boost=0)
 check(
     "cleanup off fixes spellings, numbers, stalls, and unfinished ends, keeping real words; stalls"
     " alone are no speech",
@@ -1124,7 +1126,9 @@ check(
     ],
     lambda pair: dictate(*pair),
 )
-engine.speech = SimpleNamespace(transcribe=lambda wav, hint: "Mmm wha blah", boost=0)
+engine.speech = SimpleNamespace(
+    transcribe=lambda wav, hint: "Mmm wha blah", stream=lambda hint: None, boost=0
+)
 engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
     prompt="prompt", complete=lambda messages, raw, between: ""
 )
@@ -1369,7 +1373,7 @@ plain = server.Engine(
     )
 )
 prompts = []
-plain.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
+plain.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, stream=lambda hint: None, boost=0)
 fake = SimpleNamespace(
     prompt=None, complete=lambda messages, raw, between: prompts.append(messages) or raw
 )
@@ -1706,7 +1710,7 @@ check(
 )
 
 
-latest = []  # each feed's: no more audio queued
+fed = []  # each feed's `latest`: no more audio queued
 
 
 class Spelled:
@@ -1715,8 +1719,8 @@ class Spelled:
     def __init__(self):
         self.text = ""
 
-    def feed(self, samples, last=True):
-        latest.append(last)
+    def feed(self, samples, latest=True):
+        fed.append(latest)
         codes = np.round(samples * 32768).astype(int)
         self.text += "".join(chr(code) for code in codes if code)
         return 0 in codes
@@ -1800,10 +1804,13 @@ check(
     ],
     lambda items: streamed(*items),
 )
-latest.clear()
+fed.clear()
 streamed(start, sound("Hi "), sound("there."), "idle", end, stop)
-assert latest[-2:] == [False, True], latest
+assert fed[-2:] == [False, True], fed
 print("PASS a stream is told whether more audio is queued, so it encodes only the latest")
+loaded = ("line", None, json.dumps({"id": 2, "wav": wav("Hi there."), "app": "x"}))
+assert streamed(loaded) == [(2, "Hi there.")]
+print("PASS a take recorded while the backend loaded is typed from its wav")
 other = ("line", None, json.dumps({"id": 2, "pid": 8}))
 second = ("line", None, json.dumps({"id": 2, "wav": wav("A")}))
 check(

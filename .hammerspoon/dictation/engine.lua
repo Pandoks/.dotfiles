@@ -6,6 +6,7 @@ local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 
 ---@param config DictationConfig
 ---@param handlers {
+---  onReady?: fun(),
 ---  onFinal: fun(result: { id: integer, text: string }),
 ---  onError: fun(message: string, id?: integer, heard?: string),
 ---}
@@ -43,6 +44,13 @@ function engine.new(config, handlers)
       logger.error("Dictation: " .. tostring(problem))
     end
   end
+  -- One at a time: a second setInput drops what hs.task hasn't written yet.
+  local function advance()
+    self.sending = table.remove(self.queued, 1)
+    if self.sending then
+      self.task:setInput(self.sending)
+    end
+  end
   local function output(_, stdout, stderr)
     stderr = stderr or ""
     -- Load chatter (progress bars) stays out of the console.
@@ -66,12 +74,12 @@ function engine.new(config, handlers)
         -- Load chatter is no crash reason.
         self.ready, self.errors = true, ""
         pcall(print, "Dictation: backend ready")
-      elseif event.event == "received" then
-        -- One at a time: a second setInput drops what hs.task hasn't written yet.
-        self.sending = table.remove(self.queued, 1)
-        if self.sending then
-          self.task:setInput(self.sending)
+        advance()
+        if handlers.onReady then
+          call(handlers.onReady)
         end
+      elseif event.event == "received" then
+        advance()
       elseif event.event == "final" then
         call(handlers.onFinal, event)
       elseif event.event == "error" then
@@ -103,14 +111,15 @@ function engine.new(config, handlers)
   return self
 end
 
+-- Queued while the backend loads.
 ---@param self table
 ---@param request { id: integer, pid?: integer, app?: string, wav?: string }
 local function send(self, request)
-  if not self.ready or not self.task:isRunning() then
-    return nil, "backend is not ready"
+  if self.stopped or not self.task:isRunning() then
+    return nil, "backend is not running"
   end
   local line = hs.json.encode(request) .. "\n"
-  if self.sending then
+  if self.sending or not self.ready then
     self.queued[#self.queued + 1] = line
   else
     self.sending = line
@@ -127,11 +136,16 @@ function engine:start(pid, app)
   return send(self, { id = self.serial, pid = pid, app = app })
 end
 
--- Take `id` stopped; `wav` holds the audio it streamed.
----@param id integer
+-- Take `id` stopped; `wav` holds its audio. With no `id`, a take that didn't stream, from `app`.
+---@param id integer?
 ---@param wav string
-function engine:transcribe(id, wav)
-  return send(self, { id = id, wav = wav })
+---@param app string?
+function engine:transcribe(id, wav, app)
+  if id then
+    return send(self, { id = id, wav = wav })
+  end
+  self.serial = self.serial + 1
+  return send(self, { id = self.serial, wav = wav, app = app })
 end
 
 function engine:stop()

@@ -163,6 +163,33 @@ test("a line waits until the backend has read the one before it, never written o
   assert(backend:transcribe(second, "/tmp/b.wav") and #inputs == 4, "idle backend kept waiting")
 end)
 
+test("lines sent while the backend loads go out once it is ready, one at a time", function()
+  local readies = 0
+  local backend = assert(engine.new({}, {
+    onReady = function()
+      readies = readies + 1
+    end,
+    onFinal = function() end,
+    onError = function() end,
+  }))
+  local feed = assert(output, "no backend task")
+  inputs = {}
+  local first = assert(backend:transcribe(nil, "/tmp/a.wav", "com.apple.Notes"))
+  local second = assert(backend:transcribe(nil, "/tmp/b.wav", "com.x"))
+  assert(first ~= second, "two takes share an id")
+  assert(#inputs == 0, "a line written before the backend loaded")
+  feed(nil, '{"event":"ready"}\n', "")
+  assert(#inputs == 1, "the queued lines did not go out one at a time")
+  assert(readies == 1, "onReady ran " .. readies .. " times")
+  local line = inputs[1]
+  assert(
+    line.id == first and line.wav == "/tmp/a.wav" and line.app == "com.apple.Notes",
+    "wrong line"
+  )
+  feed(nil, '{"event":"received"}\n', "")
+  assert(#inputs == 2 and inputs[2].id == second and inputs[2].app == "com.x", "lost a line")
+end)
+
 test("a backend that fails, dies, or says something unknown fails once and says why", function()
   for _, case in ipairs({
     { '{"event":"error","msg":"load failed"}\n', "KeyError" }, -- the traceback printed before it

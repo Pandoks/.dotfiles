@@ -92,7 +92,7 @@ local function samples(pcm, from)
 end
 
 ---@param bands integer
----@param backend string the socket the backend reads the take from while it records
+---@param backend string? the socket the backend reads the take from while it records
 ---@param onError fun(message: string)
 function recorder.start(bands, backend, onError)
   -- Per-user 0700 temp dir, not the shared /tmp.
@@ -173,17 +173,19 @@ function recorder.start(bands, backend, onError)
     "-flush_packets",
     "1",
     "unix:" .. socket,
-    "-filter:a",
-    highpass,
-    "-f",
-    "s16le",
-    "-ac",
-    "1",
-    "-ar",
-    tostring(rate),
-    "-flush_packets",
-    "1",
-    "unix:" .. backend,
+    table.unpack(backend and {
+      "-filter:a",
+      highpass,
+      "-f",
+      "s16le",
+      "-ac",
+      "1",
+      "-ar",
+      tostring(rate),
+      "-flush_packets",
+      "1",
+      "unix:" .. backend,
+    } or {}),
   })
   -- Log-spaced bands from 80 Hz to just under Nyquist.
   local bins, nyquist = {}, rate / 2

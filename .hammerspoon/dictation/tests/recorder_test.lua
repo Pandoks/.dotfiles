@@ -202,39 +202,46 @@ test("a socket it can't listen on fails the take before an ffmpeg task exists", 
   assert(task == created, "an unstarted ffmpeg task leaks its pipes")
 end)
 
-test("ffmpeg streams the backend exactly the audio it writes to the wav", function()
-  local recording = assert(recorder.start(8, backend, error))
-  assert(recording.pid == 4242, "the take is not paired with its ffmpeg")
-  -- The real arguments, with a 48 kHz tone for the microphone, SIGINT after 1 s as a stop.
-  local command = { "ffmpeg", "-re" }
-  for _, argument in ipairs(task.arguments) do
-    argument = ({ avfoundation = "lavfi", [":default"] = "sine=frequency=440:sample_rate=48000" })[argument]
-      or argument
-    command[#command + 1] = "'" .. argument:gsub("'", "'\\''") .. "'"
-  end
-  local equalizer = recording.wav:gsub("%.wav$", ".sock")
-  os.remove(recording.wav)
-  local script = [[cd %q
+test("ffmpeg streams the backend, if any, and the equalizer exactly the audio it writes", function()
+  for _, socket in ipairs({ backend, false }) do
+    local recording = assert(recorder.start(8, socket or nil, error))
+    assert(recording.pid == 4242, "the take is not paired with its ffmpeg")
+    -- The real arguments, with a 48 kHz tone for the microphone, SIGINT after 1 s as a stop.
+    local command = { "ffmpeg", "-re" }
+    for _, argument in ipairs(task.arguments) do
+      argument = ({ avfoundation = "lavfi", [":default"] = "sine=frequency=440:sample_rate=48000" })[argument]
+        or argument
+      command[#command + 1] = "'" .. argument:gsub("'", "'\\''") .. "'"
+    end
+    local equalizer = recording.wav:gsub("%.wav$", ".sock")
+    os.remove(recording.wav)
+    os.remove(equalizer)
+    os.remove(backend)
+    local script = [[cd %q
 nc -lU %q > eq.pcm 2> /dev/null < /dev/null & first=$!
 nc -lU %q > backend.pcm 2> /dev/null < /dev/null & second=$!
 for _ in $(seq 100); do [ -S %q ] && [ -S %q ] && break; sleep 0.01; done
 %s & sleep 1; kill -INT $!; wait $!
 sleep 0.3; kill $first $second 2> /dev/null; true]]
-  local ffmpeg = table.concat(command, " ")
-  assert(os.execute(script:format(scratch, equalizer, backend, equalizer, backend, ffmpeg)))
-  local function read(path)
-    local file = assert(io.open(path, "rb"))
-    local data = file:read("a")
-    file:close()
-    return data
+    local ffmpeg = table.concat(command, " ")
+    assert(os.execute(script:format(scratch, equalizer, backend, equalizer, backend, ffmpeg)))
+    local function read(path)
+      local file = assert(io.open(path, "rb"))
+      local data = file:read("a")
+      file:close()
+      return data
+    end
+    local wav = read(recording.wav)
+    local data = assert(wav:find("data", 13, true), "no data chunk")
+    assert(#wav - data > 16000, "the wav got " .. #wav - data .. " bytes")
+    for _, path in ipairs({ "/eq.pcm", socket and "/backend.pcm" or nil }) do
+      local streamed = read(scratch .. path)
+      assert(
+        wav:sub(data + 8) == streamed,
+        ("%s: wav %d bytes, stream %d"):format(path, #wav - data - 7, #streamed)
+      )
+    end
   end
-  local wav, streamed = read(recording.wav), read(scratch .. "/backend.pcm")
-  local data = assert(wav:find("data", 13, true), "no data chunk")
-  assert(#streamed > 16000, "the backend got " .. #streamed .. " bytes")
-  assert(
-    wav:sub(data + 8) == streamed,
-    ("wav %d bytes, stream %d"):format(#wav - data - 7, #streamed)
-  )
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")

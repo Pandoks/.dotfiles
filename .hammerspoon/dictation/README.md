@@ -11,15 +11,16 @@ self-corrections, your word list fixes names, and the text goes into the focused
    whenever `uv.lock` changes.
 2. Grant **Hammerspoon** Microphone and Accessibility in **System Settings > Privacy & Security**.
 3. Reload Hammerspoon. The first start downloads the pinned models (about 4.3 GB) into
-   `~/.cache/huggingface`; the hotkey alerts "Backend is still loading" until the console prints
-   `Dictation: backend ready`. Later starts load them offline.
+   `~/.cache/huggingface`; the console prints `Dictation: backend ready` once they are loaded, and
+   a take recorded before then is transcribed at its stop. Later starts load them offline.
 
 Your settings are in `config.lua`: the hotkey and `words`, each name as it should be written,
 alone (`"Slack"`) or with what the speech model hears instead (`Raycast = { "ray cast" }`).
 `defaults.lua` has every other setting, typed, with hover docs from lua-language-server; a key
-set in `config.lua` replaces its default whole, and an unknown one alerts. If another app, such
-as Raycast, also uses Option+Space, rebind one. The macOS dictation (mic) key cannot be used:
-macOS always handles it itself.
+set in `config.lua` replaces its default whole, and an unknown one alerts. `unloadMinutes = 15`
+frees the models (about 4.2 GB) after 15 minutes without a take; `false` keeps them loaded. If
+another app, such as Raycast, also uses Option+Space, rebind one. The macOS dictation (mic) key
+cannot be used: macOS always handles it itself.
 
 ## How it works
 
@@ -79,6 +80,8 @@ adapter they fail the load. A plain model types self-corrections as said.
 - The cleanup rewrites the whole take, starting 60 ms into each pause and dropped once what it
   heard changes: a take stopped mid-sentence waits for all of it, a 2.5-minute one about 6 s
   (M1 Max), 7 s (M5).
+- A take started while the models load again after an unload (about 4 s on an M5) is transcribed
+  whole at its stop, not while you speak: the pill thinks until its text is typed.
 - Alerts show up to 3 lines of a failure's first line; the rest is in the Hammerspoon console and
   `~/Library/Logs/Hammerspoon/config.log`.
 
