@@ -1,9 +1,12 @@
 [bootstrap.packages]
 "apt:acpid" = "latest"
 "apt:smartmontools" = "latest"
+"apt:network-manager" = "latest"
+"apt:systemd-resolved" = "latest"
 
 "pacman:acpid" = "latest"
 "pacman:smartmontools" = "latest"
+"pacman:networkmanager" = "latest"
 
 [bootstrap.directories."/etc/systemd/logind.conf.d"]
 [bootstrap.directories."/etc/systemd/journald.conf.d"]
@@ -82,6 +85,18 @@ notify = ["acpid"]
 
 [bootstrap.services.acpid]
 on_change = "restart"
+
+[bootstrap.services.NetworkManager]
+[bootstrap.services.systemd-resolved]
+
+[bootstrap.hooks.post-packages]
+run = '''
+systemctl is-enabled --quiet systemd-networkd.service || exit 0
+sudo systemctl disable --now systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service
+if systemctl is-enabled --quiet iwd.service; then
+  sudo systemctl disable --now iwd.service
+fi
+'''
 
 [bootstrap.hooks.final]
 run = '''
