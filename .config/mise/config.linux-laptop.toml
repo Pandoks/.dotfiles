@@ -86,13 +86,9 @@ notify = ["acpid"]
 [bootstrap.services.acpid]
 on_change = "restart"
 
-# NetworkManager runs the network on every laptop, as on Debian and Ubuntu
-# desktops; Proton VPN connects through it
 [bootstrap.services.NetworkManager]
 [bootstrap.services.systemd-resolved]
 
-# Arch installs start on networkd and iwd, which would fight NetworkManager
-# for the same interfaces. Saved Wi-Fi networks don't carry over
 [bootstrap.hooks.post-packages]
 run = '''
 systemctl is-enabled --quiet systemd-networkd.service || exit 0
