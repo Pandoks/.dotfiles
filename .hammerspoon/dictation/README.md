@@ -24,16 +24,18 @@ macOS always handles it itself.
 ## How it works
 
 `init.lua` drives a take: `recorder.lua` records the default input with ffmpeg, which also streams
-it over a Unix socket (`lib/stream`) to the pill's equalizer (`overlay.lua`); at stop, `engine.lua`
-sends the wav to `server.py`, a resident Python process (JSON lines on stdin and stdout) that
-transcribes, fixes spellings, cleans up, and writes numbers as digits. Its guard aligns the cleaned
-words with what was heard: the cleanup may fix misheard words and drop stalls, fillers, repeats,
-and self-corrections, and whatever else it changed or left out is put back as said ("Can you fix
-it?" for "Can you fix it? Just fix it." is typed whole). A change that can't be put back cleanly,
-such as one inside a written number ("0.5" as "0.05"), or a cleanup with no words when more than
-stalls and fillers were said, types nothing, alerts, and keeps what was heard in
-`history.directory`. Otherwise `history.lua` saves the text and `init.lua` types it into the
-focused field, spaced by `spacing.lua`.
+it over Unix sockets to the pill's equalizer (`overlay.lua`, through `lib/stream`) and to
+`server.py`, a resident Python process (JSON lines on stdin and stdout, via `engine.lua`). The
+backend transcribes while you speak, in segments cut at pauses, and 60 ms into each pause finishes
+the whole take from the audio a stop in that pause would use, cleanup included, until what it heard
+changes; a stop there types as soon as that is done. It fixes spellings, cleans up, and writes
+numbers as digits. Its guard aligns the cleaned words with what was heard: the cleanup may fix
+misheard words and drop stalls, fillers, repeats, and self-corrections, and whatever else it changed
+or left out is put back as said ("Can you fix it?" for "Can you fix it? Just fix it." is typed
+whole). A change that can't be put back cleanly, such as one inside a written number ("0.5" as
+"0.05"), or a cleanup with no words when more than stalls and fillers were said, types nothing,
+alerts, and keeps what was heard in `history.directory`. Otherwise `history.lua` saves the text and
+`init.lua` types it into the focused field, spaced by `spacing.lua`.
 
 ## Speech models
 
@@ -74,17 +76,19 @@ adapter they fail the load. A plain model types self-corrections as said.
   still saved to `history.directory`. A take the backend fails before hearing anything or never
   answers (it died, or Hammerspoon reloaded), or whose capture failed or didn't finish within 2 s
   of stop (an unplugged mic), keeps its recording there as a `.wav` if it caught any audio.
-- The cleanup rewrites the whole take: a sentence types about 1 s after stop, a 50 s take about
-  4 s, a 2.5-minute take about 13 s (M1 Max).
+- The cleanup rewrites the whole take, starting 60 ms into each pause and dropped once what it
+  heard changes: a take stopped mid-sentence waits for all of it, a 2.5-minute one about 6 s
+  (M1 Max), 7 s (M5).
 - Alerts show up to 3 lines of a failure's first line; the rest is in the Hammerspoon console and
   `~/Library/Logs/Hammerspoon/config.log`.
 
 ## Adding a runtime
 
-In `models.py`, subclass `Speech` (`load`, `transcribe(wav, hint)`) and register it in `SPEECH`,
-or subclass `Cleaner` (`load`, `complete(messages, raw)`) and register it in `CLEANERS`, under
-the name `speech.backend` or `cleanup.backend` selects. Then add that name to the field's type in
-`defaults.lua`.
+In `models.py`, subclass `Speech` (`load`, and `transcribe(wav, hint)` or a `stream(hint)` that
+transcribes while the take records, as `streaming.Stream` does) and register it in `SPEECH`,
+or subclass `Cleaner` (`load`, `complete(messages, raw, between)`, calling `between()` after each
+pass) and register it in `CLEANERS`, under the name `speech.backend` or `cleanup.backend` selects.
+Then add that name to the field's type in `defaults.lua`.
 
 ## Tests
 
@@ -92,6 +96,6 @@ From the dotfiles checkout:
 
 ```sh
 .hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/server_test.py
-sh .hammerspoon/dictation/tests/run.sh
+sh .hammerspoon/dictation/tests/run.sh  # needs ffmpeg on PATH
 sh .hammerspoon/tests/stream_test.sh  # needs ffmpeg on PATH
 ```

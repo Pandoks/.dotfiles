@@ -1,4 +1,5 @@
-import functools
+import contextlib
+import io
 import itertools
 import json
 import os
@@ -15,14 +16,22 @@ from unittest import mock
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
 import mlx.core as mx
+import numpy as np
 from huggingface_hub import snapshot_download
 from huggingface_hub.errors import LocalEntryNotFoundError
+from mlx import nn
+from mlx_lm.generate import generate_step as mlx_generate_step
+from mlx_lm.models.cache import KVCache
 from mlx_lm.utils import load_tokenizer
 from parakeet_mlx import ParakeetTDT
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import models
 import server
+import speculative
+import streaming
+
+mx.set_default_device(mx.cpu)  # tiny arrays: GPU round trips cost more
 
 engine = server.Engine(
     {
@@ -57,7 +66,7 @@ except LocalEntryNotFoundError:  # a fresh checkout: about 26 MB, not the model
 tokenizer = load_tokenizer(Path(cleanup))
 stub = {"model": "stub", "revision": "0" * 40}
 engine.speech, engine.cleaner = SimpleNamespace(repo="stub", load=lambda: None), models.MlxLm(stub)
-with mock.patch("mlx_lm.load", lambda *_, **__: (None, tokenizer)):
+with mock.patch("mlx_lm.load", lambda *_, **__: (SimpleNamespace(model_type="stub"), tokenizer)):
     engine.load()
 
 
@@ -73,7 +82,7 @@ def dictate(raw, cleaned=None, numbers=False):
     engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
     engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
         prompt="prompt",
-        complete=lambda messages, raw: raw if cleaned is None else cleaned,
+        complete=lambda messages, raw, between: raw if cleaned is None else cleaned,
     )
     try:
         if numbers:
@@ -85,20 +94,32 @@ def dictate(raw, cleaned=None, numbers=False):
 
 
 def serve(script, takes, config="{}"):
-    run = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            f"import sys, server\n{script}\nsys.argv[1:] = [{config!r}]\nserver.main()",
-        ],
-        input="".join(json.dumps(take) + "\n" for take in takes),
-        capture_output=True,
-        text=True,
-        cwd=Path(server.__file__).parent,
-        timeout=120,
-        check=False,
-    )
-    return [json.loads(line) for line in run.stdout.splitlines()], run.stderr
+    """server.main on each take's start and stop lines; its replies but the reads it acknowledged."""
+    starts = [
+        {"id": take["id"], "pid": 1000 + take["id"], "app": take.get("app")} for take in takes
+    ]
+    lines = starts + [{"id": take["id"], "wav": take["wav"]} for take in takes]
+    with tempfile.TemporaryDirectory() as folder:
+        run = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    f"import sys, server\n{script}\n"
+                    f"sys.argv[1:] = [{config!r}, {folder + '/backend.sock'!r}]\nserver.main()"
+                ),
+            ],
+            input="".join(
+                json.dumps(line) + "\n" for line in sorted(lines, key=lambda line: line["id"])
+            ),
+            capture_output=True,
+            text=True,
+            cwd=Path(server.__file__).parent,
+            timeout=120,
+            check=False,
+        )
+    events = [json.loads(line) for line in run.stdout.splitlines()]
+    return [event for event in events if event["event"] != "received"], run.stderr
 
 
 check(
@@ -1105,7 +1126,7 @@ check(
 )
 engine.speech = SimpleNamespace(transcribe=lambda wav, hint: "Mmm wha blah", boost=0)
 engine.cleaner = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
-    prompt="prompt", complete=lambda messages, raw: ""
+    prompt="prompt", complete=lambda messages, raw, between: ""
 )
 try:
     engine.process("take.wav", {})
@@ -1134,23 +1155,34 @@ assert [event["event"] for event in events] == ["error"] and "no weights" in eve
     events
 )
 print("PASS a failed load reports an error and never ready")
-# Hammerspoon never closes stdin.
+# Hammerspoon never closes stdin; ffmpeg streams the take into the socket while it records.
 chatty = """
-class Chatty:
+import os
+from types import SimpleNamespace
+class Chatty(server.Engine):
     def __init__(self, config):
         print("[WARNING] Generating with a model that requires 9000 MB")
-        self.heard = None
+        self.config, self.heard = config, None
+        self.speech = SimpleNamespace(stream=lambda hint: SimpleNamespace(
+            feed=lambda samples, latest: bool(heard.append(len(samples))), finish=lambda: [(str(sum(heard)), None)]
+        ))
+        self.cleaner = None
     def load(self):
         print("loading...")
-    def process(self, wav, request):
-        import os
+    def clean(self, text, request, between):
         print("[WARNING] again")
         os.write(1, b"native chatter\\n")  # as native code would, past sys.stdout
-        return "ok"
+        return text + " samples"
+heard = []
 server.Engine = Chatty
 """
+folder = tempfile.mkdtemp()
 live = subprocess.Popen(
-    [sys.executable, "-c", f"import sys, server\n{chatty}\nsys.argv[1:] = ['{{}}']\nserver.main()"],
+    [
+        sys.executable,
+        "-c",
+        f"import sys, server\n{chatty}\nsys.argv[1:] = ['{{}}', '{folder}/b.sock']\nserver.main()",
+    ],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
@@ -1158,21 +1190,39 @@ live = subprocess.Popen(
     cwd=Path(server.__file__).parent,
     env={key: value for key, value in os.environ.items() if key != "PYTHONUNBUFFERED"},
 )
+sender = (
+    "import socket, sys\nconnection = socket.socket(socket.AF_UNIX)\nconnection.connect(sys.argv[1])\n"
+    "connection.sendall(bytes(8000))\nsys.stdin.read()\nconnection.sendall(bytes(2000))"
+)
 deadline = threading.Timer(60, live.kill)
 deadline.start()
 try:
     assert live.stdout and live.stdin and live.stderr
     assert live.stdout.readline() == '{"event": "ready"}\n'
     assert live.stderr.readline().startswith("[WARNING] Generating"), "a print was held back"
-    live.stdin.write(json.dumps({"id": 1, "wav": "x.wav"}) + "\n")
+    ffmpeg = subprocess.Popen(
+        [sys.executable, "-c", sender, f"{folder}/b.sock"], stdin=subprocess.PIPE
+    )
+    live.stdin.write(json.dumps({"id": 1, "pid": ffmpeg.pid, "app": "x"}) + "\n")
     live.stdin.flush()
-    assert json.loads(live.stdout.readline())["text"] == "ok"
+    assert json.loads(live.stdout.readline()) == {"event": "received"}
+    ffmpeg.communicate(b"")  # the stop: the rest of the take, then the socket closes
+    with wave.open(f"{folder}/take.wav", "wb") as audio:
+        audio.setparams((1, 2, 16000, 0, "NONE", ""))
+        audio.writeframes(bytes(10000))
+    live.stdin.write(json.dumps({"id": 1, "wav": f"{folder}/take.wav"}) + "\n")
+    live.stdin.flush()
+    assert json.loads(live.stdout.readline()) == {"event": "received"}
+    assert json.loads(live.stdout.readline()) == {"event": "final", "id": 1, "text": "5000 samples"}
 finally:
     deadline.cancel()
     live.kill()
     live.wait()
 assert "native chatter" in live.stderr.read(), "native output was lost"
-print("PASS replies and prints arrive while stdin is still open, native output on stderr")
+print(
+    "PASS a take streamed by the ffmpeg its start line names is typed, each line acknowledged,"
+    " with stdin still open, native output on stderr"
+)
 stubbed = """
 from types import SimpleNamespace
 heard = iter(["Add 0.5 cups.", "Send it."])
@@ -1183,9 +1233,9 @@ def transcribe(wav, hint):
 class Stub(server.Engine):
     def __init__(self, config):
         self.config, self.heard = config, None
-        self.speech = SimpleNamespace(transcribe=transcribe, boost=0)
+        self.speech = SimpleNamespace(transcribe=transcribe, stream=lambda hint: None, boost=0)
         self.cleaner = SimpleNamespace(prompt="p")
-        self.cleaner.complete = lambda messages, raw: raw.replace("0.5", "0.05")
+        self.cleaner.complete = lambda messages, raw, between: raw.replace("0.5", "0.05")
     def load(self):
         pass
 server.Engine = Stub
@@ -1212,27 +1262,39 @@ cleaner.llm, cleaner.tokenizer = None, tokenizer  # pyright: ignore[reportAttrib
 rendered, limits = [], []
 
 
-def generate(llm, tokenizer, prompt, max_tokens=None, prompt_cache=None):
+def generate_step(prompt, model, max_tokens=None, prompt_cache=None):
+    prompt = prompt.tolist()
     if prompt_cache:  # as mlx-lm does, the take extends the cache it is given
         prompt_cache[0].seen += prompt
         prompt = prompt_cache[0].seen
-    rendered.append(tokenizer.decode(prompt))
+    rendered.append(tokenizer.decode(prompt))  # pyright: ignore[reportCallIssue]
     limits.append(max_tokens)
-    return "Thinking about it.</think>\n\nFix the bug."
+    reply = tokenizer.encode("Thinking about it.</think>\n\nFix the bug.")  # pyright: ignore[reportCallIssue]
+    after = tokenizer.encode(" More.")  # pyright: ignore[reportCallIssue]
+    for token in [*reply, tokenizer.eos_token_id, *after]:
+        yield token, None
 
 
-long = "word " * 600
-with mock.patch("mlx_lm.generate", generate):
-    reply = cleaner.complete([{"role": "user", "content": "Fix the bug."}], "Fix the bug.")
+long, passes = "word " * 600, []
+with mock.patch("mlx_lm.generate.generate_step", generate_step):
+    reply = cleaner.complete(
+        [{"role": "user", "content": "Fix the bug."}], "Fix the bug.", lambda: passes.append(1)
+    )
     cleaner.complete([{"role": "user", "content": long}], long)
 assert reply == "Fix the bug.", reply
+assert len(passes) == len(tokenizer.encode("Thinking about it.</think>\n\nFix the bug.")), passes  # pyright: ignore[reportCallIssue]
 assert rendered[0].endswith("<think>\n\n</think>\n\n"), rendered[0]
 # mlx-lm's default 256 would cut long takes; 600 words are 600+ tokens.
 assert limits[0] >= 400 and limits[1] > 600, limits
-print("PASS the cleanup skips thinking, has room to echo the take, and drops a stray think tag")
+print(
+    "PASS the cleanup skips thinking, has room to echo the take, stops at its end of turn,"
+    " calls between() after each pass, and drops a stray think tag"
+)
 
 
 class Llm:
+    model_type = "stub"
+
     def make_cache(self):
         return [SimpleNamespace(state=[], seen=[])]
 
@@ -1270,7 +1332,7 @@ check(
     prompt,
 )
 adapted = load_adapter({"system_v2.txt": "Clean it."})
-with mock.patch("mlx_lm.generate", generate):
+with mock.patch("mlx_lm.generate.generate_step", generate_step):
     for raw in ("Fix the bug.", "Ship it."):
         take = [{"role": "user", "content": f"Clean it.\n\n{raw}"}]
         cleaner.complete(take, raw)
@@ -1308,7 +1370,9 @@ plain = server.Engine(
 )
 prompts = []
 plain.speech = SimpleNamespace(transcribe=lambda wav, hint: wav, boost=0)
-fake = SimpleNamespace(prompt=None, complete=lambda messages, raw: prompts.append(messages) or raw)
+fake = SimpleNamespace(
+    prompt=None, complete=lambda messages, raw, between: prompts.append(messages) or raw
+)
 plain.cleaner = fake  # pyright: ignore[reportAttributeAccessIssue]
 plain.process("Restart yabai.", {"app": "com.x"})
 plain.config = dict(plain.config, style=False)  # pyright: ignore[reportAttributeAccessIssue]
@@ -1346,10 +1410,6 @@ check(
     ],
     lambda case: pin(*case),
 )
-parakeet = models.Parakeet({"model": "stub", "revision": "0" * 40})
-parakeet.model = SimpleNamespace(  # pyright: ignore[reportAttributeAccessIssue]
-    transcribe=lambda wav, chunk_duration: SimpleNamespace(text=wav)
-)
 check(
     "Parakeet drops special pieces and rare symbol runs",
     [
@@ -1360,20 +1420,32 @@ check(
         ("Dial 000 now.", ["Dial", "000", "now."]),
         ("Use <div> here.", ["Use", "<div>", "here."]),
     ],
-    lambda text: parakeet.transcribe(text, []).split(),
+    lambda text: streaming.text([streaming.AlignedToken(0, text, 0, 0)]).split(),
 )
-check(
-    "vocabulary prefixes",
-    [
-        (["GitHub's"], {"g", "gi", "git", "gith", "githu", "github", "github'", "github's"}),
-        (["hammer spoon", "yt-dlp", "Node.js", "<unk>", "<|en|>", " "], set()),
-    ],
-    lambda words: models.Boosted(None, words, 0).prefixes,
-)
+
+
+class Joint:
+    """parakeet-mlx's joint network: the encoder side reads the features as they are, the
+    prediction side a row per last token (-1 = none yet)."""
+
+    def __init__(self, table, layers=()):
+        self.table, self.joint_net = table, list(layers)
+
+    def enc(self, features):
+        return features
+
+    def pred(self, out):
+        return self.table[out[..., 0].astype(mx.int32) + 1]
+
+    def __call__(self, features, out):
+        logits = mx.expand_dims(self.enc(features), 2) + mx.expand_dims(self.pred(out), 1)
+        for layer in self.joint_net:
+            logits = layer(logits)
+        return logits
 
 
 class Model:
-    """Weightless TDT model: `logits[last token][step]` is the joint output."""
+    """Weightless TDT model."""
 
     vocabulary = ("▁ok", "i", "ay", "▁g", "it", "hub", "'s", "▁me", "▁M", "e", ".")
     vocabulary += ("<unk>", "<|eo|>")
@@ -1381,43 +1453,54 @@ class Model:
     max_symbols = 3
     time_ratio = 0.08
 
-    def __init__(self, logits):
-        self.logits = logits
+    def __init__(self, table, layers=()):
+        self.joint = Joint(table, layers)
 
     def decoder(self, token, state):
-        last = mx.array([[[-1.0 if token is None else float(token[0, 0])]]])
-        return last, (last, -last)
-
-    def joint(self, feature, prediction):
-        return self.logits[int(prediction[0, 0, 0])][int(feature[0, 0, 0])].reshape(1, 1, 1, -1)
-
-    def decode(self, greedy, steps):
-        """Run ParakeetTDT.decode, which calls decode_greedy as Parakeet replaces it."""
-        self.decode_greedy = functools.partial(greedy, self)
-        features = mx.arange(steps, dtype=mx.float32).reshape(1, steps, 1)
-        tokens, states = ParakeetTDT.decode(self, features)  # pyright: ignore[reportArgumentType]
-        state = states[0] and [part.item() for part in states[0]]
-        return [(token.id, token.start, token.duration, token.text) for token in tokens[0]], state
+        # Like the LSTM, the output depends on every token so far.
+        seen = (0 if state is None else state[1].item()) * 3 + (
+            0 if token is None else token.item() + 1
+        )
+        last = mx.array([[[seen % 1009 % (contexts - 1) - 1]]])
+        return last, (last, mx.array([[[seen % 1009]]]))
 
 
-# Joint outputs are tokens, blank, durations; rows are indexed by last token, -1 = none yet.
-width, contexts = len(Model.vocabulary) + 1 + len(Model.durations), len(Model.vocabulary) + 2
+check(
+    "vocabulary prefixes",
+    [
+        (["GitHub's"], {"g", "gi", "git", "gith", "githu", "github", "github'", "github's"}),
+        (["hammer spoon", "yt-dlp", "Node.js", "<unk>", "<|en|>", " "], set()),
+    ],
+    lambda words: streaming.Booster(Model, words, 0).prefixes,
+)
+width, contexts = len(Model.vocabulary) + 1 + len(Model.durations), len(Model.vocabulary) + 1
 
 
-def boosted(words, bonus):
-    return lambda model, *args, **kwargs: ParakeetTDT.decode_greedy(
-        models.Boosted(model, words, bonus),  # pyright: ignore[reportArgumentType]
-        *args,
-        **kwargs,
-    )
+def aligned(tokens):
+    return [(token.id, token.start, token.duration, token.text) for token in tokens]
 
 
-unboosted = boosted(["Oki", "GitHub's"], 0.0)
+def leaky(logits):  # not monotonic, as parakeet's joint (ReLU, then Linear) isn't
+    return mx.maximum(logits, -0.5 * logits)
+
+
 for seed in range(20):
-    model = Model(mx.random.normal((contexts, 40, width), key=mx.random.key(seed)))
-    upstream = model.decode(ParakeetTDT.decode_greedy, 40)
-    assert model.decode(unboosted, 40) == upstream, f"seed {seed}: differs from parakeet-mlx"
-print("PASS boosted decoder with no bonus matches parakeet-mlx")
+    final, earlier = mx.random.normal((2, 1, 40, width), key=mx.random.key(seed))
+    final = final.at[..., len(Model.vocabulary)].add(3)  # mostly blanks, as speech is
+    model = Model(mx.random.normal((contexts, width), key=mx.random.key(100 + seed)), [leaky])
+    upstream = aligned(ParakeetTDT.decode_greedy(model, final)[0][0])  # pyright: ignore[reportArgumentType]
+    assert aligned(streaming.Path(model).update(final)) == upstream, f"seed {seed}: from scratch"
+    booster = streaming.Booster(model, ["GitHub's", "me"], 4.5)
+    grown, boosted = streaming.Path(model), streaming.Path(model, booster)
+    for frames, noise in ((12, 1.0), (25, 0.3), (33, 0.05)):  # re-encoded: every frame moves
+        grown.update(final[:, :frames] + noise * earlier[:, :frames])
+        boosted.update(final[:, :frames] + noise * earlier[:, :frames])
+    assert aligned(grown.update(final)) == upstream, f"seed {seed}: grown"
+    fresh = aligned(streaming.Path(model, booster).update(final))
+    assert aligned(boosted.update(final)) == fresh, f"seed {seed}: grown boosted"
+print(
+    "PASS the streamed decode, from scratch or grown with every frame changing, is parakeet-mlx's"
+)
 
 # Each frame scores pieces over -20 and each pick advances one frame; a blank frame ends it.
 blank = len(Model.vocabulary)
@@ -1430,12 +1513,13 @@ def scores(frames):
             rows = rows.at[step, blank].add(30)
         for piece, score in frame.items():
             rows = rows.at[step, Model.vocabulary.index(piece)].add(score)
-    return mx.broadcast_to(rows, (contexts, *rows.shape))
+    return rows[None]
 
 
 def speak(frames, words, bonus):
-    tokens = Model(scores(frames)).decode(boosted(words, bonus), len(frames) + 1)
-    return "".join(token[3] for token in tokens[0])
+    model = Model(mx.zeros((contexts, width)))
+    path = streaming.Path(model, streaming.Booster(model, words, bonus))
+    return "".join(token.text for token in path.update(scores(frames)))
 
 
 check(
@@ -1460,35 +1544,119 @@ check(
 )
 
 
-class Transcriber(Model):
-    decode = ParakeetTDT.decode  # pyright: ignore[reportAssignmentType]
-    decode_greedy, transcribe = ParakeetTDT.decode_greedy, ParakeetTDT.transcribe
-    preprocessor_config = SimpleNamespace(sample_rate=16000)
-    parameters = dict
-
-    def encoder(self, mel):
-        encoded.append(mel)
-        return mel, mx.array([mel.shape[1]])
+kept = streaming.TAIL * streaming.FRAME  # the silence a segment keeps after its last sound
+padded = streaming.PADDED * streaming.FRAME
 
 
-encoded = []
-reusing = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})
-transcriber = Transcriber(scores([{"▁ok": 30}, {"ay": 21, "i": 20}]))
-with (
-    tempfile.TemporaryDirectory() as folder,
-    mock.patch.dict(os.environ, PATH="/usr/bin:/bin:/usr/sbin:/sbin"),  # Hammerspoon's: no ffmpeg
-    mock.patch("huggingface_hub.hf_hub_download", lambda *_, **__: f"{folder}/config.json"),
-    mock.patch("parakeet_mlx.from_pretrained", lambda _: transcriber),
-    mock.patch("parakeet_mlx.ParakeetTDT", Transcriber),  # for load's boost check
-    mock.patch("parakeet_mlx.parakeet.get_logmel", lambda *_: mx.arange(3.0)[None, :, None]),
-):
-    reusing.load()
-    with wave.open(f"{folder}/take.wav", "wb") as audio:  # the recorder's 16 kHz mono s16le
-        audio.setparams((1, 2, 16000, 0, "NONE", ""))
-        audio.writeframes(bytes(32000))
-    texts = [reusing.transcribe(f"{folder}/take.wav", hint) for hint in (["Oki"], [])]
-assert texts == ["oki", "okay"] and len(encoded) == 1, (texts, encoded)
-print("PASS a loaded Parakeet reads a take without ffmpeg, encodes it once, decodes it unboosted")
+def encodes(parts, chunk, frames=0):
+    """Lengths of audio Stream encodes, for loud and silent `parts` (seconds), fed `chunk` at a time;
+    each encode is `frames` frames that type "ok"."""
+    lengths = []
+    model = Model(mx.zeros((contexts, width)))
+    model.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
+    model.encoder = lambda audio: (  # pyright: ignore[reportAttributeAccessIssue]
+        lengths.append(audio.shape[0]) or (mx.zeros((1, frames, width)), None)
+    )
+
+    def tone(seconds):
+        return 0.3 * np.sin(np.arange(int(16000 * seconds)) / 3, dtype=np.float32)
+
+    audio = np.concatenate(
+        [
+            tone(length) if length > 0 else np.zeros(int(-16000 * length), np.float32)
+            for length in parts
+        ]
+    )
+    with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+        stream = streaming.Stream(model, None)
+        for start in range(0, len(audio), chunk):
+            stream.feed(audio[start : start + chunk])
+        cut = 144000 + padded in lengths  # 9 s of sound, then the silence kept, tiled
+        during = len(lengths)
+        stream.finish()
+    return cut, lengths[during:]
+
+
+check(
+    "a segment ends TAIL after its last sound: where 400 ms of silence cuts one 8 s long, and at"
+    " release, which reuses a pause's encode and otherwise encodes all the audio",
+    [
+        (((9, -0.5, 2), 2560), (True, [8000 - kept + 32000])),  # cut at 9 s + TAIL; the rest
+        (((9, -0.5, 2), 999), (True, [8000 - kept + 32000])),
+        (((5, -0.5, 2), 2560), (False, [120000])),  # too short to cut: all 7.5 s at release
+        (((9, -0.5), 2560), (True, [])),  # no sound after the cut: nothing left to encode
+        (((9, -0.5, 0.1), 2560, 1), (True, [])),  # a blip after words and a cut, under VOICED
+        (((0.1,), 2560), (False, [1600])),  # a take's only sound, under VOICED: a short word
+        (((0.1, -0.1), 2560), (False, [])),  # a take's only sound, under VOICED: its pause's
+        (((29, -0.1, 3), 2560), (False, [49600])),  # 30 s: cut at the last 2 s's quietest
+        (((2, -0.3), 2560), (False, [])),  # a release in a pause: the pause's encode
+        (((2, -0.02 * (streaming.TAIL - 1)), 2560), (False, [32000 + kept - 320])),  # before TAIL
+    ],
+    lambda case: encodes(*case),
+)
+heard_audio = []
+noisy = Model(mx.zeros((contexts, width)))
+noisy.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
+noisy.encoder = lambda audio: heard_audio.append(np.array(audio)) or (mx.zeros((1, 0, width)), None)  # pyright: ignore[reportAttributeAccessIssue]
+room = 0.002 * np.random.default_rng(0).standard_normal(16000).astype(
+    np.float32
+)  # -54 dBFS: silent
+speech = 0.3 * np.sin(np.arange(32000) / 3, dtype=np.float32)
+with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+    noisy_stream = streaming.Stream(noisy, None)
+    pauses = [
+        start
+        for start in range(0, 48000, 2560)
+        if noisy_stream.feed(np.concatenate([speech, room])[start : start + 2560])
+    ]
+paused = heard_audio[-1]
+assert pauses == [30720], pauses  # once, as TAIL frames of silence complete
+assert np.array_equal(paused[:32000], speech) and len(paused) == 32000 + padded, len(paused)
+assert np.array_equal(paused[32000:], np.tile(room[:kept], 4)[:padded]), (
+    "the pad is not the kept silence"
+)
+print(
+    "PASS a segment ends on the silence it kept after its last sound, tiled to PADDED, which feed"
+    " reports once"
+)
+heard_audio.clear()
+with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+    behind = streaming.Stream(noisy, None)
+    for start in range(0, 48000, 2560):
+        behind.feed(np.tile(speech, 2)[:48000][start : start + 2560], start + 2560 >= 48000)
+assert [len(audio) for audio in heard_audio] == [48000], [len(audio) for audio in heard_audio]
+print("PASS a stream behind its audio encodes once, all of it, not once per second that came")
+with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+    behind = streaming.Stream(noisy, None)
+    pause = np.concatenate([np.tile(speech, 5)[:144000], np.zeros(9600, np.float32)])  # 9 s, 0.6 s
+    reports = [
+        behind.feed(pause[start : start + 2560], start + 2560 >= len(pause))
+        for start in range(0, len(pause), 2560)
+    ]
+    lone = streaming.Stream(noisy, None)  # a word of 5 sound frames, then its pause
+    word = [lone.feed(part) for part in (speech[:1600], np.zeros(1600, np.float32))]
+assert any(reports), reports
+assert word == [False, True], word
+print("PASS a pause is reported after a lone short word, or cut while the stream was behind")
+worded = Model(mx.zeros((contexts, width)))  # every frame types "ok"
+worded.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
+worded.encoder = lambda audio: (mx.zeros((1, 1, width)), None)  # pyright: ignore[reportAttributeAccessIssue]
+parakeet = models.Parakeet({"model": "stub", "revision": "0" * 40, "boost": 4.5})
+parakeet.model = worded  # pyright: ignore[reportAttributeAccessIssue]
+with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+    worded_stream = parakeet.stream(["Okay"])
+    worded_stream.feed(np.concatenate([np.tile(speech, 5)[:144000], np.zeros(1600, np.float32)]))
+    at_pause = worded_stream.texts()
+    worded_stream.feed(np.zeros(6400, np.float32))  # 400 ms: the cut
+    cut = worded_stream.texts()
+    worded_stream.feed(speech)
+    segments = worded_stream.finish()
+assert at_pause == [("ok ok ok", "okay ok")] and worded_stream.closed == cut == at_pause, cut
+assert segments == at_pause * 2, segments
+print(
+    "PASS a cut in a pause leaves the transcript as the pause had it, every segment decoded plain"
+    " and boosted"
+)
 # Unboosted and boosted Parakeet decodes of TTS takes (`say -v Albert`, `-v Daniel`, ...).
 check(
     "a boosted word is kept only where it spells a vocabulary word, never over a stall",
@@ -1518,17 +1686,229 @@ check(
     ],
     lambda case: engine.merge(case[0], case[1], {}),
 )
-# Boosting decodes the take twice, once with no vocabulary to boost.
-engine.speech = SimpleNamespace(transcribe=lambda wav, hint: wav[bool(hint)], boost=4.5)
-engine.cleaner = None
 check(
-    "boosting keeps the unboosted decode unless a vocabulary word is gained",
+    "a take's heard text is its segments' decodes, each boosted one merged, on one line",
     [
         (
-            ("What do you think of the older?", "What do you think of the old hammers?"),
+            [("What do you think of the older?", "What do you think of the old hammers?")],
             "What do you think of the older?",
         ),
-        (("Ask okay if it works.", "Ask Oki if it works."), "Ask Oki if it works."),
+        (
+            [
+                ("Ask okay if it works.", "Ask Oki if it works."),
+                ("", None),
+                ("Then  ship\nit.", None),
+            ],
+            "Ask Oki if it works. Then ship it.",
+        ),
     ],
-    lambda wav: engine.process(wav, {}),
+    lambda segments: engine.spoken(segments, {}),
+)
+
+
+latest = []  # each feed's: no more audio queued
+
+
+class Spelled:
+    """A stream whose transcript is its samples as characters; a 0 sample is a pause."""
+
+    def __init__(self):
+        self.text = ""
+
+    def feed(self, samples, last=True):
+        latest.append(last)
+        codes = np.round(samples * 32768).astype(int)
+        self.text += "".join(chr(code) for code in codes if code)
+        return 0 in codes
+
+    def texts(self):
+        return [(self.text, None)]
+
+    finish = texts
+
+
+class Events:
+    """serve's queue: "idle" stands for a moment with nothing to read."""
+
+    def __init__(self, items):
+        self.items = list(items)
+
+    def empty(self):
+        return not self.items or self.items[0] == "idle"
+
+    def get(self, block=True):
+        item = self.items.pop(0) if self.items else "idle"
+        if item != "idle":
+            return item
+        if not block:
+            raise server.queue.Empty
+        return self.get()
+
+
+cleaned = []  # the take each cleanup pass ran on
+
+
+def complete(messages, raw, between):
+    for _ in range(2):
+        cleaned.append(raw)
+        if between:
+            between()
+    return raw
+
+
+streamer = server.Engine(dict(engine.config, words={}))
+streamer.speech = SimpleNamespace(stream=lambda hint: Spelled())  # pyright: ignore[reportAttributeAccessIssue]
+streamer.cleaner = SimpleNamespace(prompt="p", complete=complete)  # pyright: ignore[reportAttributeAccessIssue]
+folder = tempfile.mkdtemp()
+
+
+def sound(text):
+    return ("audio", 7, np.array([ord(character) for character in text], np.int16).tobytes())
+
+
+def wav(text):
+    path = f"{folder}/{len(os.listdir(folder))}.wav"
+    with wave.open(path, "wb") as recording:
+        recording.setparams((1, 2, 16000, 0, "NONE", ""))
+        recording.writeframes(np.array([ord(character) for character in text], np.int16).tobytes())
+    return path
+
+
+def streamed(*items):
+    replies = []
+    cleaned.clear()
+    with contextlib.redirect_stderr(io.StringIO()) as log:
+        server.serve(streamer, Events([*items, None]), replies.append)
+    assert "Traceback" not in log.getvalue(), log.getvalue()  # a cancel is no bug
+    return [(reply["id"], reply.get("text") or reply["msg"]) for reply in replies]
+
+
+start, end = ("line", None, json.dumps({"id": 1, "pid": 7, "app": "x"})), ("end", 7, None)
+stop = ("line", None, json.dumps({"id": 1, "wav": wav("Hi there.")}))
+check(
+    "a take is typed from the audio its ffmpeg streamed, some before its start line, once it has"
+    " both stopped and ended, never before",
+    [
+        ((sound("Hi "), start, sound("there."), stop, end), [(1, "Hi there.")]),
+        ((start, sound("Hi "), sound("there."), end, stop), [(1, "Hi there.")]),
+        ((start, sound("Hi there."), end), []),
+        ((start, sound("Hi"), stop), []),
+        (
+            (start, ("audio", 7, b"H"), ("audio", 7, sound("Hi there.")[2][1:]), end, stop),
+            [(1, "Hi there.")],
+        ),
+    ],
+    lambda items: streamed(*items),
+)
+latest.clear()
+streamed(start, sound("Hi "), sound("there."), "idle", end, stop)
+assert latest[-2:] == [False, True], latest
+print("PASS a stream is told whether more audio is queued, so it encodes only the latest")
+other = ("line", None, json.dumps({"id": 2, "pid": 8}))
+second = ("line", None, json.dumps({"id": 2, "wav": wav("A")}))
+check(
+    "a take that never stops gets no reply, and its cleanup stops at the next start (a stopped"
+    " one's goes on); the next is typed from its own audio",
+    [
+        (
+            (
+                other,
+                ("audio", 8, b"\x41\x00"),
+                ("end", 8, None),
+                start,
+                sound("Hi there."),
+                end,
+                stop,
+            ),
+            ([(1, "Hi there.")], ["A", "Hi there.", "Hi there."]),
+        ),
+        (  # Escape after its stop line, then a new take: it is still answered
+            (
+                start,
+                sound("Hi there."),
+                end,
+                stop,
+                other,
+                ("audio", 8, b"\x41\x00"),
+                ("end", 8, None),
+                second,
+            ),
+            ([(1, "Hi there."), (2, "A")], ["Hi there.", "Hi there.", "A", "A"]),
+        ),
+    ],
+    lambda items: (streamed(*items), list(cleaned)),
+)
+paused = ("line", None, json.dumps({"id": 1, "wav": wav("Hi there.\0")}))
+held = ("line", None, json.dumps({"id": 1, "wav": wav("Hi\0 there.")}))
+quiet = ("line", None, json.dumps({"id": 1, "wav": wav("Hi\0\0 there.")}))
+check(
+    "a transcript that held still at a pause is cleaned then, not again at release; that cleanup"
+    " feeds the audio read meanwhile and stops once it changes what was heard",
+    [
+        (
+            (start, sound("Hi there.\0"), "idle", end, paused),
+            ([(1, "Hi there.")], ["Hi there."] * 2),
+        ),
+        (
+            (start, sound("Hi\0"), "idle", sound(" there."), "idle", end, held),
+            ([(1, "Hi there.")], ["Hi", "Hi there.", "Hi there."]),
+        ),
+        (
+            (
+                start,
+                sound("Hi\0"),
+                "idle",
+                sound("\0"),
+                "idle",
+                "idle",
+                sound(" there."),
+                end,
+                quiet,
+            ),
+            ([(1, "Hi there.")], ["Hi", "Hi", "Hi there.", "Hi there."]),
+        ),
+    ],
+    lambda items: (streamed(*items), list(cleaned)),
+)
+
+
+class Echo(nn.Module):
+    """Types `source` after the prefix, but 41-43 where its KV cache sums to a multiple of 5."""
+
+    def __init__(self, source, prefix):
+        super().__init__()
+        self.source, self.offset = mx.array(source), len(prefix) - 1
+
+    def __call__(self, inputs, cache):
+        rows = inputs.shape[1]
+        seen = cache[0].update_and_fetch(*[inputs[:, None, :, None].astype(mx.float32)] * 2)[0]
+        sums = mx.cumsum(seen[0, 0, :, 0].astype(mx.int32))[-rows:]
+        at = mx.clip(mx.arange(cache[0].offset - rows, cache[0].offset) - self.offset, 0, 17)
+        tokens = mx.where(sums % 5 == 0, 41 + sums % 3, self.source[at])
+        return (mx.arange(50) == tokens[:, None])[None].astype(mx.float32)
+
+
+mx.set_default_device(mx.gpu)  # wired_limit reads the GPU's limits
+source, prefix = [3, 8, 8, 1, 30, 7, 7, 7, 2, 9, 11, 4, 8, 1, 30, 6, 12, 49], [5, 6]
+echo, typed = Echo(source, prefix), []
+for token, _ in mlx_generate_step(mx.array(prefix), echo, max_tokens=40, prompt_cache=[KVCache()]):
+    if token == 49:
+        break
+    typed.append(token)
+stale = mock.Mock(side_effect=server.Stale)
+assert typed != source[: len(typed)] and len(typed) < 40, typed  # drafts rejected; eos reached
+assert (
+    speculative.generate(echo, prefix, [KVCache()], speculative.Drafts(source, int), 40, {49})
+    == typed
+)
+try:
+    speculative.generate(
+        echo, prefix, [KVCache()], speculative.Drafts(source, int), 40, {49}, stale
+    )
+    raise AssertionError("between() never stopped it")
+except server.Stale:
+    pass
+print(
+    "PASS speculative decoding types mlx-lm's greedy tokens, rolls back rejected drafts, and stops"
+    " for between()"
 )

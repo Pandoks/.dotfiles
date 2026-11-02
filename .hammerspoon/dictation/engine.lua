@@ -18,10 +18,17 @@ function engine.new(config, handlers)
   if not settings then
     return nil, "a config.lua value JSON cannot encode (inf, nan, or a function)"
   end
-  local self = setmetatable(
-    { ready = false, stopped = false, serial = 0, buffer = "", errors = "", queued = {} },
-    engine
-  )
+  -- Per-user 0700 temp dir; ffmpeg streams each take here while it records.
+  local socket = hs.fs.temporaryDirectory() .. "dictation-" .. hs.host.uuid() .. ".sock"
+  local self = setmetatable({
+    ready = false,
+    stopped = false,
+    serial = 0,
+    buffer = "",
+    errors = "",
+    queued = {},
+    socket = socket,
+  }, engine)
   local function failure(message)
     if self.stopped then
       return
@@ -34,17 +41,6 @@ function engine.new(config, handlers)
     local ok, problem = pcall(handler, ...)
     if not ok then
       logger.error("Dictation: " .. tostring(problem))
-    end
-  end
-  -- One at a time: a second setInput drops what a full pipe hasn't taken.
-  local function answered(id)
-    if id ~= self.sending then
-      return
-    end
-    local queued = table.remove(self.queued, 1)
-    self.sending = queued and queued.id
-    if queued then
-      self.task:setInput(queued.line)
     end
   end
   local function output(_, stdout, stderr)
@@ -70,12 +66,16 @@ function engine.new(config, handlers)
         -- Load chatter is no crash reason.
         self.ready, self.errors = true, ""
         pcall(print, "Dictation: backend ready")
+      elseif event.event == "received" then
+        -- One at a time: a second setInput drops what hs.task hasn't written yet.
+        self.sending = table.remove(self.queued, 1)
+        if self.sending then
+          self.task:setInput(self.sending)
+        end
       elseif event.event == "final" then
-        answered(event.id)
         call(handlers.onFinal, event)
       elseif event.event == "error" then
         if event.id then
-          answered(event.id)
           call(handlers.onError, event.msg or "unknown error", event.id, event.heard)
         else
           -- A failed load: its traceback is in what it printed.
@@ -96,28 +96,42 @@ function engine.new(config, handlers)
     local exit = self.task:terminationReason() == "interrupt" and "killed by signal " .. code
       or "exited (code " .. code .. ")"
     failure(reason and exit .. "; last output: " .. reason .. "\n" .. self.errors or exit)
-  end, output, { directory .. "server.py", settings })
+  end, output, { directory .. "server.py", settings, socket })
   if not self.task:start() then
     return nil, "could not start the backend"
   end
   return self
 end
 
----@param wav string
----@param app string?
-function engine:transcribe(wav, app)
+---@param self table
+---@param request { id: integer, pid?: integer, app?: string, wav?: string }
+local function send(self, request)
   if not self.ready or not self.task:isRunning() then
     return nil, "backend is not ready"
   end
-  self.serial = self.serial + 1
-  local line = hs.json.encode({ id = self.serial, wav = wav, app = app }) .. "\n"
+  local line = hs.json.encode(request) .. "\n"
   if self.sending then
-    self.queued[#self.queued + 1] = { id = self.serial, line = line }
+    self.queued[#self.queued + 1] = line
   else
-    self.sending = self.serial
+    self.sending = line
     self.task:setInput(line)
   end
-  return self.serial
+  return request.id
+end
+
+-- A take records from ffmpeg `pid`, which streams it to `engine.socket`.
+---@param pid integer
+---@param app string?
+function engine:start(pid, app)
+  self.serial = self.serial + 1
+  return send(self, { id = self.serial, pid = pid, app = app })
+end
+
+-- Take `id` stopped; `wav` holds the audio it streamed.
+---@param id integer
+---@param wav string
+function engine:transcribe(id, wav)
+  return send(self, { id = id, wav = wav })
 end
 
 function engine:stop()
@@ -125,6 +139,7 @@ function engine:stop()
   if self.task:isRunning() then
     self.task:terminate()
   end
+  os.remove(self.socket)
 end
 
 return engine
