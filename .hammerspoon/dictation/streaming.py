@@ -281,6 +281,7 @@ class Stream:
         """Returns whether the open segment was just encoded as a release now would encode it. With
         more audio already queued (not `latest`), the encode waits for it."""
         self.open = np.concatenate([self.open, samples])
+        paused = False  # a pause's cut encodes as a release in it would
         while (len(self.levels) + 1) * FRAME <= len(self.open):  # a cut shortens self.open
             frame = self.open[len(self.levels) * FRAME : (len(self.levels) + 1) * FRAME]
             level = float(10 * np.log10(np.mean(frame * frame) + 1e-12))
@@ -292,11 +293,13 @@ class Stream:
             self.voiced += not silent
             if self.run >= PAUSE and self.voiced >= VOICED and len(self.levels) >= SHORTEST:
                 self.cut(len(self.levels) - self.run + TAIL, True)
+                paused = True
             elif len(self.levels) >= LONGEST:
                 recent = range(len(self.levels) - 100, len(self.levels))
                 self.cut(min(recent, key=lambda index: self.levels[index]), False)
-        if not latest or self.voiced < VOICED or self.encoded == (len(self.closed), *self.kept()):
-            return False
+        under = self.voiced < VOICED and (self.closed or not self.voiced)  # as finish has it
+        if not latest or under or self.encoded == (len(self.closed), *self.kept()):
+            return paused
         encoded = self.encoded[1] if self.encoded and self.encoded[0] == len(self.closed) else 0
         if self.run >= TAIL or len(self.open) - encoded >= REFRESH:
             self.encode(*self.kept())
@@ -314,7 +317,8 @@ class Stream:
         self.run, self.encoded = next(silences, len(self.silent)), None
 
     def finish(self):
-        """Every segment's (plain, boosted), the open one from all its audio but the silence past TAIL."""
+        """Every segment's (plain, boosted), the open one from all its audio but the silence past
+        TAIL, unless words came before it and it is under VOICED (a blip)."""
         if self.voiced >= VOICED or self.voiced and not self.closed:
             self.encode(*self.kept())
             return self.texts()

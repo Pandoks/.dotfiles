@@ -1587,6 +1587,7 @@ check(
         (((9, -0.5), 2560), (True, [])),  # no sound after the cut: nothing left to encode
         (((9, -0.5, 0.1), 2560, 1), (True, [])),  # a blip after words and a cut, under VOICED
         (((0.1,), 2560), (False, [1600])),  # a take's only sound, under VOICED: a short word
+        (((0.1, -0.1), 2560), (False, [])),  # a take's only sound, under VOICED: its pause's
         (((29, -0.1, 3), 2560), (False, [49600])),  # 30 s: cut at the last 2 s's quietest
         (((2, -0.3), 2560), (False, [])),  # a release in a pause: the pause's encode
         (((2, -0.02 * (streaming.TAIL - 1)), 2560), (False, [32000 + kept - 320])),  # before TAIL
@@ -1625,6 +1626,18 @@ with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
         behind.feed(np.tile(speech, 2)[:48000][start : start + 2560], start + 2560 >= 48000)
 assert [len(audio) for audio in heard_audio] == [48000], [len(audio) for audio in heard_audio]
 print("PASS a stream behind its audio encodes once, all of it, not once per second that came")
+with mock.patch.object(streaming, "get_logmel", lambda audio, config: audio):
+    behind = streaming.Stream(noisy, None)
+    pause = np.concatenate([np.tile(speech, 5)[:144000], np.zeros(9600, np.float32)])  # 9 s, 0.6 s
+    reports = [
+        behind.feed(pause[start : start + 2560], start + 2560 >= len(pause))
+        for start in range(0, len(pause), 2560)
+    ]
+    lone = streaming.Stream(noisy, None)  # a word of 5 sound frames, then its pause
+    word = [lone.feed(part) for part in (speech[:1600], np.zeros(1600, np.float32))]
+assert any(reports), reports
+assert word == [False, True], word
+print("PASS a pause is reported after a lone short word, or cut while the stream was behind")
 worded = Model(mx.zeros((contexts, width)))  # every frame types "ok"
 worded.preprocessor_config = None  # pyright: ignore[reportAttributeAccessIssue]
 worded.encoder = lambda audio: (mx.zeros((1, 1, width)), None)  # pyright: ignore[reportAttributeAccessIssue]
@@ -1789,9 +1802,9 @@ check(
 )
 latest.clear()
 streamed(start, sound("Hi "), sound("there."), "idle", end, stop)
-assert latest == [False, False, True], latest
+assert latest[-2:] == [False, True], latest
 print("PASS a stream is told whether more audio is queued, so it encodes only the latest")
-cancelled = ("line", None, json.dumps({"id": 2, "pid": 8}))
+other = ("line", None, json.dumps({"id": 2, "pid": 8}))
 second = ("line", None, json.dumps({"id": 2, "wav": wav("A")}))
 check(
     "a take that never stops gets no reply, and its cleanup stops at the next start (a stopped"
@@ -1799,7 +1812,7 @@ check(
     [
         (
             (
-                cancelled,
+                other,
                 ("audio", 8, b"\x41\x00"),
                 ("end", 8, None),
                 start,
@@ -1815,7 +1828,7 @@ check(
                 sound("Hi there."),
                 end,
                 stop,
-                cancelled,
+                other,
                 ("audio", 8, b"\x41\x00"),
                 ("end", 8, None),
                 second,
