@@ -2,8 +2,9 @@ local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 package.path = root .. "/../?.lua;" .. package.path
 local passed, alerts, strokes, timers, changes, takeCount, serial = 0, {}, {}, {}, 0, 0, 0
-local toggle, escape, handlers, deliver, focus, frontmost, refused, recorded, sent, ipcDead, began
-local settings, recording
+local toggle, escape, handlers, deliver, focus, frontmost, recorded, sent, ipcDead, began, vanished
+local settings, recording, loading
+local engines, unloads = {}, {}
 local tick, broken, armed, shown, chained, unstartable
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
@@ -77,7 +78,16 @@ local hs = {
         end,
       })
     end,
-    doAfter = function(_, callback)
+    doAfter = function(seconds, callback)
+      if seconds == (config.unloadMinutes or 0) * 60 then
+        local unload = { fire = callback }
+        unloads[#unloads + 1] = unload
+        return {
+          stop = function()
+            unload.stopped = true
+          end,
+        }
+      end
       local index = #timers + 1
       timers[index] = callback
       return stub({
@@ -173,11 +183,11 @@ local modules = {
       if unstartable then
         return nil, "could not start capture task"
       end
-      assert(backend == "/tmp/backend.sock", "ffmpeg streams elsewhere than the backend's socket")
+      assert(backend == nil or backend == "/tmp/backend.sock", "ffmpeg streams elsewhere")
       takeCount = takeCount + 1
       recorded = ("%s/take%d.wav"):format(scratch, takeCount)
       assert(io.open(recorded, "w")):close()
-      recording = { wav = recorded, fail = onError, pid = 4000 + takeCount }
+      recording = { wav = recorded, fail = onError, pid = 4000 + takeCount, backend = backend }
       return recording
     end,
     stop = function(capture, callback)
@@ -201,24 +211,31 @@ local modules = {
   },
   ["dictation.engine"] = {
     new = function(merged, callbacks)
+      if vanished then
+        return nil, "backend venv missing"
+      end
       handlers, settings = callbacks, merged
-      return {
-        ready = true,
+      engines[#engines + 1] = {
+        ready = not loading,
         socket = "/tmp/backend.sock",
-        stop = function() end,
+        stop = function(self)
+          self.stopped, self.ready = true, false
+        end,
         start = function(_, pid, app)
           serial, began = serial + 1, { pid = pid, app = app }
           return serial
         end,
-        transcribe = function(_, id, wav)
-          if refused then
-            return nil, "backend is not ready"
+        transcribe = function(_, id, wav, app)
+          if id then
+            assert(id == serial, "a stop line for another take")
+            sent = { wav = wav, app = began.app, pid = began.pid }
+          else
+            serial, sent = serial + 1, { wav = wav, app = app }
           end
-          assert(id == serial, "a stop line for another take")
-          sent = { wav = wav, app = began.app, pid = began.pid }
-          return id
+          return serial
         end,
       }
+      return engines[#engines]
     end,
   },
 }
@@ -620,6 +637,69 @@ test("past the history cap a saved take prunes the oldest", function()
   assert(transcriptCount == 1, transcriptCount)
 end)
 
+test("unloaded when idle, the backend reloads on a press; takes go whole at their stop", function()
+  local unloaded, idle, count = engines[#engines], unloads[#unloads], #engines
+  assert(not idle.stopped, "the last take armed no unload")
+  idle.fire()
+  assert(unloaded.stopped, "the backend kept its models")
+  chained = false
+  hs.shutdownCallback()
+  assert(chained, "a shutdown with the backend unloaded raised")
+  vanished, alerts = true, {}
+  toggle()
+  vanished = nil
+  assert(alerts[1] == "Dictation: backend venv missing" and not shown, tostring(alerts[1]))
+  local element = field("Hi")
+  frontmost, loading, began = app("com.apple.Notes"), true, nil
+  for _, text in ipairs({ "there.", "again." }) do -- the second while it still loads
+    local id = dictate(element)
+    assert(#engines == count + 1 and #alerts == 0, "no backend loaded, or an alert")
+    assert(not began and not recording.backend, "streamed to a backend still loading")
+    assert(sent.app == "com.apple.Notes" and sent.wav == recorded, "the take was not sent whole")
+    handlers.onFinal({ id = id, text = text })
+  end
+  unloads[#unloads].fire()
+  assert(not engines[#engines].stopped, "unloaded while it still loads")
+  frontmost, loading, engines[#engines].ready = nil, false, true
+  assert(element.value == "Hi there. again." and #alerts == 0, element.value)
+end)
+
+test("no unload while a take records or thinks, or a cancelled one's reply is due", function()
+  local backend, idle = engines[#engines], unloads[#unloads]
+  focus = field("Hi")
+  toggle()
+  idle.fire()
+  toggle()
+  deliver()
+  idle.fire()
+  local id = serial
+  escape()
+  local due = unloads[#unloads]
+  due.fire()
+  assert(not backend.stopped, "unloaded with a take or its reply due")
+  handlers.onFinal({ id = id, text = "late" })
+  assert(unloads[#unloads] ~= due, "the reply armed no unload")
+  assert(due.stopped, "a superseded unload still fires")
+  unloads[#unloads].fire()
+  assert(backend.stopped, "never unloaded")
+end)
+
+test("a crashed backend is not reloaded: a press says so", function()
+  dictate(field("Hi"))
+  local crashed = engines[#engines]
+  crashed.stopped, crashed.ready = true, false
+  handlers.onError("exited (code 1)")
+  unloads[#unloads].fire()
+  alerts = {}
+  toggle()
+  assert(engines[#engines] == crashed and not shown, "the crashed backend was replaced")
+  assert(
+    alerts[1] == "Dictation: backend stopped (see the console); reload Hammerspoon",
+    tostring(alerts[1])
+  )
+  crashed.stopped, crashed.ready = nil, true -- revived for the tests after
+end)
+
 local function reload(swapped)
   local main, cancel, shutdown = toggle, escape, hs.shutdownCallback
   import("init", {
@@ -692,6 +772,23 @@ test("a hotkey key hs.hotkey doesn't know stops the backend and says why", funct
     },
   })
   assert(stopped and tostring(alerts[1]):find("Invalid key: bogus", 1, true), tostring(alerts[1]))
+end)
+
+test("a backend that becomes ready arms the unload, none with unloadMinutes = false", function()
+  local main, merged = handlers, settings
+  for _, minutes in ipairs({ 15, false }) do
+    local count, defaults = #unloads, import("defaults", {})
+    defaults.unloadMinutes = minutes
+    reload({
+      ["dictation.defaults"] = defaults,
+      ["dictation.config"] = {},
+      ["dictation.history"] = { prepare = function() end },
+    })
+    assert(#unloads == count, "armed while the backend loads")
+    handlers.onReady()
+    assert(#unloads == count + (minutes and 1 or 0), tostring(minutes))
+  end
+  handlers, settings = main, merged
 end)
 
 test("a take that can't move into history is left where the alert says", function()

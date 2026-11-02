@@ -11,6 +11,7 @@
 ---@field insert? "direct"|"clipboard" Type into the field focused at stop, or only copy.
 ---@field minLevel? number Peak loudness (0..1) below which a take is silence.
 ---@field minDuration? number Seconds below which a take is an accidental tap.
+---@field unloadMinutes? number|false Minutes without a take until the models (~4.2 GB) unload; false = never.
 
 ---@class DictationSpeech
 ---@field backend "parakeet-mlx"|"mlx-audio"|"mlx-whisper" The runtime `model` needs (README.md).
@@ -58,4 +59,5 @@ return {
   insert = "direct",
   minLevel = 0.25,
   minDuration = 0.35,
+  unloadMinutes = 15,
 }

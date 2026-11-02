@@ -54,11 +54,27 @@ end
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
-local overlay, recording, animation, deadline, started
+local overlay, recording, animation, deadline, started, app
 -- The request to type, and the field focused at its stop.
 local inflight, target, targetError
 local wavs = {}
 local restore
+-- nil while unloaded.
+local engine, unload
+
+-- Unloads the models after `unloadMinutes` without a take; a crashed backend stays down.
+local function arm()
+  if unload then
+    unload:stop()
+  end
+  unload = config.unloadMinutes
+    and hs.timer.doAfter(config.unloadMinutes * 60, function()
+      if state == "idle" and not next(wavs) and engine and engine.ready then
+        engine:stop()
+        engine = nil
+      end
+    end)
+end
 
 -- Gecko applies AX writes after the read-back, which would paste again.
 local gecko = {
@@ -149,8 +165,8 @@ local function insert(text)
   local role = read(element, "AXRole")
   local value = read(element, "AXValue")
   local range = read(element, "AXSelectedTextRange")
-  local app = hs.application.frontmostApplication()
-  local bundle = app and app:bundleID()
+  local front = hs.application.frontmostApplication()
+  local bundle = front and front:bundleID()
   -- Unspaced where the value is hidden, or is Ghostty's whole screen at {0, 0}.
   if type(value) == "string" and bundle ~= "com.mitchellh.ghostty" then
     text = spaced(text, value, range)
@@ -206,6 +222,7 @@ local function finish(text, saved)
   overlay, recording, animation, deadline, started = nil, nil, nil, nil, nil
   inflight, target, targetError = nil, nil, nil
   state = "idle"
+  arm()
   dictation.cancel:disable()
 end
 
@@ -233,6 +250,7 @@ end
 local function settle(id, text)
   local wav = wavs[id]
   wavs[id] = nil
+  arm()
   if text == "" then
     os.remove(wav)
     return false
@@ -248,7 +266,8 @@ local function settle(id, text)
   return false
 end
 
-local engine, problem = Engine.new(config, {
+local handlers = {
+  onReady = arm,
   onFinal = function(result)
     local text = result.text ~= "" and result.text or nil
     local saved = settle(result.id, result.text)
@@ -285,18 +304,17 @@ local engine, problem = Engine.new(config, {
       fail(unpruned)
     end
   end,
-})
+}
+local problem
+engine, problem = Engine.new(config, handlers)
 if not engine then
   return disabled(tostring(problem))
 end
 
 local function toggle()
   if state == "idle" then
-    if not engine.ready then
-      fail(
-        engine.stopped and "backend stopped (see the console); reload Hammerspoon"
-          or "backend is still loading"
-      )
+    if engine and engine.stopped then
+      fail("backend stopped (see the console); reload Hammerspoon")
       return
     elseif hs.microphoneState(false) == false then
       hs.microphoneState(true)
@@ -306,10 +324,19 @@ local function toggle()
       fail("allow Accessibility access in System Settings")
       return
     end
+    if not engine then
+      engine, problem = Engine.new(config, handlers)
+      if not engine then
+        fail(tostring(problem))
+        return
+      end
+    end
     -- New each take: a reused one can drop off the spaces it joined.
     local pill = Overlay.new()
     overlay, state = pill, "recording"
-    local capture, failure = recorder.start(Overlay.bands, engine.socket, function(message)
+    -- None while the backend loads: it gets the take whole at the stop.
+    local socket = engine.ready and engine.socket or nil
+    local capture, failure = recorder.start(Overlay.bands, socket, function(message)
       fail("recorder: " .. message)
       salvage()
       finish()
@@ -319,11 +346,14 @@ local function toggle()
       return finish()
     end
     recording = capture
-    local app = hs.application.frontmostApplication()
-    started, failure = engine:start(capture.pid, app and app:bundleID())
-    if not started then
-      fail(tostring(failure))
-      return finish()
+    local front = hs.application.frontmostApplication()
+    app = front and front:bundleID()
+    if socket then
+      started, failure = engine:start(capture.pid, app)
+      if not started then
+        fail(tostring(failure))
+        return finish()
+      end
     end
     animation = hs.timer.doEvery(1 / 30, function()
       -- An error would stop the timer silently.
@@ -363,13 +393,13 @@ local function toggle()
         )
         return finish()
       end
-      local sent, refused = engine:transcribe(id, wav)
+      local sent, refused = engine:transcribe(id, wav, app)
       if not sent then
         fail(tostring(refused))
         salvage()
         return finish()
       end
-      wavs[id], inflight, recording = wav, id, nil
+      wavs[sent], inflight, recording = wav, sent, nil
       pill.thinking = true
     end)
     -- After SIGINT, so a slow app cannot extend the take.
@@ -400,7 +430,9 @@ hs.shutdownCallback = function()
   if recording then
     salvage()
   end
-  engine:stop()
+  if engine then
+    engine:stop()
+  end
   for id in pairs(wavs) do
     settle(id)
   end

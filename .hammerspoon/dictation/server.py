@@ -3,6 +3,7 @@ s16le audio, while they record, into the unix socket at argv[2], one connection 
 
 stdin:  {"id": 1, "pid": 4242, "app": "com.tinyspeck.slackmacgap"}  take 1 records, from ffmpeg 4242
         {"id": 1, "wav": "/path.wav"}                               it stopped; the wav has its audio
+        {"id": 2, "wav": "/path.wav", "app": "..."}                 a take with no start line
 stdout: {"event": "ready"}                                        once the models are loaded
         {"event": "error", "msg": "..."}                          the load failed; it exits
         {"event": "received"}                                     a stdin line was read
@@ -26,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from models import CLEANERS, SPEECH, letters
+from models import CLEANERS, SPEECH, letters, read
 
 
 class Rejected(RuntimeError):
@@ -793,7 +794,12 @@ class Engine:
         return " ".join(" ".join(texts).split())  # one line, as rules assume
 
     def process(self, wav, request):
-        heard = " ".join(self.speech.transcribe(wav, list(self.spellings(request))).split())
+        hint = list(self.spellings(request))
+        if stream := self.speech.stream(hint):
+            stream.feed(np.array(read(wav)))
+            heard = self.spoken(stream.finish(), request)
+        else:
+            heard = " ".join(self.speech.transcribe(wav, hint).split())
         self.heard = heard  # what was said, kept if a later step fails
         return self.clean(heard, request)
 
@@ -841,7 +847,8 @@ class Engine:
 
 
 class Take:
-    """A take from its first audio or start line to its reply."""
+    """A take from its first audio or start line (its stop line, if recorded while loading) to its
+    reply."""
 
     def __init__(self):
         self.request = self.stream = self.reply = None
@@ -852,7 +859,8 @@ class Take:
 def answer(engine, take, emit):
     """Replies once the take has both stopped and been transcribed."""
     request = take.request
-    if take.reply is None and take.stream is None and "wav" in request:  # a runtime with no stream
+    # A runtime with no stream, or a take recorded while the backend loaded.
+    if take.reply is None and take.stream is None and "wav" in request:
         take.reply = attempt(engine, lambda: engine.process(request["wav"], request))
     if take.reply is None or "wav" not in request:
         return False
@@ -971,12 +979,15 @@ def serve(engine, events, emit):
                 finish(take)
         else:
             pid = next(
-                other
-                for other, take in takes.items()
-                if (take.request or {}).get("id") == request["id"]
+                (
+                    other
+                    for other, take in takes.items()
+                    if (take.request or {}).get("id") == request["id"]
+                ),
+                -request["id"],  # none: a take recorded while the backend loaded
             )
-            take = takes[pid]
-            take.request = {**take.request, "wav": request["wav"]}
+            take = takes.setdefault(pid, Take())
+            take.request = {**(take.request or {}), **request}
         if take.request and answer(engine, take, emit):
             del takes[pid]
 
@@ -1014,7 +1025,7 @@ def main():
             events.put(("line", None, line))
         events.put(None)
 
-    def read(connection):
+    def receive(connection):
         pid = connection.getsockopt(0, 2)  # SOL_LOCAL, LOCAL_PEERPID: the ffmpeg that connected
         with connection:
             while chunk := connection.recv(1 << 16):
@@ -1023,7 +1034,7 @@ def main():
 
     def accept():
         while True:
-            threading.Thread(target=read, args=(listener.accept()[0],), daemon=True).start()
+            threading.Thread(target=receive, args=(listener.accept()[0],), daemon=True).start()
 
     emit({"event": "ready"})
     threading.Thread(target=lines, daemon=True).start()
