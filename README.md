@@ -135,6 +135,12 @@ Reconcile every conflict, then run `mise bootstrap --yes`. Use
 
 ## After bootstrap
 
+On a Linux laptop that moved from iwd to NetworkManager, reconnect to Wi-Fi:
+
+```sh
+nmcli device wifi connect SSID --ask
+```
+
 Authenticate services locally; credentials are not stored in this repository:
 
 ```sh
