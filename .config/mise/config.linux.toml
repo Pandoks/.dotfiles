@@ -39,6 +39,9 @@ laptop_config="$PWD/.config/mise/config.linux-laptop.toml"
 MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 '''
 
+[bootstrap.apt.sources]
+protonvpn = { uris = "https://repo.protonvpn.com/debian", suites = "stable", key = "https://repo.protonvpn.com/debian/public_key.asc", fingerprint = "84B0D3492C76C9C6F5873C18EDA3E22630349F1C" }
+
 [bootstrap.packages]
 "apt:zsh" = "latest"
 "apt:curl" = "latest"
