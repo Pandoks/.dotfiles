@@ -48,6 +48,16 @@ content = '''
 GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT efi_pstore.pstore_disable=0"
 '''
 
+[bootstrap.files."/etc/cmdline.d/60-mise-display.conf"]
+content = '''
+i915.enable_dc=0
+'''
+
+[bootstrap.files."/etc/default/grub.d/60-mise-display.cfg"]
+content = '''
+GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT i915.enable_dc=0"
+'''
+
 [bootstrap.files."/usr/local/libexec/laptop-panel"]
 source = "./scripts/laptop-panel.linux.sh"
 mode = "0755"
@@ -105,7 +115,7 @@ sudo sysctl --system >/dev/null
 sudo systemctl enable --quiet systemd-pstore.service
 sudo setcap cap_dac_read_search,cap_sys_admin,cap_sys_rawio+ep "$(command -v smartctl)"
 
-grep -qw efi_pstore.pstore_disable=0 /proc/cmdline && exit 0
+grep -qw efi_pstore.pstore_disable=0 /proc/cmdline && grep -qw i915.enable_dc=0 /proc/cmdline && exit 0
 if command -v mkinitcpio >/dev/null; then
   sudo mkinitcpio -P
 elif command -v update-grub >/dev/null; then
