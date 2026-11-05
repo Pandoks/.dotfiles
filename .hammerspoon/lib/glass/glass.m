@@ -17,7 +17,7 @@ static const char *glassMetatableName = "lib.glass";
 // Tinted so what the canvas draws reads over white and black windows.
 static void applyAppearance(NSPanel *panel, BOOL darkAppearance) {
   panel.appearance = [NSAppearance appearanceNamed:darkAppearance ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
-  NSColor *tint = darkAppearance ? [NSColor colorWithWhite:0 alpha:0.6] : [NSColor colorWithWhite:1 alpha:0.7];
+  NSColor *tint = darkAppearance ? [NSColor colorWithWhite:0 alpha:0.6] : [NSColor colorWithWhite:1 alpha:0.5];
   ((NSGlassEffectView *)panel.contentView).tintColor = tint;
 }
 
