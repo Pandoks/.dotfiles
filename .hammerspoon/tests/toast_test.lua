@@ -231,28 +231,24 @@ local toast = assert(loadfile(
       },
     },
     require = function(name)
-      if name == "lib.utils" then
+      if name == "lib.glass" then
+        assert(not glassBuildFails, "glass: native build failed")
         return {
-          native = function(moduleName)
-            assert(moduleName == "toast" and not glassBuildFails, "toast: native build failed")
-            return {
-              glass = function(canvas, cornerRadius, fadeSeconds, darkAppearance)
-                assert(type(darkAppearance) == "boolean", "no appearance for the glass")
-                assert(
-                  type(cornerRadius) == "number" and type(fadeSeconds) == "number",
-                  "no radius or fade"
-                )
-                local glass = { canvas = canvas, dark = darkAppearance }
-                function glass.hide(_, hideSeconds)
-                  glass.hideFade = hideSeconds
-                end
-                function glass.paint(_, darkNow)
-                  glass.dark = darkNow
-                end
-                fakeGlasses[#fakeGlasses + 1] = glass
-                return glass
-              end,
-            }
+          new = function(canvas, cornerRadius, fadeSeconds, darkAppearance)
+            assert(type(darkAppearance) == "boolean", "no appearance for the glass")
+            assert(
+              type(cornerRadius) == "number" and type(fadeSeconds) == "number",
+              "no radius or fade"
+            )
+            local glass = { canvas = canvas, dark = darkAppearance }
+            function glass.hide(_, hideSeconds)
+              glass.hideFade = hideSeconds
+            end
+            function glass.paint(_, darkNow)
+              glass.dark = darkNow
+            end
+            fakeGlasses[#fakeGlasses + 1] = glass
+            return glass
           end,
         }
       end

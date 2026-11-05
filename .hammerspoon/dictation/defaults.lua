@@ -9,6 +9,7 @@
 ---@field cleanup? DictationCleanup|false false = the heard text, spelled, stalls out, digits.
 ---@field history? DictationHistory
 ---@field insert? "direct"|"clipboard" Type into the field focused at stop, or only copy.
+---@field theme? "flat"|"glass" The pill's look; glass needs macOS 26 and follows light and dark.
 ---@field minLevel? number Peak loudness (0..1) below which a take is silence.
 ---@field minDuration? number Seconds below which a take is an accidental tap.
 ---@field unloadMinutes? number|false Minutes without a take until the models (~4.2 GB) unload; false = never.
@@ -57,6 +58,7 @@ return {
   -- 10 MB is ~2,500 takes; Application Support, as macOS may purge Caches.
   history = { directory = "~/Library/Application Support/dictation", maxMegabytes = 10 },
   insert = "direct",
+  theme = "flat",
   minLevel = 0.25,
   minDuration = 0.35,
   unloadMinutes = 15,
