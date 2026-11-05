@@ -742,14 +742,49 @@ test("an unsecured history folder, no ffmpeg, or no venv leaves a hotkey that sa
   end
 end)
 
-test("an unknown theme leaves a hotkey that says why", function()
+test("an unknown theme, or a glass that fails to build, leaves a hotkey that says why", function()
   local hotkey = reload({
     ["dictation.defaults"] = import("defaults", {}),
     ["dictation.config"] = { theme = "shiny" },
+    ["dictation.history"] = unprepared(),
   })
   alerts = {}
   hotkey()
   assert(alerts[1] == "Dictation: no theme shiny; use flat or glass", tostring(alerts[1]))
+  hotkey = reload(setmetatable({
+    ["dictation.defaults"] = import("defaults", {}),
+    ["dictation.config"] = { theme = "glass" },
+    ["dictation.history"] = unprepared(),
+  }, {
+    __index = function(_, name)
+      assert(name ~= "lib.glass", "glass: native build failed")
+    end,
+  }))
+  alerts = {}
+  hotkey()
+  assert(tostring(alerts[1]):find("glass: native build failed", 1, true), tostring(alerts[1]))
+end)
+
+test("the glass theme draws the pill on lib.glass", function()
+  local glass, drawnOn = {}, nil
+  local hotkey = reload({
+    ["dictation.defaults"] = import("defaults", {}),
+    ["dictation.config"] = { theme = "glass" },
+    ["dictation.history"] = unprepared(),
+    ["lib.glass"] = glass,
+    ["dictation.engine"] = {
+      new = function()
+        return {}
+      end,
+    },
+    ["dictation.overlay"] = {
+      new = function(native)
+        drawnOn = native
+        error("drawn") -- ends the take before it records
+      end,
+    },
+  })
+  assert(not pcall(hotkey) and drawnOn == glass, "the pill is not on the glass")
 end)
 
 test("an unknown setting in config.lua alerts", function()
