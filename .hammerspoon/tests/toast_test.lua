@@ -846,6 +846,9 @@ test(
       loggedErrors[#loggedErrors] == "Toast: tint.light is 2; use 0 to 1",
       "the bad tint was not logged"
     )
+    pcall(toast.install, { theme = "glass", appearance = "dark", tint = { light = 0.5 } })
+    toast.show("after a bad tint")
+    assert(fakeGlasses[3].tint == 0.8, "a rejected tint replaced the installed one")
   end
 )
 

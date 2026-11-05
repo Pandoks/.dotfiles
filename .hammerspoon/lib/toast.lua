@@ -420,7 +420,7 @@ function toast.install(options)
   options = options or {}
   local themeName = options.theme == nil and "metal" or options.theme
   local appearance = options.appearance == nil and "system" or options.appearance
-  local problem
+  local problem, glassTint
   if not themes[themeName] then
     problem = "Toast: no theme " .. tostring(themeName) .. "; use metal, edge, flat, or glass"
   elseif not ({ system = true, light = true, dark = true })[appearance] then
@@ -428,15 +428,15 @@ function toast.install(options)
   end
   if themeName == "glass" and not problem then
     glass = require("lib.glass")
-    tint = options.tint or glass.tint
-    problem = glass.problem(tint)
+    glassTint = options.tint or glass.tint
+    problem = glass.problem(glassTint)
     problem = problem and "Toast: " .. problem
   end
   if problem then
     require("lib.logger").error(problem)
     error(problem, 2)
   end
-  theme = themes[themeName]
+  theme, tint = themes[themeName], glassTint
   if appearanceWatcher then
     appearanceWatcher:stop()
     appearanceWatcher = nil
