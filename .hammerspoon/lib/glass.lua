@@ -17,7 +17,7 @@ glass.tint = { light = 0.5, dark = 0.6 }
 function glass.problem(tint)
   for _, appearance in ipairs({ "light", "dark" }) do
     local alpha = type(tint) == "table" and tint[appearance] or nil
-    if type(alpha) ~= "number" or alpha < 0 or alpha > 1 then
+    if type(alpha) ~= "number" or not (alpha >= 0 and alpha <= 1) then
       return ("tint.%s is %s; use 0 to 1"):format(appearance, tostring(alpha))
     end
   end

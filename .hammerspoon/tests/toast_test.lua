@@ -251,19 +251,20 @@ local toast = assert(loadfile(
           end,
         }
         -- The real module, over a fake native build.
-        return assert(loadfile(root .. "/glass.lua", "t", {
-          require = function()
-            return {
-              native = function()
-                assert(not glassBuildFails, "glass: native build failed")
-                return native
-              end,
-            }
-          end,
-          ipairs = ipairs,
-          type = type,
-          tostring = tostring,
-        }))()
+        return assert(loadfile(
+          root .. "/glass.lua",
+          "t",
+          setmetatable({
+            require = function()
+              return {
+                native = function()
+                  assert(not glassBuildFails, "glass: native build failed")
+                  return native
+                end,
+              }
+            end,
+          }, { __index = _G })
+        ))()
       end
       assert(name == "lib.logger")
       return {
@@ -846,6 +847,8 @@ test(
       loggedErrors[#loggedErrors] == "Toast: tint.light is 2; use 0 to 1",
       "the bad tint was not logged"
     )
+    ok, problem = pcall(toast.install, { theme = "glass", tint = { light = 0.5, dark = 0 / 0 } })
+    assert(not ok and tostring(problem):find("Toast: tint.dark is", 1, true), "NaN passed")
     pcall(toast.install, { theme = "glass", appearance = "dark", tint = { light = 0.5 } })
     toast.show("after a bad tint")
     assert(fakeGlasses[3].tint == 0.8, "a rejected tint replaced the installed one")

@@ -38,7 +38,7 @@ local mine = import("config", {})
 mine.words = { "Slack", Raycast = { "ray cast" } }
 mine.apps =
   { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } }, ["com.y"] = { style = "terse" } }
-mine.cleanup, mine.speech = false, { model = "mine" }
+mine.cleanup, mine.speech, mine.theme = false, { model = "mine" }, "flat"
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
 local hs = {
   fs = fs,
@@ -152,7 +152,7 @@ local hs = {
 
 -- The real lib/glass.lua, over a fake native build.
 local function glassModule()
-  return assert(loadfile(root .. "/../lib/glass.lua", "t", {
+  return import("../lib/glass", {
     require = function()
       return {
         native = function()
@@ -160,10 +160,7 @@ local function glassModule()
         end,
       }
     end,
-    ipairs = ipairs,
-    type = type,
-    tostring = tostring,
-  }))()
+  })
 end
 
 local modules = {
@@ -178,7 +175,6 @@ local modules = {
   }),
   ["dictation.spacing"] = import("spacing", {}),
   ["dictation.history"] = import("history", { hs = { fs = fs } }),
-  ["lib.glass"] = glassModule(),
   ["dictation.overlay"] = {
     new = function()
       shown = true
