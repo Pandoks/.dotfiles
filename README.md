@@ -164,13 +164,14 @@ packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 ## Hub
 
-The `tag:hub` machine hosts [CLIProxyAPI] and [Beszel]:
+The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], and [ARTEX]:
 
 ```sh
 mise -E hub bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 sudo tailscale serve --service=svc:cliproxyapi-ci --https=443 http://127.0.0.1:8318
 sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
+sudo tailscale serve --service=svc:artex --https=443 http://127.0.0.1:8787
 ```
 
 **CLIProxyAPI:** set `management.secret-key` in `~/.cli-proxy-api/config.yaml`
@@ -189,7 +190,13 @@ systemctl --user restart dev.mise.beszel-agent                # Linux
 launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 ```
 
+**ARTEX:** runs from `.config/mise/hub/compose.yaml`. Get the setup token with
+`sudo docker compose -p hub logs artex | grep -F '[auth]'`, set the admin
+password at `https://artex.<tailnet>.ts.net/setup`, then add an LLM provider in
+its settings.
+
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
+[ARTEX]: https://github.com/jiwoochris/artex-global
 [Beszel]: https://beszel.dev/
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/

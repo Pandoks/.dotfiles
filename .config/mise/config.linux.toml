@@ -79,6 +79,8 @@ protonvpn = { uris = "https://repo.protonvpn.com/debian", suites = "stable", key
 "pacman:docker-compose" = "latest"
 "pacman:proton-vpn-cli" = "latest"
 
+[bootstrap.services.docker]
+
 [bootstrap.directories."/etc/udev/rules.d"]
 
 [bootstrap.files."/etc/udev/rules.d/60-mise-ledger.rules"]

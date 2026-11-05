@@ -39,3 +39,8 @@ restart = "always"
 restart_sec = "10"
 wanted_by = ["default.target"]
 start = true
+
+[bootstrap.compose.hub]
+project_dir = "{{ config_root }}/.config/mise/hub"
+pull = "always" # keep :latest images current, like the latest tools
+sudo = true # the bootstrap user may not be in the docker group yet
