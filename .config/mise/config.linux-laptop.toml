@@ -101,7 +101,7 @@ on_change = "restart"
 
 [bootstrap.hooks.post-packages]
 run = '''
-systemctl is-active --quiet systemd-networkd.service || systemctl is-enabled --quiet systemd-networkd.service || exit 0
+systemctl is-enabled --quiet systemd-networkd.service || exit 0
 sudo systemctl disable systemd-networkd.service systemd-networkd-wait-online.service
 sudo systemctl stop systemd-networkd.service $(systemctl show -p TriggeredBy --value systemd-networkd.service)
 if systemctl is-enabled --quiet iwd.service; then
