@@ -7,8 +7,8 @@ self-corrections, your word list fixes names, and the text goes into the focused
 
 ## Setup
 
-1. `uv sync --locked --project ~/.hammerspoon/dictation` (uv and ffmpeg from `mise install`); again
-   whenever `uv.lock` changes.
+1. `mise bootstrap --yes` installs uv, ffmpeg, and the backend (its final hook runs
+   `uv sync --locked --project ~/.hammerspoon/dictation`); rerun it whenever `uv.lock` changes.
 2. Grant **Hammerspoon** Microphone and Accessibility in **System Settings > Privacy & Security**.
 3. Reload Hammerspoon. The first start downloads the pinned models (about 4.3 GB) into
    `~/.cache/huggingface`; the console prints `Dictation: backend ready` once they are loaded, and
