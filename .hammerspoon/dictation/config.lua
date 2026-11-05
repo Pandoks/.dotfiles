@@ -1,6 +1,7 @@
 ---@type DictationConfig
 return {
   hotkey = { mods = { "alt" }, key = "space" },
+  theme = "glass",
 
   words = {
     "Slack",
