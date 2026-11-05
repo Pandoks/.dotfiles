@@ -166,11 +166,9 @@ local modules = {
     new = function()
       shown = true
       return stub({
-        canvas = stub({
-          delete = function()
-            shown = false
-          end,
-        }),
+        delete = function()
+          shown = false
+        end,
         update = function()
           assert(not broken, "broken frame")
         end,
@@ -742,6 +740,16 @@ test("an unsecured history folder, no ffmpeg, or no venv leaves a hotkey that sa
     hotkey()
     assert(alerts[1] == "Dictation: " .. problem, tostring(alerts[1]))
   end
+end)
+
+test("an unknown theme leaves a hotkey that says why", function()
+  local hotkey = reload({
+    ["dictation.defaults"] = import("defaults", {}),
+    ["dictation.config"] = { theme = "shiny" },
+  })
+  alerts = {}
+  hotkey()
+  assert(alerts[1] == "Dictation: no theme shiny; use flat or glass", tostring(alerts[1]))
 end)
 
 test("an unknown setting in config.lua alerts", function()

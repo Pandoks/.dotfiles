@@ -50,7 +50,11 @@ if unprepared then
   return disabled(unprepared)
 elseif not recorder.ffmpeg then
   return disabled("no ffmpeg found; run mise install")
+elseif config.theme ~= "flat" and config.theme ~= "glass" then
+  return disabled("no theme " .. tostring(config.theme) .. "; use flat or glass")
 end
+-- Built at load, not on the first take.
+local glass = config.theme == "glass" and require("lib.glass") or nil
 
 ---@type "idle"|"recording"|"thinking"
 local state = "idle"
@@ -210,7 +214,7 @@ local function finish(text, saved)
     fail(tostring(problem) .. (saved and " (the text is in history)" or ""))
   end
   if overlay then
-    overlay.canvas:delete()
+    overlay:delete()
   end
   if animation then
     animation:stop()
@@ -332,7 +336,7 @@ local function toggle()
       end
     end
     -- New each take: a reused one can drop off the spaces it joined.
-    local pill = Overlay.new()
+    local pill = Overlay.new(glass)
     overlay, state = pill, "recording"
     -- None while the backend loads: it gets the take whole at the stop.
     local socket = engine.ready and engine.socket or nil

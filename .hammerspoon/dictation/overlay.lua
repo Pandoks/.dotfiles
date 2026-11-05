@@ -12,10 +12,13 @@ local peak = 0.34
 local fadeFrames = 12
 local width, barWidth = height * aspect, height * thickness
 
-function overlay.new()
+---@param glass? GlassNative Liquid Glass instead of the flat pill.
+function overlay.new(glass)
   local canvas = hs.canvas.new({ x = 0, y = 0, w = width, h = height }) --[[@as hs.canvas]]
+  local dark = not glass or hs.host.interfaceStyle() == "Dark"
   local self = setmetatable({
     canvas = canvas,
+    ink = dark and 0.976 or 0, -- bar gray
     baseline = {}, -- idle diamond envelope
     bars = {},
     thinking = false,
@@ -34,7 +37,7 @@ function overlay.new()
   canvas:clickActivating(false)
   canvas:appendElements({
     type = "rectangle",
-    action = "strokeAndFill",
+    action = glass and "skip" or "strokeAndFill",
     roundedRectRadii = { xRadius = radius, yRadius = radius },
     padding = stroke / 2, -- the centered stroke stays inside the canvas
     fillColor = { white = 0.13, alpha = 0.98 },
@@ -46,7 +49,7 @@ function overlay.new()
       type = "rectangle",
       action = "fill",
       roundedRectRadii = { xRadius = barWidth / 2, yRadius = barWidth / 2 },
-      fillColor = { white = 0.976, alpha = 1.0 },
+      fillColor = { white = self.ink, alpha = 1.0 },
       frame = { x = 0, y = 0, w = barWidth, h = barWidth },
     })
   end
@@ -62,7 +65,15 @@ function overlay.new()
   end
   self:layout()
   canvas:show()
+  self.glass = glass and glass.new(canvas, height / 2, 0, dark)
   return self
+end
+
+function overlay:delete()
+  if self.glass then
+    self.glass:hide(0)
+  end
+  self.canvas:delete()
 end
 
 function overlay:layout()
@@ -97,7 +108,7 @@ function overlay:layout()
       "frame",
       { x = barCenter - barWidth / 2, y = height / 2 - barHeight / 2, w = barWidth, h = barHeight }
     )
-    self.canvas:elementAttribute(bar + 1, "fillColor", { white = 0.976, alpha = glow })
+    self.canvas:elementAttribute(bar + 1, "fillColor", { white = self.ink, alpha = glow })
   end
 end
 
