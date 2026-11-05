@@ -2,7 +2,6 @@
 .hammerspoon/secrets.lua
 .hammerspoon/Spoons/
 .claude/artifacts/
-.claude/mods/*/.claude-plugin/types/
 .hammerspoon/dictation/.venv/
 .hammerspoon/dictation/__pycache__/
 .hammerspoon/url_router/__pycache__/
