@@ -1,0 +1,1 @@
+{ "name": "subagent-model", "version": "0.1.0", "description": "Off Claude models, run every subagent on the session's model" }
