@@ -1,0 +1,44 @@
+name: hub
+
+services:
+  artex-postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "listen_addresses="]
+    environment:
+      POSTGRES_USER: artex
+      POSTGRES_DB: artex
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - artex-pgdata:/var/lib/postgresql/data
+      - artex-pgsocket:/var/run/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U artex -d artex"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  artex:
+    image: ghcr.io/jiwoochris/artex-global:latest
+    depends_on:
+      artex-postgres:
+        condition: service_healthy
+    environment:
+      ARTEX_PG_DSN: postgres://artex@/artex?host=/var/run/postgresql&sslmode=disable
+    ports:
+      - 127.0.0.1:8787:8787
+      - 127.0.0.1:8788:8788
+    volumes:
+      - artex-data:/app/data
+      - artex-pgsocket:/var/run/postgresql
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  artex-pgdata:
+  artex-pgsocket:
+  artex-data:
