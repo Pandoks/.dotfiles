@@ -13,6 +13,12 @@ fi
 sh "$script"
 '''
 
+[bootstrap.hooks.post-packages]
+run = '''
+[ -d /run/systemd/system ] || exit 0
+systemctl is-enabled --quiet docker && systemctl is-active --quiet docker || sudo systemctl enable --now docker
+'''
+
 # Linger keeps user services running after logout and starts them at boot
 [bootstrap.hooks.post-tools]
 run = '''
@@ -78,8 +84,6 @@ protonvpn = { uris = "https://repo.protonvpn.com/debian", suites = "stable", key
 "pacman:docker-buildx" = "latest"
 "pacman:docker-compose" = "latest"
 "pacman:proton-vpn-cli" = "latest"
-
-[bootstrap.services.docker]
 
 [bootstrap.directories."/etc/udev/rules.d"]
 
