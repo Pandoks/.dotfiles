@@ -15,7 +15,10 @@ local inks = { [true] = 0.976, [false] = 0 } -- bar gray on dark and light
 
 local glassPill
 local appearanceWatcher = hs.distributednotifications.new(function()
-  glassPill:paint(hs.host.interfaceStyle() == "Dark")
+  local dark = hs.host.interfaceStyle() == "Dark"
+  glassPill.ink = inks[dark]
+  glassPill.glass:paint(dark)
+  glassPill:layout()
 end, "AppleInterfaceThemeChangedNotification") --[[@as hs.distributednotifications]]
 
 ---@param glass? GlassNative Liquid Glass instead of the flat pill.
@@ -76,13 +79,6 @@ function overlay.new(glass)
     appearanceWatcher:start()
   end
   return self
-end
-
----@param dark boolean
-function overlay:paint(dark)
-  self.ink = inks[dark]
-  self.glass:paint(dark)
-  self:layout()
 end
 
 function overlay:delete()
