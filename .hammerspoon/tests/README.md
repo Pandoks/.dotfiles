@@ -8,7 +8,8 @@ The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
 tracking failures with popups and no retries, and shutdown. It also checks that quit
-apps release their observers. The switcher suite checks that explicit action failures
+apps release their observers, and that a Space change re-scans apps with windows in front
+of a window titled "Dock". The switcher suite checks that explicit action failures
 still log and show popups.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
@@ -34,6 +35,11 @@ command-line tools. The interception suite downloads Lua 5.4.9 and checks its pi
 SHA-256; set `LUA_ARCHIVE` to a local copy to run offline. Swift suites compile copies
 with `NSWorkspace` and `NSAlert` replaced, so they never open apps, show popups, or
 change default handlers.
+
+Run `sh .hammerspoon/tests/stream_test.sh` for `lib/stream`, dictation's PCM socket; it needs
+`ffmpeg` on `PATH`. It streams real ffmpeg output and checks live chunked delivery, listen,
+accept, and read failures, `close()` before, during, and after a writer, that a closed stream
+keeps no socket or callback, garbage collection, and a Lua reload mid-stream.
 
 Run `sh .hammerspoon/tests/previews_test.sh` for the native preview worker pool.
 It uses synthetic images and windows, without Screen Recording access or UI changes.
@@ -103,7 +109,7 @@ focus jobs release their timers.
 Menu layout responds to both dimensions of the usable frame of the focused Space's display,
 resolved through `hs.spaces.spaceDisplay(hs.spaces.focusedSpace())` because
 `hs.screen.mainScreen()` can stay on another display while a fullscreen app has focus. If
-that display cannot be resolved, Cmd-Tab logs, shows a popup, and opens no menu.
+that display cannot be resolved, Cmd-Tab logs and opens no menu.
 Width adds columns, height adds visible rows, and cards adapt between 180 and 320
 logical points (smaller only if a tiny display cannot fit one card). Preferred card
 size follows the shorter screen dimension, so ultrawides cannot inflate previews.
@@ -127,7 +133,8 @@ Finished jobs release their timers.
 It also checks PiP activation redirects, display boundaries, repeated presses during
 a pending switch, and Mission Control key passthrough and focus suppression. Its window
 model keeps untracked, minimized, hidden, layer-3, and other-display windows out of the
-candidates.
+candidates. A window titled "Dock" hides nothing in front of it from focus restoration or
+PiP redirects, and the shown Dock (layer 20) is not cover.
 
 Ctrl-Left/Right use `window_manager.space` outside Mission Control and stop at the current display's
 first/last Space. Numbered shortcuts use global Mission Control indices. Shortcuts take
@@ -176,13 +183,18 @@ window has focus. Switcher busy checks do
 not inspect screen-recording permission. Focus validation checks the current Space after the
 other state checks, so a Space change during those checks cannot focus an old window.
 
-Focus restoration reads the Space synchronously in-process: `hs.window.list()` for the
+Focus restoration reads the Space synchronously in-process: `hs.window.list(true)` for the
 WindowServer's front-to-back on-screen windows, limited to those centered in the Space
 display's `fullFrame()`, plus `hs.window.focusedWindow()` and
 `lib.window_filter.windowsOf` for tracked windows. Candidates are tracked layer-0
 windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
 This never waits behind a busy app; it measured about 2-3 ms. A Space whose display
 cannot be found fails once with a popup.
+Without `true`, the list keeps only the windows behind the first one titled "Dock", from any
+app. With Screen Recording and the Dock hidden, a Finder window on a folder named Dock hides
+every window in front of it, including the PiP. The PiP lookups and `lib.window_filter`'s
+Space re-scan pass `true` too. Either way the list holds only on-screen windows: none
+minimized, hidden, or on another Space.
 
 Space information, including each Space's display UUID, comes from one native snapshot
 per lookup. Cmd-Tab and Space
@@ -275,7 +287,10 @@ For a live check after reloading Hammerspoon:
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
 
-The logger Lua regressions also run with `tests/run.sh`.
+The logger, window profiles and toast Lua regressions also run with `tests/run.sh`. The toast
+suite covers placement, stacking, repeats, click dismissal, wrapping, themes, light and dark,
+glass, and `hs.alert` routing. Toast looks, the glass window, and clicks were checked live on
+macOS 27.0.1.
 
 Audit checks (substitute the installed executable paths if needed):
 

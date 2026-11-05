@@ -1,5 +1,4 @@
 #!/bin/sh
-# Exercise Hammerspoon modules without launching their UI.
 set -eu
 
 test_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -37,4 +36,6 @@ python3 -B "$test_dir/url_set_default_test.py"
 python3 -B "$test_dir/url_dispatch_test.py"
 
 "$test_build/lua" "$test_dir/logger_test.lua" "$test_dir/../lib"
+"$test_build/lua" "$test_dir/window_profiles_test.lua" "$test_dir/../lib"
 "$test_build/lua" "$test_dir/native_loader_test.lua" "$test_dir/../lib" "$test_build/cache"
+"$test_build/lua" "$test_dir/toast_test.lua" "$test_dir/../lib"

@@ -1,11 +1,11 @@
 local root = assert(arg[1])
 local passed = 0
-local function test(name, callback)
-  callback()
+local function test(name, body)
+  body()
   passed = passed + 1
   print("PASS " .. name)
 end
--- hs.axuielement.observer keeps a stopped observer's callback: count observers alive only through it.
+-- A stopped hs.axuielement.observer keeps its callback: count observers alive only through it.
 local function leaked(observers)
   local here, registry = debug.getinfo(1, "S").source, {}
   local weak = setmetatable({}, { __mode = "k" })
@@ -13,8 +13,8 @@ local function leaked(observers)
     local observer = observers[i]
     if not observer.active then
       table.remove(observers, i)
-      if debug.getinfo(observer.fn, "S").source ~= here then
-        registry[#registry + 1], weak[observer] = observer.fn, true
+      if debug.getinfo(observer.handler, "S").source ~= here then
+        registry[#registry + 1], weak[observer] = observer.handler, true
       end
     end
   end
@@ -201,8 +201,16 @@ local function setup(options)
         _orderedwinids = function()
           return { 200, 100 }
         end,
-        list = function()
-          return { { kCGWindowOwnerPID = 7 }, model.visible and { kCGWindowOwnerPID = 42 } or nil }
+        -- On-screen, front to back.
+        list = function(all)
+          local rows = { model.visible and { kCGWindowOwnerPID = 42 } or nil }
+          rows[#rows + 1] = { kCGWindowOwnerPID = 7, kCGWindowName = model.dock and "Dock" or nil }
+          for i, row in ipairs(rows) do
+            if not all and row.kCGWindowName == "Dock" then
+              return { table.unpack(rows, i + 1) }
+            end
+          end
+          return rows
         end,
       },
       alert = {
@@ -240,7 +248,7 @@ local function setup(options)
               self.registered[target][name] = nil
             end
             function observer:callback(callback)
-              self.fn = callback
+              self.handler = callback
             end
             function observer:start()
               self.active = true
@@ -257,16 +265,20 @@ local function setup(options)
       model.logs[#model.logs + 1] = message
     end,
   }, { __index = _G })
-  local logger = assert(loadfile(root .. "/logger.lua", "t", environment))()
+  local logger
   environment.require = function(name)
+    if name == "lib.toast" then
+      return { show = environment.hs.alert.show }
+    end
     assert(name == "lib.logger")
     return logger
   end
+  logger = assert(loadfile(root .. "/logger.lua", "t", environment))()
   model.module = assert(loadfile(root .. "/window_filter.lua", "t", environment))()
   model.filter = model.module.new()
   function model:emit(target, event, observer)
     observer = observer or self.observers[#self.observers]
-    observer.fn(observer, target, event)
+    observer.handler(observer, target, event)
   end
   return model
 end
@@ -680,6 +692,10 @@ test("Space changes re-scan only apps with on-screen windows", function()
   model.visible = true
   model.spaceCallback()
   assert(model.reads == reads + 1 and model.runningReads == running)
+  -- Even in front of a Finder window titled "Dock".
+  model.dock = true
+  model.spaceCallback()
+  assert(model.reads == reads + 2)
 end)
 
 test("an exited app without on-screen windows is detached on a Space change", function()

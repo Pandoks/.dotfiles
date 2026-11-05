@@ -1,7 +1,7 @@
 local openOrFocusWindow = require("window_profiles")
 
----@param title string forced window title -- also the profile's exact-match identity
----@param command string command the window runs (its lifetime = the window's)
+---@param title string
+---@param command string
 ---@return WindowProfile
 local function ghosttyProfile(title, command)
   return {
@@ -18,7 +18,7 @@ end
 
 hs.hotkey.bind({ "alt" }, "e", function()
   openOrFocusWindow(
-    ghosttyProfile("sieve", [[ssh -t sieve "/bin/zsh -lc 'exec tmux new-session -A -s Sieve'"]])
+    ghosttyProfile("t470", [[ssh -t t470 "zsh -lc 'exec tmux new-session -A -s T470'"]])
   )
 end)
 hs.hotkey.bind({ "alt" }, "r", function()

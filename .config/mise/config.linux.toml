@@ -1,5 +1,6 @@
 [tools]
 btop = "latest"
+"http:monero" = { version = "0.18.5.4", platforms = { linux-x64 = { url = "https://downloads.getmonero.org/cli/monero-linux-x64-v{{version}}.tar.bz2", checksum = "sha256:ba2928962c101b609434bf8c1b43ad59ebe96c5525977284ca599d8bf0f02d10" }, linux-arm64 = { url = "https://downloads.getmonero.org/cli/monero-linux-armv8-v{{version}}.tar.bz2", checksum = "sha256:d20d71e6522b41eb8e549c3425f7f4622c9c9a448fc7147525393fd0a6b59703" } } }
 
 [bootstrap.hooks.pre-packages]
 run = '''
@@ -38,6 +39,9 @@ laptop_config="$PWD/.config/mise/config.linux-laptop.toml"
 MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 '''
 
+[bootstrap.apt.sources]
+protonvpn = { uris = "https://repo.protonvpn.com/debian", suites = "stable", key = "https://repo.protonvpn.com/debian/public_key.asc", fingerprint = "84B0D3492C76C9C6F5873C18EDA3E22630349F1C" }
+
 [bootstrap.packages]
 "apt:zsh" = "latest"
 "apt:curl" = "latest"
@@ -55,6 +59,7 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "apt:containerd.io" = "latest"
 "apt:docker-buildx-plugin" = "latest"
 "apt:docker-compose-plugin" = "latest"
+"apt:proton-vpn-cli" = "latest"
 
 "pacman:zsh" = "latest"
 "pacman:curl" = "latest"
@@ -72,3 +77,22 @@ MISE_GLOBAL_CONFIG_FILE="$laptop_config" mise --cd / bootstrap --yes
 "pacman:containerd" = "latest"
 "pacman:docker-buildx" = "latest"
 "pacman:docker-compose" = "latest"
+"pacman:proton-vpn-cli" = "latest"
+
+[bootstrap.directories."/etc/udev/rules.d"]
+
+[bootstrap.files."/etc/udev/rules.d/60-mise-ledger.rules"]
+content = '''
+SUBSYSTEM=="usb", ATTR{idVendor}=="2c97", MODE="0666"
+'''
+
+[bootstrap.linux.systemd.units.beszel-agent]
+description = "Beszel Agent"
+after = ["network.target"]
+type = "simple"
+exec_start = "/bin/sh -c '[ -s %h/.config/beszel/token ] || exit 0; exec %h/.local/share/mise/installs/github-henrygd-beszel/latest/beszel-agent'"
+environment = { HUB_URL = "https://beszel.tailb2c81d.ts.net", KEY_FILE = "%h/.config/beszel/key", TOKEN_FILE = "%h/.config/beszel/token", DISABLE_SSH = "true" }
+restart = "on-failure"
+restart_sec = "10"
+wanted_by = ["default.target"]
+start = true

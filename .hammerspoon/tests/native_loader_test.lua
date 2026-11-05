@@ -3,7 +3,6 @@ local builds, loaded, alerts = 0, {}, {}
 local environment = setmetatable({
   hs = {
     processInfo = {
-      arch = "arm64",
       version = "audit",
       build = "1",
       bundleID = "audit",

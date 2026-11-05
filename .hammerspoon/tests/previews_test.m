@@ -34,15 +34,15 @@ static CFArrayRef fixtureImage(int server, CGWindowID *windows, uint32_t count, 
   }
   CGImageRef image = NULL;
   if (window != 13) {
-    CGColorSpaceRef color = CGColorSpaceCreateDeviceRGB();
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
     size_t width = window >= 1000 ? 920 : window == 8 ? 4000 : window == 9 ? 400 : window == 16 ? 1 : 8;
     size_t height = window >= 1000 ? 520 : window == 8 ? 3000 : window == 9 ? 2000 : window == 16 ? 1 : 8;
-    CGContextRef context = CGBitmapContextCreate(NULL, width, height, 8, width * 4, color, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+    CGContextRef context = CGBitmapContextCreate(NULL, width, height, 8, width * 4, colorSpace, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
     CGContextSetRGBFillColor(context, 1, 0, 0, 1);
     CGContextFillRect(context, CGRectMake(0, 0, (CGFloat)width, (CGFloat)height));
     image = CGBitmapContextCreateImage(context);
     CGContextRelease(context);
-    CGColorSpaceRelease(color);
+    CGColorSpaceRelease(colorSpace);
   }
   if (window == 14) atomic_store(&closed, true);
   atomic_fetch_add(&captured, 1);

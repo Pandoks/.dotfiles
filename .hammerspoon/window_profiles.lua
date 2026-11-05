@@ -1,20 +1,24 @@
+local logger = require("lib.logger")
+
 ---@type table<string, boolean>
 local launching = {}
+
+---@param bundleId string
+---@param exitCode integer
+---@param stdErr string
+local function report(bundleId, exitCode, stdErr)
+  if exitCode ~= 0 then
+    logger.error(string.format("Could not launch %s (exit %d): %s", bundleId, exitCode, stdErr))
+  end
+end
 
 ---@alias WindowMatcher string|(fun(title: string): boolean)
 
 ---@class WindowProfile
----@field bundleId string bundle id, e.g. "com.mitchellh.ghostty" (osascript -e 'id of app "<app>"'); one lookup returns every running instance
----@field match? WindowMatcher which window of the app; omit = any window
----@field args? string[] arguments handed to the app when it has to be launched
+---@field bundleId string
+---@field match? WindowMatcher omit = any window
+---@field args? string[] launch args
 
----Focus the profile's window, launching it if it doesn't exist anywhere.
----
----Search order:
---- 1. last-focused window of each running instance, current space first
---- 2. any other matching window on the current space
---- 3. matching window on another space
---- 4. nothing found → launch
 ---@param profile WindowProfile
 local function openOrFocusWindow(profile)
   local matcher = profile.match
@@ -26,13 +30,12 @@ local function openOrFocusWindow(profile)
     end
   end
 
-  ---usually just one app instance
   local apps = hs.application.applicationsForBundleID(profile.bundleId)
   local currentSpace = hs.spaces.focusedSpace()
 
   ---@type hs.application?
   local offSpaceMainWindowApp = nil
-  ---fast path: mainWindow is signficantly faster than allWindows scan
+  ---mainWindow first: much faster than an allWindows scan
   for _, app in ipairs(apps) do
     local mainWindow = app:mainWindow()
     if mainWindow and mainWindow:isStandard() and matcher(mainWindow:title() or "") then
@@ -48,7 +51,6 @@ local function openOrFocusWindow(profile)
 
   ---@type hs.window?
   local offSpaceWindow = nil
-  ---slow path: allWindows scans for windows of app on this space that aren't mainWindow
   for _, app in ipairs(apps) do
     for _, window in ipairs(app:allWindows()) do
       if window:isStandard() and matcher(window:title() or "") then
@@ -75,7 +77,11 @@ local function openOrFocusWindow(profile)
   end
 
   if profile.match == nil then
-    hs.task.new("/usr/bin/open", nil, { "-b", profile.bundleId }):start()
+    hs.task
+      .new("/usr/bin/open", function(exitCode, _, stdErr)
+        report(profile.bundleId, exitCode, stdErr)
+      end, { "-b", profile.bundleId })
+      :start()
     print("Launching app", profile.bundleId)
     return
   end
@@ -89,18 +95,16 @@ local function openOrFocusWindow(profile)
   end
   launching[launchKey] = true
 
-  local launchArgs = { "-W", "-n", "-b", profile.bundleId, "--args" }
-  for _, arg in ipairs(profile.args or {}) do
-    table.insert(launchArgs, arg)
+  local arguments = { "-W", "-n", "-b", profile.bundleId, "--args" }
+  for _, argument in ipairs(profile.args or {}) do
+    table.insert(arguments, argument)
   end
 
   hs.task
-    .new("/usr/bin/open", function(exitCode)
+    .new("/usr/bin/open", function(exitCode, _, stdErr)
       launching[launchKey] = nil
-      if exitCode ~= 0 then
-        print("Launch failed", launchKey)
-      end
-    end, launchArgs)
+      report(profile.bundleId, exitCode, stdErr)
+    end, arguments)
     :start()
   print("Launching window", launchKey)
 end

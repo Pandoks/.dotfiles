@@ -1,9 +1,15 @@
 [bootstrap.packages]
 "apt:acpid" = "latest"
+"apt:smartmontools" = "latest"
+"apt:network-manager" = "latest"
+"apt:systemd-resolved" = "latest"
 
 "pacman:acpid" = "latest"
+"pacman:smartmontools" = "latest"
+"pacman:networkmanager" = "latest"
 
 [bootstrap.directories."/etc/systemd/logind.conf.d"]
+[bootstrap.directories."/etc/systemd/journald.conf.d"]
 [bootstrap.directories."/etc/systemd/system/acpid.service.d"]
 [bootstrap.directories."/etc/cmdline.d"]
 [bootstrap.directories."/etc/default/grub.d"]
@@ -21,7 +27,15 @@ HandleLidSwitchExternalPower=ignore
 content = '''
 kernel.softlockup_panic = 1
 kernel.hardlockup_panic = 1
+kernel.hung_task_panic = 1
 kernel.panic = 10
+kernel.sysrq = 1
+'''
+
+[bootstrap.files."/etc/systemd/journald.conf.d/60-mise-crash.conf"]
+content = '''
+[Journal]
+SyncIntervalSec=10s
 '''
 
 [bootstrap.files."/etc/cmdline.d/60-mise-crash.conf"]
@@ -32,6 +46,16 @@ efi_pstore.pstore_disable=0
 [bootstrap.files."/etc/default/grub.d/60-mise-crash.cfg"]
 content = '''
 GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT efi_pstore.pstore_disable=0"
+'''
+
+[bootstrap.files."/etc/cmdline.d/60-mise-display.conf"]
+content = '''
+i915.enable_dc=0
+'''
+
+[bootstrap.files."/etc/default/grub.d/60-mise-display.cfg"]
+content = '''
+GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT i915.enable_dc=0"
 '''
 
 [bootstrap.files."/usr/local/libexec/laptop-panel"]
@@ -52,6 +76,13 @@ action=/usr/bin/systemd-cat -t laptop-panel /usr/local/libexec/laptop-panel open
 '''
 notify = ["acpid"]
 
+[bootstrap.files."/etc/acpi/events/power-log"]
+content = '''
+event=^(ac_adapter|battery)
+action=/usr/bin/logger -p daemon.crit -t power-event %e
+'''
+notify = ["acpid"]
+
 [bootstrap.files."/etc/systemd/system/acpid.service.d/laptop-panel.conf"]
 content = '''
 [Unit]
@@ -65,12 +96,26 @@ notify = ["acpid"]
 [bootstrap.services.acpid]
 on_change = "restart"
 
+[bootstrap.services.NetworkManager]
+[bootstrap.services.systemd-resolved]
+
+[bootstrap.hooks.post-packages]
+run = '''
+systemctl is-enabled --quiet systemd-networkd.service || exit 0
+sudo systemctl disable --now systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service
+if systemctl is-enabled --quiet iwd.service; then
+  sudo systemctl disable --now iwd.service
+fi
+'''
+
 [bootstrap.hooks.final]
 run = '''
 sudo systemctl reload systemd-logind
 sudo sysctl --system >/dev/null
+sudo systemctl enable --quiet systemd-pstore.service
+sudo setcap cap_dac_read_search,cap_sys_admin,cap_sys_rawio+ep "$(command -v smartctl)"
 
-grep -qw efi_pstore.pstore_disable=0 /proc/cmdline && exit 0
+grep -qw efi_pstore.pstore_disable=0 /proc/cmdline && grep -qw i915.enable_dc=0 /proc/cmdline && exit 0
 if command -v mkinitcpio >/dev/null; then
   sudo mkinitcpio -P
 elif command -v update-grub >/dev/null; then
