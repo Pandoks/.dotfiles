@@ -8,7 +8,7 @@
   "modelPicker": {
     "options": [
       {
-        "model": "red-snow[1m]",
+        "model": "red-snow-5.3-flash[1m]",
         "label": "RED-SNOW 5.3 Flash",
         "description": "DeepInfra · scales to zero when idle"
       }
