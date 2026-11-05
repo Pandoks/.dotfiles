@@ -29,7 +29,7 @@
     "ANTHROPIC_BASE_URL": "https://cliproxyapi.tailb2c81d.ts.net",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
     "ENABLE_TOOL_SEARCH": "true",
-    "CLAUDE_CODE_PLUGIN_DIRS": "~/.dotfiles/.claude/mods/subagent-model"
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/subagent-model"
   },
   "permissions": {
     "allow": [
