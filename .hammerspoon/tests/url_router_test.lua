@@ -651,13 +651,18 @@ test("selector acknowledgement rejects wrong versions, kinds, bytes, counts, and
     assert(state.route("https://app.ramp.com/") == false and #state.tasks == 0)
   end
 end)
+test("a Mac without an installation reloads silently but still reports routed links", function()
+  local state = browser({ missingState = true, stateCode = 2 })
+  assert(not state.router.status().ready and not state.router.status().error and #state.logs == 0)
+  assert(state.route("https://app.ramp.com/") == false and #state.tasks == 0 and #state.logs == 1)
+end)
 test("readiness and process watch errors report once", function()
   for _, options in ipairs({
     { invalidStatus = true },
     { missingStatus = true },
     { processFailure = true },
     { invalidState = true },
-    { missingState = true },
+    { missingState = true, stateCode = 13 },
     { watchFailure = true },
   }) do
     local state = browser(options)

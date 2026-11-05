@@ -94,7 +94,8 @@ Apple job cannot respawn if its existing process exits beforehand.
 and HTTPS defaults, previous helper, and Apple's original launch job. It removes
 the installed runtime and cloned job. Defaults are restored first: if the saved
 browser is missing or macOS's prompt is refused, the hook keeps serving links
-until a rerun succeeds. Reload Hammerspoon afterward. Selector
+until a rerun succeeds. Reload Hammerspoon afterward. Without an installation,
+as after uninstalling or on a Mac that never ran `stage`, reloads stay silent. Selector
 snapshots are retained because they belong to the Hammerspoon configuration.
 Restoration also refreshes the native-link client before reporting success, so
 the first subsequent native link uses Apple's restored service. An interrupted

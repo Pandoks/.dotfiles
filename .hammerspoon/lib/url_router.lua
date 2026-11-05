@@ -228,9 +228,13 @@ function router.install(rules)
   end
 
   -- Find the hook's status file
-  local document, reason = native.read(directory .. "/state.json")
+  local document, reason, code = native.read(directory .. "/state.json")
   if not document then
-    fail("Universal Link interception is not installed: " .. tostring(reason))
+    -- Not installed: reloads stay silent; any link that still arrives reports as not ready
+    if code == 2 then
+      return false
+    end
+    fail("could not read Universal Link installation state: " .. tostring(reason))
     return false
   end
   local decoded, state = pcall(hs.json.decode, document)
