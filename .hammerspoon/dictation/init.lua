@@ -54,6 +54,7 @@ elseif config.theme ~= "flat" and config.theme ~= "glass" then
   return disabled("no theme " .. tostring(config.theme) .. "; use flat or glass")
 end
 -- Built at load, not on the first take.
+---@type GlassNative?
 local glass
 if config.theme == "glass" then
   local loaded, result = pcall(require, "lib.glass")
