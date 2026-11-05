@@ -649,10 +649,59 @@ test("a copy made before the clipboard restore is kept", function()
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
+test("a field that hides its value, can't be read, or rejects the write is never copied", function()
+  local system = hs.axuielement.systemWideElement
+  for _, case in ipairs({
+    {
+      "no text field is focused",
+      function(element)
+        local attribute = element.attributeValue
+        function element:attributeValue(name)
+          if name ~= "AXValue" then
+            return attribute(self, name)
+          end
+        end
+      end,
+    },
+    {
+      "could not read the focused field: Messaging failed",
+      function()
+        hs.axuielement.systemWideElement = function()
+          return {
+            attributeValue = function()
+              return nil, "Messaging failed"
+            end,
+          }
+        end
+      end,
+    },
+    {
+      "Messaging failed",
+      function(element)
+        function element.setAttributeValue()
+          return nil, "Messaging failed"
+        end
+      end,
+    },
+  }) do
+    local problem, breakField = table.unpack(case)
+    local element = field("Hi")
+    local id = dictate(element)
+    breakField(element)
+    handlers.onFinal({ id = id, text = "kept" })
+    hs.axuielement.systemWideElement = system
+    assert(
+      alerts[1] == "Dictation: " .. problem .. " (the text is in history)",
+      tostring(alerts[1])
+    )
+    assert(#notices == 0 and clipboard["public.utf8-plain-text"] == "mine", problem .. ": copied")
+  end
+end)
+
 test("Mail's compose page is pasted into; a slider's text is copied instead", function()
   local page = field("Hi", false, false, "AXWebArea")
   handlers.onFinal({ id = dictate(page), text = "you" })
-  assert(strokes[1] == "cmd+v" and not page.written, tostring(strokes[1]))
+  assert(strokes[1] == "cmd+v" and not page.written and #notices == 0, tostring(strokes[1]))
   timers[#timers]()
   local slider = field("50", false, false, "AXSlider")
   handlers.onFinal({ id = dictate(slider), text = "you" })
