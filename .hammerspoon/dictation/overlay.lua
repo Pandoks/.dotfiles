@@ -11,6 +11,12 @@ local spread = 0.80
 local peak = 0.34
 local fadeFrames = 12
 local width, barWidth = height * aspect, height * thickness
+local inks = { [true] = 0.976, [false] = 0 } -- bar gray on dark and light
+
+local glassPill
+local appearanceWatcher = hs.distributednotifications.new(function()
+  glassPill:paint(hs.host.interfaceStyle() == "Dark")
+end, "AppleInterfaceThemeChangedNotification") --[[@as hs.distributednotifications]]
 
 ---@param glass? GlassNative Liquid Glass instead of the flat pill.
 function overlay.new(glass)
@@ -18,7 +24,7 @@ function overlay.new(glass)
   local dark = not glass or hs.host.interfaceStyle() == "Dark"
   local self = setmetatable({
     canvas = canvas,
-    ink = dark and 0.976 or 0, -- bar gray
+    ink = inks[dark],
     baseline = {}, -- idle diamond envelope
     bars = {},
     thinking = false,
@@ -65,13 +71,25 @@ function overlay.new(glass)
   end
   self:layout()
   canvas:show()
-  self.glass = glass and glass.new(canvas, height / 2, 0, dark)
+  if glass then
+    self.glass, glassPill = glass.new(canvas, height / 2, 0, dark), self
+    appearanceWatcher:start()
+  end
   return self
+end
+
+---@param dark boolean
+function overlay:paint(dark)
+  self.ink = inks[dark]
+  self.glass:paint(dark)
+  self:layout()
 end
 
 function overlay:delete()
   if self.glass then
     self.glass:hide(0)
+    appearanceWatcher:stop()
+    glassPill = nil
   end
   self.canvas:delete()
 end
