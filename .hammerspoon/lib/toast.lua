@@ -428,7 +428,7 @@ function toast.install(options)
   end
   if themeName == "glass" and not problem then
     glass = require("lib.glass")
-    glassTint = options.tint or glass.tint
+    glassTint = options.tint == nil and glass.tint or options.tint
     problem = glass.problem(glassTint)
     problem = problem and "Toast: " .. problem
   end

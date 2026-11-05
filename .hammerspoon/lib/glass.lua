@@ -15,8 +15,11 @@ glass.tint = { light = 0.5, dark = 0.6 }
 ---@param tint any
 ---@return string? problem nil for a GlassTint
 function glass.problem(tint)
+  if type(tint) ~= "table" then
+    return "tint is " .. tostring(tint) .. "; use { light = 0 to 1, dark = 0 to 1 }"
+  end
   for _, appearance in ipairs({ "light", "dark" }) do
-    local alpha = type(tint) == "table" and tint[appearance] or nil
+    local alpha = tint[appearance]
     if type(alpha) ~= "number" or not (alpha >= 0 and alpha <= 1) then
       return ("tint.%s is %s; use 0 to 1"):format(appearance, tostring(alpha))
     end

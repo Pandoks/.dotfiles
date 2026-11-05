@@ -849,6 +849,8 @@ test(
     )
     ok, problem = pcall(toast.install, { theme = "glass", tint = { light = 0.5, dark = 0 / 0 } })
     assert(not ok and tostring(problem):find("Toast: tint.dark is", 1, true), "NaN passed")
+    ok, problem = pcall(toast.install, { theme = "glass", tint = false })
+    assert(not ok and tostring(problem):find("Toast: tint is false", 1, true), tostring(problem))
     pcall(toast.install, { theme = "glass", appearance = "dark", tint = { light = 0.5 } })
     toast.show("after a bad tint")
     assert(fakeGlasses[3].tint == 0.8, "a rejected tint replaced the installed one")
