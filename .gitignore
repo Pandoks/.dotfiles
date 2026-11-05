@@ -4,6 +4,7 @@
 .claude/artifacts/
 .hammerspoon/dictation/.venv/
 .hammerspoon/dictation/__pycache__/
+.hammerspoon/url_router/__pycache__/
 .cli-proxy-api/*
 !.cli-proxy-api/config.yaml
 .cli-proxy-api-ci/*
