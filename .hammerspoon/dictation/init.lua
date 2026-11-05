@@ -4,6 +4,7 @@ local history = require("dictation.history")
 local logger = require("lib.logger")
 local recorder = require("dictation.recorder")
 local spaced = require("dictation.spacing")
+local toast = require("lib.toast")
 
 ---@param message string
 local function fail(message)
@@ -205,6 +206,10 @@ local function finish(text, saved)
     ok, problem = hs.pasteboard.setContents(text), "could not write clipboard"
   elseif text then
     ok, problem = pcall(insert, text)
+    if not ok and hs.pasteboard.setContents(text) then
+      ok = true
+      toast.show(("Dictation: copied to the clipboard (%s)"):format(problem))
+    end
   end
   if not ok then
     fail(tostring(problem) .. (saved and " (the text is in history)" or ""))

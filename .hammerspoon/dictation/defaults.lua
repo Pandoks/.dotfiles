@@ -8,7 +8,7 @@
 ---@field speech? DictationSpeech
 ---@field cleanup? DictationCleanup|false false = the heard text, spelled, stalls out, digits.
 ---@field history? DictationHistory
----@field insert? "direct"|"clipboard" Type into the field focused at stop, or only copy.
+---@field insert? "direct"|"clipboard" Type into the field focused at stop (else copy), or only copy.
 ---@field minLevel? number Peak loudness (0..1) below which a take is silence.
 ---@field minDuration? number Seconds below which a take is an accidental tap.
 ---@field unloadMinutes? number|false Minutes without a take until the models (~4.2 GB) unload; false = never.

@@ -2,7 +2,8 @@
 
 A free, fully local Raycast-style dictation pill. Press Option+Space to record, again to stop
 (Escape cancels): a local speech model transcribes, a local LLM cleans up fillers and
-self-corrections, your word list fixes names, and the text goes into the focused field.
+self-corrections, your word list fixes names, and the text goes into the focused field, or onto
+the clipboard when it can't.
 `~/.hammerspoon/init.lua` loads it only on Apple Silicon with macOS 14+ (MLX).
 
 ## Setup
