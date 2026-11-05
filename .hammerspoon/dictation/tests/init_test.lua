@@ -418,7 +418,7 @@ test("with nothing focused the text is copied; a failed copy alerts and keeps hi
   )
   assert(saved("lost"), "not saved")
   unshowable = true
-  pcall(handlers.onFinal, { id = dictate(nil), text = "unshown" })
+  handlers.onFinal({ id = dictate(nil), text = "unshown" })
   unshowable = false
   assert(not shown and not armed, "a toast that raised left the take running")
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })

@@ -230,9 +230,9 @@ local function finish(text, saved)
   state = "idle"
   arm()
   dictation.cancel:disable()
-  -- Last: a toast can raise.
+  -- A raise would stop the backend's later replies.
   if copied then
-    toast.show(("Dictation: copied to the clipboard (%s)"):format(copied))
+    pcall(toast.show, ("Dictation: copied to the clipboard (%s)"):format(copied))
   end
 end
 
