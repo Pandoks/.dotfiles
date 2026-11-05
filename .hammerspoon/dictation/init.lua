@@ -56,12 +56,17 @@ end
 -- Built at load, not on the first take.
 ---@type GlassNative?
 local glass
+local tint
 if config.theme == "glass" then
   local loaded, result = pcall(require, "lib.glass")
   if not loaded then
     return disabled(tostring(result))
   end
-  glass = result
+  glass, tint = result, config.tint or result.tint
+  local problem = result.problem(tint)
+  if problem then
+    return disabled(problem)
+  end
 end
 
 ---@type "idle"|"recording"|"thinking"
@@ -344,7 +349,7 @@ local function toggle()
       end
     end
     -- New each take: a reused one can drop off the spaces it joined.
-    local pill = Overlay.new(glass)
+    local pill = Overlay.new(glass, tint)
     overlay, state = pill, "recording"
     -- None while the backend loads: it gets the take whole at the stop.
     local socket = engine.ready and engine.socket or nil
