@@ -12,7 +12,7 @@ export const register: Register = (on) => {
         : { deny: 'it may run on a Claude model; start a new subagent instead' };
     }
     const result = await next({ ...e, model: e.parentModel });
-    if (result.deny === undefined && result.agentId) {
+    if (result.deny === undefined && result.agentId && !result.model.startsWith('claude-')) {
       await $.store.set(result.agentId, true);
       for (const key of (await $.store.keys()).slice(0, -limit)) await $.store.delete(key);
     }
