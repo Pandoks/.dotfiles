@@ -163,7 +163,7 @@ local modules = {
   }),
   ["lib.toast"] = {
     show = function(message)
-      assert(not unshowable, "no focused display")
+      assert(not unshowable, "the toast raised")
       notices[#notices + 1] = message
     end,
   },
@@ -405,6 +405,7 @@ test("with nothing focused the text is copied; a failed copy alerts and keeps hi
     tostring(notices[1])
   )
   assert(clipboard["public.utf8-plain-text"] == "nowhere" and #alerts == 0, tostring(alerts[1]))
+  assert(clipboard[transient] == nil, "hidden from clipboard managers")
   local setContents = hs.pasteboard.setContents
   hs.pasteboard.setContents = function()
     return false
@@ -651,6 +652,15 @@ end)
 
 test("a field that hides its value, can't be read, or rejects the write is never copied", function()
   local system = hs.axuielement.systemWideElement
+  local function unreadable()
+    hs.axuielement.systemWideElement = function()
+      return {
+        attributeValue = function()
+          return nil, "Messaging failed"
+        end,
+      }
+    end
+  end
   for _, case in ipairs({
     {
       "no text field is focused",
@@ -663,15 +673,17 @@ test("a field that hides its value, can't be read, or rejects the write is never
         end
       end,
     },
+    { "could not read the focused field at stop: Messaging failed", unreadable, true },
+    { "could not read the focused field: Messaging failed", unreadable },
     {
-      "could not read the focused field: Messaging failed",
-      function()
-        hs.axuielement.systemWideElement = function()
-          return {
-            attributeValue = function()
-              return nil, "Messaging failed"
-            end,
-          }
+      "could not read the focused field's AXRole: Messaging failed",
+      function(element)
+        local attribute = element.attributeValue
+        function element:attributeValue(name)
+          if name == "AXRole" then
+            return nil, "Messaging failed"
+          end
+          return attribute(self, name)
         end
       end,
     },
@@ -684,15 +696,20 @@ test("a field that hides its value, can't be read, or rejects the write is never
       end,
     },
   }) do
-    local problem, breakField = table.unpack(case)
+    local problem, breakField, atStop = table.unpack(case)
     local element = field("Hi")
+    if atStop then
+      breakField(element)
+    end
     local id = dictate(element)
-    breakField(element)
+    if not atStop then
+      breakField(element)
+    end
     handlers.onFinal({ id = id, text = "kept" })
     hs.axuielement.systemWideElement = system
     assert(
       alerts[1] == "Dictation: " .. problem .. " (the text is in history)",
-      tostring(alerts[1])
+      problem .. ": " .. tostring(alerts[1])
     )
     assert(#notices == 0 and clipboard["public.utf8-plain-text"] == "mine", problem .. ": copied")
   end
