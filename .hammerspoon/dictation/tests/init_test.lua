@@ -6,7 +6,7 @@ local passed, alerts, notices, strokes, timers, changes, takeCount, serial =
 local toggle, escape, handlers, deliver, focus, frontmost, recorded, sent, ipcDead, began, vanished
 local settings, recording, loading
 local engines, unloads = {}, {}
-local tick, broken, armed, shown, chained, unstartable
+local tick, broken, unshowable, armed, shown, chained, unstartable
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
 local directory = scratch .. "/init-history"
@@ -163,6 +163,7 @@ local modules = {
   }),
   ["lib.toast"] = {
     show = function(message)
+      assert(not unshowable, "no focused display")
       notices[#notices + 1] = message
     end,
   },
@@ -340,18 +341,16 @@ test("a write the field ignores (Chromium) is pasted, then the clipboard put bac
   )
 end)
 
-test("a ⌘V that raises (a layout without v) leaves the text copied", function()
+test("a ⌘V that raises (a layout without v) still puts the clipboard back", function()
   local stroke = hs.eventtap.keyStroke
   hs.eventtap.keyStroke = function()
     error("Invalid key: v", 0)
   end
   handlers.onFinal({ id = dictate(field("Hi", true)), text = "you" })
   hs.eventtap.keyStroke = stroke
-  assert(notices[1] == "Dictation: copied to the clipboard (Invalid key: v)", tostring(notices[1]))
+  assert(alerts[1] == "Dictation: Invalid key: v (the text is in history)", tostring(alerts[1]))
   timers[#timers]()
-  assert(clipboard["public.utf8-plain-text"] == "you", clipboard["public.utf8-plain-text"])
-  assert(clipboard[transient] == nil and #alerts == 0, "hidden from clipboard managers, or alerted")
-  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
+  assert(clipboard["public.utf8-plain-text"] == "mine", clipboard["public.utf8-plain-text"])
 end)
 
 test("a terminal's or a Gecko app's field is pasted into, never written", function()
@@ -399,7 +398,7 @@ test("focus moved while transcribing writes nothing and copies the text", functi
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
-test("with nothing focused the text is copied; a failed copy says why and keeps history", function()
+test("with nothing focused the text is copied; a failed copy alerts and keeps history", function()
   handlers.onFinal({ id = dictate(nil), text = "nowhere" })
   assert(
     notices[1] == "Dictation: copied to the clipboard (no text field is focused)",
@@ -417,6 +416,10 @@ test("with nothing focused the text is copied; a failed copy says why and keeps 
     tostring(alerts[1])
   )
   assert(saved("lost"), "not saved")
+  unshowable = true
+  pcall(handlers.onFinal, { id = dictate(nil), text = "unshown" })
+  unshowable = false
+  assert(not shown and not armed, "a toast that raised left the take running")
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 

@@ -151,6 +151,7 @@ local function read(element, name, settable)
 end
 
 ---@param text string
+---@return string? nowhere Why nothing could take the text.
 local function insert(text)
   if targetError then
     error("could not read the focused field at stop: " .. targetError, 0)
@@ -159,9 +160,9 @@ local function insert(text)
   if problem then
     error("could not read the focused field: " .. problem, 0)
   elseif not element then
-    error("no text field is focused", 0)
+    return "no text field is focused"
   elseif element ~= target then
-    error("focus moved while transcribing", 0)
+    return "focus moved while transcribing"
   end
   local role = read(element, "AXRole")
   local value = read(element, "AXValue")
@@ -178,7 +179,7 @@ local function insert(text)
   end
   -- Chromium also takes (and drops) text writes on sliders, buttons, toolbars.
   if role ~= "AXTextField" and role ~= "AXTextArea" and role ~= "AXComboBox" then
-    error("no text field is focused", 0)
+    return "no text field is focused"
   end
   -- Terminals and Messages take no writes; read-only views look alike and ignore ⌘V.
   if not read(element, "AXSelectedText", true) or gecko[bundle] then
@@ -201,14 +202,14 @@ end
 ---@param text? string
 ---@param saved? boolean
 local function finish(text, saved)
-  local ok, problem = true, nil
+  local ok, problem, copied = true, nil, nil
   if text and config.insert == "clipboard" then
     ok, problem = hs.pasteboard.setContents(text), "could not write clipboard"
   elseif text then
     ok, problem = pcall(insert, text)
-    if not ok and hs.pasteboard.setContents(text) then
-      ok = true
-      toast.show(("Dictation: copied to the clipboard (%s)"):format(problem))
+    if ok and problem then
+      ok = hs.pasteboard.setContents(text)
+      copied = ok and problem
     end
   end
   if not ok then
@@ -229,6 +230,10 @@ local function finish(text, saved)
   state = "idle"
   arm()
   dictation.cancel:disable()
+  -- Last: a toast can raise.
+  if copied then
+    toast.show(("Dictation: copied to the clipboard (%s)"):format(copied))
+  end
 end
 
 ---@param wav string
