@@ -48,7 +48,7 @@ content = '''
 GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT efi_pstore.pstore_disable=0"
 '''
 
-# TODO: Remove i915.enable_dc=0 (these two display files and its check in the final hook), a T470 freeze workaround applied to every laptop
+# TODO: Remove once the T470 freeze cause is identified
 [bootstrap.files."/etc/cmdline.d/60-mise-display.conf"]
 content = '''
 i915.enable_dc=0
