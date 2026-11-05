@@ -190,11 +190,6 @@ systemctl --user restart dev.mise.beszel-agent                # Linux
 launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 ```
 
-**ARTEX:** runs from `.config/mise/hub/compose.yaml`. Get the setup token with
-`sudo docker compose -p hub logs artex | grep -F '[auth]'`, set the admin
-password at `https://artex.<tailnet>.ts.net/setup`, then add an LLM provider in
-its settings.
-
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [ARTEX]: https://github.com/jiwoochris/artex-global
 [Beszel]: https://beszel.dev/
