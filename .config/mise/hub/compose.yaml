@@ -6,7 +6,6 @@ services:
     environment:
       POSTGRES_USER: artex
       POSTGRES_DB: artex
-      # Unpublished, so only artex can reach it over the project network
       POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - artex-pgdata:/var/lib/postgresql/data
