@@ -13,13 +13,6 @@ local detailStyle = {
 }
 local failureRed = { red = 1, green = 0.27, blue = 0.23 }
 
----@class ToastGlass
----@field hide fun(self: ToastGlass, fadeSeconds: number)
----@field paint fun(self: ToastGlass, darkAppearance: boolean)
-
----@class ToastNative
----@field glass fun(canvas: hs.canvas, cornerRadius: number, fadeSeconds: number, darkAppearance: boolean): ToastGlass
-
 -- Gray levels.
 local themes = {
   metal = {
@@ -44,8 +37,8 @@ local themes = {
   },
 }
 local theme, darkAppearance = themes.metal, true
----@type ToastNative?
-local native
+---@type GlassNative?
+local glass
 ---@type hs.distributednotifications?
 local appearanceWatcher
 
@@ -59,7 +52,7 @@ local appearanceWatcher
 ---@field canvas hs.canvas
 ---@field screen hs.screen
 ---@field timer? hs.timer
----@field glass? ToastGlass
+---@field glass? Glass
 ---@field paint fun(fadeSeconds: number)
 
 ---@type ToastEntry[]
@@ -380,7 +373,7 @@ function toast.show(text, options)
     elseif entry.glass then
       entry.glass:paint(darkAppearance)
     elseif theme.glass then
-      entry.glass = assert(native).glass(canvas, cornerRadius, fadeSeconds, darkAppearance)
+      entry.glass = assert(glass).new(canvas, cornerRadius, fadeSeconds, darkAppearance)
     end
   end
   canvas:level(hs.canvas.windowLevels.dock - 1)
@@ -435,7 +428,7 @@ function toast.install(options)
     error(problem, 2)
   end
   if themeName == "glass" then
-    native = require("lib.utils").native("toast")
+    glass = require("lib.glass")
   end
   theme = themes[themeName]
   if appearanceWatcher then
