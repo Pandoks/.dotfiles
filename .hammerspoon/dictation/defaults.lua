@@ -10,6 +10,7 @@
 ---@field history? DictationHistory
 ---@field insert? "direct"|"clipboard" Type into the field focused at stop, or only copy.
 ---@field theme? "flat"|"glass" The pill's look; glass needs macOS 26 and follows light and dark.
+---@field tint? GlassTint|false The glass's tint; false = lib/glass.lua's.
 ---@field minLevel? number Peak loudness (0..1) below which a take is silence.
 ---@field minDuration? number Seconds below which a take is an accidental tap.
 ---@field unloadMinutes? number|false Minutes without a take until the models (~4.2 GB) unload; false = never.
@@ -59,6 +60,7 @@ return {
   history = { directory = "~/Library/Application Support/dictation", maxMegabytes = 10 },
   insert = "direct",
   theme = "flat",
+  tint = false,
   minLevel = 0.25,
   minDuration = 0.35,
   unloadMinutes = 15,

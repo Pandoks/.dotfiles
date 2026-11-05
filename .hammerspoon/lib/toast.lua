@@ -39,6 +39,8 @@ local themes = {
 local theme, darkAppearance = themes.metal, true
 ---@type GlassNative?
 local glass
+---@type GlassTint?
+local tint
 ---@type hs.distributednotifications?
 local appearanceWatcher
 
@@ -371,9 +373,10 @@ function toast.show(text, options)
       entry.glass:hide(0)
       entry.glass = nil
     elseif entry.glass then
-      entry.glass:paint(darkAppearance)
+      entry.glass:paint(darkAppearance, assert(tint)[darkAppearance and "dark" or "light"])
     elseif theme.glass then
-      entry.glass = assert(glass).new(canvas, cornerRadius, fadeSeconds, darkAppearance)
+      local alpha = assert(tint)[darkAppearance and "dark" or "light"]
+      entry.glass = assert(glass).new(canvas, cornerRadius, fadeSeconds, darkAppearance, alpha)
     end
   end
   canvas:level(hs.canvas.windowLevels.dock - 1)
@@ -412,25 +415,28 @@ local function repaint()
 end
 
 -- Makes every hs.alert a toast.
----@param options? { theme?: "metal"|"edge"|"flat"|"glass", appearance?: "system"|"light"|"dark" }
+---@param options? { theme?: "metal"|"edge"|"flat"|"glass", appearance?: "system"|"light"|"dark", tint?: GlassTint }
 function toast.install(options)
   options = options or {}
   local themeName = options.theme == nil and "metal" or options.theme
   local appearance = options.appearance == nil and "system" or options.appearance
-  local problem
+  local problem, glassTint
   if not themes[themeName] then
     problem = "Toast: no theme " .. tostring(themeName) .. "; use metal, edge, flat, or glass"
   elseif not ({ system = true, light = true, dark = true })[appearance] then
     problem = "Toast: no appearance " .. tostring(appearance) .. "; use system, light, or dark"
   end
+  if themeName == "glass" and not problem then
+    glass = require("lib.glass")
+    glassTint = options.tint == nil and glass.tint or options.tint
+    problem = glass.problem(glassTint)
+    problem = problem and "Toast: " .. problem
+  end
   if problem then
     require("lib.logger").error(problem)
     error(problem, 2)
   end
-  if themeName == "glass" then
-    glass = require("lib.glass")
-  end
-  theme = themes[themeName]
+  theme, tint = themes[themeName], glassTint
   if appearanceWatcher then
     appearanceWatcher:stop()
     appearanceWatcher = nil

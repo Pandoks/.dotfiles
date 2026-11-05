@@ -15,15 +15,14 @@ static const char *glassMetatableName = "lib.glass";
 @end
 
 // Tinted so what the canvas draws reads over white and black windows.
-static void applyAppearance(NSPanel *panel, BOOL darkAppearance) {
+static void applyAppearance(NSPanel *panel, BOOL darkAppearance, CGFloat tint) {
   panel.appearance = [NSAppearance appearanceNamed:darkAppearance ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
-  NSColor *tint = darkAppearance ? [NSColor colorWithWhite:0 alpha:0.6] : [NSColor colorWithWhite:1 alpha:0.7];
-  ((NSGlassEffectView *)panel.contentView).tintColor = tint;
+  ((NSGlassEffectView *)panel.contentView).tintColor = [NSColor colorWithWhite:darkAppearance ? 0 : 1 alpha:tint];
 }
 
 static int newGlass(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  [skin checkArgs:LS_TUSERDATA, "hs.canvas", LS_TNUMBER, LS_TNUMBER, LS_TBOOLEAN, LS_TBREAK];
+  [skin checkArgs:LS_TUSERDATA, "hs.canvas", LS_TNUMBER, LS_TNUMBER, LS_TBOOLEAN, LS_TNUMBER, LS_TBREAK];
   NSWindow *canvasWindow = ((NSView *)[skin toNSObjectAtIndex:1]).window;
   luaL_argcheck(state, canvasWindow != nil, 1, "canvas has no window");
   CGFloat cornerRadius = lua_tonumber(state, 2);
@@ -45,7 +44,7 @@ static int newGlass(lua_State *state) {
   glassView.cornerRadius = cornerRadius;
   glassView.style = NSGlassEffectViewStyleClear;
   panel.contentView = glassView;
-  applyAppearance(panel, lua_toboolean(state, 4));
+  applyAppearance(panel, lua_toboolean(state, 4), lua_tonumber(state, 5));
 
   panel.alphaValue = 0;
   [canvasWindow addChildWindow:panel ordered:NSWindowBelow];
@@ -80,7 +79,7 @@ static int hide(lua_State *state) {
 static int paint(lua_State *state) {
   void **panelSlot = luaL_checkudata(state, 1, glassMetatableName);
   luaL_checktype(state, 2, LUA_TBOOLEAN);
-  applyAppearance((__bridge NSPanel *)*panelSlot, lua_toboolean(state, 2));
+  applyAppearance((__bridge NSPanel *)*panelSlot, lua_toboolean(state, 2), luaL_checknumber(state, 3));
   return 0;
 }
 

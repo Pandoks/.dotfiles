@@ -20,9 +20,10 @@ alone (`"Slack"`) or with what the speech model hears instead (`Raycast = { "ray
 set in `config.lua` replaces its default whole, and an unknown one alerts. `unloadMinutes = 15`
 frees the models (about 4.2 GB) after 15 minutes without a take; `false` keeps them loaded.
 `theme = "glass"` draws the pill in Liquid Glass (macOS 26+, light or dark with the system) instead
-of the dark `"flat"` default, as `lib/toast.lua`'s glass theme does. If another app, such as
-Raycast, also uses Option+Space, rebind one. The macOS dictation (mic) key cannot be used: macOS
-always handles it itself.
+of the dark `"flat"` default, as `lib/toast.lua`'s glass theme does. `tint = { light = 0.5,
+dark = 0.6 }` sets how white or black the glass is; `false` takes `lib/glass.lua`'s. If another
+app, such as Raycast, also uses Option+Space, rebind one. The macOS dictation (mic) key cannot be
+used: macOS always handles it itself.
 
 ## How it works
 
