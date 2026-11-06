@@ -39,54 +39,54 @@ function utils.quote(value)
 end
 
 -- The source/ABI key in the filename makes dyld load rebuilds as fresh images.
+---@param name string `lib/<name>/<name>.m`
+---@param flags string[] clang flags besides the warnings, source and output
+---@return string binary
+function utils.build(name, flags)
+  local here = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$")
+  local source = here .. "/" .. name .. "/" .. name .. ".m"
+  local file = assert(io.open(source, "rb"), "missing " .. source)
+  local hash = hs.hash.SHA256(file:read("a")):sub(1, 16)
+  file:close()
+  local info = hs.processInfo
+  local cache = string.format("%s/Library/Caches/%s/%s", os.getenv("HOME"), info.bundleID, name)
+  local binary = string.format("%s/%s-%s.%s-%s.so", cache, name, info.version, info.build, hash)
+  if not hs.fs.attributes(binary) then
+    local arguments = { "clang", "-O2", "-Wall", "-Wextra", "-Wshadow", "-fobjc-arc", "-fmodules" }
+    table.move(flags, 1, #flags, #arguments + 1, arguments)
+    table.move({ source, "-o", binary }, 1, 3, #arguments + 1, arguments)
+    for i, argument in ipairs(arguments) do
+      arguments[i] = utils.quote(argument)
+    end
+    local output, ok = hs.execute(
+      string.format("mkdir -p %s && %s 2>&1", utils.quote(cache), table.concat(arguments, " "))
+    )
+    if not ok then
+      error(name .. ": native build failed:\n" .. output, 0)
+    elseif output ~= "" then
+      print(name .. ": native build warnings:\n" .. output)
+    end
+    for entry in hs.fs.dir(cache) do
+      if entry:match("^" .. name .. "%-.+%.so$") and cache .. "/" .. entry ~= binary then
+        os.remove(cache .. "/" .. entry)
+      end
+    end
+  end
+  return binary
+end
+
 ---@param name string
 ---@return table
 function utils.native(name)
   local ok, result = xpcall(function()
-    local here = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$")
-    local source = here .. "/" .. name .. "/" .. name .. ".m"
-    local file = assert(io.open(source, "rb"), "missing " .. source)
-    local hash = hs.hash.SHA256(file:read("a")):sub(1, 16)
-    file:close()
-    local info = hs.processInfo
-    local cache = string.format("%s/Library/Caches/%s/%s", os.getenv("HOME"), info.bundleID, name)
-    local binary = string.format("%s/%s-%s.%s-%s.so", cache, name, info.version, info.build, hash)
-    if not hs.fs.attributes(binary) then
-      local frameworks = info.frameworksPath
-      local arguments = {
-        "clang",
-        "-O2",
-        "-Wall",
-        "-Wextra",
-        "-Wshadow",
-        "-fobjc-arc",
-        "-fmodules",
-        "-bundle",
-        "-undefined",
-        "dynamic_lookup",
-        "-F" .. frameworks,
-        "-I" .. frameworks .. "/LuaSkin.framework/Headers",
-        source,
-        "-o",
-        binary,
-      }
-      for i, argument in ipairs(arguments) do
-        arguments[i] = utils.quote(argument)
-      end
-      local output, ok = hs.execute(
-        string.format("mkdir -p %s && %s 2>&1", utils.quote(cache), table.concat(arguments, " "))
-      )
-      if not ok then
-        error(name .. ": native build failed:\n" .. output, 0)
-      elseif output ~= "" then
-        print(name .. ": native build warnings:\n" .. output)
-      end
-      for entry in hs.fs.dir(cache) do
-        if entry:match("^" .. name .. "%-.+%.so$") and cache .. "/" .. entry ~= binary then
-          os.remove(cache .. "/" .. entry)
-        end
-      end
-    end
+    local frameworks = hs.processInfo.frameworksPath
+    local binary = utils.build(name, {
+      "-bundle",
+      "-undefined",
+      "dynamic_lookup",
+      "-F" .. frameworks,
+      "-I" .. frameworks .. "/LuaSkin.framework/Headers",
+    })
     local loader, message = package.loadlib(binary, "luaopen_" .. name)
     return assert(loader, message)()
   end, debug.traceback)

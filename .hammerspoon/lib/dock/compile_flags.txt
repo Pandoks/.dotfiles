@@ -1,0 +1,4 @@
+-fobjc-arc
+-fmodules
+-Wall
+-Wextra
