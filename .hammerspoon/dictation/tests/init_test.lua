@@ -443,15 +443,20 @@ test("a reply to a cancelled take is saved; the next take still gets its own", f
   end
 end)
 
-test("with nothing to type, what was heard is saved in place of the recording", function()
-  local rewrote = "the cleanup rewrote what was said, so nothing was typed"
-  handlers.onError(rewrote, dictate(field("Hi")), "heard it")
+test("a cleanup that fails types what was heard, saved in place of the recording", function()
+  local element = field("Hi")
+  handlers.onError("the cleanup rewrote what was said", dictate(element), "heard it")
+  assert(element.value == "Hi heard it" and #alerts == 0, tostring(alerts[1] or element.value))
   assert(
-    alerts[1] == "Dictation: backend: " .. rewrote .. " (what was heard is in history)",
-    tostring(alerts[1])
+    notices[1] == "Dictation: used what was heard (backend: the cleanup rewrote what was said)",
+    tostring(notices[1])
   )
   assert(saved("heard it") and not fs.attributes(recorded), "not saved, or the recording left")
   assert(wavs() == 0, "a recording kept")
+  handlers.onError("the cleanup returned no words", dictate(nil), "heard it")
+  assert(notices[2] == "Dictation: copied to the clipboard (no text field is focused)", notices[2])
+  assert(clipboard["public.utf8-plain-text"] == "heard it", clipboard["public.utf8-plain-text"])
+  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
 test("a take whose transcript isn't saved keeps its recording in history", function()

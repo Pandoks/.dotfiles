@@ -833,7 +833,7 @@ class Engine:
         # No words ("", "Hmm."): nothing was said if every word heard is one it may leave out.
         if not tokens(cleaned):
             if restore(raw, cleaned) != cleaned:
-                raise Rejected("the cleanup returned no words, so nothing was typed")
+                raise Rejected("the cleanup returned no words")
             return ""
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
         text = ending(said, ensure_question(said, self.spell(strip_stalls(cleaned), request)))
@@ -841,7 +841,7 @@ class Engine:
         if restored != text:
             restored = restored and restore(raw, restored)  # a put-back "the X one" gets its noun
             if restored is None or restore(raw, restored) != restored:
-                raise Rejected("the cleanup rewrote what was said, so nothing was typed")
+                raise Rejected("the cleanup rewrote what was said")
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
         return digits(ending(said, restored), names)
 

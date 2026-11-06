@@ -301,13 +301,19 @@ local handlers = {
         saved = settle(take, heard)
       end
     end
-    fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))
+    -- The cleanup failed: what the speech model heard, as heard.
+    local raw = id and inflight == id and heard ~= "" and heard or nil
+    if raw then
+      pcall(toast.show, ("Dictation: used what was heard (backend: %s)"):format(message))
+    else
+      fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))
+    end
     -- No id: the backend died, and a take still recording can no longer stream to it.
     if not id or inflight == id then
       if recording then
         salvage()
       end
-      finish()
+      finish(raw, saved)
     end
     local unpruned = saved and history.prune(config.history)
     if unpruned then

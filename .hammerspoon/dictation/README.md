@@ -35,8 +35,8 @@ numbers as digits. Its guard aligns the cleaned words with what was heard: the c
 misheard words and drop stalls, fillers, repeats, and self-corrections, and whatever else it changed
 or left out is put back as said ("Can you fix it?" for "Can you fix it? Just fix it." is typed
 whole). A change that can't be put back cleanly, such as one inside a written number ("0.5" as
-"0.05"), or a cleanup with no words when more than stalls and fillers were said, types nothing,
-alerts, and keeps what was heard in `history.directory`. Otherwise `history.lua` saves the text and
+"0.05"), a cleanup with no words when more than stalls and fillers were said, or a cleanup that
+fails, types what was heard instead, unspelled and uncleaned. `history.lua` saves the text and
 `init.lua` types it into the focused field, spaced by `spacing.lua`.
 
 ## Speech models
