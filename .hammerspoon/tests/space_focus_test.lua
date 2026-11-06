@@ -689,6 +689,17 @@ local function harness(options)
         }
       elseif name == "lib.window_manager" then
         return windowManager
+      elseif name == "lib.dock" then
+        return {
+          move = function(id, space, done)
+            if desktop.dockFailure then
+              done(false, desktop.dockFailure)
+              return
+            end
+            desktop:row(id).space = space
+            done(true)
+          end,
+        }
       elseif name == "lib.mission_control" then
         return {
           isActive = function()
@@ -1025,6 +1036,28 @@ test("a Space change before the deferred focus cannot pull focus back", function
   assertEqual(desktop:countFocus(), 0)
 end)
 
+test("Alt-Shift-number takes the focused window to that Space and focuses it there", function()
+  local desktop = harness()
+  desktop:loadShortcuts()
+  desktop.hotkeys["shift+alt:3"]()
+  desktop:advance(0.3)
+  assertEqual(desktop:row(1).space, 303)
+  assertEqual(desktop.space, 303)
+  assertEqual(desktop.focused, 1)
+  assertEqual(desktop.module.status().last.ok, true)
+  assertEqual(#desktop.alerts, 0)
+end)
+test("a window the Dock can't move stays put and reports why", function()
+  local desktop = harness()
+  desktop.dockFailure = "Dock helper not loaded"
+  desktop:loadShortcuts()
+  desktop.hotkeys["shift+alt:3"]()
+  desktop:advance(0.3)
+  assertEqual(desktop:row(1).space, 101)
+  assertEqual(desktop.space, 101)
+  assertEqual(#desktop.writes, 0)
+  assertEqual(desktop.alerts[1], "Space focus: Dock helper not loaded")
+end)
 test("a new Alt-number dispatches before the previous Space replies", function()
   local desktop = harness()
   desktop:loadShortcuts()

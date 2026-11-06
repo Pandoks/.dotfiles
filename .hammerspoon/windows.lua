@@ -25,12 +25,12 @@ end
 
 spaceFocus.bindArrowKeys()
 
-hs.hotkey.bind({ "alt" }, "0", function()
-  spaceFocus.switchSpace(10)
-end)
-for i = 1, 9 do
-  hs.hotkey.bind({ "alt" }, tostring(i), function()
+for i = 1, 10 do
+  hs.hotkey.bind({ "alt" }, tostring(i % 10), function()
     spaceFocus.switchSpace(i)
+  end)
+  hs.hotkey.bind({ "shift", "alt" }, tostring(i % 10), function()
+    spaceFocus.moveWindow(i)
   end)
 end
 

@@ -21,6 +21,7 @@ rawset(hs, "shutdownCallback", function()
   windowSwitcher.stop()
   require("lib.window_filter").stop()
   require("lib.mission_control").stop()
+  require("lib.dock").stop()
   if previousShutdown then
     previousShutdown()
   end

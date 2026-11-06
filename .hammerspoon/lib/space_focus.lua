@@ -1,3 +1,4 @@
+local dock = require("lib.dock")
 local filter = require("lib.window_filter")
 local logger = require("lib.logger")
 local missionControl = require("lib.mission_control")
@@ -374,6 +375,29 @@ function module.switchSpace(selector)
       end
     end)
   end
+end
+
+---@param index integer Mission Control index
+function module.moveWindow(index)
+  local window = hs.window.focusedWindow()
+  local app = window and window:application()
+  local spaces, err = utils.spaces()
+  local target = spaces and spaces[index]
+  if not app then
+    return
+  elseif not target then
+    logger.error("Space focus: " .. (err or "Space does not exist"))
+    return
+  end
+  local id, space = window:id(), target.ManagedSpaceID
+  dock.move(id --[[@as integer]], space, function(moved, failure)
+    if not moved then
+      logger.error("Space focus: " .. tostring(failure))
+      return
+    end
+    recent[space] = { id = id, pid = app:pid() }
+    module.switchSpace(index)
+  end)
 end
 
 function module.bindArrowKeys()
