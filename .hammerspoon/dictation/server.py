@@ -853,7 +853,7 @@ class Take:
     def __init__(self):
         self.request = self.stream = self.reply = None
         self.audio, self.ended, self.paused = b"", False, False
-        self.cleaned = {}  # heard text: what it types, or what it raised
+        self.cleaned = {}  # heard text: what it types, or the verdict that rejected it
 
 
 def answer(engine, take, emit):
@@ -951,8 +951,10 @@ def serve(engine, events, emit):
             if heard:
                 try:
                     cleaned(engine, take, heard, functools.partial(between, take, segments))
-                except Exception:  # noqa: BLE001, S110 - a verdict is kept for the release
+                except Rejected:  # kept for the release
                     pass
+                except Exception as error:  # noqa: BLE001 - a crash runs again at release
+                    traceback.print_exception(error, chain=False)
             continue
         if event is None:
             return

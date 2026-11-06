@@ -39,8 +39,8 @@ misheard words and drop stalls, fillers, repeats, and self-corrections, and what
 or left out is put back as said ("Can you fix it?" for "Can you fix it? Just fix it." is typed
 whole). A change that can't be put back cleanly, such as one inside a written number ("0.5" as
 "0.05"), a cleanup with no words when more than stalls and fillers were said, or a cleanup that
-fails, types what was heard instead, uncleaned. `history.lua` saves the text and
-`init.lua` types it into the focused field, spaced by `spacing.lua`.
+fails, types what was heard instead, uncleaned. `history.lua` saves the text and `init.lua` types
+it into the focused field, spaced by `spacing.lua`.
 
 ## Speech models
 

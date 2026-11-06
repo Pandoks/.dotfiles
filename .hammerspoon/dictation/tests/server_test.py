@@ -1887,10 +1887,17 @@ def crashing(messages, raw, between):
 
 
 streamer.cleaner.complete = crashing  # pyright: ignore[reportAttributeAccessIssue]
-replies = streamed(start, sound("Hi there.\0"), "idle", end, paused)
+replies = []
+with contextlib.redirect_stderr(io.StringIO()) as log:
+    items = [start, sound("Hi there.\0"), "idle", end, paused, None]
+    server.serve(streamer, Events(items), replies.append)
 streamer.cleaner.complete = complete  # pyright: ignore[reportAttributeAccessIssue]
-assert not crashes and replies == [(1, "Hi there.")], replies
-print("PASS a cleanup that crashes at a pause runs again at release, not replayed as the reply")
+assert not crashes and [reply.get("text") for reply in replies] == ["Hi there."], replies
+assert log.getvalue().count("Traceback") == 1 and "out of memory" in log.getvalue(), log.getvalue()
+print(
+    "PASS a cleanup that crashes at a pause is logged and runs again at release, not replayed as"
+    " the reply"
+)
 
 
 class Echo(nn.Module):
