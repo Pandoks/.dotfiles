@@ -25,6 +25,7 @@
   "skipAutoPermissionPrompt": true,
   "agentPushNotifEnabled": true,
   "cleanupPeriodDays": 90,
+  "autoMemoryEnabled": false,
   "env": {
     "ANTHROPIC_BASE_URL": "https://cliproxyapi.tailb2c81d.ts.net",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
