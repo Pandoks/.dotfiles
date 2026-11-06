@@ -39,3 +39,8 @@ restart = "always"
 restart_sec = "10"
 wanted_by = ["default.target"]
 start = true
+
+[bootstrap.compose.hub]
+project_dir = "{{ config_root }}/.config/mise/hub"
+pull = "always" # refresh the floating postgres tag when the project is recreated
+sudo = true

@@ -9,6 +9,8 @@ frameworks="${HAMMERSPOON_APP:-/Applications/Hammerspoon.app}/Contents/Framework
 clang -Wall -Wextra -Werror -I"$frameworks/LuaSkin.framework/Headers" -F"$frameworks" \
   -framework LuaSkin -Wl,-rpath,"$frameworks" "$test_dir/../../tests/lua_runner.c" \
   -o "$test_build/lua"
+mkdir "$test_build/home"
 for suite in spacing history engine init recorder; do
-  "$test_build/lua" "$test_dir/${suite}_test.lua" "$test_dir/.." "$frameworks" "$test_build"
+  HOME="$test_build/home" "$test_build/lua" "$test_dir/${suite}_test.lua" "$test_dir/.." "$frameworks" "$test_build"
 done
+rmdir "$test_build/home" # fails if a suite wrote under HOME

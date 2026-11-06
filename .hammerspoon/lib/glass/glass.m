@@ -2,28 +2,27 @@
 #import <LuaSkin/LuaSkin.h>
 #include <dlfcn.h>
 
-static const char *glassMetatableName = "toast.glass";
+static const char *glassMetatableName = "lib.glass";
 
 // Full glass without key focus; otherwise a subdued blur.
-@interface ToastPanel : NSPanel
+@interface GlassPanel : NSPanel
 @end
 
-@implementation ToastPanel
+@implementation GlassPanel
 - (BOOL)_hasActiveAppearanceIgnoringKeyFocus {
   return YES;
 }
 @end
 
-// Tinted so its text reads over white and black windows.
-static void applyAppearance(NSPanel *panel, BOOL darkAppearance) {
+// Tinted so what the canvas draws reads over white and black windows.
+static void applyAppearance(NSPanel *panel, BOOL darkAppearance, CGFloat tint) {
   panel.appearance = [NSAppearance appearanceNamed:darkAppearance ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
-  NSColor *tint = darkAppearance ? [NSColor colorWithWhite:0 alpha:0.6] : [NSColor colorWithWhite:1 alpha:0.7];
-  ((NSGlassEffectView *)panel.contentView).tintColor = tint;
+  ((NSGlassEffectView *)panel.contentView).tintColor = [NSColor colorWithWhite:darkAppearance ? 0 : 1 alpha:tint];
 }
 
-static int glass(lua_State *state) {
+static int newGlass(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  [skin checkArgs:LS_TUSERDATA, "hs.canvas", LS_TNUMBER, LS_TNUMBER, LS_TBOOLEAN, LS_TBREAK];
+  [skin checkArgs:LS_TUSERDATA, "hs.canvas", LS_TNUMBER, LS_TNUMBER, LS_TBOOLEAN, LS_TNUMBER, LS_TBREAK];
   NSWindow *canvasWindow = ((NSView *)[skin toNSObjectAtIndex:1]).window;
   luaL_argcheck(state, canvasWindow != nil, 1, "canvas has no window");
   CGFloat cornerRadius = lua_tonumber(state, 2);
@@ -31,7 +30,7 @@ static int glass(lua_State *state) {
   void **panelSlot = lua_newuserdata(state, sizeof(void *));
   *panelSlot = NULL;
   luaL_setmetatable(state, glassMetatableName);
-  NSPanel *panel = [[ToastPanel alloc] initWithContentRect:canvasWindow.frame
+  NSPanel *panel = [[GlassPanel alloc] initWithContentRect:canvasWindow.frame
                                                   styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
                                                     backing:NSBackingStoreBuffered
                                                       defer:NO];
@@ -45,7 +44,7 @@ static int glass(lua_State *state) {
   glassView.cornerRadius = cornerRadius;
   glassView.style = NSGlassEffectViewStyleClear;
   panel.contentView = glassView;
-  applyAppearance(panel, lua_toboolean(state, 4));
+  applyAppearance(panel, lua_toboolean(state, 4), lua_tonumber(state, 5));
 
   panel.alphaValue = 0;
   [canvasWindow addChildWindow:panel ordered:NSWindowBelow];
@@ -80,22 +79,22 @@ static int hide(lua_State *state) {
 static int paint(lua_State *state) {
   void **panelSlot = luaL_checkudata(state, 1, glassMetatableName);
   luaL_checktype(state, 2, LUA_TBOOLEAN);
-  applyAppearance((__bridge NSPanel *)*panelSlot, lua_toboolean(state, 2));
+  applyAppearance((__bridge NSPanel *)*panelSlot, lua_toboolean(state, 2), luaL_checknumber(state, 3));
   return 0;
 }
 
 static const luaL_Reg functions[] = {
-  { "glass", glass },
+  { "new", newGlass },
   { NULL, NULL },
 };
 
-int luaopen_toast(lua_State *state) {
+int luaopen_glass(lua_State *state) {
   // A reload dlcloses this while a fade's completion block may still run.
   static void *ownHandle;
   if (!ownHandle) {
     Dl_info imageInfo;
     if (!dladdr(&glassMetatableName, &imageInfo) || !(ownHandle = dlopen(imageInfo.dli_fname, RTLD_NOW | RTLD_LOCAL))) {
-      return luaL_error(state, "could not retain toast library");
+      return luaL_error(state, "could not retain glass library");
     }
   }
   if (!NSClassFromString(@"NSGlassEffectView")) return luaL_error(state, "Liquid Glass needs macOS 26");
@@ -113,6 +112,6 @@ int luaopen_toast(lua_State *state) {
   lua_setfield(state, -2, "__gc");
   lua_pop(state, 1);
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  [skin registerLibrary:"toast" functions:functions metaFunctions:nil];
+  [skin registerLibrary:"glass" functions:functions metaFunctions:nil];
   return 1;
 }

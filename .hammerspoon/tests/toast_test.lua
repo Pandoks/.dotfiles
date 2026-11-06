@@ -231,30 +231,40 @@ local toast = assert(loadfile(
       },
     },
     require = function(name)
-      if name == "lib.utils" then
-        return {
-          native = function(moduleName)
-            assert(moduleName == "toast" and not glassBuildFails, "toast: native build failed")
-            return {
-              glass = function(canvas, cornerRadius, fadeSeconds, darkAppearance)
-                assert(type(darkAppearance) == "boolean", "no appearance for the glass")
-                assert(
-                  type(cornerRadius) == "number" and type(fadeSeconds) == "number",
-                  "no radius or fade"
-                )
-                local glass = { canvas = canvas, dark = darkAppearance }
-                function glass.hide(_, hideSeconds)
-                  glass.hideFade = hideSeconds
-                end
-                function glass.paint(_, darkNow)
-                  glass.dark = darkNow
-                end
-                fakeGlasses[#fakeGlasses + 1] = glass
-                return glass
-              end,
-            }
+      if name == "lib.glass" then
+        local native = {
+          new = function(canvas, cornerRadius, fadeSeconds, darkAppearance, tint)
+            assert(type(darkAppearance) == "boolean", "no appearance for the glass")
+            assert(
+              type(cornerRadius) == "number" and type(fadeSeconds) == "number",
+              "no radius or fade"
+            )
+            local glass = { canvas = canvas, dark = darkAppearance, tint = tint }
+            function glass.hide(_, hideSeconds)
+              glass.hideFade = hideSeconds
+            end
+            function glass.paint(_, darkNow, tintNow)
+              glass.dark, glass.tint = darkNow, tintNow
+            end
+            fakeGlasses[#fakeGlasses + 1] = glass
+            return glass
           end,
         }
+        -- The real module, over a fake native build.
+        return assert(loadfile(
+          root .. "/glass.lua",
+          "t",
+          setmetatable({
+            require = function()
+              return {
+                native = function()
+                  assert(not glassBuildFails, "glass: native build failed")
+                  return native
+                end,
+              }
+            end,
+          }, { __index = _G })
+        ))()
       end
       assert(name == "lib.logger")
       return {
@@ -811,6 +821,41 @@ test("glass that can't be built fails the load, as an unknown theme does", funct
     "a failed build changed the theme"
   )
 end)
+
+test(
+  "glass is tinted per appearance as installed, lib/glass's by default; a bad tint fails the load",
+  function()
+    toast.install({ theme = "glass", appearance = "light" })
+    toast.show("default")
+    assert(
+      fakeGlasses[1].tint == 0.5,
+      "not lib/glass's light tint: " .. tostring(fakeGlasses[1].tint)
+    )
+    toast.install({ theme = "glass", appearance = "dark", tint = { light = 0.3, dark = 0.8 } })
+    assert(fakeGlasses[1].dark and fakeGlasses[1].tint == 0.8, "the repaint kept the old tint")
+    toast.show("tinted")
+    assert(
+      fakeGlasses[2].tint == 0.8,
+      "not the installed dark tint: " .. tostring(fakeGlasses[2].tint)
+    )
+    local ok, problem = pcall(toast.install, { theme = "glass", tint = { light = 2, dark = 0.6 } })
+    assert(
+      not ok and tostring(problem):find("Toast: tint.light is 2; use 0 to 1", 1, true),
+      tostring(problem)
+    )
+    assert(
+      loggedErrors[#loggedErrors] == "Toast: tint.light is 2; use 0 to 1",
+      "the bad tint was not logged"
+    )
+    ok, problem = pcall(toast.install, { theme = "glass", tint = { light = 0.5, dark = 0 / 0 } })
+    assert(not ok and tostring(problem):find("Toast: tint.dark is", 1, true), "NaN passed")
+    ok, problem = pcall(toast.install, { theme = "glass", tint = false })
+    assert(not ok and tostring(problem):find("Toast: tint is false", 1, true), tostring(problem))
+    pcall(toast.install, { theme = "glass", appearance = "dark", tint = { light = 0.5 } })
+    toast.show("after a bad tint")
+    assert(fakeGlasses[3].tint == 0.8, "a rejected tint replaced the installed one")
+  end
+)
 
 test("glass: each toast has its own, hidden with the toast's fade, under shadowed text", function()
   toast.install({ theme = "glass" })

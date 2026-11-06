@@ -39,7 +39,7 @@ local mine = import("config", {})
 mine.words = { "Slack", Raycast = { "ray cast" } }
 mine.apps =
   { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } }, ["com.y"] = { style = "terse" } }
-mine.cleanup, mine.speech = false, { model = "mine" }
+mine.cleanup, mine.speech, mine.theme = false, { model = "mine" }, "flat"
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
 local hs = {
   fs = fs,
@@ -151,6 +151,19 @@ local hs = {
   end,
 }
 
+-- The real lib/glass.lua, over a fake native build.
+local function glassModule()
+  return import("../lib/glass", {
+    require = function()
+      return {
+        native = function()
+          return {}
+        end,
+      }
+    end,
+  })
+end
+
 local modules = {
   ["dictation.defaults"] = config,
   ["dictation.config"] = mine,
@@ -173,11 +186,9 @@ local modules = {
     new = function()
       shown = true
       return stub({
-        canvas = stub({
-          delete = function()
-            shown = false
-          end,
-        }),
+        delete = function()
+          shown = false
+        end,
         update = function()
           assert(not broken, "broken frame")
         end,
@@ -854,6 +865,68 @@ test("an unsecured history folder, no ffmpeg, or no venv leaves a hotkey that sa
     alerts = {}
     hotkey()
     assert(alerts[1] == "Dictation: " .. problem, tostring(alerts[1]))
+  end
+end)
+
+test(
+  "an unknown theme, a glass that fails to build, or a bad tint leaves a hotkey that says why",
+  function()
+    local hotkey = reload({
+      ["dictation.defaults"] = import("defaults", {}),
+      ["dictation.config"] = { theme = "shiny" },
+      ["dictation.history"] = unprepared(),
+    })
+    alerts = {}
+    hotkey()
+    assert(alerts[1] == "Dictation: no theme shiny; use flat or glass", tostring(alerts[1]))
+    hotkey = reload(setmetatable({
+      ["dictation.defaults"] = import("defaults", {}),
+      ["dictation.config"] = { theme = "glass" },
+      ["dictation.history"] = unprepared(),
+    }, {
+      __index = function(_, name)
+        assert(name ~= "lib.glass", "glass: native build failed")
+      end,
+    }))
+    alerts = {}
+    hotkey()
+    assert(tostring(alerts[1]):find("glass: native build failed", 1, true), tostring(alerts[1]))
+    hotkey = reload({
+      ["dictation.defaults"] = import("defaults", {}),
+      ["dictation.config"] = { theme = "glass", tint = { light = 0.5 } },
+      ["dictation.history"] = unprepared(),
+      ["lib.glass"] = glassModule(),
+    })
+    alerts = {}
+    hotkey()
+    assert(alerts[1] == "Dictation: tint.dark is nil; use 0 to 1", tostring(alerts[1]))
+  end
+)
+
+test("the glass theme draws the pill on lib.glass, with its tint or config.lua's", function()
+  local glass = glassModule()
+  for _, case in ipairs({ { false, glass.tint }, { { light = 0.2, dark = 0.9 } } }) do
+    local configured, expected = case[1], case[2] or case[1]
+    local drawnOn, drawnTint
+    local hotkey = reload({
+      ["dictation.defaults"] = import("defaults", {}),
+      ["dictation.config"] = { theme = "glass", tint = configured },
+      ["dictation.history"] = unprepared(),
+      ["lib.glass"] = glass,
+      ["dictation.engine"] = {
+        new = function()
+          return {}
+        end,
+      },
+      ["dictation.overlay"] = {
+        new = function(native, tint)
+          drawnOn, drawnTint = native, tint
+          error("drawn") -- ends the take before it records
+        end,
+      },
+    })
+    assert(not pcall(hotkey) and drawnOn == glass, "the pill is not on the glass")
+    assert(drawnTint == expected, "not the expected tint")
   end
 end)
 
