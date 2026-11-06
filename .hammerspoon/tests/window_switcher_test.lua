@@ -196,8 +196,12 @@ local function harness(options)
       done(true, nil, desktop:rows())
     end)
   end
-  function windowManager.focus(pid, id, done, minimized)
+  function windowManager.focus(pid, id, done, minimized, live)
     call("focus", id, done, function()
+      if live and not live() then
+        done(false, "cancelled")
+        return
+      end
       local window = desktop.windows[id]
       assert(not window["is-hidden"], "focus attempted before unhide")
       if minimized then
@@ -2134,6 +2138,16 @@ test("stopping before revalidation replies prevents focus", function()
   desktop.menu.stop()
   desktop:advance(1)
   assertEqual(desktop:commandCount("focus"), 0)
+end)
+test("stopping while a focus is in flight leaves the window unfocused", function()
+  local desktop = harness({ replyDelay = 0.1 })
+  desktop:open()
+  desktop:release()
+  desktop:advance(0.15)
+  assertEqual(desktop:commandCount("focus"), 1)
+  desktop.menu.stop()
+  desktop:advance(1)
+  assertEqual(desktop.windows[2]["has-focus"], false)
 end)
 test("cancel never focuses and stops drawing", function()
   local desktop = harness()

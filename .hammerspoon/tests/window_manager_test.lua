@@ -123,6 +123,9 @@ local function harness()
                 .. tostring(minimized)
                 .. " on "
                 .. desktop.current
+              if desktop.minimizing then
+                desktop.minimizing()
+              end
               done(true)
             end,
             windows = function()
@@ -222,6 +225,37 @@ test("a minimized window is restored, on another Space only once that Space show
       tostring(space)
     )
     assertEqual(result, "ok")
+  end
+end)
+
+test("a cancelled focus neither restores nor focuses its window afterwards", function()
+  for _, stage in ipairs({ "jump", "restore" }) do
+    local desktop = harness()
+    desktop.windowSpace = 300
+    local live, result = true, nil
+    desktop.minimizing = function()
+      live = false
+    end
+    desktop.windowManager.focus(
+      10,
+      7,
+      function(ok, err)
+        result = ok and "ok" or err
+      end,
+      true,
+      function()
+        return live
+      end
+    )
+    live = stage ~= "jump"
+    desktop:settle()
+    assertEqual(
+      table.concat(desktop.order, ", "),
+      stage == "jump" and "" or "minimized=false on 300",
+      stage
+    )
+    assertEqual(desktop.focused, nil, stage)
+    assertEqual(result, "cancelled", stage)
   end
 end)
 

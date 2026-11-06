@@ -1,7 +1,8 @@
+local filter = require("lib.window_filter")
 local logger = require("lib.logger")
 local windowManager = require("lib.window_manager")
 
----@type table<string, boolean>
+---@type table<string, { windows: WindowFilter, deadline: hs.timer }>
 local launching = {}
 
 ---@param bundleId string
@@ -19,11 +20,10 @@ end
 ---@field bundleId string
 ---@field match? WindowMatcher omit = any window
 ---@field args? string[]|fun(): string[]? launch args; nil cancels the launch
----@field shared? boolean one process serves every window
 
 ---@param profile WindowProfile
----@param running boolean
-local function launch(profile, running)
+---@param matcher fun(title: string): boolean
+local function launch(profile, matcher)
   if profile.match == nil then
     hs.task
       .new("/usr/bin/open", function(exitCode, _, stdErr)
@@ -46,20 +46,37 @@ local function launch(profile, running)
     print("Already launching", launchKey)
     return
   end
-  launching[launchKey] = true
-
-  -- `-W` holds the key until the new process exits; a cold shared launch never does
-  local arguments = { "-n", "-b", profile.bundleId, "--args" }
-  if running or not profile.shared then
-    table.insert(arguments, 1, "-W")
+  -- `open` returns before the window exists, so the key waits for the window
+  local windows = filter.new(function(window)
+    local app = window:application()
+    return app ~= nil and app:bundleID() == profile.bundleId and matcher(window:title() or "")
+  end)
+  local function settle()
+    local pending = launching[launchKey]
+    if pending then
+      launching[launchKey] = nil
+      pending.windows:delete()
+      pending.deadline:stop()
+    end
   end
+  windows:subscribe({ filter.windowCreated, filter.windowTitleChanged }, settle)
+  launching[launchKey] = {
+    windows = windows,
+    deadline = hs.timer.doAfter(10, function()
+      settle()
+      logger.error("No window appeared after launching " .. launchKey)
+    end),
+  }
+
+  local arguments = { "-n", "-b", profile.bundleId, "--args" }
   for _, argument in ipairs(args or {}) do
     table.insert(arguments, argument)
   end
-
   hs.task
     .new("/usr/bin/open", function(exitCode, _, stdErr)
-      launching[launchKey] = nil
+      if exitCode ~= 0 then
+        settle()
+      end
       report(profile.bundleId, exitCode, stdErr)
     end, arguments)
     :start()
@@ -111,7 +128,7 @@ local function openOrFocusWindow(profile)
     end
   end
   if #apps == 0 then
-    launch(profile, false)
+    launch(profile, matcher)
     return
   end
 
@@ -136,7 +153,7 @@ local function openOrFocusWindow(profile)
       end
     end
     if not target then
-      launch(profile, true)
+      launch(profile, matcher)
       return
     end
 

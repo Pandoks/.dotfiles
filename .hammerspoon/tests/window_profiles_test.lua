@@ -1,7 +1,7 @@
 -- Run with Lua 5.4: lua window_profiles_test.lua /path/to/lib
 local root = assert(arg[1], "pass a lib directory")
 local tasks, errors, calls, reportRaises = {}, {}, {}, false
-local apps, rows, failure = {}, {}, nil
+local apps, rows, failure, filters, timers = {}, {}, nil, {}, {}
 local environment = setmetatable({
   hs = {
     application = {
@@ -15,6 +15,16 @@ local environment = setmetatable({
       end,
       windowSpaces = function()
         return { 1 }
+      end,
+    },
+    timer = {
+      doAfter = function(_, fn)
+        local timer = { fn = fn }
+        function timer:stop()
+          self.stopped = true
+        end
+        timers[#timers + 1] = timer
+        return timer
       end,
     },
     task = {
@@ -63,6 +73,23 @@ local modules = {
       end
     end,
   },
+  ["lib.window_filter"] = {
+    windowCreated = "windowCreated",
+    windowTitleChanged = "windowTitleChanged",
+    new = function(predicate)
+      local filter = { predicate = predicate, callbacks = {} }
+      function filter:subscribe(events, callback)
+        for _, event in ipairs(events) do
+          self.callbacks[event] = callback
+        end
+      end
+      function filter:delete()
+        self.deleted = true
+      end
+      filters[#filters + 1] = filter
+      return filter
+    end,
+  },
   ["lib.window_manager"] = {
     windows = function(done)
       done(true, nil, rows)
@@ -94,7 +121,7 @@ local personal = chromium.window({ bundleID = "net.imput.helium", profile = "Per
 
 local passed = 0
 local function reset()
-  tasks, errors, calls, apps, rows, failure = {}, {}, {}, {}, {}, nil
+  tasks, errors, calls, apps, rows, failure, filters, timers = {}, {}, {}, {}, {}, nil, {}, {}
 end
 ---@param main? table
 ---@param windows? table[] this Space, front to back
@@ -135,6 +162,27 @@ local function window(id, title)
     end,
   }
 end
+---@param event? string
+local function appear(bundleId, title, event)
+  local created = {
+    application = function()
+      return {
+        bundleID = function()
+          return bundleId
+        end,
+      }
+    end,
+    title = function()
+      return title
+    end,
+  }
+  for _, filter in ipairs(filters) do
+    local callback = filter.callbacks[event or "windowCreated"]
+    if not filter.deleted and callback and filter.predicate(created) then
+      callback(created)
+    end
+  end
+end
 local function row(id, title, fields)
   fields = fields or {}
   fields.id, fields.title = id, title
@@ -167,6 +215,7 @@ test("failed launches report the bundle id, exit code, and reason", function(tas
 end)
 test("successful launches report nothing", function(task, bundleId)
   task.callback(0, "", "")
+  appear(bundleId, "Main")
   assert(#errors == 0, bundleId)
 end)
 test("a failed launch can be retried even when reporting raises", function(task, bundleId, profile)
@@ -183,27 +232,37 @@ local function check(name, body)
   passed = passed + 1
   print("PASS " .. name)
 end
-check("browser profiles launch once each, waiting only on a running browser's handoff", function()
+check("a launch is deduplicated until its window appears, else reports", function()
+  local ghostty =
+    { bundleId = "com.mitchellh.ghostty", match = "local", args = { "--title=local" } }
   openOrFocusWindow(work)
+  tasks[1].callback(0, "", "")
   openOrFocusWindow(work)
-  apps = helium()
-  openOrFocusWindow(personal)
-  apps = {}
-  openOrFocusWindow({
-    bundleId = "com.mitchellh.ghostty",
-    match = "local",
-    args = { "--title=local" },
-  })
-  assert(#tasks == 3 and #errors == 0)
+  openOrFocusWindow(ghostty)
+  appear("net.imput.helium", "New Tab - Helium - Personal")
+  appear("com.example.other", "New Tab - Helium - Work")
+  openOrFocusWindow(work)
+  assert(#tasks == 2)
   assert(
     table.concat(tasks[1].arguments, " ")
       == "-n -b net.imput.helium --args --profile-directory=Profile 1"
   )
-  assert(
-    table.concat(tasks[2].arguments, " ")
-      == "-W -n -b net.imput.helium --args --profile-directory=Default"
-  )
-  assert(tasks[3].arguments[1] == "-W")
+  appear("net.imput.helium", "New Tab - Helium - Work")
+  appear("com.mitchellh.ghostty", "")
+  openOrFocusWindow(work)
+  openOrFocusWindow(ghostty)
+  assert(#tasks == 3 and #errors == 0)
+  appear("com.mitchellh.ghostty", "local", "windowTitleChanged")
+  openOrFocusWindow(ghostty)
+  assert(#tasks == 4 and #errors == 0)
+  for _, timer in ipairs(timers) do
+    if not timer.stopped then
+      timer.fn()
+    end
+  end
+  assert(#errors == 2 and errors[1]:find("No window appeared", 1, true))
+  openOrFocusWindow(work)
+  assert(#tasks == 5)
 end)
 check("this Space's windows are focused front to back before any scan", function()
   apps = helium(window(1, "Home - Helium - Personal"), {

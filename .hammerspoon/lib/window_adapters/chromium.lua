@@ -58,7 +58,6 @@ function chromium.window(profile)
   local suffix = " - " .. profile.profile
   return {
     bundleId = profile.bundleID,
-    shared = true,
     match = function(title)
       -- Audible windows end in 🔊 or 🔇
       title = title:gsub(" 🔊$", ""):gsub(" 🔇$", "")

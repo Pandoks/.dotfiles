@@ -157,18 +157,27 @@ end
 ---@param id integer
 ---@param done? WindowManagerDone
 ---@param minimized? boolean unminimize once its Space shows; earlier, macOS animates there itself
-function windowManager.focus(pid, id, done, minimized)
+---@param live? fun(): boolean false cancels the remaining steps
+function windowManager.focus(pid, id, done, minimized, live)
   done = done or function() end
+  local function cancelled()
+    if live and not live() then
+      done(false, "cancelled")
+      return true
+    end
+  end
   local function show()
-    if not minimized then
+    if cancelled() then
+      return
+    elseif not minimized then
       native.focus(pid, id, done)
       return
     end
     native.minimize(pid, id, false, function(ok, err)
-      if ok then
-        native.focus(pid, id, done)
-      else
+      if not ok then
         done(false, err)
+      elseif not cancelled() then
+        native.focus(pid, id, done)
       end
     end)
   end

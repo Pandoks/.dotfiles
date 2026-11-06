@@ -492,8 +492,11 @@ focus = function(window, fresh)
         finish(job)
       end
     end
+    local function live()
+      return operation == job
+    end
     windowManager.focus(window.pid, window.id, function(focused, failure)
-      if operation ~= job then
+      if not live() then
         return
       end
       if not focused then
@@ -501,7 +504,7 @@ focus = function(window, fresh)
         return
       end
       job.confirmFocus()
-    end, window["is-minimized"])
+    end, window["is-minimized"], live)
   end
   local function activate(row)
     window = row
