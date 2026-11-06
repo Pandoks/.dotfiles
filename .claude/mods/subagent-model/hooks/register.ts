@@ -1,21 +1,28 @@
 import type { Register } from 'claude-code';
 
-const limit = 1000;
+const maxStoredAgents = 1000;
 
 export const register: Register = (on) => {
-  on('agent.spawn', async ($, e, next) => {
-    if (e.parentModel.startsWith('claude-')) return next(e);
-    // Resume only subagents started off Claude; others may keep a Claude model.
-    if (e.resume) {
-      return (await $.store.get(e.resume.agentId))
-        ? next(e)
+  on('agent.spawn', async (claudeCode, spawn, next) => {
+    if (spawn.parentModel.startsWith('claude-')) return next(spawn);
+
+    if (spawn.resume) {
+      const startedOffClaude = await claudeCode.store.get(spawn.resume.agentId);
+      return startedOffClaude
+        ? next(spawn)
         : { deny: 'it may run on a Claude model; start a new subagent instead' };
     }
-    const result = await next({ ...e, model: e.parentModel });
-    if (result.deny === undefined && result.agentId && !result.model.startsWith('claude-')) {
-      await $.store.set(result.agentId, true);
-      for (const key of (await $.store.keys()).slice(0, -limit)) await $.store.delete(key);
+
+    const spawned = await next({ ...spawn, model: spawn.parentModel });
+
+    if (spawned.deny === undefined && spawned.agentId && !spawned.model.startsWith('claude-')) {
+      await claudeCode.store.set(spawned.agentId, true);
+      const oldAgentIds = (await claudeCode.store.keys()).slice(0, -maxStoredAgents);
+      for (const agentId of oldAgentIds) await claudeCode.store.delete(agentId);
     }
-    return result;
-  }).catch(($, e, next) => (next.called ? next(e) : { deny: 'subagent-model mod failed' }));
+
+    return spawned;
+  }).catch((_claudeCode, spawn, next) =>
+    next.called ? next(spawn) : { deny: 'subagent-model mod failed' },
+  );
 };
