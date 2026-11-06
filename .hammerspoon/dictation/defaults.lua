@@ -8,7 +8,7 @@
 ---@field speech? DictationSpeech
 ---@field cleanup? DictationCleanup|false false = the heard text, spelled, stalls out, digits.
 ---@field history? DictationHistory
----@field insert? "direct"|"clipboard" Type into the field focused at stop, or only copy.
+---@field insert? "direct"|"clipboard" Type into the field focused at stop (copied if none), or only copy.
 ---@field theme? "flat"|"glass" The pill's look; glass needs macOS 26 and follows light and dark.
 ---@field tint? GlassTint|false The glass's tint; false = lib/glass.lua's.
 ---@field minLevel? number Peak loudness (0..1) below which a take is silence.

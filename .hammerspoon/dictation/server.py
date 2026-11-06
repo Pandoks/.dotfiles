@@ -833,7 +833,7 @@ class Engine:
         # No words ("", "Hmm."): nothing was said if every word heard is one it may leave out.
         if not tokens(cleaned):
             if restore(raw, cleaned) != cleaned:
-                raise Rejected("the cleanup returned no words, so nothing was typed")
+                raise Rejected("the cleanup returned no words")
             return ""
         # Stalls first: the spelling pass restores a capital their removal added ("yabai").
         text = ending(said, ensure_question(said, self.spell(strip_stalls(cleaned), request)))
@@ -841,7 +841,7 @@ class Engine:
         if restored != text:
             restored = restored and restore(raw, restored)  # a put-back "the X one" gets its noun
             if restored is None or restore(raw, restored) != restored:
-                raise Rejected("the cleanup rewrote what was said, so nothing was typed")
+                raise Rejected("the cleanup rewrote what was said")
             print("put back what the cleanup changed beyond its rules", file=sys.stderr)
         return digits(ending(said, restored), names)
 
@@ -853,7 +853,7 @@ class Take:
     def __init__(self):
         self.request = self.stream = self.reply = None
         self.audio, self.ended, self.paused = b"", False, False
-        self.cleaned = {}  # heard text: what it types, or what it raised
+        self.cleaned = {}  # heard text: what it types, or the verdict that rejected it
 
 
 def answer(engine, take, emit):
@@ -889,7 +889,7 @@ def cleaned(engine, take, heard, between=None):
             take.cleaned[heard] = engine.clean(heard, take.request, between)
         except Stale:
             raise
-        except Exception as error:  # noqa: BLE001 - raised again where it is typed
+        except Rejected as error:  # a verdict, raised again where it is typed; a crash is retried
             take.cleaned[heard] = error
     if isinstance(take.cleaned[heard], Exception):
         raise take.cleaned[heard]
@@ -951,8 +951,10 @@ def serve(engine, events, emit):
             if heard:
                 try:
                     cleaned(engine, take, heard, functools.partial(between, take, segments))
-                except Exception:  # noqa: BLE001, S110 - kept in take.cleaned for the release
+                except Rejected:  # kept for the release
                     pass
+                except Exception as error:  # noqa: BLE001 - a crash runs again at release
+                    traceback.print_exception(error, chain=False)
             continue
         if event is None:
             return

@@ -4,6 +4,7 @@ local history = require("dictation.history")
 local logger = require("lib.logger")
 local recorder = require("dictation.recorder")
 local spaced = require("dictation.spacing")
+local toast = require("lib.toast")
 
 ---@param message string
 local function fail(message)
@@ -167,6 +168,7 @@ local function read(element, name, settable)
 end
 
 ---@param text string
+---@return string? nowhere Why nothing could take the text.
 local function insert(text)
   if targetError then
     error("could not read the focused field at stop: " .. targetError, 0)
@@ -175,9 +177,9 @@ local function insert(text)
   if problem then
     error("could not read the focused field: " .. problem, 0)
   elseif not element then
-    error("no text field is focused", 0)
+    return "no text field is focused"
   elseif element ~= target then
-    error("focus moved while transcribing", 0)
+    return "focus moved while transcribing"
   end
   local role = read(element, "AXRole")
   local value = read(element, "AXValue")
@@ -194,7 +196,7 @@ local function insert(text)
   end
   -- Chromium also takes (and drops) text writes on sliders, buttons, toolbars.
   if role ~= "AXTextField" and role ~= "AXTextArea" and role ~= "AXComboBox" then
-    error("no text field is focused", 0)
+    return "no text field is focused"
   end
   -- Terminals and Messages take no writes; read-only views look alike and ignore ⌘V.
   if not read(element, "AXSelectedText", true) or gecko[bundle] then
@@ -216,12 +218,17 @@ end
 
 ---@param text? string
 ---@param saved? boolean
+---@return boolean delivered
 local function finish(text, saved)
-  local ok, problem = true, nil
+  local ok, problem, copied = true, nil, nil
   if text and config.insert == "clipboard" then
     ok, problem = hs.pasteboard.setContents(text), "could not write clipboard"
   elseif text then
     ok, problem = pcall(insert, text)
+    if ok and problem then
+      ok = hs.pasteboard.setContents(text)
+      copied, problem = ok and problem, problem .. "; could not write clipboard"
+    end
   end
   if not ok then
     fail(tostring(problem) .. (saved and " (the text is in history)" or ""))
@@ -241,6 +248,11 @@ local function finish(text, saved)
   state = "idle"
   arm()
   dictation.cancel:disable()
+  -- A raise would stop the backend's later replies.
+  if copied then
+    pcall(toast.show, ("Dictation: copied to the clipboard (%s)"):format(copied))
+  end
+  return ok and text ~= nil
 end
 
 ---@param wav string
@@ -308,13 +320,23 @@ local handlers = {
         saved = settle(take, heard)
       end
     end
-    fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))
+    -- The cleanup failed: what the speech model heard, as heard.
+    local raw = id and inflight == id and heard ~= "" and heard or nil
+    if not raw then
+      fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))
+    end
     -- No id: the backend died, and a take still recording can no longer stream to it.
     if not id or inflight == id then
       if recording then
         salvage()
       end
-      finish()
+      if finish(raw, saved) then
+        local notice = ("Dictation: used what was heard (backend: %s)"):format(message)
+        pcall(print, notice)
+        pcall(toast.show, notice)
+      elseif raw then
+        fail("backend: " .. message)
+      end
     end
     local unpruned = saved and history.prune(config.history)
     if unpruned then

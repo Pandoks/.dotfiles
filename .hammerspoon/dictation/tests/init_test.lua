@@ -1,11 +1,12 @@
 local root, frameworks, scratch = arg[1], arg[2], arg[3]
 local fs = assert(package.loadlib(frameworks .. "/hs/libfs.dylib", "luaopen_hs_libfs"))()
 package.path = root .. "/../?.lua;" .. package.path
-local passed, alerts, strokes, timers, changes, takeCount, serial = 0, {}, {}, {}, 0, 0, 0
+local passed, alerts, notices, strokes, timers, changes, takeCount, serial =
+  0, {}, {}, {}, {}, 0, 0, 0
 local toggle, escape, handlers, deliver, focus, frontmost, recorded, sent, ipcDead, began, vanished
 local settings, recording, loading
 local engines, unloads = {}, {}
-local tick, broken, armed, shown, chained, unstartable
+local tick, broken, unshowable, armed, shown, chained, unstartable
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
 local directory = scratch .. "/init-history"
@@ -173,6 +174,12 @@ local modules = {
       return { show = hs.alert.show }
     end,
   }),
+  ["lib.toast"] = {
+    show = function(message)
+      assert(not unshowable, "the toast raised")
+      notices[#notices + 1] = message
+    end,
+  },
   ["dictation.spacing"] = import("spacing", {}),
   ["dictation.history"] = import("history", { hs = { fs = fs } }),
   ["dictation.overlay"] = {
@@ -291,7 +298,7 @@ local function field(before, ignoresWrites, unsettable, role)
 end
 
 local function dictate(element)
-  alerts, strokes, focus = {}, {}, element
+  alerts, notices, strokes, focus = {}, {}, {}, element
   toggle()
   toggle()
   deliver()
@@ -387,14 +394,47 @@ test("a second paste before the restore puts back the clipboard from before the 
   assert(alerts[1] and alerts[1]:find("first of 2", 1, true), tostring(alerts[1]))
 end)
 
-test("focus moved while transcribing writes nothing, says so, and saves the text", function()
+test("focus moved while transcribing writes nothing and copies the text", function()
   local element = field("x")
   local id = dictate(element)
   focus = field("y")
   handlers.onFinal({ id = id, text = "moved" })
   assert(not element.written and not focus.written and #strokes == 0, "written")
-  assert(alerts[1] and alerts[1]:find("focus moved", 1, true), tostring(alerts[1]))
-  assert(alerts[1]:find("in history", 1, true) and saved("moved"), "not saved, or not told")
+  assert(
+    notices[1] == "Dictation: copied to the clipboard (focus moved while transcribing)",
+    tostring(notices[1])
+  )
+  assert(clipboard["public.utf8-plain-text"] == "moved" and #alerts == 0, tostring(alerts[1]))
+  assert(saved("moved"), "not saved")
+  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
+end)
+
+test("with nothing focused the text is copied; a failed copy alerts and keeps history", function()
+  handlers.onFinal({ id = dictate(nil), text = "nowhere" })
+  assert(
+    notices[1] == "Dictation: copied to the clipboard (no text field is focused)",
+    tostring(notices[1])
+  )
+  assert(clipboard["public.utf8-plain-text"] == "nowhere" and #alerts == 0, tostring(alerts[1]))
+  assert(clipboard[transient] == nil, "hidden from clipboard managers")
+  local setContents = hs.pasteboard.setContents
+  hs.pasteboard.setContents = function()
+    return false
+  end
+  handlers.onFinal({ id = dictate(nil), text = "lost" })
+  hs.pasteboard.setContents = setContents
+  assert(
+    alerts[1]
+        == "Dictation: no text field is focused; could not write clipboard (the text is in history)"
+      and #notices == 0,
+    tostring(alerts[1])
+  )
+  assert(saved("lost"), "not saved")
+  unshowable = true
+  handlers.onFinal({ id = dictate(nil), text = "unshown" })
+  unshowable = false
+  assert(not shown and not armed, "a toast that raised left the take running")
+  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
 test("a reply to a cancelled take is saved; the next take still gets its own", function()
@@ -413,18 +453,35 @@ test("a reply to a cancelled take is saved; the next take still gets its own", f
     reply(cancelled)
     handlers.onFinal({ id = waiting, text = "now" })
     assert(element.value == "Hi now" and saved("late " .. cancelled), element.value)
+    assert(#notices == 0, tostring(notices[1]))
   end
 end)
 
-test("with nothing to type, what was heard is saved in place of the recording", function()
-  local rewrote = "the cleanup rewrote what was said, so nothing was typed"
-  handlers.onError(rewrote, dictate(field("Hi")), "heard it")
+test("a cleanup that fails types what was heard, saved in place of the recording", function()
+  local element = field("Hi")
+  handlers.onError("the cleanup rewrote what was said", dictate(element), "heard it")
+  assert(element.value == "Hi heard it" and #alerts == 0, tostring(alerts[1] or element.value))
   assert(
-    alerts[1] == "Dictation: backend: " .. rewrote .. " (what was heard is in history)",
-    tostring(alerts[1])
+    notices[1] == "Dictation: used what was heard (backend: the cleanup rewrote what was said)",
+    tostring(notices[1])
   )
   assert(saved("heard it") and not fs.attributes(recorded), "not saved, or the recording left")
   assert(wavs() == 0, "a recording kept")
+  unshowable = true
+  handlers.onError("the cleanup returned no words", dictate(nil), "heard it")
+  unshowable = false
+  assert(clipboard["public.utf8-plain-text"] == "heard it", clipboard["public.utf8-plain-text"])
+  assert(not shown and not armed, "a toast that raised left the take running")
+  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
+  local rejecting = field("Hi")
+  local id = dictate(rejecting)
+  function rejecting.setAttributeValue()
+    return nil, "Messaging failed"
+  end
+  handlers.onError("the cleanup rewrote what was said", id, "heard it")
+  assert(#notices == 0, "told it was used: " .. tostring(notices[1]))
+  assert(alerts[1] == "Dictation: Messaging failed (the text is in history)", tostring(alerts[1]))
+  assert(alerts[2] == "Dictation: backend: the cleanup rewrote what was said", tostring(alerts[2]))
 end)
 
 test("a take whose transcript isn't saved keeps its recording in history", function()
@@ -623,18 +680,85 @@ test("a copy made before the clipboard restore is kept", function()
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
-test("Mail's compose page is pasted into; a slider gets nothing and says so", function()
+test("a field that hides its value, can't be read, or rejects the write is never copied", function()
+  local system = hs.axuielement.systemWideElement
+  local function unreadable()
+    hs.axuielement.systemWideElement = function()
+      return {
+        attributeValue = function()
+          return nil, "Messaging failed"
+        end,
+      }
+    end
+  end
+  for _, case in ipairs({
+    {
+      "no text field is focused",
+      function(element)
+        local attribute = element.attributeValue
+        function element:attributeValue(name)
+          if name ~= "AXValue" then
+            return attribute(self, name)
+          end
+        end
+      end,
+    },
+    { "could not read the focused field at stop: Messaging failed", unreadable, true },
+    { "could not read the focused field: Messaging failed", unreadable },
+    {
+      "could not read the focused field's AXRole: Messaging failed",
+      function(element)
+        local attribute = element.attributeValue
+        function element:attributeValue(name)
+          if name == "AXRole" then
+            return nil, "Messaging failed"
+          end
+          return attribute(self, name)
+        end
+      end,
+    },
+    {
+      "Messaging failed",
+      function(element)
+        function element.setAttributeValue()
+          return nil, "Messaging failed"
+        end
+      end,
+    },
+  }) do
+    local problem, breakField, atStop = table.unpack(case)
+    local element = field("Hi")
+    if atStop then
+      breakField(element)
+    end
+    local id = dictate(element)
+    if not atStop then
+      breakField(element)
+    end
+    handlers.onFinal({ id = id, text = "kept" })
+    hs.axuielement.systemWideElement = system
+    assert(
+      alerts[1] == "Dictation: " .. problem .. " (the text is in history)",
+      problem .. ": " .. tostring(alerts[1])
+    )
+    assert(#notices == 0 and clipboard["public.utf8-plain-text"] == "mine", problem .. ": copied")
+  end
+end)
+
+test("Mail's compose page is pasted into; a slider's text is copied instead", function()
   local page = field("Hi", false, false, "AXWebArea")
   handlers.onFinal({ id = dictate(page), text = "you" })
-  assert(strokes[1] == "cmd+v" and not page.written, tostring(strokes[1]))
+  assert(strokes[1] == "cmd+v" and not page.written and #notices == 0, tostring(strokes[1]))
   timers[#timers]()
   local slider = field("50", false, false, "AXSlider")
   handlers.onFinal({ id = dictate(slider), text = "you" })
   assert(not slider.written and #strokes == 0, "wrote into a slider")
   assert(
-    alerts[1] == "Dictation: no text field is focused (the text is in history)",
-    tostring(alerts[1])
+    notices[1] == "Dictation: copied to the clipboard (no text field is focused)",
+    tostring(notices[1])
   )
+  assert(clipboard["public.utf8-plain-text"] == "you", clipboard["public.utf8-plain-text"])
+  hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 
 test("past the history cap a saved take prunes the oldest", function()
