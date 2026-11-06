@@ -1,28 +1,35 @@
 local logger = require("lib.logger")
 local module = {}
-local element, pid, failure
+local dock, element, failure, deadline
 local stopped = false
 
----@param dock? hs.application
-local function attach(dock)
-  element, pid, failure = nil, nil, nil
-  if dock then
-    element, pid = hs.axuielement.applicationElement(dock), dock:pid()
+-- No app watcher sees the Dock relaunch.
+local function attached()
+  if not (dock and dock:isRunning()) then
+    dock = hs.application.applicationsForBundleID("com.apple.dock")[1]
+    element, failure = dock and hs.axuielement.applicationElement(dock), nil
+    deadline = hs.timer.secondsSinceEpoch() + 1
   end
+  return element ~= nil
 end
 
 -- macOS 27 posts no Dock AXExpose notifications.
 function module.isActive()
-  assert(not failure, failure)
-  if stopped or not element then
+  if stopped or not attached() then
     return false
   end
+  assert(not failure, failure)
   local children, message = element:attributeValue("AXChildren")
   if type(children) ~= "table" then
+    -- A relaunched Dock can't answer at first.
+    if hs.timer.secondsSinceEpoch() < deadline then
+      return false
+    end
     failure = "Mission Control: " .. tostring(message or "Dock children unavailable")
     logger.error(failure)
     error(failure, 0)
   end
+  deadline = 0
   for _, child in ipairs(children) do
     if child:attributeValue("AXIdentifier") == "mc" then
       return true
@@ -31,24 +38,12 @@ function module.isActive()
   return false
 end
 
-module.watcher = hs.application.watcher
-  .new(function(_, event, app)
-    if stopped or not app then
-      return
-    end
-    if event == hs.application.watcher.terminated and app:pid() == pid then
-      attach(nil)
-    elseif event == hs.application.watcher.launched and app:bundleID() == "com.apple.dock" then
-      attach(app)
-    end
-  end)
-  :start() --[[@as hs.application.watcher]]
-attach(hs.application.applicationsForBundleID("com.apple.dock")[1])
+attached()
+deadline = 0
 
 function module.stop()
   stopped = true
-  module.watcher:stop()
-  attach(nil)
+  dock, element, failure = nil, nil, nil
 end
 
 return module
