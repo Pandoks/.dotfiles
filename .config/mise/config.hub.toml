@@ -42,5 +42,4 @@ start = true
 
 [bootstrap.compose.hub]
 project_dir = "{{ config_root }}/.config/mise/hub"
-pull = "always"
 sudo = true

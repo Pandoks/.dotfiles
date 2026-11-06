@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   artex:
-    image: ghcr.io/jiwoochris/artex-global:latest
+    image: ghcr.io/jiwoochris/artex-global:v0.3.15-global.1
     depends_on:
       artex-postgres:
         condition: service_healthy
