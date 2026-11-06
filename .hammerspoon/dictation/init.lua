@@ -304,7 +304,9 @@ local handlers = {
     -- The cleanup failed: what the speech model heard, as heard.
     local raw = id and inflight == id and heard ~= "" and heard or nil
     if raw then
-      pcall(toast.show, ("Dictation: used what was heard (backend: %s)"):format(message))
+      local notice = ("Dictation: used what was heard (backend: %s)"):format(message)
+      pcall(print, notice)
+      pcall(toast.show, notice)
     else
       fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))
     end

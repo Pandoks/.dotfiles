@@ -440,6 +440,7 @@ test("a reply to a cancelled take is saved; the next take still gets its own", f
     reply(cancelled)
     handlers.onFinal({ id = waiting, text = "now" })
     assert(element.value == "Hi now" and saved("late " .. cancelled), element.value)
+    assert(#notices == 0, tostring(notices[1]))
   end
 end)
 
@@ -453,9 +454,11 @@ test("a cleanup that fails types what was heard, saved in place of the recording
   )
   assert(saved("heard it") and not fs.attributes(recorded), "not saved, or the recording left")
   assert(wavs() == 0, "a recording kept")
+  unshowable = true
   handlers.onError("the cleanup returned no words", dictate(nil), "heard it")
-  assert(notices[2] == "Dictation: copied to the clipboard (no text field is focused)", notices[2])
+  unshowable = false
   assert(clipboard["public.utf8-plain-text"] == "heard it", clipboard["public.utf8-plain-text"])
+  assert(not shown and not armed, "a toast that raised left the take running")
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
 end)
 

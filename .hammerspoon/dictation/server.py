@@ -889,7 +889,7 @@ def cleaned(engine, take, heard, between=None):
             take.cleaned[heard] = engine.clean(heard, take.request, between)
         except Stale:
             raise
-        except Exception as error:  # noqa: BLE001 - raised again where it is typed
+        except Rejected as error:  # a verdict, raised again where it is typed; a crash is retried
             take.cleaned[heard] = error
     if isinstance(take.cleaned[heard], Exception):
         raise take.cleaned[heard]
@@ -951,7 +951,7 @@ def serve(engine, events, emit):
             if heard:
                 try:
                     cleaned(engine, take, heard, functools.partial(between, take, segments))
-                except Exception:  # noqa: BLE001, S110 - kept in take.cleaned for the release
+                except Exception:  # noqa: BLE001, S110 - a verdict is kept for the release
                     pass
             continue
         if event is None:

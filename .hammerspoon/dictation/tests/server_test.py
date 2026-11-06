@@ -1877,6 +1877,20 @@ check(
     ],
     lambda items: (streamed(*items), list(cleaned)),
 )
+crashes = [RuntimeError("[METAL] out of memory")]
+
+
+def crashing(messages, raw, between):
+    if crashes:
+        raise crashes.pop()
+    return complete(messages, raw, between)
+
+
+streamer.cleaner.complete = crashing  # pyright: ignore[reportAttributeAccessIssue]
+replies = streamed(start, sound("Hi there.\0"), "idle", end, paused)
+streamer.cleaner.complete = complete  # pyright: ignore[reportAttributeAccessIssue]
+assert not crashes and replies == [(1, "Hi there.")], replies
+print("PASS a cleanup that crashes at a pause runs again at release, not replayed as the reply")
 
 
 class Echo(nn.Module):
