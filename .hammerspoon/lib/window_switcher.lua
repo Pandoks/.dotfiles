@@ -501,7 +501,7 @@ focus = function(window, fresh)
         return
       end
       job.confirmFocus()
-    end)
+    end, window["is-minimized"])
   end
   local function activate(row)
     window = row
@@ -515,20 +515,7 @@ focus = function(window, fresh)
         job.watcher:stop()
         job.watcher = nil
       end
-      if row["is-minimized"] then
-        windowManager.minimize(row.pid, row.id, false, function(restored, reason)
-          if operation ~= job then
-            return
-          end
-          if restored then
-            moveAndFocus()
-          else
-            finish(job, reason)
-          end
-        end)
-      else
-        moveAndFocus()
-      end
+      moveAndFocus()
     end
     if not row["is-hidden"] then
       restore()

@@ -19,6 +19,8 @@ sibling reclaim on close, directional focus, swap, warp, edge resize that never
 falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
 that a Space jump posts all its swipes at once and reports once on arrival, that a press
 during a jump continues from that jump's target, and that finished jumps release their timers.
+A minimized window on another Space is restored only once that Space shows; restored earlier,
+macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
 Neither touches the real window server; the native gesture, focus, and Accessibility calls in
@@ -35,6 +37,12 @@ command-line tools. The interception suite downloads Lua 5.4.9 and checks its pi
 SHA-256; set `LUA_ARCHIVE` to a local copy to run offline. Swift suites compile copies
 with `NSWorkspace` and `NSAlert` replaced, so they never open apps, show popups, or
 change default handlers.
+
+The window profiles suite (`window_profiles_test.lua`) checks that a profile's window on another
+Space or minimized is restored rather than relaunched, that two profiles of one browser launch
+at once, and that failed launches and missing browser profiles report without launching.
+Hidden apps, Space switches, and Chromium's `<page> - <browser> - <profile>` titles were checked
+manually with Helium and Ghostty on macOS 27.0.1 and 27.2.
 
 Run `sh .hammerspoon/tests/stream_test.sh` for `lib/stream`, dictation's PCM socket; it needs
 `ffmpeg` on `PATH`. It streams real ffmpeg output and checks live chunked delivery, listen,

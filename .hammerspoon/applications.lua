@@ -1,4 +1,8 @@
+local chromium = require("lib.window_adapters.chromium")
 local openOrFocusWindow = require("window_profiles")
+
+local personal = chromium.window({ bundleID = "net.imput.helium", profile = "Personal" })
+local work = chromium.window({ bundleID = "net.imput.helium", profile = "Work" })
 
 NeedsToBeHiddenPids = {}
 ApplicationWatcher = hs.application.watcher.new(function(_, event, application)
@@ -28,7 +32,10 @@ hs.hotkey.bind({ "cmd", "shift" }, "h", function()
 end)
 
 hs.hotkey.bind({ "alt" }, "s", function()
-  openOrFocusWindow({ bundleId = "net.imput.helium" })
+  openOrFocusWindow(personal)
+end)
+hs.hotkey.bind({ "alt" }, "a", function()
+  openOrFocusWindow(work)
 end)
 hs.hotkey.bind({ "alt" }, "n", function()
   openOrFocusWindow({ bundleId = "com.apple.MobileSMS" })

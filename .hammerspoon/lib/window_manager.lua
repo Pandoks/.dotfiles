@@ -156,12 +156,26 @@ end
 ---@param pid integer
 ---@param id integer
 ---@param done? WindowManagerDone
-function windowManager.focus(pid, id, done)
+---@param minimized? boolean unminimize once its Space shows; earlier, macOS animates there itself
+function windowManager.focus(pid, id, done, minimized)
   done = done or function() end
-  -- No Space, e.g. minimized.
+  local function show()
+    if not minimized then
+      native.focus(pid, id, done)
+      return
+    end
+    native.minimize(pid, id, false, function(ok, err)
+      if ok then
+        native.focus(pid, id, done)
+      else
+        done(false, err)
+      end
+    end)
+  end
+  -- No Space to show first.
   local space = windowManager.spaceOf(id)
   if not space then
-    native.focus(pid, id, done)
+    show()
     return
   end
   local display = hs.spaces.spaceDisplay(space)
@@ -171,14 +185,14 @@ function windowManager.focus(pid, id, done)
     return
   end
   if active[display] == space then
-    native.focus(pid, id, done)
+    show()
     return
   end
   for index, row in ipairs(utils.spaces() or {}) do
     if row.ManagedSpaceID == space then
       windowManager.space(index, function(ok, failure)
         if ok then
-          native.focus(pid, id, done)
+          show()
         else
           done(false, failure)
         end
@@ -190,7 +204,6 @@ function windowManager.focus(pid, id, done)
 end
 
 windowManager.frame = native.frame
-windowManager.minimize = native.minimize
 windowManager.windows = native.windows
 
 -- Cache other-Space windows so the first Cmd-Tab doesn't search.
