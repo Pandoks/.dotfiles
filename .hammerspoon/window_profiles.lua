@@ -5,15 +5,6 @@ local windowManager = require("lib.window_manager")
 ---@type table<string, { windows: WindowFilter, deadline: hs.timer }>
 local launching = {}
 
----@param bundleId string
----@param exitCode integer
----@param stdErr string
-local function report(bundleId, exitCode, stdErr)
-  if exitCode ~= 0 then
-    logger.error(string.format("Could not launch %s (exit %d): %s", bundleId, exitCode, stdErr))
-  end
-end
-
 ---@alias WindowMatcher string|(fun(title: string): boolean)
 
 ---@class WindowProfile
@@ -21,19 +12,23 @@ end
 ---@field match? WindowMatcher omit = any window
 ---@field args? string[]|fun(): string[]? launch args; nil cancels the launch
 
+---@param bundleId string
+---@param pid integer
+---@param id integer
+---@param minimized? boolean
+local function focus(bundleId, pid, id, minimized)
+  windowManager.focus(pid, id, function(focused, reason)
+    if focused then
+      print("Focused window", bundleId, id)
+    elseif reason ~= "superseded" and reason ~= "stopped" then
+      logger.error(string.format("Could not focus %s: %s", bundleId, reason))
+    end
+  end, minimized)
+end
+
 ---@param profile WindowProfile
 ---@param matcher fun(title: string): boolean
 local function launch(profile, matcher)
-  if profile.match == nil then
-    hs.task
-      .new("/usr/bin/open", function(exitCode, _, stdErr)
-        report(profile.bundleId, exitCode, stdErr)
-      end, { "-b", profile.bundleId })
-      :start()
-    print("Launching app", profile.bundleId)
-    return
-  end
-
   local args = profile.args
   if type(args) == "function" then
     args = args()
@@ -41,7 +36,7 @@ local function launch(profile, matcher)
       return
     end
   end
-  local launchKey = profile.bundleId .. " " .. table.concat(args or {}, " ")
+  local launchKey = table.concat({ profile.bundleId, table.unpack(args or {}) }, " ")
   if launching[launchKey] then
     print("Already launching", launchKey)
     return
@@ -58,8 +53,14 @@ local function launch(profile, matcher)
       pending.windows:delete()
       pending.deadline:stop()
     end
+    return pending
   end
-  windows:subscribe({ filter.windowCreated, filter.windowTitleChanged }, settle)
+  windows:subscribe({ filter.windowCreated, filter.windowTitleChanged }, function(window, _, _, id)
+    local app = window:application()
+    if settle() and app then
+      focus(profile.bundleId, app:pid(), id)
+    end
+  end)
   launching[launchKey] = {
     windows = windows,
     deadline = hs.timer.doAfter(10, function()
@@ -68,19 +69,28 @@ local function launch(profile, matcher)
     end),
   }
 
-  local arguments = { "-n", "-b", profile.bundleId, "--args" }
-  for _, argument in ipairs(args or {}) do
-    table.insert(arguments, argument)
+  -- In the background: apps reopen windows on their last Space, and activating animates there
+  local arguments = { "-g", "-b", profile.bundleId }
+  if profile.match ~= nil then
+    table.insert(arguments, 2, "-n")
+  end
+  if args then
+    table.insert(arguments, "--args")
+    for _, argument in ipairs(args) do
+      table.insert(arguments, argument)
+    end
   end
   hs.task
     .new("/usr/bin/open", function(exitCode, _, stdErr)
       if exitCode ~= 0 then
         settle()
+        logger.error(
+          string.format("Could not launch %s (exit %d): %s", profile.bundleId, exitCode, stdErr)
+        )
       end
-      report(profile.bundleId, exitCode, stdErr)
     end, arguments)
     :start()
-  print("Launching window", launchKey)
+  print("Launching", launchKey)
 end
 
 ---@param profile WindowProfile
@@ -98,12 +108,21 @@ local function openOrFocusWindow(profile)
   local currentSpace = hs.spaces.focusedSpace()
 
   ---@param window? hs.window
+  ---@return integer? id
   local function shown(window)
-    return window
+    if not window then
+      return
+    end
+    local id = window:id()
+    if
+      id
       and window:isStandard()
       and not window:isMinimized()
       and matcher(window:title() or "")
-      and (hs.spaces.windowSpaces(window:id()) or {})[1] == currentSpace
+      and (hs.spaces.windowSpaces(id) or {})[1] == currentSpace
+    then
+      return id
+    end
   end
 
   -- This Space front to back, main windows first: much faster than a window server scan
@@ -111,18 +130,17 @@ local function openOrFocusWindow(profile)
   local pids = {}
   for _, app in ipairs(apps) do
     pids[app:pid()] = true
-    local window = app:mainWindow()
-    if shown(window) then
-      app:activate(true)
-      print("Focused window", profile.bundleId, window:id())
+    local id = shown(app:mainWindow())
+    if id then
+      focus(profile.bundleId, app:pid(), id)
       return
     end
   end
   for _, app in ipairs(apps) do
     for _, window in ipairs(app:allWindows()) do
-      if shown(window) then
-        window:focus()
-        print("Focused window", profile.bundleId, window:id())
+      local id = shown(window)
+      if id then
+        focus(profile.bundleId, app:pid(), id)
         return
       end
     end
@@ -156,17 +174,7 @@ local function openOrFocusWindow(profile)
       launch(profile, matcher)
       return
     end
-
-    ---@param focused boolean
-    ---@param reason? string
-    local function done(focused, reason)
-      if focused then
-        print("Focused window", profile.bundleId, target.id)
-      elseif reason ~= "superseded" and reason ~= "stopped" then
-        logger.error(string.format("Could not focus %s: %s", profile.bundleId, reason))
-      end
-    end
-    windowManager.focus(target.pid, target.id, done, target.minimized)
+    focus(profile.bundleId, target.pid, target.id, target.minimized)
   end)
 end
 

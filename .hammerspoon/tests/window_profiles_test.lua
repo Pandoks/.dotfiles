@@ -137,9 +137,6 @@ local function helium(main, windows)
       allWindows = function()
         return windows or {}
       end,
-      activate = function()
-        calls[#calls + 1] = "activate"
-      end,
     },
   }
 end
@@ -157,18 +154,18 @@ local function window(id, title)
     isMinimized = function()
       return false
     end,
-    focus = function()
-      calls[#calls + 1] = "window " .. id
-    end,
   }
 end
 ---@param event? string
-local function appear(bundleId, title, event)
+local function appear(bundleId, title, id, event)
   local created = {
     application = function()
       return {
         bundleID = function()
           return bundleId
+        end,
+        pid = function()
+          return 7
         end,
       }
     end,
@@ -179,7 +176,7 @@ local function appear(bundleId, title, event)
   for _, filter in ipairs(filters) do
     local callback = filter.callbacks[event or "windowCreated"]
     if not filter.deleted and callback and filter.predicate(created) then
-      callback(created)
+      callback(created, "App", event, id)
     end
   end
 end
@@ -215,7 +212,7 @@ test("failed launches report the bundle id, exit code, and reason", function(tas
 end)
 test("successful launches report nothing", function(task, bundleId)
   task.callback(0, "", "")
-  appear(bundleId, "Main")
+  appear(bundleId, "Main", 1)
   assert(#errors == 0, bundleId)
 end)
 test("a failed launch can be retried even when reporting raises", function(task, bundleId, profile)
@@ -232,38 +229,50 @@ local function check(name, body)
   passed = passed + 1
   print("PASS " .. name)
 end
-check("a launch is deduplicated until its window appears, else reports", function()
-  local ghostty =
-    { bundleId = "com.mitchellh.ghostty", match = "local", args = { "--title=local" } }
-  openOrFocusWindow(work)
-  tasks[1].callback(0, "", "")
-  openOrFocusWindow(work)
-  openOrFocusWindow(ghostty)
-  appear("net.imput.helium", "New Tab - Helium - Personal")
-  appear("com.example.other", "New Tab - Helium - Work")
-  openOrFocusWindow(work)
-  assert(#tasks == 2)
-  assert(
-    table.concat(tasks[1].arguments, " ")
-      == "-n -b net.imput.helium --args --profile-directory=Profile 1"
-  )
-  appear("net.imput.helium", "New Tab - Helium - Work")
-  appear("com.mitchellh.ghostty", "")
-  openOrFocusWindow(work)
-  openOrFocusWindow(ghostty)
-  assert(#tasks == 3 and #errors == 0)
-  appear("com.mitchellh.ghostty", "local", "windowTitleChanged")
-  openOrFocusWindow(ghostty)
-  assert(#tasks == 4 and #errors == 0)
-  for _, timer in ipairs(timers) do
-    if not timer.stopped then
-      timer.fn()
+check(
+  "launches run in the background and focus their window once it appears, else report",
+  function()
+    local ghostty =
+      { bundleId = "com.mitchellh.ghostty", match = "local", args = { "--title=local" } }
+    local slack = { bundleId = "com.tinyspeck.slackmacgap" }
+    openOrFocusWindow(work)
+    tasks[1].callback(0, "", "")
+    openOrFocusWindow(work)
+    openOrFocusWindow(ghostty)
+    openOrFocusWindow(slack)
+    appear("net.imput.helium", "New Tab - Helium - Personal", 1)
+    appear("com.example.other", "New Tab - Helium - Work", 2)
+    openOrFocusWindow(work)
+    openOrFocusWindow(slack)
+    assert(#tasks == 3 and #calls == 0)
+    assert(
+      table.concat(tasks[1].arguments, " ")
+        == "-g -n -b net.imput.helium --args --profile-directory=Profile 1"
+    )
+    assert(table.concat(tasks[3].arguments, " ") == "-g -b com.tinyspeck.slackmacgap")
+    appear("net.imput.helium", "New Tab - Helium - Work", 3)
+    appear("com.tinyspeck.slackmacgap", "Slack", 4)
+    appear("com.mitchellh.ghostty", "", 5)
+    openOrFocusWindow(work)
+    openOrFocusWindow(ghostty)
+    assert(#tasks == 4 and #errors == 0)
+    appear("com.mitchellh.ghostty", "local", 5, "windowTitleChanged")
+    openOrFocusWindow(ghostty)
+    assert(#tasks == 5 and #errors == 0)
+    assert(
+      table.concat(calls, ", ") == "focus 7 3, focus 7 4, focus 7 5",
+      table.concat(calls, ", ")
+    )
+    for _, timer in ipairs(timers) do
+      if not timer.stopped then
+        timer.fn()
+      end
     end
+    assert(#errors == 2 and errors[1]:find("No window appeared", 1, true))
+    openOrFocusWindow(work)
+    assert(#tasks == 6)
   end
-  assert(#errors == 2 and errors[1]:find("No window appeared", 1, true))
-  openOrFocusWindow(work)
-  assert(#tasks == 5)
-end)
+)
 check("this Space's windows are focused front to back before any scan", function()
   apps = helium(window(1, "Home - Helium - Personal"), {
     window(1, "Home - Helium - Personal"),
@@ -272,7 +281,7 @@ check("this Space's windows are focused front to back before any scan", function
   })
   openOrFocusWindow(work)
   openOrFocusWindow(personal)
-  assert(table.concat(calls, ", ") == "window 2, activate", table.concat(calls, ", "))
+  assert(table.concat(calls, ", ") == "focus 7 2, focus 7 1", table.concat(calls, ", "))
 end)
 check("a profile's window on another Space or minimized is restored, never relaunched", function()
   apps = helium()

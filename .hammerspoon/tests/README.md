@@ -39,10 +39,12 @@ with `NSWorkspace` and `NSAlert` replaced, so they never open apps, show popups,
 change default handlers.
 
 The window profiles suite (`window_profiles_test.lua`) checks that a profile's window on another
-Space or minimized is restored rather than relaunched, that two profiles of one browser launch
-at once, and that failed launches and missing browser profiles report without launching.
-Hidden apps, Space switches, and Chromium's `<page> - <browser> - <profile>` titles were checked
-manually with Helium and Ghostty on macOS 27.0.1 and 27.2.
+Space or minimized is restored rather than relaunched, that launches run in the background and
+ignore repeat presses until their window appears, which is then focused, and that failed launches
+and missing browser profiles report without launching. Hidden apps, Space switches, cold launches,
+and Chromium's `<page> - <browser> - <profile>` titles were checked manually with Helium, Ghostty,
+and Slack on macOS 27.0.1 and 27.2. Slack reopens its window on the Space it last used, so a
+foreground launch animated there.
 
 Run `sh .hammerspoon/tests/stream_test.sh` for `lib/stream`, dictation's PCM socket; it needs
 `ffmpeg` on `PATH`. It streams real ffmpeg output and checks live chunked delivery, listen,
