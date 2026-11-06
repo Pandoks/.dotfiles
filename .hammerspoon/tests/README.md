@@ -187,7 +187,8 @@ yield to the next run-loop turn so a newer shortcut can cancel them before dispa
 A swipe already posted or a running native call cannot be recalled.
 There is no Space-command queue or retry.
 Mission Control state is read from the Dock's `mc` element on each check, because macOS 27
-no longer posts the Dock's overview notifications; a relaunched Dock is picked up on launch.
+no longer posts the Dock's overview notifications; a relaunched Dock is picked up on the next
+check and reads as closed until it answers.
 The switcher counts as busy from the Cmd-Tab press, before its menu shows, until the chosen
 window has focus. Switcher busy checks do
 not inspect screen-recording permission. Focus validation checks the current Space after the

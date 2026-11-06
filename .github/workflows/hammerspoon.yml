@@ -19,7 +19,19 @@ jobs:
       - uses: actions/checkout@v7
       - run: brew install --cask hammerspoon
       - run: brew install ffmpeg
+      # lua.org often drops runner connections, so fetch Lua once per checksum.
+      - uses: actions/cache@v6
+        id: lua
+        with:
+          path: ${{ runner.temp }}/lua-5.4.9.tar.gz
+          key: lua-5.4.9-2335b6c582a52654f94612bf10d2f4672805d05329aa6568b1d8cd9e5c6fb8e6
+      - if: steps.lua.outputs.cache-hit != 'true'
+        run: >-
+          curl --fail --silent --show-error --location --proto =https --retry 5 --retry-all-errors
+          https://www.lua.org/ftp/lua-5.4.9.tar.gz -o "$RUNNER_TEMP/lua-5.4.9.tar.gz"
       - run: sh .hammerspoon/tests/run.sh
+        env:
+          LUA_ARCHIVE: ${{ runner.temp }}/lua-5.4.9.tar.gz
       - run: sh .hammerspoon/dictation/tests/run.sh
       - run: sh .hammerspoon/tests/previews_test.sh
       - run: sh .hammerspoon/tests/stream_test.sh
