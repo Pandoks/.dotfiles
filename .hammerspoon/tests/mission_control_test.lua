@@ -7,7 +7,7 @@ local function test(name, body)
 end
 -- The Dock's children carry the "mc" element only while Mission Control is open.
 local function harness(options)
-  local desktop = { reads = 0, logs = {}, open = false, broken = false, running = {} }
+  local desktop = { reads = 0, logs = {}, open = false, broken = false, running = {}, now = 0 }
   options = options or {}
   local function app(pid)
     desktop.running[pid] = true
@@ -52,7 +52,11 @@ local function harness(options)
         }
       end,
     },
-    timer = setmetatable({}, {
+    timer = setmetatable({
+      secondsSinceEpoch = function()
+        return desktop.now
+      end,
+    }, {
       __index = function()
         error("no Mission Control polling")
       end,
@@ -108,6 +112,16 @@ test("a relaunched Dock reads as inactive until it answers, then fails loudly", 
   desktop.broken = false
   assert(desktop.module.isActive() == false)
   desktop.broken = true
+  assert(not pcall(desktop.module.isActive))
+  assert(#desktop.logs == 1)
+end)
+
+test("a relaunched Dock that never answers fails loudly after a second", function()
+  local desktop = harness()
+  desktop:restart()
+  desktop.broken = true
+  assert(desktop.module.isActive() == false and #desktop.logs == 0)
+  desktop.now = 1
   assert(not pcall(desktop.module.isActive))
   assert(#desktop.logs == 1)
 end)
