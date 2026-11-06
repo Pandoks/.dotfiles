@@ -57,6 +57,8 @@ done
 
 [bootstrap.hooks.final]
 run = '''
+# Hammerspoon loads its Dock helper with lldb, which asks for a password each login otherwise.
+/usr/sbin/DevToolsSecurity -status | grep -q "currently enabled" || sudo /usr/sbin/DevToolsSecurity -enable
 spoons="$HOME/.hammerspoon/Spoons"
 mkdir -p "$spoons"
 test -d "$spoons/SpoonInstall.spoon" || curl -fsSL https://github.com/Hammerspoon/Spoons/raw/master/Spoons/SpoonInstall.spoon.zip | bsdtar -xf - -C "$spoons"
