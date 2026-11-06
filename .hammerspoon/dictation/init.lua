@@ -218,6 +218,7 @@ end
 
 ---@param text? string
 ---@param saved? boolean
+---@return boolean delivered
 local function finish(text, saved)
   local ok, problem, copied = true, nil, nil
   if text and config.insert == "clipboard" then
@@ -226,7 +227,7 @@ local function finish(text, saved)
     ok, problem = pcall(insert, text)
     if ok and problem then
       ok = hs.pasteboard.setContents(text)
-      copied = ok and problem
+      copied, problem = ok and problem, problem .. "; could not write clipboard"
     end
   end
   if not ok then
@@ -251,6 +252,7 @@ local function finish(text, saved)
   if copied then
     pcall(toast.show, ("Dictation: copied to the clipboard (%s)"):format(copied))
   end
+  return ok and text ~= nil
 end
 
 ---@param wav string
@@ -320,11 +322,7 @@ local handlers = {
     end
     -- The cleanup failed: what the speech model heard, as heard.
     local raw = id and inflight == id and heard ~= "" and heard or nil
-    if raw then
-      local notice = ("Dictation: used what was heard (backend: %s)"):format(message)
-      pcall(print, notice)
-      pcall(toast.show, notice)
-    else
+    if not raw then
       fail("backend: " .. message .. (saved and " (what was heard is in history)" or ""))
     end
     -- No id: the backend died, and a take still recording can no longer stream to it.
@@ -332,7 +330,13 @@ local handlers = {
       if recording then
         salvage()
       end
-      finish(raw, saved)
+      if finish(raw, saved) then
+        local notice = ("Dictation: used what was heard (backend: %s)"):format(message)
+        pcall(print, notice)
+        pcall(toast.show, notice)
+      elseif raw then
+        fail("backend: " .. message)
+      end
     end
     local unpruned = saved and history.prune(config.history)
     if unpruned then

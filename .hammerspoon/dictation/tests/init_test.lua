@@ -424,7 +424,9 @@ test("with nothing focused the text is copied; a failed copy alerts and keeps hi
   handlers.onFinal({ id = dictate(nil), text = "lost" })
   hs.pasteboard.setContents = setContents
   assert(
-    alerts[1] == "Dictation: no text field is focused (the text is in history)" and #notices == 0,
+    alerts[1]
+        == "Dictation: no text field is focused; could not write clipboard (the text is in history)"
+      and #notices == 0,
     tostring(alerts[1])
   )
   assert(saved("lost"), "not saved")
@@ -471,6 +473,15 @@ test("a cleanup that fails types what was heard, saved in place of the recording
   assert(clipboard["public.utf8-plain-text"] == "heard it", clipboard["public.utf8-plain-text"])
   assert(not shown and not armed, "a toast that raised left the take running")
   hs.pasteboard.writeAllData({ ["public.utf8-plain-text"] = "mine" })
+  local rejecting = field("Hi")
+  local id = dictate(rejecting)
+  function rejecting.setAttributeValue()
+    return nil, "Messaging failed"
+  end
+  handlers.onError("the cleanup rewrote what was said", id, "heard it")
+  assert(#notices == 0, "told it was used: " .. tostring(notices[1]))
+  assert(alerts[1] == "Dictation: Messaging failed (the text is in history)", tostring(alerts[1]))
+  assert(alerts[2] == "Dictation: backend: the cleanup rewrote what was said", tostring(alerts[2]))
 end)
 
 test("a take whose transcript isn't saved keeps its recording in history", function()
