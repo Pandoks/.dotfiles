@@ -38,10 +38,11 @@ end
 -- No app watcher sees the Dock relaunch, so a move after one loads the helper again.
 local function inject()
   local app = hs.application.applicationsForBundleID("com.apple.dock")[1]
+  local status = hs.execute("/usr/sbin/DevToolsSecurity -status") --[[@as string]]
   if not app then
     flush("Dock is not running")
     return
-  elseif not hs.execute("/usr/sbin/DevToolsSecurity -status"):find("currently enabled") then
+  elseif not status:find("currently enabled") then
     flush("Dock helper needs developer mode: run sudo DevToolsSecurity -enable")
     return
   end
