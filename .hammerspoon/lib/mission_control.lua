@@ -3,7 +3,7 @@ local module = {}
 local dock, element, failure, deadline
 local stopped = false
 
--- No app watcher reports the Dock relaunching, so each read checks the attached one still runs.
+-- No app watcher sees the Dock relaunch.
 local function attached()
   if not (dock and dock:isRunning()) then
     dock = hs.application.applicationsForBundleID("com.apple.dock")[1]
@@ -21,7 +21,7 @@ function module.isActive()
   assert(not failure, failure)
   local children, message = element:attributeValue("AXChildren")
   if type(children) ~= "table" then
-    -- A relaunched Dock can't answer for its first moments.
+    -- A relaunched Dock can't answer at first.
     if hs.timer.secondsSinceEpoch() < deadline then
       return false
     end

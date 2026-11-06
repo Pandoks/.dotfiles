@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: brew install --cask hammerspoon
       - run: brew install ffmpeg
-      # lua.org often drops runner connections, so fetch Lua once per checksum.
+      # lua.org drops runner connections.
       - uses: actions/cache@v6
         id: lua
         with:

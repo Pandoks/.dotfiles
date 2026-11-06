@@ -74,7 +74,6 @@ local function harness(options)
     end,
   }, { __index = _G })
   desktop.module = assert(loadfile(root .. "/mission_control.lua", "t", environment))()
-  -- No notification announces either step.
   function desktop:restart()
     if self.dock then
       self.running[self.dock.pid()] = false
