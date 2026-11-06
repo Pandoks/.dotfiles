@@ -196,10 +196,17 @@ local function harness(options)
       done(true, nil, desktop:rows())
     end)
   end
-  function windowManager.focus(pid, id, done)
+  function windowManager.focus(pid, id, done, minimized, live)
     call("focus", id, done, function()
+      if live and not live() then
+        done(false, "cancelled")
+        return
+      end
       local window = desktop.windows[id]
       assert(not window["is-hidden"], "focus attempted before unhide")
+      if minimized then
+        window["is-minimized"] = false
+      end
       if window.pid ~= pid then
         done(false, "window unavailable")
         return
@@ -207,13 +214,6 @@ local function harness(options)
       timer(options.windowDelay or 0.003, function()
         desktop:setWindowFocus(id)
       end)
-      done(true)
-    end)
-  end
-  function windowManager.minimize(pid, id, minimized, done)
-    call("minimize", id, done, function()
-      assertEqual(desktop.windows[id].pid, pid)
-      desktop.windows[id]["is-minimized"] = minimized
       done(true)
     end)
   end
@@ -1904,7 +1904,6 @@ test("delayed unhide completes the first selection before restoring and focusing
     assertEqual(desktop.menu.status().busy, true)
     assertEqual(desktop.unhides, 1)
     assertEqual(desktop:commandCount("focus"), 0)
-    assertEqual(desktop:commandCount("minimize"), 0)
     desktop:advance(0.3)
     assertEqual(desktop.windows[2]["has-focus"], true)
     assertEqual(desktop.windows[2]["is-minimized"], false)
@@ -2140,6 +2139,16 @@ test("stopping before revalidation replies prevents focus", function()
   desktop:advance(1)
   assertEqual(desktop:commandCount("focus"), 0)
 end)
+test("stopping while a focus is in flight leaves the window unfocused", function()
+  local desktop = harness({ replyDelay = 0.1 })
+  desktop:open()
+  desktop:release()
+  desktop:advance(0.15)
+  assertEqual(desktop:commandCount("focus"), 1)
+  desktop.menu.stop()
+  desktop:advance(1)
+  assertEqual(desktop.windows[2]["has-focus"], false)
+end)
 test("cancel never focuses and stops drawing", function()
   local desktop = harness()
   desktop:open()
@@ -2162,18 +2171,6 @@ test("cancelled menus and finished focus jobs release their timers", function()
   desktop:advance(5)
   assertEqual(desktop.menu.status().busy, false)
   assertEqual(leaked(desktop.timers), 0)
-end)
-test("stopping during a focus job prevents late window focus", function()
-  local desktop = harness({ replyDelay = 0.1 })
-  desktop.windows[2]["is-minimized"] = true
-  desktop:open()
-  desktop:release()
-  desktop:advance(0.15)
-  assertEqual(desktop:commandCount("minimize"), 1)
-  desktop.menu.stop()
-  desktop:advance(2)
-  assertEqual(desktop:commandCount("focus"), 0)
-  assertEqual(#desktop.alerts, 0)
 end)
 test("Dock selection shares Cmd-Tab recency without starting its focus sequence", function()
   local desktop = harness()

@@ -49,7 +49,7 @@ end
 
 -- The Dock lands each batch of swipes as one Space change.
 local function harness()
-  local desktop = { current = 100, steps = 0, inflight = {}, results = {}, timers = {} }
+  local desktop = { current = 100, steps = 0, inflight = {}, results = {}, timers = {}, order = {} }
   local spaces = {}
   for i = 1, 4 do
     spaces[i] = { ManagedSpaceID = i * 100, display = "d" }
@@ -115,6 +115,17 @@ local function harness()
             end,
             focus = function(_, id, done)
               desktop.focused = id
+              desktop.order[#desktop.order + 1] = "focus on " .. desktop.current
+              done(true)
+            end,
+            minimize = function(_, _, minimized, done)
+              desktop.order[#desktop.order + 1] = "minimized="
+                .. tostring(minimized)
+                .. " on "
+                .. desktop.current
+              if desktop.minimizing then
+                desktop.minimizing()
+              end
               done(true)
             end,
             windows = function()
@@ -196,6 +207,57 @@ test(
     assertEqual(desktop.steps, 0)
   end
 )
+
+test("a minimized window is restored, on another Space only once that Space shows", function()
+  for _, space in ipairs({ 300, 100, false }) do
+    local desktop = harness()
+    desktop.windowSpace = space or nil
+    local result
+    desktop.windowManager.focus(10, 7, function(ok, err)
+      result = ok and "ok" or err
+    end, true)
+    assertEqual(#desktop.order, space == 300 and 0 or 2, "restored before its Space shows")
+    desktop:settle()
+    local shown = space == 300 and 300 or 100
+    assertEqual(
+      table.concat(desktop.order, ", "),
+      "minimized=false on " .. shown .. ", focus on " .. shown,
+      tostring(space)
+    )
+    assertEqual(result, "ok")
+  end
+end)
+
+test("a cancelled focus neither restores nor focuses its window afterwards", function()
+  for _, stage in ipairs({ "jump", "restore" }) do
+    local desktop = harness()
+    desktop.windowSpace = 300
+    local live, result = true, nil
+    desktop.minimizing = function()
+      live = false
+    end
+    desktop.windowManager.focus(
+      10,
+      7,
+      function(ok, err)
+        result = ok and "ok" or err
+      end,
+      true,
+      function()
+        return live
+      end
+    )
+    live = stage ~= "jump"
+    desktop:settle()
+    assertEqual(
+      table.concat(desktop.order, ", "),
+      stage == "jump" and "" or "minimized=false on 300",
+      stage
+    )
+    assertEqual(desktop.focused, nil, stage)
+    assertEqual(result, "cancelled", stage)
+  end
+end)
 
 test("loading starts one window search, so the first Cmd-Tab is cached", function()
   assertEqual(harness().listed, 1)
