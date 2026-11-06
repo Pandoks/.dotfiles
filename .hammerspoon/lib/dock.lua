@@ -41,6 +41,9 @@ local function inject()
   if not app then
     flush("Dock is not running")
     return
+  elseif not hs.execute("/usr/sbin/DevToolsSecurity -status"):find("currently enabled") then
+    flush("Dock helper needs developer mode: run sudo DevToolsSecurity -enable")
+    return
   end
   local command = string.format('expr -l c -- (void *)dlopen("%s", 2)', binary)
   dock.task = hs.task.new("/usr/bin/xcrun", function(_, output, errors)
