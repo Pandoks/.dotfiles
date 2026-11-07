@@ -1,0 +1,230 @@
+#!/bin/sh
+# shellcheck shell=sh
+
+set -eu
+
+readonly BOLD='\e[1m'
+readonly NORMAL='\e[0m'
+readonly RED='\e[31m'
+readonly GREEN='\e[32m'
+
+readonly APP=/Applications/Helium.app
+readonly LOG="${HOME}/grok/logs/grok-browser.log"
+readonly PORT=9333
+readonly ENDPOINT="http://127.0.0.1:${PORT}"
+readonly MISE_DATA="${MISE_DATA_DIR:-${HOME}/.local/share/mise}"
+readonly NODE_MODULES="${MISE_DATA}/installs/npm-playwright-core/latest/node_modules"
+DATA_DIR="${HOME}/grok/config/helium-grokbot"
+
+readonly HELPER='
+const { chromium } = require("playwright-core");
+const [command, url, out] = process.argv.slice(1);
+(async () => {
+  const browser = await chromium.connectOverCDP(process.env.GROK_BROWSER_CDP_URL);
+  const page = await browser.contexts()[0].newPage();
+  try {
+    await page.goto(url);
+    if (command === "screenshot") await page.screenshot({ path: out, fullPage: true });
+    if (command === "dump") console.log(await page.innerText("body"));
+  } finally {
+    if (command !== "open") await page.close();
+    await browser.close();
+  }
+})().catch((error) => {
+  console.error("grok-browser: " + error.message);
+  process.exit(1);
+});
+'
+
+log_error() {
+  printf "%bError:%b %s\n" "${RED}" "${NORMAL}" "$*" >&2
+}
+
+die() {
+  log_error "$*"
+  exit 1
+}
+
+usage() {
+  printf "%bUsage:%b grok-browser [--data-dir DIR] <command> [args]\n\n" "${BOLD}" "${NORMAL}" >&2
+  printf "Drive Helium on the grokbot data dir with DevTools on %s.\n" "${ENDPOINT}" >&2
+  printf "The data dir is %s unless --data-dir is given, created if missing.\n\n" "${DATA_DIR}" >&2
+
+  printf "%bCommands:%b\n" "${BOLD}" "${NORMAL}" >&2
+  printf "  %bstart%b                   Launch Helium on the grokbot data dir\n" \
+    "${GREEN}" "${NORMAL}" >&2
+  printf "  %bstop%b                    Quit it\n" "${GREEN}" "${NORMAL}" >&2
+  printf "  %bstatus%b                  Show pid, endpoint, version\n" "${GREEN}" "${NORMAL}" >&2
+  printf "  %brun%b SCRIPT.js [ARGS]    Run SCRIPT with require('playwright-core') and\n" \
+    "${GREEN}" "${NORMAL}" >&2
+  printf "                          GROK_BROWSER_CDP_URL for chromium.connectOverCDP()\n" >&2
+  printf "  %bopen%b URL                Open URL in a new tab\n" "${GREEN}" "${NORMAL}" >&2
+  printf "  %bscreenshot%b URL OUT.png  Save a full-page screenshot\n" "${GREEN}" "${NORMAL}" >&2
+  printf "  %bdump%b URL                Print the page text\n\n" "${GREEN}" "${NORMAL}" >&2
+
+  exit "${1:-0}"
+}
+
+require_data_dir() {
+  mkdir -p "$(dirname "${DATA_DIR}")"
+  [ -d "${DATA_DIR}" ] || mkdir -m 700 "${DATA_DIR}"
+  mkdir -p "$(dirname "${LOG}")"
+  DATA_DIR=$(realpath "${DATA_DIR}")
+}
+
+browser_pid() {
+  ps -axww -o pid= -o command= | awk -v bin="${APP}/Contents/MacOS/Helium" \
+    -v arg="--user-data-dir=${DATA_DIR}" '
+    { pid = $1; sub(/^ *[0-9]+ /, ""); line = $0 " " }
+    index(line, bin " ") == 1 && index(line, " " arg " ") { print pid; exit }'
+}
+
+lock_pid() {
+  lock_pid_target=$(readlink "${DATA_DIR}/SingletonLock" 2> /dev/null) || return 0
+  lock_pid_pid="${lock_pid_target##*-}"
+  ! kill -0 "${lock_pid_pid}" 2> /dev/null || echo "${lock_pid_pid}"
+}
+
+listen_addresses() {
+  lsof -nP -a -p "$1" -iTCP:"${PORT}" -sTCP:LISTEN -Fn 2> /dev/null | sed -n 's/^n//p'
+}
+
+check_debug_port() {
+  check_debug_port_addresses=$(listen_addresses "$1")
+  [ -n "${check_debug_port_addresses}" ] \
+    || die "Helium is running on the grokbot data dir (pid $1) without the debug port;" \
+      "quit that window or run 'grok-browser stop', then 'grok-browser start'"
+  for check_debug_port_address in ${check_debug_port_addresses}; do
+    case "${check_debug_port_address}" in
+      "127.0.0.1:${PORT}" | "[::1]:${PORT}") ;;
+      *)
+        die "debug port is listening on ${check_debug_port_address}, not just loopback;" \
+          "run 'grok-browser stop'"
+        ;;
+    esac
+  done
+  curl -fsS --max-time 5 "${ENDPOINT}/json/version" > /dev/null \
+    || die "${ENDPOINT}/json/version isn't responding"
+}
+
+require_running() {
+  require_running_pid=$(browser_pid)
+  [ -n "${require_running_pid}" ] || die "not running; run 'grok-browser start'"
+  check_debug_port "${require_running_pid}"
+}
+
+node_playwright() {
+  require_data_dir
+  require_running
+  [ -d "${NODE_MODULES}/playwright-core" ] \
+    || die "playwright-core isn't installed; run 'mise -E grok bootstrap --yes'"
+  PATH="${MISE_DATA}/shims:${PATH}"
+  NODE_PATH="${NODE_MODULES}${NODE_PATH:+:${NODE_PATH}}"
+  GROK_BROWSER_CDP_URL="${ENDPOINT}"
+  export PATH NODE_PATH GROK_BROWSER_CDP_URL
+  exec node "$@"
+}
+
+cmd_start() {
+  cmd_start_pid=$(browser_pid)
+  if [ -n "${cmd_start_pid}" ]; then
+    check_debug_port "${cmd_start_pid}"
+    echo "already running (pid ${cmd_start_pid}) at ${ENDPOINT}"
+    return
+  fi
+  cmd_start_pid=$(lock_pid)
+  [ -z "${cmd_start_pid}" ] \
+    || die "the grokbot data dir is locked by pid ${cmd_start_pid}; quit that Helium first"
+  [ -z "$(lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN -t 2> /dev/null)" ] \
+    || die "port ${PORT} is already in use by another process"
+  [ -d "${APP}" ] || die "Helium isn't installed at ${APP}"
+
+  echo "=== $(date '+%Y-%m-%d %H:%M:%S') grok-browser start" >> "${LOG}"
+  open -n -g -a "${APP}" --stdout "${LOG}" --stderr "${LOG}" --args \
+    --user-data-dir="${DATA_DIR}" \
+    --remote-debugging-port="${PORT}" \
+    --remote-debugging-address=127.0.0.1 \
+    --no-first-run \
+    --no-default-browser-check
+
+  cmd_start_tries=0
+  until curl -fsS --max-time 1 "${ENDPOINT}/json/version" > /dev/null 2>&1; do
+    cmd_start_tries=$((cmd_start_tries + 1))
+    [ "${cmd_start_tries}" -lt 30 ] || die "no answer from ${ENDPOINT} after 30s; see ${LOG}"
+    sleep 1
+  done
+  cmd_start_pid=$(browser_pid)
+  [ -n "${cmd_start_pid}" ] \
+    || die "${ENDPOINT} answers, but not from the grokbot Helium; see ${LOG}"
+  check_debug_port "${cmd_start_pid}"
+  echo "started (pid ${cmd_start_pid}) at ${ENDPOINT}"
+}
+
+cmd_stop() {
+  cmd_stop_pid=$(browser_pid)
+  if [ -z "${cmd_stop_pid}" ]; then
+    echo "not running"
+    return
+  fi
+  kill "${cmd_stop_pid}"
+  cmd_stop_tries=0
+  while kill -0 "${cmd_stop_pid}" 2> /dev/null; do
+    cmd_stop_tries=$((cmd_stop_tries + 1))
+    if [ "${cmd_stop_tries}" -ge 15 ]; then
+      kill -9 "${cmd_stop_pid}" 2> /dev/null || true
+      break
+    fi
+    sleep 1
+  done
+  echo "stopped (pid ${cmd_stop_pid})"
+}
+
+cmd_status() {
+  cmd_status_pid=$(browser_pid)
+  if [ -z "${cmd_status_pid}" ]; then
+    echo "not running"
+    exit 1
+  fi
+  check_debug_port "${cmd_status_pid}"
+  cmd_status_version=$(curl -fsS --max-time 5 "${ENDPOINT}/json/version" \
+    | sed -n 's/.*"Browser": *"\([^"]*\)".*/\1/p')
+  echo "running (pid ${cmd_status_pid}) at ${ENDPOINT}, ${cmd_status_version}, data dir ${DATA_DIR}"
+}
+
+main() {
+  if [ "${1-}" = --data-dir ]; then
+    [ $# -ge 2 ] || usage 1
+    DATA_DIR="$2"
+    shift 2
+  fi
+  [ $# -ge 1 ] || usage 0
+  cmd="$1"
+  shift
+
+  case "${cmd}" in
+    start | stop | status)
+      [ $# -eq 0 ] || usage 1
+      require_data_dir
+      "cmd_${cmd}"
+      ;;
+    run)
+      [ $# -ge 1 ] || usage 1
+      node_playwright "$@"
+      ;;
+    open | dump)
+      [ $# -eq 1 ] || usage 1
+      node_playwright -e "${HELPER}" "${cmd}" "$1"
+      ;;
+    screenshot)
+      [ $# -eq 2 ] || usage 1
+      node_playwright -e "${HELPER}" "${cmd}" "$1" "$2"
+      ;;
+    help | --help | -h) usage ;;
+    *)
+      log_error "Unknown command '${cmd}'"
+      usage 1
+      ;;
+  esac
+}
+
+main "$@"
