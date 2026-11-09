@@ -10,7 +10,9 @@ registration failures, silent accessory/nonstandard-window exclusion, logged
 tracking failures with popups and no retries, and shutdown. It also checks that quit
 apps release their observers, and that a Space change re-scans apps with windows in front
 of a window titled "Dock". The switcher suite checks that explicit action failures
-still log and show popups.
+still log and show popups, and that pressing Cmd while Secure Keyboard Entry is on names the
+app holding it, or reports why it couldn't. macOS hides Tab from event taps then, so Cmd-Tab
+can't open; this was checked live on macOS 27.0.1.
 
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
 checks the frames it requests: longer-side splits for new windows, the app
