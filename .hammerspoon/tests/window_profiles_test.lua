@@ -229,50 +229,47 @@ local function check(name, body)
   passed = passed + 1
   print("PASS " .. name)
 end
-check(
-  "launches run in the background and focus their window once it appears, else report",
-  function()
-    local ghostty =
-      { bundleId = "com.mitchellh.ghostty", match = "local", args = { "--title=local" } }
-    local slack = { bundleId = "com.tinyspeck.slackmacgap" }
-    openOrFocusWindow(work)
-    tasks[1].callback(0, "", "")
-    openOrFocusWindow(work)
-    openOrFocusWindow(ghostty)
-    openOrFocusWindow(slack)
-    appear("net.imput.helium", "New Tab - Helium - Personal", 1)
-    appear("com.example.other", "New Tab - Helium - Work", 2)
-    openOrFocusWindow(work)
-    openOrFocusWindow(slack)
-    assert(#tasks == 3 and #calls == 0)
-    assert(
-      table.concat(tasks[1].arguments, " ")
-        == "-g -n -b net.imput.helium --args --profile-directory=Profile 1"
-    )
-    assert(table.concat(tasks[3].arguments, " ") == "-g -b com.tinyspeck.slackmacgap")
-    appear("net.imput.helium", "New Tab - Helium - Work", 3)
-    appear("com.tinyspeck.slackmacgap", "Slack", 4)
-    appear("com.mitchellh.ghostty", "", 5)
-    openOrFocusWindow(work)
-    openOrFocusWindow(ghostty)
-    assert(#tasks == 4 and #errors == 0)
-    appear("com.mitchellh.ghostty", "local", 5, "windowTitleChanged")
-    openOrFocusWindow(ghostty)
-    assert(#tasks == 5 and #errors == 0)
-    assert(
-      table.concat(calls, ", ") == "focus 7 3, focus 7 4, focus 7 5",
-      table.concat(calls, ", ")
-    )
-    for _, timer in ipairs(timers) do
-      if not timer.stopped then
-        timer.fn()
-      end
+check("launches focus their window once it appears, else report", function()
+  local ghostty =
+    { bundleId = "com.mitchellh.ghostty", match = "local", args = { "--title=local" } }
+  local slack = { bundleId = "com.tinyspeck.slackmacgap" }
+  openOrFocusWindow(work)
+  tasks[1].callback(0, "", "")
+  openOrFocusWindow(work)
+  openOrFocusWindow(ghostty)
+  openOrFocusWindow(slack)
+  appear("net.imput.helium", "New Tab - Helium - Personal", 1)
+  appear("com.example.other", "New Tab - Helium - Work", 2)
+  openOrFocusWindow(work)
+  openOrFocusWindow(slack)
+  assert(#tasks == 3 and #calls == 0)
+  assert(
+    table.concat(tasks[1].arguments, " ")
+      == "-n -b net.imput.helium --args --profile-directory=Profile 1"
+  )
+  assert(
+    table.concat(tasks[2].arguments, " ") == "-n -b com.mitchellh.ghostty --args --title=local"
+  )
+  assert(table.concat(tasks[3].arguments, " ") == "-b com.tinyspeck.slackmacgap")
+  appear("net.imput.helium", "New Tab - Helium - Work", 3)
+  appear("com.tinyspeck.slackmacgap", "Slack", 4)
+  appear("com.mitchellh.ghostty", "", 5)
+  openOrFocusWindow(work)
+  openOrFocusWindow(ghostty)
+  assert(#tasks == 4 and #errors == 0)
+  appear("com.mitchellh.ghostty", "local", 5, "windowTitleChanged")
+  openOrFocusWindow(ghostty)
+  assert(#tasks == 5 and #errors == 0)
+  assert(table.concat(calls, ", ") == "focus 7 3, focus 7 4, focus 7 5", table.concat(calls, ", "))
+  for _, timer in ipairs(timers) do
+    if not timer.stopped then
+      timer.fn()
     end
-    assert(#errors == 2 and errors[1]:find("No window appeared", 1, true))
-    openOrFocusWindow(work)
-    assert(#tasks == 6)
   end
-)
+  assert(#errors == 2 and errors[1]:find("No window appeared", 1, true))
+  openOrFocusWindow(work)
+  assert(#tasks == 6)
+end)
 check("this Space's windows are focused front to back before any scan", function()
   apps = helium(window(1, "Home - Helium - Personal"), {
     window(1, "Home - Helium - Personal"),

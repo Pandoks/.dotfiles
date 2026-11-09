@@ -69,10 +69,9 @@ local function launch(profile, matcher)
     end),
   }
 
-  -- In the background: apps reopen windows on their last Space, and activating animates there
-  local arguments = { "-g", "-b", profile.bundleId }
+  local arguments = { "-b", profile.bundleId }
   if profile.match ~= nil then
-    table.insert(arguments, 2, "-n")
+    table.insert(arguments, 1, "-n")
   end
   if args then
     table.insert(arguments, "--args")
