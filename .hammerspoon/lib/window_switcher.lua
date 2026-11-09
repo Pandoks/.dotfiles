@@ -813,13 +813,19 @@ local function warnSecureInput()
   local command =
     "/usr/sbin/ioreg -r -d 1 -k IOConsoleUsers | /usr/bin/grep -o 'SecureInputPID\"=[0-9]*'"
   hs.task
-    .new("/bin/sh", function(_, output)
-      local pid = tonumber((output or ""):match('SecureInputPID"=(%d+)'))
+    .new("/bin/sh", function(code, output)
+      local pid = code == 0 and tonumber((output or ""):match('SecureInputPID"=(%d+)'))
       local app = pid and hs.application.applicationForPID(pid)
-      local message = string.format(
-        "Cmd-Tab is blocked: %s has Secure Keyboard Entry on",
-        app and app:name() or "an app"
-      )
+      local message = app
+          and string.format("Cmd-Tab is blocked: %s has Secure Keyboard Entry on", app:name())
+        or pid and string.format(
+          "Cmd-Tab is blocked by Secure Keyboard Entry; its holder, pid %d, is not an app",
+          pid
+        )
+        or string.format(
+          "Cmd-Tab is blocked by Secure Keyboard Entry; finding its holder failed (exit %d)",
+          code
+        )
       hs.alert.show(message)
       pcall(hs.printf, "Window switcher: %s", message)
     end, { "-c", command })

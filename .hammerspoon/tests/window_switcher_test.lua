@@ -830,6 +830,19 @@ test("pressing Cmd under Secure Keyboard Entry names the app holding it", functi
   assertEqual(desktop.alerts[1], "Cmd-Tab is blocked: App 3 has Secure Keyboard Entry on")
   desktop:key("flagsChanged", "a", { cmd = true, shift = true })
   assertEqual(#desktop.tasks, 1, "other modifier changes don't look it up")
+  desktop:key("flagsChanged", "cmd", { cmd = true })
+  desktop.tasks[2].callback(0, 'SecureInputPID"=999\n')
+  assertEqual(
+    desktop.alerts[2],
+    "Cmd-Tab is blocked by Secure Keyboard Entry; its holder, pid 999, is not an app"
+  )
+  desktop:key("flagsChanged", "cmd", { cmd = true })
+  desktop.tasks[3].callback(1, "")
+  assertEqual(
+    desktop.alerts[3],
+    "Cmd-Tab is blocked by Secure Keyboard Entry; finding its holder failed (exit 1)"
+  )
+  assertEqual(desktop.logs[3], "Window switcher: " .. desktop.alerts[3], "failures are logged")
 end)
 
 test("missing previews silently use icons for every window state", function()
