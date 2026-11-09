@@ -232,8 +232,12 @@ end
 check(
   "launches run in the background and focus their window once it appears, else report",
   function()
-    local ghostty =
-      { bundleId = "com.mitchellh.ghostty", match = "local", args = { "--title=local" } }
+    local ghostty = {
+      bundleId = "com.mitchellh.ghostty",
+      match = "local",
+      foreground = true,
+      args = { "--title=local" },
+    }
     local slack = { bundleId = "com.tinyspeck.slackmacgap" }
     openOrFocusWindow(work)
     tasks[1].callback(0, "", "")
@@ -248,6 +252,9 @@ check(
     assert(
       table.concat(tasks[1].arguments, " ")
         == "-g -n -b net.imput.helium --args --profile-directory=Profile 1"
+    )
+    assert(
+      table.concat(tasks[2].arguments, " ") == "-n -b com.mitchellh.ghostty --args --title=local"
     )
     assert(table.concat(tasks[3].arguments, " ") == "-g -b com.tinyspeck.slackmacgap")
     appear("net.imput.helium", "New Tab - Helium - Work", 3)
