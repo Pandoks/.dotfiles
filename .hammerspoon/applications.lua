@@ -58,3 +58,6 @@ end)
 hs.hotkey.bind({ "alt" }, "v", function()
   openOrFocusWindow({ bundleId = "com.blackmagic-design.DaVinciResolve" })
 end)
+hs.hotkey.bind({ "alt" }, "o", function()
+  openOrFocusWindow({ bundleId = "com.anysphere.sand" }) -- Grok Bot
+end)
