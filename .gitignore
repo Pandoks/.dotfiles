@@ -7,5 +7,5 @@
 .hammerspoon/url_router/__pycache__/
 .cli-proxy-api/*
 !.cli-proxy-api/config.yaml
-.cli-proxy-api-ci/*
-!.cli-proxy-api-ci/config.yaml
+.cli-proxy-api-api/*
+!.cli-proxy-api-api/config.yaml

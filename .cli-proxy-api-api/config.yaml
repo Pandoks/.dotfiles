@@ -878,7 +878,7 @@ upstream:
 # OAuth/file-backed credentials. Token material stays in the credential store.
 oauth:
   # Authentication directory (supports ~ for home directory)
-  auth-dir: "~/.cli-proxy-api-ci"
+  auth-dir: "~/.cli-proxy-api-api"
 
   # Core auth auto-refresh and manual refresh-all worker pool size (OAuth/file-based auth token refresh).
   # When > 0, overrides the default worker count (16).

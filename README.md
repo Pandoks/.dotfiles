@@ -169,7 +169,7 @@ The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], and [ARTEX]:
 ```sh
 mise -E hub bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
-sudo tailscale serve --service=svc:cliproxyapi-ci --https=443 http://127.0.0.1:8318
+sudo tailscale serve --service=svc:cliproxyapi-api --https=443 http://127.0.0.1:8318
 sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 sudo tailscale serve --service=svc:artex --https=443 http://127.0.0.1:8787
 ```
