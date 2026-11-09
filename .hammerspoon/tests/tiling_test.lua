@@ -393,6 +393,35 @@ test("a window resized by hand moves the splits on the dragged edges once releas
   assertEqual(desktop:frame(1), "0,0 300x600", "the screen's edge has no split to move")
 end)
 
+test("columns lay a Space out side by side in equal widths until toggled back", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty" },
+    { id = 2, app = "Slack" },
+    { id = 3, app = "Helium" },
+  })
+  desktop.focusedId = 1
+  desktop.tiling.columns()
+  assertEqual(desktop:frame(1), "0,0 333x600", "existing windows keep their order")
+  assertEqual(desktop:frame(2), "333,0 334x600")
+  assertEqual(desktop:frame(3), "667,0 333x600")
+  desktop:add({ id = 4, app = "Slack" })
+  desktop:event("created", 4)
+  assertEqual(desktop:frame(1), "0,0 250x600", "a new window adds a column")
+  assertEqual(desktop:frame(4), "750,0 250x600")
+  desktop.tiling.resize("right", 100)
+  assertEqual(desktop:frame(1), "0,0 350x600")
+  desktop:remove(4)
+  assertEqual(desktop:frame(1), "0,0 333x600", "a closed window's column is shared out")
+  assertEqual(desktop:frame(3), "667,0 333x600")
+  desktop.tiling.resize("right", 100)
+  desktop.tiling.balance()
+  assertEqual(desktop:frame(1), "0,0 333x600", "balance evens the columns")
+  desktop.tiling.columns()
+  assertEqual(desktop:frame(1), "0,0 500x600", "toggling back splits again")
+  assertEqual(desktop:frame(2), "500,0 500x300")
+  assertEqual(desktop:frame(3), "500,300 500x300")
+end)
+
 test("zoom fills the Space and float leaves the layout until toggled back", function()
   local desktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
   desktop.focusedId = 1

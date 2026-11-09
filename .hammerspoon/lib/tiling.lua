@@ -27,6 +27,7 @@ local tiling = {}
 local trees = {} ---@type table<integer, TileNode>
 local tiled = {} ---@type table<integer, TileWindow>
 local floating = {} ---@type table<integer, boolean>
+local columns = {} ---@type table<integer, boolean> Spaces tiled as columns
 local moving = {} ---@type table<integer, integer> in-flight frame updates
 local stopped = false
 local resyncOnRelease = false
@@ -108,6 +109,21 @@ local function replace(space, old, new)
   end
 end
 
+-- Gives each column an equal width; returns the node's column count.
+---@param node TileNode
+---@return integer
+local function even(node)
+  if node.id then
+    return 1
+  end
+  local first, second = even(node.first), even(node.second)
+  if not node.vertical then
+    return math.max(first, second)
+  end
+  node.ratio = first / (first + second)
+  return first + second
+end
+
 ---@param space integer
 ---@param id integer
 ---@param pid integer
@@ -124,11 +140,18 @@ local function insert(space, id, pid)
     ---@cast target TileLeaf
     local frame = frames(space)[target] or area(space)
     local moved = { id = target.id, pid = target.pid, zoom = target.zoom }
-    local split =
-      { vertical = not frame or frame.w >= frame.h, ratio = 0.5, first = moved, second = leaf }
+    local split = {
+      vertical = columns[space] or not frame or frame.w >= frame.h,
+      ratio = 0.5,
+      first = moved,
+      second = leaf,
+    }
     moved.parent, leaf.parent = split, split
     tiled[target.id].leaf = moved
     replace(space, target, split)
+    if columns[space] then
+      even(trees[space])
+    end
   end
   tiled[id] = { leaf = leaf, space = space }
 end
@@ -146,6 +169,9 @@ local function remove(id)
     return
   end
   replace(entry.space, parent, parent.first == leaf and parent.second or parent.first)
+  if columns[entry.space] then
+    even(trees[entry.space])
+  end
 end
 
 ---@param window hs.window
@@ -452,10 +478,13 @@ function tiling.resize(edge, delta)
   logger.error("Tiling: no other window to resize against")
 end
 
-function tiling.balance()
+local function focusedSpace()
   local window = hs.window.focusedWindow()
-  local space = window and windowManager.spaceOf(window:id() --[[@as integer]])
-    or hs.spaces.focusedSpace()
+  return window and windowManager.spaceOf(window:id() --[[@as integer]]) or hs.spaces.focusedSpace()
+end
+
+function tiling.balance()
+  local space = focusedSpace()
   local function reset(node)
     if node and not node.id then
       node.ratio = 0.5
@@ -463,7 +492,34 @@ function tiling.balance()
       reset(node.second)
     end
   end
-  reset(trees[space])
+  if columns[space] and trees[space] then
+    even(trees[space])
+  else
+    reset(trees[space])
+  end
+  apply(space)
+end
+
+-- Toggles the focused Space between splits and equal columns, keeping window order.
+function tiling.columns()
+  local space = focusedSpace()
+  columns[space] = not columns[space] or nil
+  local leaves = {}
+  local function collect(node)
+    if node.id then
+      leaves[#leaves + 1] = node
+    else
+      collect(node.first)
+      collect(node.second)
+    end
+  end
+  if trees[space] then
+    collect(trees[space])
+  end
+  trees[space] = nil
+  for _, leaf in ipairs(leaves) do
+    insert(space, leaf.id, leaf.pid)
+  end
   apply(space)
 end
 
