@@ -34,17 +34,19 @@ for i = 1, 10 do
   end)
 end
 
-hs.hotkey.bind({ "cmd", "alt" }, "h", function()
-  tiling.resize("left", -resizeStep)
-end)
-hs.hotkey.bind({ "cmd", "alt" }, "l", function()
-  tiling.resize("right", resizeStep)
-end)
-hs.hotkey.bind({ "cmd", "alt" }, "j", function()
-  tiling.resize("bottom", resizeStep)
-end)
-hs.hotkey.bind({ "cmd", "alt" }, "k", function()
-  tiling.resize("top", -resizeStep)
-end)
+-- Repeats while held.
+local edges = {
+  h = { "left", -resizeStep },
+  l = { "right", resizeStep },
+  j = { "bottom", resizeStep },
+  k = { "top", -resizeStep },
+}
+for key, edge in pairs(edges) do
+  local function resize()
+    tiling.resize(edge[1], edge[2])
+  end
+  hs.hotkey.bind({ "cmd", "alt" }, key, resize, nil, resize)
+end
 
 hs.hotkey.bind({ "cmd", "alt" }, "space", tiling.balance)
+hs.hotkey.bind({ "shift", "alt" }, "space", tiling.columns)

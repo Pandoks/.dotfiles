@@ -15,8 +15,10 @@ still log and show popups.
 The tiling suite loads `lib/tiling.lua` against a 1000x600 model display and
 checks the frames it requests: longer-side splits for new windows, the app
 allowlist, Picture-in-Picture (including a later title change) left untouched,
-sibling reclaim on close, directional focus, swap, warp, edge resize that never
-falls back to the opposite edge, balance, zoom, and float. The window manager suite checks
+sibling reclaim on close, directional focus, swap, warp, edge resize that moves the
+opposite edge at the screen's edge, mouse resizes that move the dragged edges' splits on
+release, balance, a column mode that keeps equal widths as windows open and close, zoom,
+and float. The window manager suite checks
 that a Space jump posts all its swipes at once and reports once on arrival, that a press
 during a jump continues from that jump's target, and that finished jumps release their timers.
 A minimized window on another Space is restored only once that Space shows; restored earlier,

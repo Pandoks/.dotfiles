@@ -355,7 +355,7 @@ test("swap exchanges tiles; warp splits the neighbor on the side moved toward", 
   assertEqual(desktop:frame(3), "500,0 500x600", "the vacated tile closes")
 end)
 
-test("resize moves only the requested edge, and never the opposite one", function()
+test("resize moves the requested edge, or the opposite one at the screen's edge", function()
   local desktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
   desktop.focusedId = 2
   desktop.tiling.resize("left", -100)
@@ -363,10 +363,63 @@ test("resize moves only the requested edge, and never the opposite one", functio
   assertEqual(desktop:frame(2), "400,0 600x600")
   desktop.focusedId = 1
   desktop.tiling.resize("left", -20)
-  assertEqual(desktop:frame(1), "0,0 400x600", "no left edge: nothing moves")
-  assertEqual(desktop.logs[1], "Tiling: no left edge to move")
+  assertEqual(desktop:frame(1), "0,0 380x600", "no left edge: the right edge moves left")
+  assertEqual(desktop:frame(2), "380,0 620x600")
+  desktop.tiling.resize("top", -20)
+  assertEqual(desktop:frame(1), "0,0 380x600", "no split on either vertical edge")
+  assertEqual(desktop.logs[1], "Tiling: no other window to resize against")
   desktop.tiling.balance()
   assertEqual(desktop:frame(1), "0,0 500x600", "balance restores equal halves")
+end)
+
+test("a window resized by hand moves the splits on the dragged edges once released", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty" },
+    { id = 2, app = "Slack" },
+    { id = 3, app = "Helium" },
+  })
+  desktop.mouseButtons = { true }
+  desktop:drag(2, rect(300, 0, 700, 400))
+  assertEqual(desktop:frame(1), "0,0 500x600", "neighbors wait for the release")
+  desktop.releaseMouse()
+  desktop.mouseButtons = {}
+  assertEqual(desktop:frame(1), "0,0 300x600", "the left edge moved the outer split")
+  assertEqual(desktop:frame(2), "300,0 700x400", "the bottom edge moved the inner split")
+  assertEqual(desktop:frame(3), "300,400 700x200")
+  desktop.mouseButtons = { true }
+  desktop:drag(1, rect(0, 0, 300, 700))
+  desktop.releaseMouse()
+  desktop.mouseButtons = {}
+  assertEqual(desktop:frame(1), "0,0 300x600", "the screen's edge has no split to move")
+end)
+
+test("columns lay a Space out side by side in equal widths until toggled back", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty" },
+    { id = 2, app = "Slack" },
+    { id = 3, app = "Helium" },
+  })
+  desktop.focusedId = 1
+  desktop.tiling.columns()
+  assertEqual(desktop:frame(1), "0,0 333x600", "existing windows keep their order")
+  assertEqual(desktop:frame(2), "333,0 334x600")
+  assertEqual(desktop:frame(3), "667,0 333x600")
+  desktop:add({ id = 4, app = "Slack" })
+  desktop:event("created", 4)
+  assertEqual(desktop:frame(1), "0,0 250x600", "a new window adds a column")
+  assertEqual(desktop:frame(4), "750,0 250x600")
+  desktop.tiling.resize("right", 100)
+  assertEqual(desktop:frame(1), "0,0 350x600")
+  desktop:remove(4)
+  assertEqual(desktop:frame(1), "0,0 333x600", "a closed window's column is shared out")
+  assertEqual(desktop:frame(3), "667,0 333x600")
+  desktop.tiling.resize("right", 100)
+  desktop.tiling.balance()
+  assertEqual(desktop:frame(1), "0,0 333x600", "balance evens the columns")
+  desktop.tiling.columns()
+  assertEqual(desktop:frame(1), "0,0 500x600", "toggling back splits again")
+  assertEqual(desktop:frame(2), "500,0 500x300")
+  assertEqual(desktop:frame(3), "500,300 500x300")
 end)
 
 test("zoom fills the Space and float leaves the layout until toggled back", function()

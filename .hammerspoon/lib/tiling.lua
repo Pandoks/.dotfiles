@@ -27,6 +27,7 @@ local tiling = {}
 local trees = {} ---@type table<integer, TileNode>
 local tiled = {} ---@type table<integer, TileWindow>
 local floating = {} ---@type table<integer, boolean>
+local columns = {} ---@type table<integer, boolean> Spaces tiled as columns
 local moving = {} ---@type table<integer, integer> in-flight frame updates
 local stopped = false
 local resyncOnRelease = false
@@ -54,10 +55,10 @@ local function measure(node, frame, framesByNode)
   end
   local first, second = hs.geometry.copy(frame), hs.geometry.copy(frame)
   if node.vertical then
-    first.w = math.floor(frame.w * node.ratio)
+    first.w = math.floor(frame.w * node.ratio + 0.5)
     second.x, second.w = frame.x + first.w, frame.w - first.w
   else
-    first.h = math.floor(frame.h * node.ratio)
+    first.h = math.floor(frame.h * node.ratio + 0.5)
     second.y, second.h = frame.y + first.h, frame.h - first.h
   end
   measure(node.first, first, framesByNode)
@@ -108,6 +109,21 @@ local function replace(space, old, new)
   end
 end
 
+-- Gives each column an equal width; returns the node's column count.
+---@param node TileNode
+---@return integer
+local function even(node)
+  if node.id then
+    return 1
+  end
+  local first, second = even(node.first), even(node.second)
+  if not node.vertical then
+    return math.max(first, second)
+  end
+  node.ratio = first / (first + second)
+  return first + second
+end
+
 ---@param space integer
 ---@param id integer
 ---@param pid integer
@@ -124,11 +140,18 @@ local function insert(space, id, pid)
     ---@cast target TileLeaf
     local frame = frames(space)[target] or area(space)
     local moved = { id = target.id, pid = target.pid, zoom = target.zoom }
-    local split =
-      { vertical = not frame or frame.w >= frame.h, ratio = 0.5, first = moved, second = leaf }
+    local split = {
+      vertical = columns[space] or not frame or frame.w >= frame.h,
+      ratio = 0.5,
+      first = moved,
+      second = leaf,
+    }
     moved.parent, leaf.parent = split, split
     tiled[target.id].leaf = moved
     replace(space, target, split)
+    if columns[space] then
+      even(trees[space])
+    end
   end
   tiled[id] = { leaf = leaf, space = space }
 end
@@ -146,6 +169,9 @@ local function remove(id)
     return
   end
   replace(entry.space, parent, parent.first == leaf and parent.second or parent.first)
+  if columns[entry.space] then
+    even(trees[entry.space])
+  end
 end
 
 ---@param window hs.window
@@ -380,8 +406,8 @@ local function bounds(node, space)
     return
   end
   local nodeFrame = hs.geometry.copy(frame)
-  local cut = parent.vertical and math.floor(frame.w * parent.ratio)
-    or math.floor(frame.h * parent.ratio)
+  local cut = parent.vertical and math.floor(frame.w * parent.ratio + 0.5)
+    or math.floor(frame.h * parent.ratio + 0.5)
   if parent.vertical then
     nodeFrame.w = parent.first == node and cut or frame.w - cut
     nodeFrame.x = parent.first == node and frame.x or frame.x + cut
@@ -392,38 +418,73 @@ local function bounds(node, space)
   return nodeFrame
 end
 
----@param edge "left"|"right"|"top"|"bottom"
----@param delta number points; negative moves left or up
-function tiling.resize(edge, delta)
-  local entry = current(hs.window.focusedWindow())
-  if not entry then
-    return
-  end
-  local vertical = edge == "left" or edge == "right"
-  local second = edge == "left" or edge == "top"
+local opposite = { left = "right", right = "left", top = "bottom", bottom = "top" }
+
+---@param frame hs.geometry
+---@param edge string
+local function position(frame, edge)
+  return edge == "left" and frame.x
+    or edge == "right" and frame.x + frame.w
+    or edge == "top" and frame.y
+    or frame.y + frame.h
+end
+
+-- Moves the splits on `entry`'s edges to `targets` (edge → position); false if none border it.
+---@param entry TileWindow
+---@param targets table<string, number>
+local function stretch(entry, targets)
+  local splits = {}
   ---@type TileNode
   local node = entry.leaf
   local parent = node.parent
   while parent do
-    if parent.vertical == vertical and (parent.second == node) == second then
-      local frame = bounds(parent, entry.space)
-      if not frame then
-        return
+    for edge, target in pairs(targets) do
+      local vertical = edge == "left" or edge == "right"
+      local second = edge == "left" or edge == "top"
+      if parent.vertical == vertical and (parent.second == node) == second then
+        -- Outermost first, so inner splits land on their targets.
+        table.insert(splits, 1, { split = parent, target = target })
+        targets[edge] = nil
       end
-      parent.ratio =
-        math.min(0.9, math.max(0.1, parent.ratio + delta / (vertical and frame.w or frame.h)))
-      apply(entry.space)
-      return
     end
     node, parent = parent, parent.parent
   end
-  logger.error("Tiling: no " .. edge .. " edge to move")
+  for _, move in ipairs(splits) do
+    local split, frame = move.split, bounds(move.split, entry.space)
+    if frame then
+      local start, size =
+        split.vertical and frame.x or frame.y, split.vertical and frame.w or frame.h
+      split.ratio = math.min(0.9, math.max(0.1, (move.target - start) / size))
+    end
+  end
+  return #splits > 0
+end
+
+---@param edge "left"|"right"|"top"|"bottom"
+---@param delta number points; negative moves left or up
+function tiling.resize(edge, delta)
+  local entry = current(hs.window.focusedWindow())
+  local tile = entry and bounds(entry.leaf, entry.space)
+  if not entry or not tile then
+    return
+  end
+  -- At the screen's edge, the opposite edge moves the same way.
+  for _, side in ipairs({ edge, opposite[edge] }) do
+    if stretch(entry, { [side] = position(tile, side) + delta }) then
+      apply(entry.space)
+      return
+    end
+  end
+  logger.error("Tiling: no other window to resize against")
+end
+
+local function focusedSpace()
+  local window = hs.window.focusedWindow()
+  return window and windowManager.spaceOf(window:id() --[[@as integer]]) or hs.spaces.focusedSpace()
 end
 
 function tiling.balance()
-  local window = hs.window.focusedWindow()
-  local space = window and windowManager.spaceOf(window:id() --[[@as integer]])
-    or hs.spaces.focusedSpace()
+  local space = focusedSpace()
   local function reset(node)
     if node and not node.id then
       node.ratio = 0.5
@@ -431,7 +492,34 @@ function tiling.balance()
       reset(node.second)
     end
   end
-  reset(trees[space])
+  if columns[space] and trees[space] then
+    even(trees[space])
+  else
+    reset(trees[space])
+  end
+  apply(space)
+end
+
+-- Toggles the focused Space between splits and equal columns, keeping window order.
+function tiling.columns()
+  local space = focusedSpace()
+  columns[space] = not columns[space] or nil
+  local leaves = {}
+  local function collect(node)
+    if node.id then
+      leaves[#leaves + 1] = node
+    else
+      collect(node.first)
+      collect(node.second)
+    end
+  end
+  if trees[space] then
+    collect(trees[space])
+  end
+  trees[space] = nil
+  for _, leaf in ipairs(leaves) do
+    insert(space, leaf.id, leaf.pid)
+  end
   apply(space)
 end
 
@@ -480,7 +568,7 @@ tiling.windows:subscribe({
   sync()
 end)
 
-local spacesToSnapBack = {} ---@type table<integer, boolean>
+local dragged = {} ---@type table<integer, hs.window>
 tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   local entry = tiled[id]
   -- Stopped qualifying (e.g. entered fullscreen): leave the tree, don't snap back.
@@ -498,7 +586,7 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
     return
   end
   if hs.mouse.getButtons()[1] then
-    spacesToSnapBack[entry.space] = true
+    dragged[id] = window
   else
     apply(entry.space)
   end
@@ -523,10 +611,31 @@ tiling.mouseReleaseTap = hs.eventtap
     if resyncOnRelease then
       sync(true)
     end
-    for space in pairs(spacesToSnapBack) do
+    local spaces = {}
+    for id, window in pairs(dragged) do
+      local entry = tiled[id]
+      local tile = entry and not entry.leaf.zoom and bounds(entry.leaf, entry.space)
+      if tile then
+        -- A dragged edge moves its split; a title bar drag moves both and snaps back.
+        local frame, targets = window:frame(), {}
+        for edge, other in pairs(opposite) do
+          if
+            position(frame, edge) ~= position(tile, edge)
+            and position(frame, other) == position(tile, other)
+          then
+            targets[edge] = position(frame, edge)
+          end
+        end
+        stretch(entry, targets)
+      end
+      if entry then
+        spaces[entry.space] = true
+      end
+    end
+    dragged = {}
+    for space in pairs(spaces) do
       apply(space)
     end
-    spacesToSnapBack = {}
     tiling.spaceCheckAfterDrop:start()
     return false
   end)
