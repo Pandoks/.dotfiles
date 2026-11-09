@@ -11,7 +11,6 @@ local launching = {}
 ---@field bundleId string
 ---@field match? WindowMatcher omit = any window
 ---@field args? string[]|fun(): string[]? launch args; nil cancels the launch
----@field foreground? boolean for apps that make no window until active
 
 ---@param bundleId string
 ---@param pid integer
@@ -70,13 +69,9 @@ local function launch(profile, matcher)
     end),
   }
 
-  -- In the background: apps reopen windows on their last Space, and activating animates there
   local arguments = { "-b", profile.bundleId }
   if profile.match ~= nil then
     table.insert(arguments, 1, "-n")
-  end
-  if not profile.foreground then
-    table.insert(arguments, 1, "-g")
   end
   if args then
     table.insert(arguments, "--args")

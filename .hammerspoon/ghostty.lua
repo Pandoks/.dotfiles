@@ -7,7 +7,6 @@ local function ghosttyProfile(title, command)
   return {
     bundleId = "com.mitchellh.ghostty",
     match = title,
-    foreground = true,
     args = {
       "--title=" .. title,
       "--window-save-state=never",
