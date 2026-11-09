@@ -807,12 +807,43 @@ switcher.mouseTap = hs.eventtap.new({ types.mouseMoved, types.scrollWheel }, fun
   return false
 end)
 
+-- Secure Keyboard Entry hides Tab from event taps, so name the app holding it.
+local function warnSecureInput()
+  -- Filtered in the shell: unread, ioreg's ~90 KB fills the pipe and never exits.
+  local command =
+    "/usr/sbin/ioreg -r -d 1 -k IOConsoleUsers | /usr/bin/grep -o 'SecureInputPID\"=[0-9]*'"
+  hs.task
+    .new("/bin/sh", function(code, output)
+      local pid = code == 0 and tonumber((output or ""):match('SecureInputPID"=(%d+)'))
+      local app = pid and hs.application.applicationForPID(pid)
+      local message = app
+          and string.format("Cmd-Tab is blocked: %s has Secure Keyboard Entry on", app:name())
+        or pid and string.format(
+          "Cmd-Tab is blocked by Secure Keyboard Entry; its holder, pid %d, is not an app",
+          pid
+        )
+        or string.format(
+          "Cmd-Tab is blocked by Secure Keyboard Entry; finding its holder failed (exit %d)",
+          code
+        )
+      hs.alert.show(message)
+      pcall(hs.printf, "Window switcher: %s", message)
+    end, { "-c", command })
+    :start()
+end
+
 switcher.tap = hs.eventtap
   .new({ types.keyDown, types.keyUp, types.flagsChanged }, function(event)
     local kind, key, flags = event:getType(), event:getKeyCode(), event:getFlags()
     if kind == types.flagsChanged then
       if cycle and not flags.cmd then
         accept()
+      elseif
+        flags.cmd
+        and (key == keys.cmd or key == keys.rightcmd)
+        and hs.eventtap.isSecureInputEnabled()
+      then
+        warnSecureInput()
       end
       return false
     end

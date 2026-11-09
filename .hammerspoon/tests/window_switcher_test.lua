@@ -83,6 +83,7 @@ local function harness(options)
     captures = {},
     draws = {},
     applications = {},
+    tasks = {},
     unhides = 0,
     raisedPrints = 0,
   }
@@ -218,7 +219,16 @@ local function harness(options)
     end)
   end
   local types = { mouseMoved = 1, scrollWheel = 2, keyDown = 3, keyUp = 4, flagsChanged = 5 }
-  local keys = { a = 0, tab = 48, escape = 53, left = 123, right = 124, ["return"] = 36 }
+  local keys = {
+    a = 0,
+    tab = 48,
+    escape = 53,
+    left = 123,
+    right = 124,
+    ["return"] = 36,
+    cmd = 55,
+    rightcmd = 54,
+  }
   local propertyCodes = {
     scrollWheelEventIsContinuous = 1,
     scrollWheelEventPointDeltaAxis1 = 2,
@@ -376,6 +386,19 @@ local function harness(options)
         local object = chainObject()
         object.callback = callback
         return object
+      end,
+      isSecureInputEnabled = function()
+        return desktop.secureInput == true
+      end,
+    },
+    task = {
+      new = function(path, callback, arguments)
+        local task = { path = path, callback = callback, arguments = arguments }
+        function task:start()
+          desktop.tasks[#desktop.tasks + 1] = self
+          return self
+        end
+        return task
       end,
     },
     keycodes = { map = keys },
@@ -793,6 +816,33 @@ test("cached previews stay visible when fresh capture fails silently", function(
   assertEqual(#desktop.captures, 2)
   assertEqual(#desktop.alerts, 0)
   assertEqual(#desktop.logs, 0)
+end)
+
+test("pressing Cmd under Secure Keyboard Entry names the app holding it", function()
+  local desktop = harness()
+  desktop:key("flagsChanged", "cmd", { cmd = true })
+  assertEqual(#desktop.tasks, 0, "no lookup without Secure Keyboard Entry")
+  desktop.secureInput = true
+  desktop:key("flagsChanged", "rightcmd", { cmd = true })
+  local task = assert(desktop.tasks[1], "looks up the holder")
+  assertEqual(task.path, "/bin/sh")
+  task.callback(0, 'SecureInputPID"=103\n')
+  assertEqual(desktop.alerts[1], "Cmd-Tab is blocked: App 3 has Secure Keyboard Entry on")
+  desktop:key("flagsChanged", "a", { cmd = true, shift = true })
+  assertEqual(#desktop.tasks, 1, "other modifier changes don't look it up")
+  desktop:key("flagsChanged", "cmd", { cmd = true })
+  desktop.tasks[2].callback(0, 'SecureInputPID"=999\n')
+  assertEqual(
+    desktop.alerts[2],
+    "Cmd-Tab is blocked by Secure Keyboard Entry; its holder, pid 999, is not an app"
+  )
+  desktop:key("flagsChanged", "cmd", { cmd = true })
+  desktop.tasks[3].callback(1, "")
+  assertEqual(
+    desktop.alerts[3],
+    "Cmd-Tab is blocked by Secure Keyboard Entry; finding its holder failed (exit 1)"
+  )
+  assertEqual(desktop.logs[3], "Window switcher: " .. desktop.alerts[3], "failures are logged")
 end)
 
 test("missing previews silently use icons for every window state", function()
