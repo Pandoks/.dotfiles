@@ -7,7 +7,8 @@ Set `HAMMERSPOON_APP` if Hammerspoon is installed outside `/Applications`.
 The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
-tracking failures with popups and no retries, and shutdown. It also checks that quit
+tracking failures with popups, re-attaching a failed app only when it launches or activates,
+Space snapshot failures that keep tracked windows, and shutdown. It also checks that quit
 apps release their observers, and that a Space change re-scans apps with windows in front
 of a window titled "Dock". The switcher suite checks that explicit action failures
 still log and show popups, and that pressing Cmd while Secure Keyboard Entry is on names the
