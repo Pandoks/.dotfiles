@@ -379,12 +379,12 @@ function module.new(predicate)
         return
       elseif event == events.launched then
         launching[pid] = nil
-        -- A reload can seed an app before its launch completes.
+      end
+      if event == events.launched or event == events.activated then
+        -- Accessibility fails transiently, e.g. mid-launch.
         if apps[pid] and apps[pid].failed then
           apps[pid] = nil
         end
-      end
-      if event == events.launched or event == events.activated then
         attach(application)
       end
       local app = apps[pid]
@@ -394,7 +394,7 @@ function module.new(predicate)
       if event == events.activated then
         local ok, err = pcall(focused, app)
         if not ok then
-          disable(app, "focused window: " .. tostring(err))
+          failure(app, "focused window: " .. tostring(err))
         end
       elseif event == events.hidden or event == events.unhidden then
         for _, record in ipairs(app.windows) do
@@ -417,9 +417,10 @@ function module.new(predicate)
         if not app.app:isRunning() then
           detach(pid)
         elseif visible[pid] and app.observer and not app.failed then
+          -- The observer still works.
           local ok, err = pcall(snapshot, app)
           if not ok then
-            disable(app, "window snapshot: " .. tostring(err))
+            failure(app, "window snapshot: " .. tostring(err))
           end
         end
       end

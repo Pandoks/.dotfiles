@@ -371,13 +371,17 @@ test("main document windows on inactive Spaces are seeded without foreground foc
   assert(model.focusedReads == 0 and #model.logs == 0 and #model.alerts == 0)
 end)
 
-test("background Messaging failed errors log, alert, and stop without retries", function()
-  local model = setup({ background = true, unresponsive = true })
+test("background Messaging failed errors log, alert, and re-attach only on activation", function()
+  local options = { background = true, unresponsive = true }
+  local model = setup(options)
   assert(#model.logs == 1 and #model.alerts == 1 and #model.observers == 0)
   assert(model.logs[1]:find("observer setup: Messaging failed", 1, true))
-  model.appCallback("Browser", 2, model.app)
   model.spaceCallback()
-  assert(model.attributeReads == 1 and #model.logs == 1 and #model.alerts == 1)
+  assert(model.attributeReads == 1)
+  options.unresponsive = false
+  model.appCallback("Browser", 2, model.app)
+  assert(#model.observers == 1 and model.observers[1].active)
+  assert(#model.filter:getWindows() == 1 and #model.logs == 1 and #model.alerts == 1)
 end)
 
 test("launch completion replaces an app that failed while seeded mid-launch", function()
@@ -385,8 +389,6 @@ test("launch completion replaces an app that failed while seeded mid-launch", fu
   local model = setup(options)
   assert(#model.logs == 1 and #model.observers == 0)
   options.unresponsive = false
-  model.appCallback("Browser", 2, model.app)
-  assert(#model.observers == 0 and model.attributeReads == 1)
   model.appCallback("Browser", 1, model.app)
   assert(#model.observers == 1 and model.observers[1].active)
   assert(#model.filter:getWindows() == 1 and #model.logs == 1)
@@ -529,8 +531,11 @@ test("windowsOf lists tracked windows without predicates or Accessibility reads"
   assert(next(model.module.windowsOf(43)) == nil)
   assert(model.reads + model.attributeReads == reads and model.conversions == conversions)
   assert(#model.logs == 1)
-  model.snapshotError = true
-  model.spaceCallback()
+  local broken = model:window(400)
+  broken.attributeValue = function()
+    error("Accessibility read")
+  end
+  model:emit(broken, "AXWindowCreated")
   assert(#model.logs == 2 and next(model.module.windowsOf(42)) == nil)
 end)
 
@@ -624,19 +629,22 @@ test("a published window failing a later subscription is destroyed once", functi
   assert(destroyed == 1)
 end)
 
-test("unsupported application notification stops the observer without retry", function()
+test("unsupported application notification stops the observer until activation", function()
   local model = setup({ unsupported = "AXFocusedWindowChanged" })
   assert(not model.observers[1].active and #model.logs == 1 and #model.alerts == 1)
   local registrations = model.registrations
-  model.appCallback("Browser", 2, model.app)
   model.spaceCallback()
   assert(model.registrations == registrations and #model.logs == 1)
+  model.appCallback("Browser", 2, model.app)
+  assert(#model.observers == 2 and not model.observers[2].active and #model.logs == 2)
 end)
 
-test("observer creation failures log, alert, and stop without retries", function()
+test("observer creation failures log, alert, and report again on activation", function()
   local model = setup({ observerError = true })
-  model.appCallback("Browser", 2, model.app)
+  model.spaceCallback()
   assert(#model.observers == 0 and #model.logs == 1 and #model.alerts == 1)
+  model.appCallback("Browser", 2, model.app)
+  assert(#model.observers == 0 and #model.logs == 2 and #model.alerts == 2)
 end)
 
 test("application elements in focus notifications are not failed windows", function()
@@ -645,7 +653,7 @@ test("application elements in focus notifications are not failed windows", funct
   assert(#model.logs == 0 and #model.filter:getWindows() == 1)
 end)
 
-test("Space snapshots are event-driven and stop on their first failure", function()
+test("Space snapshots are event-driven and failures keep tracked windows", function()
   local model = setup()
   model:window(200)
   local reads, destroyed = model.reads, 0
@@ -657,11 +665,12 @@ test("Space snapshots are event-driven and stop on their first failure", functio
   assert(#model.filter:getWindows() == 2 and model.reads == reads + 1)
   model.snapshotError = true
   model.spaceCallback()
-  assert(#model.logs == 1 and #model.alerts == 1 and not model.observers[1].active)
-  assert(destroyed == 2 and #model.filter:getWindows() == 0)
+  assert(#model.logs == 1 and #model.alerts == 1 and model.observers[1].active)
+  assert(destroyed == 0 and #model.filter:getWindows() == 2)
+  model.snapshotError = false
+  model:window(300)
   model.spaceCallback()
-  model.appCallback("Browser", 3, model.app)
-  assert(model.reads == reads + 2 and #model.logs == 1 and destroyed == 2)
+  assert(model.reads == reads + 3 and #model.filter:getWindows() == 3 and #model.logs == 1)
 end)
 
 test("focus follows the system frontmost app without asking the app", function()
@@ -749,7 +758,7 @@ test("apps exiting during a Space snapshot are detached without an alert", funct
   assert(not model.observers[1].active and #model.filter:getWindows() == 0)
 end)
 
-test("Messaging failed from a running app still logs and alerts once", function()
+test("Messaging failed from a running app logs and alerts without stopping", function()
   local model = setup()
   model.element.attributeValue = function()
     return nil, "Messaging failed"
@@ -757,9 +766,7 @@ test("Messaging failed from a running app still logs and alerts once", function(
   model.spaceCallback()
   assert(#model.logs == 1 and #model.alerts == 1)
   assert(model.logs[1]:find("window snapshot: Messaging failed", 1, true))
-  assert(not model.observers[1].active)
-  model.spaceCallback()
-  assert(#model.logs == 1 and #model.alerts == 1)
+  assert(model.observers[1].active and #model.filter:getWindows() == 1)
 end)
 
 test("Space cleanup handles termination notifications without an application", function()
