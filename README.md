@@ -158,6 +158,12 @@ sudo brew services start tailscale      # macOS
 sudo tailscale up
 ```
 
+On each Mac, add [browse] to Helium from the Chrome Web Store, run
+`~/.local/bin/browse pair`, and enter its code under the extension's
+**Options → advanced → Pairing code**. Claude Code on every machine then drives
+each Mac's browser as `browse-<ssh host>`, listed in
+[`.claude/mods/browse/.mcp.json`](.claude/mods/browse/.mcp.json).
+
 The source of truth is
 [`.config/mise/config.toml`](.config/mise/config.toml), with OS-specific
 packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
@@ -193,6 +199,7 @@ launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [ARTEX]: https://github.com/jiwoochris/artex-global
 [Beszel]: https://beszel.dev/
+[browse]: https://github.com/anomalyco/browse
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "browse-sieve": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/browse-mcp.sh",
+      "args": ["sieve"]
+    },
+    "browse-m1-max": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/browse-mcp.sh",
+      "args": ["m1-max"]
+    }
+  }
+}
