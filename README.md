@@ -168,7 +168,7 @@ The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], [ARTEX], and
 [Proton Mail Bridge]:
 
 ```sh
-sudo pacman -Syu
+sudo pacman -Syu  # Arch Linux only
 mise -E hub bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 sudo tailscale serve --service=svc:cliproxyapi-api --https=443 http://127.0.0.1:8318

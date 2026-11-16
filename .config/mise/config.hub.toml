@@ -49,6 +49,11 @@ wanted_by = ["default.target"]
 start = true
 
 [bootstrap.packages]
+"apt:pass" = "latest"
+"apt:libsecret-1-0" = "latest"
+"apt:libfido2-1" = "latest"
+"apt:libarchive-tools" = "latest"
+
 "pacman:pass" = "latest"
 "pacman:libsecret" = "latest"
 "pacman:libfido2" = "latest"
