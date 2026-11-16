@@ -5,6 +5,14 @@ beszel-hub = "github:henrygd/beszel"
 "github:router-for-me/CLIProxyAPI" = "latest"
 beszel-hub = { version = "latest", asset_pattern = 'beszel_linux_{{ arch(x64="amd64", arm64="arm64") }}.tar.gz' }
 
+[tools."github:ProtonMail/proton-bridge"]
+version = "latest"
+asset_pattern = "protonmail-bridge_*_amd64.deb"
+postinstall = '''
+bsdtar -xOf "$MISE_TOOL_INSTALL_PATH"/protonmail-bridge_*.deb 'data.tar.*' | bsdtar -xf - -C "$MISE_TOOL_INSTALL_PATH" --strip-components 5 ./usr/lib/protonmail/bridge/bridge
+rm "$MISE_TOOL_INSTALL_PATH"/protonmail-bridge_*.deb
+'''
+
 [dotfiles]
 "~/.cli-proxy-api/config.yaml" = "../../.cli-proxy-api/config.yaml"
 "~/.cli-proxy-api-api/config.yaml" = "../../.cli-proxy-api-api/config.yaml"
@@ -35,6 +43,26 @@ after = ["network.target"]
 type = "simple"
 exec_start = "%h/.local/share/mise/installs/beszel-hub/latest/beszel serve --http 127.0.0.1:8090 --dir %h/.local/share/beszel"
 environment = { APP_URL = "https://beszel.tailb2c81d.ts.net", AUTO_LOGIN = "hub@beszel.local", DISABLE_PASSWORD_AUTH = "true", CSP = "frame-ancestors 'self' https://*.notion.so https://*.notion.com" }
+restart = "always"
+restart_sec = "10"
+wanted_by = ["default.target"]
+start = true
+
+[bootstrap.packages]
+"apt:pass" = "latest"
+"apt:libsecret-1-0" = "latest"
+"apt:libfido2-1" = "latest"
+"apt:libarchive-tools" = "latest"
+
+"pacman:pass" = "latest"
+"pacman:libsecret" = "latest"
+"pacman:libfido2" = "latest"
+
+[bootstrap.linux.systemd.units.protonmail-bridge]
+description = "Proton Mail Bridge"
+after = ["network.target"]
+type = "simple"
+exec_start = "/bin/sh -c '[ -s %h/.password-store/.gpg-id ] || exit 0; exec %h/.local/share/mise/installs/github-proton-mail-proton-bridge/latest/bridge --noninteractive'"
 restart = "always"
 restart_sec = "10"
 wanted_by = ["default.target"]

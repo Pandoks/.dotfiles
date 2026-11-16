@@ -164,14 +164,18 @@ packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 ## Hub
 
-The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], and [ARTEX]:
+The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], [ARTEX], and
+[Proton Mail Bridge]:
 
 ```sh
+sudo pacman -Syu  # Arch Linux only
 mise -E hub bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 sudo tailscale serve --service=svc:cliproxyapi-api --https=443 http://127.0.0.1:8318
 sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 sudo tailscale serve --service=svc:artex --https=443 http://127.0.0.1:8787
+sudo tailscale serve --service=svc:protonmail-bridge --tcp=1143 tcp://127.0.0.1:1143
+sudo tailscale serve --service=svc:protonmail-bridge --tcp=1025 tcp://127.0.0.1:1025
 ```
 
 **CLIProxyAPI:** set `management.secret-key` in `~/.cli-proxy-api/config.yaml`
@@ -190,9 +194,25 @@ systemctl --user restart dev.mise.beszel-agent                # Linux
 launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 ```
 
+**Proton Mail Bridge:** the service waits for `pass`. Set it up, then log in
+with the service stopped:
+
+```sh
+gpg --batch --pinentry-mode loopback --passphrase '' \
+  --quick-gen-key bridge@hub.local default default never
+pass init bridge@hub.local
+systemctl --user stop dev.mise.protonmail-bridge
+mise -E hub exec -- bridge --cli  # updates autoupdates disable, login, info
+systemctl --user start dev.mise.protonmail-bridge
+```
+
+Clients use `protonmail-bridge.<tailnet>.ts.net` (IMAP 1143, SMTP 1025,
+STARTTLS) with the `info` credentials and accept Bridge's self-signed cert.
+
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [ARTEX]: https://github.com/jiwoochris/artex-global
 [Beszel]: https://beszel.dev/
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
 [mise]: https://mise.jdx.dev/
+[Proton Mail Bridge]: https://proton.me/mail/bridge
