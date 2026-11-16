@@ -194,26 +194,20 @@ systemctl --user restart dev.mise.beszel-agent                # Linux
 launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 ```
 
-**Proton Mail Bridge:** the service waits for a `pass` store to hold its vault
-key. Create one, stop the service (Bridge runs one instance at a time), set it
-up in the CLI, then start the service:
+**Proton Mail Bridge:** the service waits for `pass`. Set it up, then log in
+with the service stopped:
 
 ```sh
 gpg --batch --pinentry-mode loopback --passphrase '' \
   --quick-gen-key bridge@hub.local default default never
 pass init bridge@hub.local
 systemctl --user stop dev.mise.protonmail-bridge
-mise -E hub exec -- bridge --cli
+mise -E hub exec -- bridge --cli  # updates autoupdates disable, login, info
 systemctl --user start dev.mise.protonmail-bridge
 ```
 
-In the CLI, run `updates autoupdates disable` (answer `yes`; mise manages the
-version), `login`, `info` (client credentials), optionally `cert export` (it
-also writes the private `key.pem`; give clients only `cert.pem`), then `exit`.
-Clients use `protonmail-bridge.<tailnet>.ts.net` with IMAP port 1143 and SMTP
-port 1025, STARTTLS, and the `info` credentials. The certificate covers only
-`127.0.0.1`: accept it as an exception, or trust `cert.pem` and skip the
-hostname check.
+Clients use `protonmail-bridge.<tailnet>.ts.net` (IMAP 1143, SMTP 1025,
+STARTTLS) with the `info` credentials and accept Bridge's self-signed cert.
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [ARTEX]: https://github.com/jiwoochris/artex-global
