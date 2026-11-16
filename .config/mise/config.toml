@@ -64,6 +64,9 @@ login_shell = "/bin/zsh"
 "~/.config/nvim" = "../nvim"
 "~/.config/yazi" = "../yazi"
 
+# T3 Code refuses symlinked theme files
+"~/.t3/userdata/themes/nyx.json" = { source = "../t3/themes/nyx.json", mode = "copy" }
+
 "~/.ssh/config" = "../../.ssh/config"
 
 "~/.claude/settings.json" = "../../.claude/settings.json"
