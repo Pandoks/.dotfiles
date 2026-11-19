@@ -130,6 +130,10 @@ ulimit -n 1024
 P10K_SSH_FOREGROUND='#0050D5'
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
+# turn off mouse tracking and extended keys a crashed TUI left on, so typing works again
+_reset_term_modes() { printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l\e[>4m' }
+autoload -Uz add-zsh-hook && add-zsh-hook precmd _reset_term_modes
+
 # >>> mise:activate >>> managed by mise — do not edit between markers
 eval "$(mise activate zsh)"
 # <<< mise:activate <<<
