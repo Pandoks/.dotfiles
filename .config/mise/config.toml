@@ -19,6 +19,7 @@ kubectl = "latest"
 delta = "latest"
 "npm:@moonshot-ai/kimi-code" = "latest"
 opencode = "latest"
+antigravity-cli = "latest"
 grok = { version = "latest", bin = "grok", platforms = { windows-arm64 = { bin = "grok.exe", url = "https://storage.googleapis.com/grok-build-public-artifacts/cli/grok-{{ version }}-windows-aarch64.exe" }, windows-x64 = { bin = "grok.exe", url = "https://storage.googleapis.com/grok-build-public-artifacts/cli/grok-{{ version }}-windows-x86_64.exe" } }, url = 'https://storage.googleapis.com/grok-build-public-artifacts/cli/grok-{{ version }}-{{ os() }}-{{ arch(x64="x86_64", arm64="aarch64") }}', version_list_url = "https://x.ai/cli/stable" }
 lazydocker = "latest"
 k9s = "latest"
@@ -30,7 +31,7 @@ go = "latest"
 "github:henrygd/beszel" = { version = "latest", asset_pattern = 'beszel-agent_{{ os(macos="darwin") }}_{{ arch(x64="amd64", arm64="arm64") }}.tar.gz' }
 
 [settings]
-minimum_release_age_excludes = ["github:pingdotgg/t3code", "claude-code", "codex", "npm:@moonshot-ai/kimi-code", "opencode", "grok"]
+minimum_release_age_excludes = ["github:pingdotgg/t3code", "claude-code", "codex", "npm:@moonshot-ai/kimi-code", "opencode", "grok", "antigravity-cli"]
 
 [bootstrap.repos]
 "~/.oh-my-zsh" = { url = "https://github.com/ohmyzsh/ohmyzsh.git" }
@@ -82,3 +83,5 @@ login_shell = "/bin/zsh"
 "~/.grok/AGENTS.md" = "../../AGENTS.md"
 
 "~/.config/opencode/AGENTS.md" = "../../AGENTS.md"
+
+"~/.gemini/AGENTS.md" = "../../AGENTS.md"
