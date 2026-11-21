@@ -26,8 +26,17 @@ local function harness(options)
     switches = {},
     inflight = {},
     results = {},
+    timers = {},
     order = {},
-    calls = { activeSpaces = 0, spaceDisplay = 0, utilsSpaces = 0, displaySpaces = 0, timers = 0 },
+    calls = {
+      activeSpaces = 0,
+      spaceDisplay = 0,
+      utilsSpaces = 0,
+      displaySpaces = 0,
+      timers = 0,
+      cancelFocus = 0,
+      spaces = 0,
+    },
   }
   local spaces = {}
   for i = 1, 4 do
@@ -39,12 +48,21 @@ local function harness(options)
       return true
     end,
     spaces = function(ids)
+      desktop.calls.spaces = desktop.calls.spaces + 1
       return { [ids[1]] = desktop.windowSpace }
     end,
-    focus = function(_, id, done)
+    focus = function(_, id, done, space)
       desktop.focused = id
+      desktop.focusedSpace = space
       desktop.order[#desktop.order + 1] = "focus on " .. desktop.current
+      if options and options.deferFocus then
+        desktop.pendingFocus = done
+        return
+      end
       done(true)
+    end,
+    cancelFocus = function()
+      desktop.calls.cancelFocus = desktop.calls.cancelFocus + 1
     end,
     minimize = function(_, _, minimized, done)
       desktop.order[#desktop.order + 1] = "minimized="
@@ -120,9 +138,14 @@ local function harness(options)
         end,
       },
       timer = {
-        doAfter = function()
+        doAfter = function(_, callback)
           desktop.calls.timers = desktop.calls.timers + 1
-          return { stop = function() end }
+          local timer = { callback = callback, active = true }
+          function timer:stop()
+            self.active = false
+          end
+          desktop.timers[#desktop.timers + 1] = timer
+          return timer
         end,
       },
     },
@@ -380,5 +403,89 @@ test("isBusy reflects active switches across no-op, supersede, settle, and stop"
   assertEqual(desktop.windowManager.isBusy(), false, "idle after stop")
   assertEqual(desktop.results[4], "stopped")
 end)
+
+test(
+  "focus forwards space, skips spaces() with knownSpace, cancels, and tracks settle state",
+  function()
+    local desktop = harness({ nativeDisplaySpaces = true, deferFocus = true })
+    local spacesBefore = desktop.calls.spaces
+    local cancelsBefore = desktop.calls.cancelFocus
+    local result
+    desktop.windowManager.focus(10, 7, function(ok, err)
+      result = ok and "ok" or err
+    end, false, nil, 300)
+    assertEqual(desktop.calls.spaces, spacesBefore, "knownSpace skips native.spaces")
+    assertEqual(desktop.calls.cancelFocus, cancelsBefore + 1, "jump calls cancelFocus")
+    assertEqual(desktop.windowManager.isBusy(), true, "busy during focus jump")
+    assertEqual(desktop.windowManager.focusedTarget().id, 7)
+    assertEqual(desktop.windowManager.focusedTarget().space, 300)
+
+    desktop:settle()
+    assertEqual(desktop.focusedSpace, 300, "native.focus receives expected space")
+    assertEqual(desktop.windowManager.isBusy(), true, "still busy while native.focus in flight")
+    desktop.pendingFocus(true)
+    assertEqual(result, "ok")
+    assertEqual(desktop.windowManager.isBusy(), false, "unscoped isBusy false after settle")
+    assertEqual(desktop.windowManager.isBusy(300), true, "matching space busy during settle window")
+    assertEqual(
+      desktop.windowManager.isBusy(nil, 10),
+      true,
+      "matching pid busy during settle window"
+    )
+    assertEqual(desktop.windowManager.isBusy(200, 99), false, "unrelated space/pid not busy")
+    assertEqual(desktop.windowManager.focusedTarget().id, 7)
+
+    -- Settle timer clears settled state.
+    for _, timer in ipairs(desktop.timers) do
+      if timer.active then
+        timer.active = false
+        timer.callback()
+      end
+    end
+    assertEqual(desktop.windowManager.isBusy(300, 10), false, "idle after settle timer expires")
+    assertEqual(desktop.windowManager.focusedTarget(), nil)
+
+    -- space() and stop() clear settled state and cancel in-flight focus.
+    local cancelsNow = desktop.calls.cancelFocus
+    local live = true
+    local cancelledResult
+    desktop.windowManager.focus(
+      10,
+      8,
+      function(ok, err)
+        cancelledResult = ok and "ok" or err
+      end,
+      false,
+      function()
+        return live
+      end,
+      200
+    )
+    live = false
+    local cancelsBeforeSettle = desktop.calls.cancelFocus
+    assertEqual(cancelsBeforeSettle, cancelsNow + 1)
+    desktop:settle()
+    assertEqual(cancelledResult, "cancelled")
+    assertEqual(desktop.calls.cancelFocus, cancelsBeforeSettle + 1)
+
+    desktop.pendingFocus = nil
+    desktop.windowManager.focus(10, 9, function() end, false, nil, 200)
+    desktop.pendingFocus(true)
+    assertEqual(desktop.windowManager.isBusy(200), true)
+    desktop:space(1)
+    assertEqual(desktop.windowManager.focusedTarget(), nil, "space() clears settled state")
+    desktop:settle()
+    assertEqual(desktop.windowManager.isBusy(200), false)
+
+    desktop.pendingFocus = nil
+    desktop.windowManager.focus(10, 11, function() end, false, nil, 100)
+    desktop.pendingFocus(true)
+    assertEqual(desktop.windowManager.isBusy(100), true)
+    cancelsNow = desktop.calls.cancelFocus
+    desktop.windowManager.stop()
+    assertEqual(desktop.windowManager.isBusy(100), false, "stop() clears settled state")
+    assertEqual(desktop.calls.cancelFocus, cancelsNow + 1, "stop() calls cancelFocus")
+  end
+)
 
 print("RESULT " .. passed .. " passed, 0 failed")

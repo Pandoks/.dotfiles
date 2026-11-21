@@ -16,13 +16,17 @@
 @end
 
 static LSRefTable refTable = LUA_NOREF;
+static dispatch_queue_t frontQueue;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *queues;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *focusQueues;
+static NSMutableDictionary<NSNumber *, dispatch_queue_t> *focusedQueues;
 static NSMutableDictionary<NSNumber *, NSValue *> *frames;
 static NSMutableDictionary<NSNumber *, NSValue *> *appliedFrames;
 static NSMutableDictionary<NSNumber *, NSObject *> *scans;
 static NSMutableDictionary<NSNumber *, EnhancedState *> *enhancedStates;
 static _Atomic BOOL naturalScroll = YES;
+static _Atomic uint64_t focusGeneration = 0;
+static _Atomic uint64_t focusedGeneration = 0;
 
 extern AXError _AXUIElementGetWindow(AXUIElementRef element, CGWindowID *windowID);
 static AXUIElementRef (*remoteElement)(CFDataRef token);
@@ -409,18 +413,59 @@ static void schedule(lua_State *state, int argument, dispatch_queue_t queue, NSS
   });
 }
 
+static BOOL spaceIsActive(uint64_t space) {
+  NSArray *displays = CFBridgingRelease(copyDisplaySpaces(connection));
+  if (![displays isKindOfClass:NSArray.class]) return NO;
+  for (NSDictionary *display in displays) {
+    if (![display isKindOfClass:NSDictionary.class]) continue;
+    NSDictionary *current = display[@"Current Space"];
+    NSNumber *active = [current isKindOfClass:NSDictionary.class] ? current[@"ManagedSpaceID"] : nil;
+    if ([active isKindOfClass:NSNumber.class] && active.unsignedLongLongValue == space) return YES;
+  }
+  return NO;
+}
+
+static BOOL windowExists(pid_t pid, CGWindowID windowID) {
+  CFTypeRef query = queryWindows(connection, (__bridge CFArrayRef)@[ @(windowID) ], 1);
+  CFTypeRef iterator = query ? copyIterator(query) : NULL;
+  BOOL match = NO;
+  while (iterator && advance(iterator)) {
+    if (windowOf(iterator) == windowID && pidOf(iterator) == pid) {
+      match = YES;
+      break;
+    }
+  }
+  if (iterator) CFRelease(iterator);
+  if (query) CFRelease(query);
+  return match;
+}
+
+static int cancelFocus(lua_State *state) {
+  LuaSkin *skin = [LuaSkin sharedWithState:state];
+  [skin checkArgs:LS_TBREAK];
+  atomic_fetch_add(&focusGeneration, 1);
+  return 0;
+}
+
 static int focus(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
-  [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER, LS_TFUNCTION | LS_TOPTIONAL, LS_TBREAK];
+  [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER,
+    LS_TFUNCTION | LS_TNIL | LS_TOPTIONAL, LS_TNUMBER | LS_TINTEGER | LS_TNIL | LS_TOPTIONAL, LS_TBREAK];
   pid_t pid = (pid_t)lua_tointeger(state, 1);
   CGWindowID windowID = (CGWindowID)lua_tointeger(state, 2);
-  schedule(state, 3, queueFor(focusQueues, "window_manager.focus", pid), ^NSString *{
+  uint64_t expectedSpace = lua_isnumber(state, 4) ? (uint64_t)lua_tointeger(state, 4) : 0;
+  uint64_t token = atomic_fetch_add(&focusGeneration, 1) + 1;
+  schedule(state, 3, frontQueue, ^NSString *{
+    if (atomic_load(&focusGeneration) != token) return @"cancelled";
+    if (expectedSpace && !spaceIsActive(expectedSpace)) return @"cancelled";
     ProcessSerialNumber process;
     if (GetProcessForPID(pid, &process) != noErr) return @"process unavailable";
-    AXUIElementRef window = copyWindow(pid, windowID);
-    if (!window) return @"window unavailable";
+    if (!windowExists(pid, windowID)) {
+      forget(pid, windowID);
+      return @"window unavailable";
+    }
 
-    // Front process, key-window event records, then raise.
+    // Front process and key-window event records return immediately; AX raise finishes asynchronously.
     CGError fronted = setFront(&process, windowID, 0x200);
     uint8_t record[0xf8] = { [0x04] = 0xf8, [0x3a] = 0x10 };
     memcpy(record + 0x3c, &windowID, sizeof windowID);
@@ -430,13 +475,68 @@ static int focus(lua_State *state) {
     record[0x08] = 0x02;
     CGError released = pressed ?: postRecord(&process, record);
     if (released != kCGErrorSuccess) {
-      CFRelease(window);
       return [NSString stringWithFormat:@"focus failed (%d)", released];
     }
-    AXError raised = AXUIElementPerformAction(window, kAXRaiseAction);
-    CFRelease(window);
-    if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
-    return raised == kAXErrorSuccess ? nil : [NSString stringWithFormat:@"raise failed (%d)", raised];
+
+    dispatch_async(queueFor(focusQueues, "window_manager.focus", pid), ^{
+      if (atomic_load(&focusGeneration) != token) return;
+      if (expectedSpace && !spaceIsActive(expectedSpace)) return;
+      AXUIElementRef target = copyWindow(pid, windowID);
+      if (!target) return;
+      if (atomic_load(&focusGeneration) == token && (!expectedSpace || spaceIsActive(expectedSpace))) {
+        AXError raised = AXUIElementPerformAction(target, kAXRaiseAction);
+        if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
+      }
+      CFRelease(target);
+    });
+    return nil;
+  });
+  return 0;
+}
+
+static int focusedWindow(lua_State *state) {
+  LuaSkin *skin = [LuaSkin sharedWithState:state];
+  [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TFUNCTION, LS_TBREAK];
+  pid_t pid = (pid_t)lua_tointeger(state, 1);
+  lua_pushvalue(state, 2);
+  int callback = [skin luaRef:refTable];
+  LSGCCanary canary = [skin createGCCanary];
+  uint64_t token = atomic_fetch_add(&focusedGeneration, 1) + 1;
+  dispatch_async(queueFor(focusedQueues, "window_manager.focused", pid), ^{
+    CGWindowID windowID = 0;
+    NSString *failure = nil;
+    if (atomic_load(&focusedGeneration) != token) {
+      failure = @"cancelled";
+    } else {
+      AXUIElementRef app = application(pid);
+      CFTypeRef value = NULL;
+      AXError status = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute, &value);
+      CFRelease(app);
+      if (status == kAXErrorSuccess) {
+        if (atomic_load(&focusedGeneration) != token) {
+          failure = @"cancelled";
+        } else if (value) {
+          if (_AXUIElementGetWindow((AXUIElementRef)value, &windowID) != kAXErrorSuccess) windowID = 0;
+        }
+        if (value) CFRelease(value);
+      } else if (status != kAXErrorNoValue && status != kAXErrorAttributeUnsupported) {
+        failure = [NSString stringWithFormat:@"focused window failed (%d)", status];
+      }
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+      LuaSkin *main = [LuaSkin sharedWithState:NULL];
+      LSGCCanary done = canary;
+      if (![main checkGCCanary:canary]) return;
+      [main destroyGCCanary:&done];
+      lua_State *lua = main.L;
+      _lua_stackguard_entry(lua);
+      [main pushLuaRef:refTable ref:callback];
+      [main luaUnref:refTable ref:callback];
+      if (windowID) lua_pushinteger(lua, windowID); else lua_pushnil(lua);
+      if (failure) lua_pushstring(lua, failure.UTF8String); else lua_pushnil(lua);
+      [main protectedCallAndError:@"window_manager focusedWindow callback" nargs:2 nresults:0];
+      _lua_stackguard_exit(lua);
+    });
   });
   return 0;
 }
@@ -825,6 +925,8 @@ static int displaySpaces(lua_State *state) {
 static const luaL_Reg functions[] = {
   { "move", move },
   { "focus", focus },
+  { "cancelFocus", cancelFocus },
+  { "focusedWindow", focusedWindow },
   { "frame", frame },
   { "minimize", minimize },
   { "windows", windows },
@@ -868,8 +970,11 @@ int luaopen_window_manager(lua_State *state) {
     attributesOf = found[13];
     copyDisplaySpaces = found[14];
     copySpaceWindows = found[15];
+    frontQueue = dispatch_queue_create("window_manager.front", dispatch_queue_attr_make_with_qos_class(
+      DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
     queues = [NSMutableDictionary dictionary];
     focusQueues = [NSMutableDictionary dictionary];
+    focusedQueues = [NSMutableDictionary dictionary];
     elements = [NSMutableDictionary dictionary];
     absent = [NSMutableDictionary dictionary];
     frames = [NSMutableDictionary dictionary];
