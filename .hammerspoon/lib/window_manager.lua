@@ -2,13 +2,27 @@ local utils = require("lib.utils")
 
 ---@alias WindowManagerDone fun(ok: boolean, err?: string)
 
+---@class DisplaySpace
+---@field id integer
+---@field display string
+
+---@class DisplaySpaceEntry
+---@field index integer
+---@field display string
+
+---@class DisplaySpaces
+---@field spaces DisplaySpace[]
+---@field active table<string, integer>
+---@field bySpace table<integer, DisplaySpaceEntry>
+
 ---@class WindowManagerNative
 ---@field move fun(right: boolean, count: integer, x: number, y: number): boolean, string?
 ---@field focus fun(pid: integer, id: integer, done?: WindowManagerDone)
 ---@field frame fun(pid: integer, id: integer, x: number, y: number, w: number, h: number, done?: WindowManagerDone)
 ---@field minimize fun(pid: integer, id: integer, minimized: boolean, done?: WindowManagerDone)
----@field windows fun(done: fun(ok: boolean, err?: string, rows: table[]))
+---@field windows fun(done: fun(ok: boolean, err?: string, rows: table[]), pids?: integer[]|table<integer, boolean>)
 ---@field spaces fun(ids: integer[]): table<integer, integer>
+---@field displaySpaces? fun(): DisplaySpaces?, string?
 
 local native = utils.native("window_manager") --[[@as WindowManagerNative]]
 
@@ -27,6 +41,16 @@ local windowManager = { native = native }
 
 ---@type SpaceJump?
 local jump
+
+---@return table<string, integer>?
+---@return string?
+local function activeSpaces()
+  if native.displaySpaces then
+    local layout, err = native.displaySpaces()
+    return layout and layout.active or nil, err
+  end
+  return hs.spaces.activeSpaces()
+end
 
 ---@param ok boolean
 ---@param err? string
@@ -69,7 +93,7 @@ local watcher = hs.spaces.watcher
     if not job then
       return
     end
-    local active, err = hs.spaces.activeSpaces()
+    local active, err = activeSpaces()
     if not active then
       finish(false, err)
     elseif active[job.display] ~= job.landing then
@@ -84,27 +108,54 @@ local watcher = hs.spaces.watcher
 
 ---@param index number Mission Control index
 ---@param done? WindowManagerDone
-function windowManager.space(index, done)
+---@param layout? DisplaySpaces
+local function jumpTo(index, done, layout)
   done = done or function() end
-  local spaces, err = utils.spaces()
-  if not spaces then
-    done(false, err)
-    return
+  local targetID, display, current, origin
+  if not layout and native.displaySpaces then
+    local err
+    layout, err = native.displaySpaces()
+    if not layout then
+      done(false, err)
+      return
+    end
   end
-  local target = spaces[index]
-  if not target then
-    done(false, "Space " .. index .. " does not exist")
-    return
+  if layout then
+    local target = layout.spaces[index]
+    if not target then
+      done(false, "Space " .. index .. " does not exist")
+      return
+    end
+    targetID, display = target.id, target.display
+    current = layout.active[display]
+    local entry = current and layout.bySpace[current]
+    origin = entry and entry.index
+  else
+    local spaces, err = utils.spaces()
+    if not spaces then
+      done(false, err)
+      return
+    end
+    local target = spaces[index]
+    if not target then
+      done(false, "Space " .. index .. " does not exist")
+      return
+    end
+    targetID, display = target.ManagedSpaceID, target.display
+    local active
+    active, err = hs.spaces.activeSpaces()
+    if not active then
+      done(false, err)
+      return
+    end
+    current = active[display]
+    for position, space in ipairs(spaces) do
+      if space.ManagedSpaceID == current then
+        origin = position
+      end
+    end
   end
-  local display = target.display
   local screen = hs.screen.find(display)
-  local active
-  active, err = hs.spaces.activeSpaces()
-  if not active then
-    done(false, err)
-    return
-  end
-  local current = active[display]
   if not screen or not current then
     done(false, "display unavailable")
     return
@@ -113,29 +164,23 @@ function windowManager.space(index, done)
   -- Swipes in flight on this display still land; the watcher continues from there.
   if jump and jump.display == display then
     local previous = jump.done
-    jump.space, jump.index, jump.done = target.ManagedSpaceID, index, done
+    jump.space, jump.index, jump.done = targetID, index, done
     deadline(jump)
     previous(false, "superseded")
     return
   elseif jump then
     finish(false, "superseded")
   end
-  if current == target.ManagedSpaceID then
+  if current == targetID then
     done(true)
     return
-  end
-  local origin
-  for position, space in ipairs(spaces) do
-    if space.ManagedSpaceID == current then
-      origin = position
-    end
   end
   if not origin then
     done(false, "current Space unavailable")
     return
   end
   jump = {
-    space = target.ManagedSpaceID,
+    space = targetID,
     index = index,
     landing = current,
     from = origin,
@@ -145,6 +190,12 @@ function windowManager.space(index, done)
   }
   deadline(jump)
   send(jump, origin)
+end
+
+---@param index number Mission Control index
+---@param done? WindowManagerDone
+function windowManager.space(index, done)
+  jumpTo(index, done)
 end
 
 ---@param id integer
@@ -187,6 +238,31 @@ function windowManager.focus(pid, id, done, minimized, live)
     show()
     return
   end
+  local function arrive(ok, failure)
+    if ok then
+      show()
+    else
+      done(false, failure)
+    end
+  end
+  if native.displaySpaces then
+    local layout, err = native.displaySpaces()
+    if not layout then
+      done(false, err)
+      return
+    end
+    local entry = layout.bySpace[space]
+    if not entry then
+      done(false, "display unavailable for Space " .. space)
+      return
+    end
+    if layout.active[entry.display] == space then
+      show()
+      return
+    end
+    jumpTo(entry.index, arrive, layout)
+    return
+  end
   local display = hs.spaces.spaceDisplay(space)
   local active, err = hs.spaces.activeSpaces()
   if not display or not active then
@@ -199,17 +275,16 @@ function windowManager.focus(pid, id, done, minimized, live)
   end
   for index, row in ipairs(utils.spaces() or {}) do
     if row.ManagedSpaceID == space then
-      windowManager.space(index, function(ok, failure)
-        if ok then
-          show()
-        else
-          done(false, failure)
-        end
-      end)
+      jumpTo(index, arrive)
       return
     end
   end
   done(false, "window Space unavailable")
+end
+
+---@return boolean
+function windowManager.isBusy()
+  return jump ~= nil
 end
 
 windowManager.frame = native.frame
