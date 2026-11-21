@@ -518,7 +518,17 @@ local function retake(list, now, focused)
   return true
 end
 
-local function observe(window, list)
+local function recordManaged(space)
+  if type(space) == "number" then
+    lastSpace = space
+    local target = windowManager.focusedTarget and windowManager.focusedTarget()
+    if target and target.space == space and target.id and target.pid then
+      recent[space] = { id = target.id, pid = target.pid }
+    end
+  end
+end
+
+local function observe(window, list, standard, name)
   if stopped then
     return
   end
@@ -530,8 +540,8 @@ local function observe(window, list)
     arrive(space, true, list)
     return
   end
-  if windowManager.isBusy and windowManager.isBusy() then
-    lastSpace = space
+  if windowManager.isBusy and windowManager.isBusy(space) then
+    recordManaged(space)
     return
   end
   local changed = space ~= lastSpace
@@ -539,10 +549,17 @@ local function observe(window, list)
   local title, app
   if window then
     title = window:title()
-    if window:isStandard() and not isPiP(title) then
-      app = window:application()
-      if app and app:name() ~= "Hammerspoon" then
-        recent[space] = { id = window:id(), pid = app:pid() }
+    if (standard or window:isStandard()) and not isPiP(title) then
+      local ownerName = name
+      if ownerName == nil then
+        app = window:application()
+        ownerName = app and app:name()
+      end
+      if ownerName ~= "Hammerspoon" then
+        app = app or window:application()
+        if app then
+          recent[space] = { id = window:id(), pid = app:pid() }
+        end
       end
     end
   end
@@ -576,11 +593,13 @@ module.appWatcher = hs.application.watcher
     if event ~= hs.application.watcher.activated or not app then
       return
     end
-    if not (guard and guard.switching) and windowManager.isBusy and windowManager.isBusy() then
-      local space = hs.spaces.focusedSpace()
-      if type(space) == "number" then
-        lastSpace = space
-      end
+    local space = hs.spaces.focusedSpace()
+    if
+      not (guard and guard.switching)
+      and windowManager.isBusy
+      and windowManager.isBusy(space, app:pid())
+    then
+      recordManaged(space)
       return
     end
     -- The PiP can take focus just before or after activation, and again after a redirect.
@@ -625,8 +644,8 @@ module.input = hs.eventtap
 module.windows = filter.new(function(window)
   return window:isStandard()
 end)
-module.windows:subscribe(filter.windowFocused, function(window)
-  observe(window)
+module.windows:subscribe(filter.windowFocused, function(window, name)
+  observe(window, nil, true, name)
 end)
 module.watcher = hs.spaces.watcher
   .new(function()
@@ -637,10 +656,8 @@ module.watcher = hs.spaces.watcher
     if arrive(space) then
       return
     end
-    if not (guard and guard.switching) and windowManager.isBusy and windowManager.isBusy() then
-      if type(space) == "number" then
-        lastSpace = space
-      end
+    if not (guard and guard.switching) and windowManager.isBusy and windowManager.isBusy(space) then
+      recordManaged(space)
       return
     end
     local now = hs.timer.secondsSinceEpoch()

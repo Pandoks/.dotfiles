@@ -66,6 +66,8 @@ local function harness(options)
     alerts = {},
     busy = false,
     managerBusy = false,
+    busyChecks = {},
+    standardReads = 0,
     missionControlReads = 0,
     screenReads = 0,
     recent = {},
@@ -199,6 +201,7 @@ local function harness(options)
     end
     local methods = {
       isStandard = function()
+        desktop.standardReads = desktop.standardReads + 1
         return true
       end,
       isMinimized = function()
@@ -325,9 +328,16 @@ local function harness(options)
   end
   local windowManager, pending = { native = {} }, nil
   if not options.noManagerBusy then
-    function windowManager.isBusy()
+    function windowManager.isBusy(space, pid)
+      desktop.busyChecks[#desktop.busyChecks + 1] = { space = space, pid = pid }
+      if type(desktop.managerBusy) == "function" then
+        return desktop.managerBusy(space, pid)
+      end
       return desktop.managerBusy or pending ~= nil
     end
+  end
+  function windowManager.focusedTarget()
+    return desktop.focusedTarget
   end
   function windowManager.space(index, done)
     desktop.writes[#desktop.writes + 1] = { "space", index }
@@ -2068,5 +2078,40 @@ test("screen frame cache reuses finds and invalidates on screen watcher", functi
   assertEqual(noWatcher.focused, 2)
   noWatcher.module.stop()
 end)
+
+test(
+  "scoped isBusy skips AX reads, records focusedTarget, and windowFocused skips isStandard",
+  function()
+    local desktop = harness()
+    desktop.focusedTarget = { space = 202, pid = 103, id = 3 }
+    desktop.managerBusy = function(space, pid)
+      return space == 202 and (pid == nil or pid == 103)
+    end
+    desktop.space = 202
+    desktop.focused = 3
+    desktop.accessibilityReads = {}
+    desktop.busyChecks = {}
+    desktop:activate(3, 103)
+    desktop:focus(3)
+    assertEqual(desktop.busyChecks[1].space, 202)
+    assertEqual(desktop.busyChecks[1].pid, 103)
+    assertEqual(next(desktop.accessibilityReads), nil)
+    assertEqual(desktop.lists, 0)
+
+    -- Recorded focusedTarget feeds switchSpace() preferred candidate after busy settles.
+    desktop.managerBusy = false
+    desktop.focusedTarget = nil
+    desktop.module.switchSpace(1)
+    desktop:advance(0.3)
+    desktop.module.switchSpace(2)
+    desktop:advance(0.3)
+    assertEqual(desktop.focused, 3)
+
+    -- Non-busy windowFocused skips redundant window:isStandard() call.
+    local standardsBefore = desktop.standardReads
+    desktop:focus(2)
+    assertEqual(desktop.standardReads, standardsBefore)
+  end
+)
 
 print("RESULT " .. passed .. " passed, 0 failed")
