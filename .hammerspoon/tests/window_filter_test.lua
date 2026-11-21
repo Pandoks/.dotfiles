@@ -1083,4 +1083,65 @@ test("Space changes ignore layer-0 IDs that snapshots could not track", function
   assert(model.reads == reads + 1, "ignored ID does not re-trigger snapshot")
 end)
 
+test(
+  "watchWindowSpaces snapshots untracked windows landing on active Spaces without timers",
+  function()
+    local savedManager = package.loaded["lib.window_manager"]
+    local spaceListener
+    local unsubscribed = 0
+    package.loaded["lib.window_manager"] = {
+      native = {
+        displaySpaces = function()
+          return { active = { main = 1 } }
+        end,
+      },
+      watchWindowSpaces = function(callback)
+        spaceListener = callback
+        return function()
+          unsubscribed = unsubscribed + 1
+          spaceListener = nil
+        end
+      end,
+    }
+    local ok, err = pcall(function()
+      local model = setup({ mainOnly = true })
+      local reads = model.reads
+      local created = {}
+      model.filter:subscribe(model.module.windowCreated, function(_, _, _, id)
+        created[#created + 1] = id
+      end)
+      assert(type(spaceListener) == "function", "subscribes to watchWindowSpaces")
+
+      -- Ignored: removal, missing pid, already tracked, or inactive Space.
+      spaceListener(200, 1, false, 42)
+      spaceListener(200, 1, true, nil)
+      spaceListener(100, 1, true, 42)
+      spaceListener(200, 4, true, 42)
+      assert(model.reads == reads and #created == 0)
+
+      -- Untracked window landing on active Space 1 triggers snapshot without timers.
+      local second = model:window(200)
+      local original = model.element.attributeValue
+      model.element.attributeValue = function(target, name)
+        if name == "AXWindows" then
+          model.reads = model.reads + 1
+          return { model.first, second }
+        end
+        return original(target, name)
+      end
+      spaceListener(200, 1, true, 42)
+      assert(model.reads == reads + 1)
+      assert(#created == 1 and created[1] == 200)
+      assert(model.filter:getWindow(200, 42) == second.window)
+
+      model.module.stop()
+      assert(unsubscribed == 1 and spaceListener == nil)
+    end)
+    package.loaded["lib.window_manager"] = savedManager
+    if not ok then
+      error(err, 0)
+    end
+  end
+)
+
 print("RESULT " .. passed .. " passed, 0 failed")

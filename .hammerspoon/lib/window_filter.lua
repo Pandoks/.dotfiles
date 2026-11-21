@@ -33,7 +33,7 @@ Filter.__index = Filter
 local apps, filters, launching = {}, {}, {}
 local recent, focusSerial = 0, 0
 local order = {}
-local applicationWatcher, spaceWatcher, detach
+local applicationWatcher, spaceWatcher, stopWindowSpaceWatcher, detach
 local notifications = {
   AXUIElementDestroyed = "windowDestroyed",
   AXWindowMoved = "windowMoved",
@@ -458,6 +458,47 @@ detach = function(pid)
   retire(app)
 end
 
+local function ensureWindowSpaceWatcher()
+  local manager = package.loaded["lib.window_manager"] --[[@as { watchWindowSpaces?: (fun(callback: fun(id: integer, space: integer, added: boolean, pid?: integer)): fun()), native?: { displaySpaces?: fun(): { active?: table<string, integer> }? } }?]]
+  if not (manager and manager.watchWindowSpaces) or stopWindowSpaceWatcher then
+    return
+  end
+  stopWindowSpaceWatcher = manager.watchWindowSpaces(function(id, space, added, pid)
+    if not added or not pid then
+      return
+    end
+    local app = apps[pid]
+    if not app or not app.observer or app.failed or app.byId[id] or app.ignored[id] then
+      return
+    end
+    local layout = manager.native
+      and manager.native.displaySpaces
+      and manager.native.displaySpaces()
+    local active = layout and layout.active
+      or (hs.spaces and hs.spaces.activeSpaces and hs.spaces.activeSpaces())
+    if active then
+      local shown = false
+      for _, activeSpace in pairs(active) do
+        if activeSpace == space then
+          shown = true
+          break
+        end
+      end
+      if not shown then
+        return
+      end
+    end
+    if not app.app:isRunning() then
+      detach(pid)
+      return
+    end
+    local ok, err = pcall(snapshot, app)
+    if not ok then
+      failure(app, "window snapshot: " .. tostring(err))
+    end
+  end)
+end
+
 ---@param predicate? fun(window: hs.window): boolean?
 ---@return WindowFilter
 function module.new(predicate)
@@ -561,6 +602,7 @@ function module.new(predicate)
     end
     order = {}
   end
+  ensureWindowSpaceWatcher()
   filter:getWindows()
   return filter
 end
@@ -656,6 +698,10 @@ function module.stop()
   if applicationWatcher then
     applicationWatcher:stop()
     spaceWatcher:stop()
+  end
+  if stopWindowSpaceWatcher then
+    stopWindowSpaceWatcher()
+    stopWindowSpaceWatcher = nil
   end
   for _, app in pairs(apps) do
     if app.observer then
