@@ -1,3 +1,4 @@
+local dock = require("lib.dock")
 local utils = require("lib.utils")
 
 ---@alias WindowManagerDone fun(ok: boolean, err?: string)
@@ -29,89 +30,25 @@ local native = utils.native("window_manager") --[[@as WindowManagerNative]]
 ---@class WindowManager
 local windowManager = { native = native }
 
----@class SpaceJump
----@field space integer
----@field index number
----@field landing integer Space in-flight swipes end on
----@field from number Mission Control index of `landing`
----@field display string
----@field point hs.geometry
----@field timer? hs.timer
----@field done WindowManagerDone
+---@type { done: WindowManagerDone }?
+local switching
 
----@type SpaceJump?
-local jump
-
----@return table<string, integer>?
----@return string?
-local function activeSpaces()
-  if native.displaySpaces then
-    local layout, err = native.displaySpaces()
-    return layout and layout.active or nil, err
-  end
-  return hs.spaces.activeSpaces()
-end
-
----@param ok boolean
 ---@param err? string
-local function finish(ok, err)
-  local job = assert(jump)
-  jump = nil
-  assert(job.timer):stop()
-  job.timer = nil
-  job.done(ok, err)
-end
-
----@param job SpaceJump
-local function deadline(job)
-  if job.timer then
-    job.timer:stop()
+local function cancel(err)
+  local job = switching
+  if not job then
+    return
   end
-  job.timer = hs.timer.doAfter(1.5, function()
-    if jump == job then
-      finish(false, "timed out showing Space " .. job.index)
-    end
-  end)
+  switching = nil
+  job.done(false, err)
 end
-
--- Swipes posted together skip showing the Spaces between.
----@param job SpaceJump
----@param origin number Mission Control index
-local function send(job, origin)
-  job.landing, job.from = job.space, job.index
-  local ok, err =
-    native.move(job.index > origin, math.abs(job.index - origin), job.point.x, job.point.y)
-  if not ok then
-    finish(false, err)
-  end
-end
-
--- The Dock mishandles swipes posted mid-flight, so later presses wait.
-local watcher = hs.spaces.watcher
-  .new(function()
-    local job = jump
-    if not job then
-      return
-    end
-    local active, err = activeSpaces()
-    if not active then
-      finish(false, err)
-    elseif active[job.display] ~= job.landing then
-      return
-    elseif job.landing == job.space then
-      finish(true)
-    else
-      send(job, job.from)
-    end
-  end)
-  :start() --[[@as hs.spaces.watcher]]
 
 ---@param index number Mission Control index
 ---@param done? WindowManagerDone
 ---@param layout? DisplaySpaces
 local function jumpTo(index, done, layout)
   done = done or function() end
-  local targetID, display, current, origin
+  local targetID, display, current
   if not layout and native.displaySpaces then
     local err
     layout, err = native.displaySpaces()
@@ -128,8 +65,6 @@ local function jumpTo(index, done, layout)
     end
     targetID, display = target.id, target.display
     current = layout.active[display]
-    local entry = current and layout.bySpace[current]
-    origin = entry and entry.index
   else
     local spaces, err = utils.spaces()
     if not spaces then
@@ -149,11 +84,6 @@ local function jumpTo(index, done, layout)
       return
     end
     current = active[display]
-    for position, space in ipairs(spaces) do
-      if space.ManagedSpaceID == current then
-        origin = position
-      end
-    end
   end
   local screen = hs.screen.find(display)
   if not screen or not current then
@@ -161,35 +91,21 @@ local function jumpTo(index, done, layout)
     return
   end
 
-  -- Swipes in flight on this display still land; the watcher continues from there.
-  if jump and jump.display == display then
-    local previous = jump.done
-    jump.space, jump.index, jump.done = targetID, index, done
-    deadline(jump)
-    previous(false, "superseded")
-    return
-  elseif jump then
-    finish(false, "superseded")
+  if switching then
+    cancel("superseded")
   end
   if current == targetID then
     done(true)
     return
   end
-  if not origin then
-    done(false, "current Space unavailable")
-    return
-  end
-  jump = {
-    space = targetID,
-    index = index,
-    landing = current,
-    from = origin,
-    display = display,
-    point = screen:frame().center,
-    done = done,
-  }
-  deadline(jump)
-  send(jump, origin)
+  local job = { done = done }
+  switching = job
+  dock.switch(targetID, function(ok, err)
+    if switching == job then
+      switching = nil
+      job.done(ok, err)
+    end
+  end)
 end
 
 ---@param index number Mission Control index
@@ -284,7 +200,7 @@ end
 
 ---@return boolean
 function windowManager.isBusy()
-  return jump ~= nil
+  return switching ~= nil
 end
 
 windowManager.frame = native.frame
@@ -294,10 +210,7 @@ windowManager.windows = native.windows
 native.windows(function() end)
 
 function windowManager.stop()
-  watcher:stop()
-  if jump then
-    finish(false, "stopped")
-  end
+  cancel("stopped")
 end
 
 return windowManager
