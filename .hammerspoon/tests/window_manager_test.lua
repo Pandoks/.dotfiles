@@ -109,8 +109,11 @@ local function harness(options)
         return
       end
       if options and options.deferred then
-        desktop.inflight[#desktop.inflight + 1] = { space = space, done = done }
-        return
+        local entry = { space = space, done = done, cancelled = false }
+        desktop.inflight[#desktop.inflight + 1] = entry
+        return function()
+          entry.cancelled = true
+        end
       end
       desktop.current = space
       done(true)
@@ -179,10 +182,12 @@ local function harness(options)
   function desktop:settle()
     while #self.inflight > 0 do
       local job = table.remove(self.inflight, 1)
-      if not desktop.ignoreUpdate then
-        self.current = job.space
+      if not job.cancelled then
+        if not desktop.ignoreUpdate then
+          self.current = job.space
+        end
+        job.done(true)
       end
-      job.done(true)
     end
   end
   return desktop
@@ -535,6 +540,28 @@ test(
     desktop.windowManager.stop()
     assertEqual(desktop.calls.watchWindowSpaces, 4, "stop() unregisters native watcher")
     assertEqual(desktop.windowSpaceCallback, nil)
+  end
+)
+
+test(
+  "focusing a same-Space window supersedes an in-flight cross-Space jump instead of landing away",
+  function()
+    local desktop = harness({ nativeDisplaySpaces = true, deferred = true })
+    local firstResult, secondResult
+    desktop.windowManager.focus(10, 1, function(ok, err)
+      firstResult = ok and "ok" or err
+    end, false, nil, 300)
+    assertEqual(#desktop.inflight, 1, "cross-Space jump started")
+
+    desktop.windowManager.focus(20, 2, function(ok, err)
+      secondResult = ok and "ok" or err
+    end, false, nil, 100)
+    assertEqual(firstResult, "superseded", "in-flight cross-Space jump is superseded")
+    assertEqual(desktop.inflight[1].cancelled, true, "queued dock switch is cancelled")
+    desktop:settle()
+    assertEqual(desktop.current, 100, "stays on current Space instead of moving to stale Space")
+    assertEqual(secondResult, "ok")
+    assertEqual(desktop.focused, 2)
   end
 )
 

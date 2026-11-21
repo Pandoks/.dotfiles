@@ -15,12 +15,28 @@
 @implementation EnhancedState
 @end
 
+@interface PendingCallback : NSObject
+@property (nonatomic) int ref;
+@property (nonatomic) LSGCCanary canary;
+@end
+
+@implementation PendingCallback
+@end
+
+@interface PendingFrame : NSObject
+@property (nonatomic) NSRect rect;
+@property (nonatomic, strong) NSMutableArray<PendingCallback *> *callbacks;
+@end
+
+@implementation PendingFrame
+@end
+
 static LSRefTable refTable = LUA_NOREF;
 static dispatch_queue_t frontQueue;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *queues;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *focusQueues;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *focusedQueues;
-static NSMutableDictionary<NSNumber *, NSValue *> *frames;
+static NSMutableDictionary<NSNumber *, PendingFrame *> *frames;
 static NSMutableDictionary<NSNumber *, NSObject *> *scans;
 static NSMutableDictionary<NSNumber *, EnhancedState *> *enhancedStates;
 static _Atomic BOOL naturalScroll = YES;
@@ -54,7 +70,8 @@ enum { spaceWindowAdded = 1325, spaceWindowRemoved = 1326 };
 static int spaceWindowRef = LUA_NOREF;
 static LSGCCanary spaceWindowCanary;
 static BOOL hasSpaceWindowCanary = NO;
-static BOOL spaceWindowRegistered = NO;
+static BOOL spaceWindowAddedRegistered = NO;
+static BOOL spaceWindowRemovedRegistered = NO;
 static _Atomic uint64_t spaceWindowGeneration = 0;
 
 // Lua closes loadlib handles on reload while queued blocks may still run.
@@ -451,6 +468,24 @@ static void forget(pid_t pid, CGWindowID windowID) {
 
 #pragma mark - Lua callbacks
 
+static void deliver(int callback, LSGCCanary canary, NSString *error) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    LuaSkin *main = [LuaSkin sharedWithState:NULL];
+    LSGCCanary done = canary;
+    if (![main checkGCCanary:canary]) return;
+    [main destroyGCCanary:&done];
+    if (callback == LUA_NOREF) return;
+    lua_State *lua = main.L;
+    _lua_stackguard_entry(lua);
+    [main pushLuaRef:refTable ref:callback];
+    [main luaUnref:refTable ref:callback];
+    lua_pushboolean(lua, error == nil);
+    if (error) lua_pushstring(lua, error.UTF8String); else lua_pushnil(lua);
+    [main protectedCallAndError:@"window_manager callback" nargs:2 nresults:0];
+    _lua_stackguard_exit(lua);
+  });
+}
+
 static void schedule(lua_State *state, int argument, dispatch_queue_t queue, NSString *(^work)(void)) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   int callback = LUA_NOREF;
@@ -460,22 +495,7 @@ static void schedule(lua_State *state, int argument, dispatch_queue_t queue, NSS
   }
   LSGCCanary canary = [skin createGCCanary];
   dispatch_async(queue, ^{
-    NSString *error = work();
-    dispatch_async(dispatch_get_main_queue(), ^{
-      LuaSkin *main = [LuaSkin sharedWithState:NULL];
-      LSGCCanary done = canary;
-      if (![main checkGCCanary:canary]) return;
-      [main destroyGCCanary:&done];
-      if (callback == LUA_NOREF) return;
-      lua_State *lua = main.L;
-      _lua_stackguard_entry(lua);
-      [main pushLuaRef:refTable ref:callback];
-      [main luaUnref:refTable ref:callback];
-      lua_pushboolean(lua, error == nil);
-      if (error) lua_pushstring(lua, error.UTF8String); else lua_pushnil(lua);
-      [main protectedCallAndError:@"window_manager callback" nargs:2 nresults:0];
-      _lua_stackguard_exit(lua);
-    });
+    deliver(callback, canary, work());
   });
 }
 
@@ -519,19 +539,31 @@ static int focus(lua_State *state) {
     LS_TFUNCTION | LS_TNIL | LS_TOPTIONAL, LS_TNUMBER | LS_TINTEGER | LS_TNIL | LS_TOPTIONAL, LS_TBREAK];
   pid_t pid = (pid_t)lua_tointeger(state, 1);
   CGWindowID windowID = (CGWindowID)lua_tointeger(state, 2);
+  int callback = LUA_NOREF;
+  if (lua_isfunction(state, 3)) {
+    lua_pushvalue(state, 3);
+    callback = [skin luaRef:refTable];
+  }
+  LSGCCanary canary = [skin createGCCanary];
   uint64_t expectedSpace = lua_isnumber(state, 4) ? (uint64_t)lua_tointeger(state, 4) : 0;
   uint64_t token = atomic_fetch_add(&focusGeneration, 1) + 1;
-  schedule(state, 3, frontQueue, ^NSString *{
-    if (atomic_load(&focusGeneration) != token) return @"cancelled";
-    if (expectedSpace && !spaceIsActive(expectedSpace)) return @"cancelled";
+  dispatch_async(frontQueue, ^{
+    if (atomic_load(&focusGeneration) != token || (expectedSpace && !spaceIsActive(expectedSpace))) {
+      deliver(callback, canary, @"superseded");
+      return;
+    }
     ProcessSerialNumber process;
-    if (GetProcessForPID(pid, &process) != noErr) return @"process unavailable";
+    if (GetProcessForPID(pid, &process) != noErr) {
+      deliver(callback, canary, @"process unavailable");
+      return;
+    }
     if (!windowExists(pid, windowID)) {
       forget(pid, windowID);
-      return @"window unavailable";
+      deliver(callback, canary, @"window unavailable");
+      return;
     }
 
-    // Front process and key-window event records return immediately; AX raise finishes asynchronously.
+    // Front process and key-window event records return immediately; AX raise finishes on the app's queue.
     CGError fronted = setFront(&process, windowID, 0x200);
     uint8_t record[0xf8] = { [0x04] = 0xf8, [0x3a] = 0x10 };
     memcpy(record + 0x3c, &windowID, sizeof windowID);
@@ -541,21 +573,31 @@ static int focus(lua_State *state) {
     record[0x08] = 0x02;
     CGError released = pressed ?: postRecord(&process, record);
     if (released != kCGErrorSuccess) {
-      return [NSString stringWithFormat:@"focus failed (%d)", released];
+      deliver(callback, canary, [NSString stringWithFormat:@"focus failed (%d)", released]);
+      return;
     }
 
     dispatch_async(queueFor(focusQueues, "window_manager.focus", pid), ^{
-      if (atomic_load(&focusGeneration) != token) return;
-      if (expectedSpace && !spaceIsActive(expectedSpace)) return;
-      AXUIElementRef target = copyWindow(pid, windowID);
-      if (!target) return;
-      if (atomic_load(&focusGeneration) == token && (!expectedSpace || spaceIsActive(expectedSpace))) {
-        AXError raised = AXUIElementPerformAction(target, kAXRaiseAction);
-        if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
+      if (atomic_load(&focusGeneration) != token || (expectedSpace && !spaceIsActive(expectedSpace))) {
+        deliver(callback, canary, @"superseded");
+        return;
       }
+      AXUIElementRef target = copyWindow(pid, windowID);
+      if (!target) {
+        deliver(callback, canary, @"window unavailable");
+        return;
+      }
+      if (atomic_load(&focusGeneration) != token || (expectedSpace && !spaceIsActive(expectedSpace))) {
+        CFRelease(target);
+        deliver(callback, canary, @"superseded");
+        return;
+      }
+      AXError raised = AXUIElementPerformAction(target, kAXRaiseAction);
       CFRelease(target);
+      if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
+      deliver(callback, canary,
+        raised == kAXErrorSuccess ? nil : [NSString stringWithFormat:@"raise failed (%d)", raised]);
     });
-    return nil;
   });
   return 0;
 }
@@ -611,103 +653,125 @@ static BOOL closeEnough(CGFloat first, CGFloat second) {
   return fabs(first - second) < 0.5;
 }
 
-/// Requests not yet started collapse to the latest.
+/// Requests not yet started collapse to the latest, delivering its result to every caller.
 static int frame(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER, LS_TNUMBER, LS_TNUMBER, LS_TNUMBER,
     LS_TNUMBER, LS_TFUNCTION | LS_TOPTIONAL, LS_TBREAK];
   pid_t pid = (pid_t)lua_tointeger(state, 1);
   CGWindowID windowID = (CGWindowID)lua_tointeger(state, 2);
-  NSNumber *key = @(windowID);
-  @synchronized(frames) {
-    frames[key] = [NSValue valueWithRect:NSMakeRect(lua_tonumber(state, 3), lua_tonumber(state, 4),
-      lua_tonumber(state, 5), lua_tonumber(state, 6))];
+  NSRect targetRect = NSMakeRect(lua_tonumber(state, 3), lua_tonumber(state, 4),
+    lua_tonumber(state, 5), lua_tonumber(state, 6));
+  PendingCallback *cb = nil;
+  if (lua_isfunction(state, 7)) {
+    cb = [PendingCallback new];
+    lua_pushvalue(state, 7);
+    cb.ref = [skin luaRef:refTable];
+    cb.canary = [skin createGCCanary];
   }
+  NSNumber *key = @(windowID);
+  BOOL shouldSchedule = NO;
+  @synchronized(frames) {
+    PendingFrame *pending = frames[key];
+    if (!pending) {
+      pending = [PendingFrame new];
+      pending.callbacks = [NSMutableArray array];
+      frames[key] = pending;
+      shouldSchedule = YES;
+    }
+    pending.rect = targetRect;
+    if (cb) [pending.callbacks addObject:cb];
+  }
+  if (!shouldSchedule) return 0;
+
   dispatch_queue_t queue = queueFor(queues, "window_manager.app", pid);
-  schedule(state, 7, queue, ^NSString *{
-    NSValue *value;
+  dispatch_async(queue, ^{
+    PendingFrame *job;
     @synchronized(frames) {
-      value = frames[key];
+      job = frames[key];
       [frames removeObjectForKey:key];
     }
-    if (!value) return nil;
-    NSRect rect = value.rectValue;
+    if (!job) return;
+    NSRect rect = job.rect;
+    NSString *error = nil;
     CGRect target = NSRectToCGRect(rect);
     CGRect actual = CGRectZero;
     BOOL hasActual = (windowBounds(connection, windowID, &actual) == kCGErrorSuccess
       && actual.size.width > 0 && actual.size.height > 0);
-    if (hasActual && closeEnough(actual.origin.x, target.origin.x)
+    if (!(hasActual && closeEnough(actual.origin.x, target.origin.x)
       && closeEnough(actual.origin.y, target.origin.y)
       && closeEnough(actual.size.width, target.size.width)
-      && closeEnough(actual.size.height, target.size.height)) {
-      return nil;
-    }
-
-    AXUIElementRef window = copyWindow(pid, windowID);
-    if (!window) return @"window unavailable";
-
-    // Chromium and Electron animate frame changes while enhanced UI is on.
-    EnhancedState *enhanced;
-    @synchronized(enhancedStates) {
-      enhanced = enhancedStates[@(pid)] ?: (enhancedStates[@(pid)] = [EnhancedState new]);
-    }
-    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
-    if (!enhanced.disabled && (!enhanced.checked || now - enhanced.checked >= 2.0)) {
-      AXUIElementRef app = application(pid);
-      if ([attribute(app, CFSTR("AXEnhancedUserInterface")) boolValue]) {
-        AXUIElementSetAttributeValue(app, CFSTR("AXEnhancedUserInterface"), kCFBooleanFalse);
-        enhanced.disabled = YES;
-        enhanced.checked = 0;
+      && closeEnough(actual.size.height, target.size.height))) {
+      AXUIElementRef window = copyWindow(pid, windowID);
+      if (!window) {
+        error = @"window unavailable";
       } else {
-        enhanced.checked = now;
-      }
-      CFRelease(app);
-    }
+        // Chromium and Electron animate frame changes while enhanced UI is on.
+        EnhancedState *enhanced;
+        @synchronized(enhancedStates) {
+          enhanced = enhancedStates[@(pid)] ?: (enhancedStates[@(pid)] = [EnhancedState new]);
+        }
+        NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+        if (!enhanced.disabled && (!enhanced.checked || now - enhanced.checked >= 2.0)) {
+          AXUIElementRef app = application(pid);
+          if ([attribute(app, CFSTR("AXEnhancedUserInterface")) boolValue]) {
+            AXUIElementSetAttributeValue(app, CFSTR("AXEnhancedUserInterface"), kCFBooleanFalse);
+            enhanced.disabled = YES;
+            enhanced.checked = 0;
+          } else {
+            enhanced.checked = now;
+          }
+          CFRelease(app);
+        }
 
-    // Size, position, size: a window shrinking across a display edge is clamped otherwise.
-    BOOL sameSize = hasActual && closeEnough(actual.size.width, target.size.width)
-      && closeEnough(actual.size.height, target.size.height);
-    CGPoint origin = rect.origin;
-    AXValueRef originValue = AXValueCreate(kAXValueCGPointType, &origin);
-    AXError moved = kAXErrorSuccess, resized = kAXErrorSuccess;
-    if (sameSize) {
-      moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute, originValue);
-    } else {
-      CGSize size = rect.size;
-      AXValueRef sizeValue = AXValueCreate(kAXValueCGSizeType, &size);
-      BOOL leadSize = YES;
-      if (hasActual) {
-        CGRect displayBounds = CGRectZero;
-        if (onSameDisplay(actual, target, &displayBounds)
-          && CGRectContainsRect(displayBounds, CGRectMake(target.origin.x, target.origin.y,
-            actual.size.width, actual.size.height))) {
-          leadSize = NO;
+        // Size, position, size: a window shrinking across a display edge is clamped otherwise.
+        BOOL sameSize = hasActual && closeEnough(actual.size.width, target.size.width)
+          && closeEnough(actual.size.height, target.size.height);
+        CGPoint origin = rect.origin;
+        AXValueRef originValue = AXValueCreate(kAXValueCGPointType, &origin);
+        AXError moved = kAXErrorSuccess, resized = kAXErrorSuccess;
+        if (sameSize) {
+          moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute, originValue);
+        } else {
+          CGSize size = rect.size;
+          AXValueRef sizeValue = AXValueCreate(kAXValueCGSizeType, &size);
+          BOOL leadSize = YES;
+          if (hasActual) {
+            CGRect displayBounds = CGRectZero;
+            if (onSameDisplay(actual, target, &displayBounds)
+              && CGRectContainsRect(displayBounds, CGRectMake(target.origin.x, target.origin.y,
+                actual.size.width, actual.size.height))) {
+              leadSize = NO;
+            }
+          }
+          if (leadSize) AXUIElementSetAttributeValue(window, kAXSizeAttribute, sizeValue);
+          moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute, originValue);
+          resized = AXUIElementSetAttributeValue(window, kAXSizeAttribute, sizeValue);
+          CFRelease(sizeValue);
+        }
+        CFRelease(originValue);
+        CFRelease(window);
+
+        if (enhanced.disabled) {
+          uint64_t token = ++enhanced.generation;
+          dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(150 * NSEC_PER_MSEC)), queue, ^{
+            if (!enhanced.disabled || enhanced.generation != token) return;
+            enhanced.disabled = NO;
+            AXUIElementRef targetApp = application(pid);
+            AXUIElementSetAttributeValue(targetApp, CFSTR("AXEnhancedUserInterface"), kCFBooleanTrue);
+            CFRelease(targetApp);
+          });
+        }
+
+        if (moved == kAXErrorInvalidUIElement || resized == kAXErrorInvalidUIElement) forget(pid, windowID);
+        if (moved != kAXErrorSuccess || resized != kAXErrorSuccess) {
+          error = [NSString stringWithFormat:@"frame failed (%d, %d)", moved, resized];
         }
       }
-      if (leadSize) AXUIElementSetAttributeValue(window, kAXSizeAttribute, sizeValue);
-      moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute, originValue);
-      resized = AXUIElementSetAttributeValue(window, kAXSizeAttribute, sizeValue);
-      CFRelease(sizeValue);
     }
-    CFRelease(originValue);
-    CFRelease(window);
-
-    if (enhanced.disabled) {
-      uint64_t token = ++enhanced.generation;
-      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(150 * NSEC_PER_MSEC)), queue, ^{
-        if (!enhanced.disabled || enhanced.generation != token) return;
-        enhanced.disabled = NO;
-        AXUIElementRef targetApp = application(pid);
-        AXUIElementSetAttributeValue(targetApp, CFSTR("AXEnhancedUserInterface"), kCFBooleanTrue);
-        CFRelease(targetApp);
-      });
+    for (PendingCallback *entry in job.callbacks) {
+      deliver(entry.ref, entry.canary, error);
     }
-
-    if (moved == kAXErrorInvalidUIElement || resized == kAXErrorInvalidUIElement) forget(pid, windowID);
-    if (moved != kAXErrorSuccess || resized != kAXErrorSuccess) {
-      return [NSString stringWithFormat:@"frame failed (%d, %d)", moved, resized];
-    }
-    return nil;
   });
   return 0;
 }
@@ -989,10 +1053,13 @@ static void spaceWindowChanged(uint32_t type, void *data, size_t dataLength, voi
 
 static void clearSpaceWindowWatcher(void) {
   atomic_fetch_add(&spaceWindowGeneration, 1);
-  if (spaceWindowRegistered) {
+  if (spaceWindowAddedRegistered) {
     removeNotify(connection, spaceWindowChanged, spaceWindowAdded, NULL);
+    spaceWindowAddedRegistered = NO;
+  }
+  if (spaceWindowRemovedRegistered) {
     removeNotify(connection, spaceWindowChanged, spaceWindowRemoved, NULL);
-    spaceWindowRegistered = NO;
+    spaceWindowRemovedRegistered = NO;
   }
   if (hasSpaceWindowCanary) {
     LuaSkin *skin = [LuaSkin sharedWithState:NULL];
@@ -1059,14 +1126,20 @@ static int watchWindowSpaces(lua_State *state) {
     spaceWindowRef = [skin luaRef:refTable];
     spaceWindowCanary = [skin createGCCanary];
     hasSpaceWindowCanary = YES;
-    if (registerNotify(connection, spaceWindowChanged, spaceWindowAdded, NULL) != kCGErrorSuccess
-      || registerNotify(connection, spaceWindowChanged, spaceWindowRemoved, NULL) != kCGErrorSuccess) {
+    if (registerNotify(connection, spaceWindowChanged, spaceWindowAdded, NULL) != kCGErrorSuccess) {
       clearSpaceWindowWatcher();
       lua_pushboolean(state, 0);
       lua_pushstring(state, "could not watch window Spaces");
       return 2;
     }
-    spaceWindowRegistered = YES;
+    spaceWindowAddedRegistered = YES;
+    if (registerNotify(connection, spaceWindowChanged, spaceWindowRemoved, NULL) != kCGErrorSuccess) {
+      clearSpaceWindowWatcher();
+      lua_pushboolean(state, 0);
+      lua_pushstring(state, "could not watch window Spaces");
+      return 2;
+    }
+    spaceWindowRemovedRegistered = YES;
   }
   lua_pushboolean(state, 1);
   return 1;
