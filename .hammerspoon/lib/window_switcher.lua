@@ -18,6 +18,9 @@ local minimize = assert(
 local swallowed = {}
 local stopped = false
 local menuDelay = 0.2
+local selectedFill = { white = 0.23 }
+local unselectedFill = { white = 0.12 }
+local selectedStroke = { red = 0.35, green = 0.65, blue = 1 }
 
 local function isPiP(title)
   title = (title or ""):lower():gsub("[^%a]", "")
@@ -74,6 +77,9 @@ local function icon(window)
 end
 
 local function hide()
+  if cycle then
+    cycle.rendered = nil
+  end
   if switcher.mouseTap then
     switcher.mouseTap:stop()
   end
@@ -173,6 +179,50 @@ local function draw(current)
   )
   local width = padding * 2 + columns * cardWidth + (columns - 1) * gap
   local height = padding * 2 + viewportHeight
+  local rendered = current.rendered
+  if
+    rendered
+    and switcher.canvas.elementAttribute
+    and rendered.count == #windows
+    and rendered.first == first
+    and rendered.last == last
+    and rendered.scroll == current.scrollOffset
+    and rendered.width == width
+    and rendered.height == height
+  then
+    local same = true
+    for index = first, last do
+      local window = windows[index]
+      local state = (window["is-minimized"] and 2 or 0) + (window["is-hidden"] and 1 or 0)
+      if
+        rendered.items[index] ~= window
+        or rendered.images[index] ~= (current.images[window.id] or false)
+        or rendered.titles[index] ~= window.title
+        or rendered.states[index] ~= state
+      then
+        same = false
+        break
+      end
+    end
+    if same then
+      if rendered.selected ~= selected then
+        local previous = rendered.cards[rendered.selected]
+        if previous then
+          switcher.canvas:elementAttribute(previous, "action", "fill")
+          switcher.canvas:elementAttribute(previous, "fillColor", unselectedFill)
+          switcher.canvas:elementAttribute(previous, "strokeColor", nil)
+        end
+        local active = rendered.cards[selected]
+        if active then
+          switcher.canvas:elementAttribute(active, "action", "strokeAndFill")
+          switcher.canvas:elementAttribute(active, "fillColor", selectedFill)
+          switcher.canvas:elementAttribute(active, "strokeColor", selectedStroke)
+        end
+        rendered.selected = selected
+      end
+      return
+    end
+  end
   current.cards = {}
   current.frame = {
     x = screen.x + (screen.w - width) / 2,
@@ -181,6 +231,7 @@ local function draw(current)
     h = height,
   }
   local elements = {}
+  local cards, items, images, titles, states = {}, {}, {}, {}, {}
   local function add(element)
     elements[#elements + 1] = element
   end
@@ -241,10 +292,15 @@ local function draw(current)
       y,
       cardWidth,
       cardHeight,
-      { white = index == selected and 0.23 or 0.12 },
-      index == selected and { red = 0.35, green = 0.65, blue = 1 } or nil
+      index == selected and selectedFill or unselectedFill,
+      index == selected and selectedStroke or nil
     )
+    cards[index] = #elements
+    items[index] = window
     local image = current.images[window.id]
+    images[index] = image or false
+    titles[index] = window.title
+    states[index] = (window["is-minimized"] and 2 or 0) + (window["is-hidden"] and 1 or 0)
     local opacity = (window["is-hidden"] or window["is-minimized"]) and 0.20 or 1
     local previewWidth = image and cardWidth - 16 or 52
     local previewHeight = image and cardHeight - 40 or 52
@@ -321,6 +377,20 @@ local function draw(current)
   switcher.canvas:replaceElements(elements)
   switcher.canvas:show()
   switcher.mouseTap:start()
+  current.rendered = {
+    count = #windows,
+    first = first,
+    last = last,
+    scroll = current.scrollOffset,
+    width = width,
+    height = height,
+    selected = selected,
+    cards = cards,
+    items = items,
+    images = images,
+    titles = titles,
+    states = states,
+  }
 end
 
 local show
@@ -481,16 +551,32 @@ focus = function(window, fresh)
   end)
   local function moveAndFocus()
     job.target = window.id
+    local function finishIfFocused(focusedId)
+      if operation ~= job or focusedId ~= window.id then
+        return false
+      end
+      recent[window.id] = hs.timer.secondsSinceEpoch()
+      finish(job)
+      return true
+    end
     -- Re-run by the window-focused event.
-    job.confirmFocus = function()
+    job.confirmFocus = function(confirmed)
       if operation ~= job then
         return
       end
-      local focused = hs.window.focusedWindow()
-      if focused and focused:id() == window.id then
-        recent[window.id] = hs.timer.secondsSinceEpoch()
-        finish(job)
+      if confirmed then
+        finishIfFocused(window.id)
+        return
       end
+      local native = windowManager.native --[[@as { focusedWindow?: fun(pid: integer, done: fun(id?: integer, err?: string)) }?]]
+      if native and native.focusedWindow then
+        native.focusedWindow(window.pid, function(id)
+          finishIfFocused(id)
+        end)
+        return
+      end
+      local focused = hs.window.focusedWindow()
+      finishIfFocused(focused and focused:id() or nil)
     end
     local function live()
       return operation == job
@@ -559,7 +645,7 @@ focus = function(window, fresh)
   end
   -- Requery: the window may have moved or closed while the menu was open.
   local function requery()
-    windowManager.windows(function(ok, err, rows)
+    local function handle(ok, err, rows)
       if operation ~= job then
         return
       end
@@ -575,7 +661,14 @@ focus = function(window, fresh)
         return
       end
       activate(row)
-    end)
+    end
+    local native = windowManager.native --[[@as { displaySpaces?: function }?]]
+    if not native or native.displaySpaces ~= nil then
+      local list = windowManager.windows --[[@as fun(done: fun(ok: boolean, err?: string, rows: table[]), pids?: integer[])]]
+      list(handle, { window.pid })
+    else
+      windowManager.windows(handle)
+    end
   end
   if not fresh then
     requery()
@@ -624,8 +717,8 @@ end
 
 local function cancel()
   stopDrawing(cycle)
-  cycle = nil
   hide()
+  cycle = nil
 end
 
 local function step(direction)
@@ -834,45 +927,54 @@ end
 
 switcher.tap = hs.eventtap
   .new({ types.keyDown, types.keyUp, types.flagsChanged }, function(event)
-    local kind, key, flags = event:getType(), event:getKeyCode(), event:getFlags()
+    local kind, key = event:getType(), event:getKeyCode()
+    if kind == types.keyUp then
+      if swallowed[key] then
+        swallowed[key] = nil
+        return true
+      end
+      return false
+    end
+    if kind == types.keyDown then
+      if cycle and not cycle.released then
+        swallowed[key] = true
+        if key == keys.escape then
+          cancel()
+        elseif key == keys.left or key == keys.right then
+          step(key == keys.left and -1 or 1)
+        elseif key == keys["return"] then
+          accept()
+        elseif key == keys.tab then
+          local flags = event:getFlags()
+          if flags.cmd and not flags.ctrl and not flags.alt then
+            step(flags.shift and -1 or 1)
+          end
+        end
+        return true
+      end
+      if key ~= keys.tab then
+        return false
+      end
+      local flags = event:getFlags()
+      if flags.cmd and not flags.ctrl and not flags.alt then
+        swallowed[key] = true
+        step(flags.shift and -1 or 1)
+        return true
+      end
+      return false
+    end
     if kind == types.flagsChanged then
+      local command = key == keys.cmd or key == keys.rightcmd
+      if not cycle and not command then
+        return false
+      end
+      local flags = event:getFlags()
       if cycle and not flags.cmd then
         accept()
-      elseif
-        flags.cmd
-        and (key == keys.cmd or key == keys.rightcmd)
-        and hs.eventtap.isSecureInputEnabled()
-      then
+      elseif flags.cmd and command and hs.eventtap.isSecureInputEnabled() then
         warnSecureInput()
       end
       return false
-    end
-    if kind == types.keyUp and swallowed[key] then
-      swallowed[key] = nil
-      return true
-    end
-    if kind ~= types.keyDown then
-      return false
-    end
-    if key == keys.tab and flags.cmd and not flags.ctrl and not flags.alt then
-      swallowed[key] = true
-      step(flags.shift and -1 or 1)
-      return true
-    end
-    if cycle and not cycle.released then
-      if key == keys.escape then
-        swallowed[key] = true
-        cancel()
-      elseif key == keys.left or key == keys.right then
-        swallowed[key] = true
-        step(key == keys.left and -1 or 1)
-      elseif key == keys["return"] then
-        swallowed[key] = true
-        accept()
-      else
-        swallowed[key] = true
-      end
-      return true
     end
     return false
   end)
