@@ -783,7 +783,7 @@ module.appWatcher = hs.application.watcher
       then
         window = app:focusedWindow()
         if window and window:id() == entry.kCGWindowNumber then
-          retake(list, now)
+          retake(list)
         end
         break
       end
