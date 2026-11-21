@@ -34,7 +34,7 @@ local native = utils.native("window_manager") --[[@as WindowManagerNative]]
 ---@class WindowManager
 local windowManager = { native = native }
 
----@type { done: WindowManagerDone }?
+---@type { done: WindowManagerDone, cancel?: fun() }?
 local switching
 ---@type { space?: integer, pid: integer, id: integer }?
 local focusing
@@ -55,6 +55,9 @@ local function cancel(err)
     return
   end
   switching = nil
+  if job.cancel then
+    job.cancel()
+  end
   job.done(false, err)
 end
 
@@ -121,7 +124,7 @@ local function jumpTo(index, done, layout)
   end
   local job = { done = done }
   switching = job
-  dock.switch(targetID, function(ok, err)
+  job.cancel = dock.switch(targetID, function(ok, err)
     if switching == job then
       switching = nil
       job.done(ok, err)
@@ -196,6 +199,9 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
   end
   -- No Space to show first.
   if not space then
+    if switching then
+      cancel("superseded")
+    end
     show()
     return
   end
@@ -218,6 +224,9 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
       return
     end
     if layout.active[entry.display] == space then
+      if switching then
+        cancel("superseded")
+      end
       show()
       return
     end
@@ -231,6 +240,9 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
     return
   end
   if active[display] == space then
+    if switching then
+      cancel("superseded")
+    end
     show()
     return
   end

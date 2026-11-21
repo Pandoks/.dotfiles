@@ -188,44 +188,62 @@ test("invalidated cached port deletes stale handle and reconnects on next call",
   assertEqual(state.sends[1].payload, "switch 4")
 end)
 
-test(
-  "send failure deletes stale handle, reinjects once, and fails fast if fresh send fails",
-  function()
-    local state = harness()
-    state.onSend = function(_, payload)
-      if #state.sends == 1 then
-        return false, "send failed"
-      end
-      return true, payload == "switch 5" and "" or "unexpected"
-    end
-
-    local ok1, err1
-    state.dock.switch(5, function(status, msg)
-      ok1, err1 = status, msg
-    end)
-    assertEqual(ok1, nil, "waits for reinject")
-    assertEqual(state.deletes, 1)
-    assertEqual(state.injects, 1)
-    state:completeInject(true)
-    assertEqual(ok1, true)
-    assertEqual(err1, nil)
-    assertEqual(#state.sends, 2)
-
-    -- If the fresh port still fails to send, fail fast without looping inject().
-    state.onSend = function()
-      return false, "transport error"
-    end
-    local ok2, err2
-    state.dock.switch(6, function(status, msg)
-      ok2, err2 = status, msg
-    end)
-    assertEqual(state.injects, 2)
-    state:completeInject(true)
-    assertEqual(ok2, false)
-    assertEqual(err2, "transport error")
-    assertEqual(state.injects, 2, "no infinite reinject loop")
+test("send failure deletes stale handle and fails fast without reinjecting", function()
+  local state = harness()
+  state.onSend = function()
+    return false, "send failed"
   end
-)
+
+  local ok1, err1
+  state.dock.switch(5, function(status, msg)
+    ok1, err1 = status, msg
+  end)
+  assertEqual(ok1, false, "fails fast on send failure")
+  assertEqual(err1, "send failed")
+  assertEqual(state.deletes, 1)
+  assertEqual(state.injects, 0, "does not reinject on warm send failure")
+  assertEqual(#state.sends, 1)
+
+  -- If Dock restarted and the port is gone, the next call injects once cleanly.
+  state.loaded = false
+  state.onSend = nil
+  local ok2, err2
+  state.dock.switch(6, function(status, msg)
+    ok2, err2 = status, msg
+  end)
+  assertEqual(state.injects, 1)
+  state:completeInject(true)
+  assertEqual(ok2, true)
+  assertEqual(err2, nil)
+  assertEqual(#state.sends, 2)
+  assertEqual(state.sends[2].payload, "switch 6")
+end)
+
+test("queued switches supersede older pending switches and honor cancellation", function()
+  local state = harness({ loaded = false })
+  local firstOk, firstErr, secondOk, secondErr, thirdOk, thirdErr
+  local cancelFirst = state.dock.switch(2, function(ok, err)
+    firstOk, firstErr = ok, err
+  end)
+  assertEqual(type(cancelFirst), "function")
+  state.dock.switch(3, function(ok, err)
+    secondOk, secondErr = ok, err
+  end)
+  assertEqual(firstOk, false)
+  assertEqual(firstErr, "superseded")
+
+  local cancelSecond = state.dock.switch(4, function(ok, err)
+    thirdOk, thirdErr = ok, err
+  end)
+  assertEqual(secondOk, false)
+  assertEqual(secondErr, "superseded")
+  cancelSecond()
+
+  state:completeInject(true)
+  assertEqual(#state.sends, 0, "superseded and cancelled switches are never sent")
+  assertEqual(thirdOk, nil)
+  assertEqual(thirdErr, nil)
+end)
 
 test("Dock error reply fails fast while keeping cached port open", function()
   local state = harness()

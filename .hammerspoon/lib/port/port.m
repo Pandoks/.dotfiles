@@ -3,6 +3,7 @@
 #import <LuaSkin/LuaSkin.h>
 
 static const char *metatableName = "port.remote";
+static CFStringRef replyMode;
 
 static int closePort(lua_State *state) {
   CFMessagePortRef *box = luaL_checkudata(state, 1, metatableName);
@@ -49,7 +50,7 @@ static int sendMessage(lua_State *state) {
   }
   CFDataRef reply = NULL;
   SInt32 status = CFMessagePortSendRequest(
-    *box, 0, data, timeout, timeout, CFSTR("org.hammerspoon.port.reply"), &reply);
+    *box, 0, data, timeout, timeout, replyMode, &reply);
   CFRelease(data);
   if (status != kCFMessagePortSuccess) {
     if (reply) CFRelease(reply);
@@ -98,6 +99,11 @@ static const luaL_Reg methods[] = {
 };
 
 int luaopen_port(lua_State *state) {
+  // Heap-allocate so CFRunLoop never retains a constant string inside an unloadable image.
+  if (!replyMode) {
+    replyMode = CFStringCreateWithCString(
+      kCFAllocatorDefault, "org.hammerspoon.port.reply", kCFStringEncodingUTF8);
+  }
   luaL_newmetatable(state, metatableName);
   lua_pushvalue(state, -1);
   lua_setfield(state, -2, "__index");

@@ -19,10 +19,37 @@ extern void SLSTransactionShowSpace(CFTypeRef transaction, uint64_t space);
 extern void SLSTransactionSetManagedDisplayCurrentSpace(CFTypeRef transaction, CFStringRef display, uint64_t space);
 extern void SLSTransactionCommit(CFTypeRef transaction, int synchronous);
 
+typedef struct {
+  void *bits;
+} SwiftWeakRef;
+
+static void (*weakInit)(SwiftWeakRef *slot, void *value);
 static void (*weakAssign)(void *slot, id value);
-static id dockSpaces;
-static NSArray *displaySpaces;
+static void *(*weakLoadStrong)(SwiftWeakRef *slot);
+static void (*weakDestroy)(SwiftWeakRef *slot);
+static SwiftWeakRef dockSpacesRef;
+static SwiftWeakRef displaySpacesRefs[64];
+static size_t displaySpacesCount;
 static Ivar displayIvar, currentIvar, lastUserIvar;
+
+static void clearRefs(void) {
+  if (weakDestroy) {
+    if (dockSpacesRef.bits) {
+      weakDestroy(&dockSpacesRef);
+      dockSpacesRef.bits = NULL;
+    }
+    for (size_t index = 0; index < displaySpacesCount; index++) {
+      weakDestroy(&displaySpacesRefs[index]);
+      displaySpacesRefs[index].bits = NULL;
+    }
+  }
+  displaySpacesCount = 0;
+}
+
+static id loadWeak(SwiftWeakRef *slot) {
+  if (!weakLoadStrong || !slot->bits) return nil;
+  return CFBridgingRelease(weakLoadStrong(slot));
+}
 
 typedef struct {
   uintptr_t spacesClass;
@@ -63,6 +90,8 @@ static void recordRange(task_t __unused task, void *context, unsigned __unused t
 }
 
 static NSString *discover(void) {
+  if (!weakInit || !weakLoadStrong || !weakDestroy) return @"Swift weak runtime unavailable";
+  clearRefs();
   Class spacesClass = NSClassFromString(@"Spaces");
   Class displayClass = NSClassFromString(@"_TtC8DockCore13DisplaySpaces");
   if (!spacesClass || !displayClass) return @"Dock Spaces classes unavailable";
@@ -93,22 +122,20 @@ static NSString *discover(void) {
     }
   }
 
-  id foundSpaces = nil;
   for (size_t index = 0; index < scan.spacesCount; index++) {
     id candidate = (__bridge id)scan.spacesHits[index];
     if (object_getClass(candidate) == spacesClass) {
-      foundSpaces = candidate;
+      weakInit(&dockSpacesRef, (__bridge void *)candidate);
       break;
     }
   }
-  NSMutableArray *foundDisplays = [NSMutableArray array];
-  for (size_t index = 0; index < scan.displayCount; index++) {
+  for (size_t index = 0; index < scan.displayCount && displaySpacesCount < 64; index++) {
     id candidate = (__bridge id)scan.displayHits[index];
-    if (object_getClass(candidate) == displayClass) [foundDisplays addObject:candidate];
+    if (object_getClass(candidate) == displayClass) {
+      weakInit(&displaySpacesRefs[displaySpacesCount++], (__bridge void *)candidate);
+    }
   }
-  dockSpaces = foundSpaces;
-  displaySpaces = foundDisplays;
-  return (dockSpaces && displaySpaces.count) ? nil : @"Dock Spaces state not found";
+  return (loadWeak(&dockSpacesRef) && displaySpacesCount) ? nil : @"Dock Spaces state not found";
 }
 
 static NSString *displayUUID(int connection, uint64_t space) {
@@ -129,12 +156,21 @@ static void replaceStrong(id object, Ivar ivar, id value) {
   (void)previous;
 }
 
-static id findDisplaySpaces(uint32_t displayID) {
-  for (id entry in displaySpaces) {
+static id findDisplaySpaces(uint32_t displayID, uint64_t currentSpace) {
+  id fallback = nil;
+  for (size_t index = 0; index < displaySpacesCount; index++) {
+    id entry = loadWeak(&displaySpacesRefs[index]);
+    if (!entry) continue;
     uint32_t current = *(uint32_t *)(void *)((char *)(__bridge void *)entry + ivar_getOffset(displayIvar));
-    if (current == displayID) return entry;
+    if (current != displayID) continue;
+    void **slot = (void **)(void *)((char *)(__bridge void *)entry + ivar_getOffset(currentIvar));
+    id active = (__bridge id)(*slot);
+    if (active && ((uint64_t (*)(id, SEL))objc_msgSend)(active, sel_registerName("spid")) == currentSpace) {
+      return entry;
+    }
+    if (!fallback) fallback = entry;
   }
-  return nil;
+  return fallback;
 }
 
 static CFDataRef switchSpace(uint64_t space) {
@@ -145,9 +181,12 @@ static CFDataRef switchSpace(uint64_t space) {
   if (current == space) return NULL;
 
   if (!weakAssign) return reply(@"swift_unknownObjectWeakAssign unavailable");
+  id dockSpaces = loadWeak(&dockSpacesRef);
   if (!dockSpaces) {
     NSString *error = discover();
     if (error) return reply(error);
+    dockSpaces = loadWeak(&dockSpacesRef);
+    if (!dockSpaces) return reply(@"Dock Spaces state not found");
   }
   if (((BOOL (*)(id, SEL))objc_msgSend)(dockSpaces, sel_registerName("anySwitchingOccurring"))) {
     return reply(@"Space switch already in progress");
@@ -168,11 +207,11 @@ static CFDataRef switchSpace(uint64_t space) {
 
   uint32_t displayID = ((uint32_t (*)(id, SEL, uint64_t))objc_msgSend)(
     dockSpaces, sel_registerName("displayForSPID:"), space);
-  id entry = findDisplaySpaces(displayID);
+  id entry = findDisplaySpaces(displayID, current);
   if (!entry) {
     NSString *error = discover();
     if (error) return reply(error);
-    entry = findDisplaySpaces(displayID);
+    entry = findDisplaySpaces(displayID, current);
     if (!entry) return reply([NSString stringWithFormat:@"display %u not found in Dock", displayID]);
   }
 
@@ -185,13 +224,13 @@ static CFDataRef switchSpace(uint64_t space) {
   SLSTransactionCommit(transaction, 1);
   CFRelease(transaction);
 
+  if (SLSManagedDisplayGetCurrentSpace(connection, (__bridge CFStringRef)uuid) != space) {
+    return reply([NSString stringWithFormat:@"did not switch to Space %llu", space]);
+  }
+
   replaceStrong(entry, currentIvar, target);
   if (((BOOL (*)(id, SEL))objc_msgSend)(target, sel_registerName("userSpace"))) {
     weakAssign((void *)((char *)(__bridge void *)entry + ivar_getOffset(lastUserIvar)), target);
-  }
-
-  if (SLSManagedDisplayGetCurrentSpace(connection, (__bridge CFStringRef)uuid) != space) {
-    return reply([NSString stringWithFormat:@"did not switch to Space %llu", space]);
   }
   return NULL;
 }
@@ -222,12 +261,14 @@ static CFDataRef handle(__unused CFMessagePortRef port, __unused SInt32 message,
 
 // The port is named after this file, so each build answers on its own port.
 __attribute__((constructor)) static void load(void) {
+  weakInit = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakInit");
   weakAssign = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakAssign");
+  weakLoadStrong = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakLoadStrong");
+  weakDestroy = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakDestroy");
   Dl_info image;
   dladdr((const void *)load, &image);
   NSString *name = [@"org.hammerspoon." stringByAppendingString:@(image.dli_fname).lastPathComponent];
   dispatch_async(dispatch_get_main_queue(), ^{
-    discover();
     CFMessagePortRef port = CFMessagePortCreateLocal(NULL, (__bridge CFStringRef)name, handle, NULL, NULL);
     if (!port) {
       NSLog(@"%@: could not create message port", name);
@@ -236,5 +277,8 @@ __attribute__((constructor)) static void load(void) {
     CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(NULL, port, 0);
     CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
     CFRelease(source);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (!loadWeak(&dockSpacesRef)) discover();
+    });
   });
 }

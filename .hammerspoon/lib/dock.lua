@@ -19,7 +19,7 @@ local binary =
 local name = "org.hammerspoon." .. binary:match("[^/]+$")
 ---@type DockPort?
 local remote
----@type fun(err?: string)[]
+---@type { kind: "move"|"switch", callback: fun(err?: string), done: fun(ok: boolean, err?: string), cancelled?: boolean }[]
 local waiting = {}
 
 local function disconnect()
@@ -41,13 +41,21 @@ end
 
 ---@param err? string
 local function flush(err)
-  local callbacks = waiting
+  local entries = waiting
   waiting = {}
-  if err and #callbacks == 0 then
+  local pending = 0
+  for _, entry in ipairs(entries) do
+    if not entry.cancelled then
+      pending = pending + 1
+    end
+  end
+  if err and pending == 0 then
     logger.error(err)
   end
-  for _, callback in ipairs(callbacks) do
-    callback(err)
+  for _, entry in ipairs(entries) do
+    if not entry.cancelled then
+      entry.callback(err)
+    end
   end
 end
 
@@ -70,10 +78,12 @@ local function inject()
   dock.task:start()
 end
 
+---@param kind "move"|"switch"
 ---@param payload string
 ---@param done fun(ok: boolean, err?: string)
-local function request(payload, done)
-  local function send(err, fresh)
+---@return fun()? cancel
+local function request(kind, payload, done)
+  local function send(err)
     local port = not err and connect()
     if not port then
       done(false, err or "Dock helper not loaded")
@@ -82,15 +92,6 @@ local function request(payload, done)
     local sent, response = port:send(payload, 0.5)
     if not sent then
       disconnect()
-      if not fresh then
-        waiting[#waiting + 1] = function(retry)
-          send(retry, true)
-        end
-        if not dock.task then
-          inject()
-        end
-        return
-      end
       done(false, response or "Dock helper unreachable")
     elseif response and response ~= "" then
       done(false, response)
@@ -99,14 +100,24 @@ local function request(payload, done)
     end
   end
   if not dock.task and connect() then
-    send(nil, false)
-    return
+    send(nil)
+    return nil
   end
-  waiting[#waiting + 1] = function(err)
-    send(err, true)
+  if kind == "switch" then
+    for _, existing in ipairs(waiting) do
+      if existing.kind == "switch" and not existing.cancelled then
+        existing.cancelled = true
+        existing.done(false, "superseded")
+      end
+    end
   end
+  local entry = { kind = kind, callback = send, done = done }
+  waiting[#waiting + 1] = entry
   if not dock.task then
     inject()
+  end
+  return function()
+    entry.cancelled = true
   end
 end
 
@@ -114,13 +125,14 @@ end
 ---@param space integer
 ---@param done fun(ok: boolean, err?: string)
 function dock.move(window, space, done)
-  request(window .. " " .. space, done)
+  request("move", window .. " " .. space, done)
 end
 
 ---@param space integer
 ---@param done fun(ok: boolean, err?: string)
+---@return fun()? cancel
 function dock.switch(space, done)
-  request("switch " .. space, done)
+  return request("switch", "switch " .. space, done)
 end
 
 if not connect() then
