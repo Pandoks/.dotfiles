@@ -2,7 +2,7 @@
 local root = assert(arg[1], "pass a lib directory")
 local tasks, errors, calls, reportRaises = {}, {}, {}, false
 local apps, rows, failure, filters, timers = {}, {}, nil, {}, {}
-local scans, scanArgs, pendingScans, focusLive, deferScans = {}, {}, {}, {}, false
+local scans, scanArgs, pendingScans, focusLive, focusSpaces, deferScans = {}, {}, {}, {}, {}, false
 local mainWindowCalls, allWindowsCalls = 0, 0
 local environment = setmetatable({
   hs = {
@@ -114,9 +114,10 @@ local modules = {
         end
       end
     end,
-    focus = function(pid, id, done, minimized, live)
+    focus = function(pid, id, done, minimized, live, space)
       calls[#calls + 1] = "focus " .. pid .. " " .. id .. (minimized and " minimized" or "")
       focusLive[#focusLive + 1] = live
+      focusSpaces[#focusSpaces + 1] = space
       done(not failure, failure)
     end,
   },
@@ -136,7 +137,7 @@ local personal = chromium.window({ bundleID = "net.imput.helium", profile = "Per
 local passed = 0
 local function reset()
   tasks, errors, calls, apps, rows, failure, filters, timers = {}, {}, {}, {}, {}, nil, {}, {}
-  scans, scanArgs, pendingScans, focusLive, deferScans = {}, {}, {}, {}, false
+  scans, scanArgs, pendingScans, focusLive, focusSpaces, deferScans = {}, {}, {}, {}, {}, false
   mainWindowCalls, allWindowsCalls = 0, 0
   modules["lib.window_manager"].native = nil
   openOrFocusWindow = assert(loadfile(root .. "/../window_profiles.lua", "t", environment))()
@@ -437,5 +438,26 @@ check("windowManager.windows omits pids when native lacks displaySpaces", functi
   openOrFocusWindow(work)
   assert(#scanArgs == 1 and scanArgs[1] == 2 and type(scans[1]) == "table" and scans[1][1] == 7)
   assert(calls[1] == "focus 7 5")
+end)
+check("forwards resolved space and keeps cache on transient focus failures", function()
+  apps, rows = helium(), { row(1, "Plan - Helium - Work", { space = 4 }) }
+  openOrFocusWindow(work)
+  assert(#scans == 1 and focusSpaces[1] == 4)
+
+  failure = "Space switch already in progress"
+  openOrFocusWindow(work)
+  assert(#errors == 1 and #scans == 1 and focusSpaces[2] == 4)
+
+  failure = nil
+  openOrFocusWindow(work)
+  assert(#scans == 1, "transient failure keeps cached window")
+
+  failure = "window unavailable"
+  openOrFocusWindow(work)
+  assert(#errors == 2 and #scans == 1)
+
+  failure = nil
+  openOrFocusWindow(work)
+  assert(#scans == 2, "window unavailable evicts cached window")
 end)
 print("RESULT " .. passed .. " passed, 0 failed")
