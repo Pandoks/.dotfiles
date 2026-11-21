@@ -198,7 +198,7 @@ local function fakeDesktop(windowSpecs)
           return left
             and {
               frame = function()
-                return rect(left, 0, 1000, 600)
+                return rect(left, 0, desktop.width or 1000, 600)
               end,
             }
         end,
@@ -743,6 +743,34 @@ test("sync memoizes per-PID app queries and mouse release skips space check when
   local before = desktop.counts.spaceCheck
   desktop.releaseMouse()
   assertEqual(desktop.counts.spaceCheck, before + 1, "space check runs when windows are tiled")
+end)
+
+test("spaceWatcher skips AX window scan unless a tiled window moved Spaces or displays", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty", space = 1 },
+    { id = 2, app = "Slack", space = 4 },
+  })
+  local getWindows, spaces = desktop.counts.getWindows, desktop.counts.spaces
+  desktop.spaceWatcher()
+  assertEqual(desktop.counts.getWindows, getWindows, "unchanged layout skips getWindows")
+  assertEqual(desktop.counts.spaces, spaces + 1, "checks current spaces via SkyLight")
+
+  -- Window moving to another Space still triggers full sync().
+  desktop:windowSpec(1).space = 4
+  desktop.spaceWatcher()
+  assertEqual(desktop.counts.getWindows, getWindows + 1, "moved tiled window triggers sync")
+  assertEqual(desktop:frame(1), "500,0 500x600")
+  assertEqual(desktop:frame(2), "0,0 500x600")
+
+  -- Display frame changes for a tiled Space reapply without re-scanning all windows.
+  local framesBefore = desktop.counts.frame
+  desktop.counts.getWindows = 0
+  desktop.width = 1200
+  desktop.spaceWatcher()
+  assertEqual(desktop.counts.getWindows, 0, "resized display skips getWindows")
+  assertEqual(desktop.counts.frame > framesBefore, true, "resized display reapplies frames")
+  assertEqual(desktop:frame(2), "0,0 600x600")
+  assertEqual(desktop:frame(1), "600,0 600x600")
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")
