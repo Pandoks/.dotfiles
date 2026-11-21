@@ -370,13 +370,14 @@ check("rapid switches drop stale window scans and cancel superseded focuses", fu
   rows = { row(1, "Plan - Helium - Work") }
   openOrFocusWindow(work)
   assert(#errors == 0)
+  appear("net.imput.helium", "Plan - Helium - Work", 1, "windowFocused")
   failure = nil
   local before = #scans
   openOrFocusWindow(work)
   assert(#scans == before and calls[#calls] == "focus 7 1")
 end)
 check(
-  "repeat switches hit the cache with zero allWindows and windowManager.windows calls",
+  "repeat switches hit the cache for observed windows and revalidate scan-only titles",
   function()
     apps = helium()
     rows = { row(1, "Home - Helium - Personal"), row(2, "Mail - Helium - Work") }
@@ -384,11 +385,15 @@ check(
     assert(
       #scans == 1 and mainWindowCalls == 1 and allWindowsCalls == 1 and calls[1] == "focus 7 2"
     )
+    appear("net.imput.helium", "Mail - Helium - Work", 2, "windowFocused")
     mainWindowCalls, allWindowsCalls = 0, 0
+    -- Window 1 was only seen via scan (not observed by tracker), so a title change is caught.
+    rows[1] = row(1, "Renamed - Helium - Work")
     openOrFocusWindow(personal)
-    openOrFocusWindow(work)
-    assert(#scans == 1 and mainWindowCalls == 0 and allWindowsCalls == 0)
-    assert(table.concat(calls, ", ") == "focus 7 2, focus 7 1, focus 7 2")
+    assert(
+      #scans == 2 and #tasks == 1,
+      "unobserved scan-only title is revalidated instead of trusted"
+    )
 
     reset()
     apps = helium()
@@ -408,14 +413,16 @@ check(
 check("cache invalidates on windowDestroyed or missing Space", function()
   apps = helium()
   rows = { row(1, "Plan - Helium - Work"), row(2, "Mail - Helium - Work") }
+  appear("net.imput.helium", "Plan - Helium - Work", 1, "windowCreated")
+  appear("net.imput.helium", "Mail - Helium - Work", 2, "windowCreated")
   openOrFocusWindow(work)
-  assert(#scans == 1 and calls[1] == "focus 7 1")
+  assert(#scans == 0 and calls[1] == "focus 7 1")
   destroy(1)
   openOrFocusWindow(work)
-  assert(#scans == 1 and calls[2] == "focus 7 2")
+  assert(#scans == 0 and calls[2] == "focus 7 2")
   rows = {}
   openOrFocusWindow(work)
-  assert(#scans == 2 and #tasks == 1)
+  assert(#scans == 1 and #tasks == 1)
 end)
 check("windowManager.windows receives deduplicated targeted pids for matching apps", function()
   apps = { helium(nil, nil, 7)[1], helium(nil, nil, 11)[1], helium(nil, nil, 7)[1] }
@@ -425,39 +432,26 @@ check("windowManager.windows receives deduplicated targeted pids for matching ap
   assert(#scans[1] == 2 and scans[1][1] == 7 and scans[1][2] == 11)
   assert(calls[1] == "focus 11 5")
 end)
-check("windowManager.windows omits pids when native lacks displaySpaces", function()
-  modules["lib.window_manager"].native = {}
-  apps, rows = helium(), { row(5, "Mail - Helium - Work") }
-  openOrFocusWindow(work)
-  assert(#scanArgs == 1 and scanArgs[1] == 1 and scans[1] == nil)
-  assert(calls[1] == "focus 7 5")
-
-  reset()
-  modules["lib.window_manager"].native = { displaySpaces = function() end }
-  apps, rows = helium(), { row(5, "Mail - Helium - Work") }
-  openOrFocusWindow(work)
-  assert(#scanArgs == 1 and scanArgs[1] == 2 and type(scans[1]) == "table" and scans[1][1] == 7)
-  assert(calls[1] == "focus 7 5")
-end)
 check("forwards resolved space and keeps cache on transient focus failures", function()
   apps, rows = helium(), { row(1, "Plan - Helium - Work", { space = 4 }) }
+  appear("net.imput.helium", "Plan - Helium - Work", 1, "windowCreated")
   openOrFocusWindow(work)
-  assert(#scans == 1 and focusSpaces[1] == 4)
+  assert(#scans == 0 and focusSpaces[1] == 4)
 
   failure = "Space switch already in progress"
   openOrFocusWindow(work)
-  assert(#errors == 1 and #scans == 1 and focusSpaces[2] == 4)
+  assert(#errors == 1 and #scans == 0 and focusSpaces[2] == 4)
 
   failure = nil
   openOrFocusWindow(work)
-  assert(#scans == 1, "transient failure keeps cached window")
+  assert(#scans == 0, "transient failure keeps cached window")
 
   failure = "window unavailable"
   openOrFocusWindow(work)
-  assert(#errors == 2 and #scans == 1)
+  assert(#errors == 2 and #scans == 0)
 
   failure = nil
   openOrFocusWindow(work)
-  assert(#scans == 2, "window unavailable evicts cached window")
+  assert(#scans == 1, "window unavailable evicts cached window")
 end)
 print("RESULT " .. passed .. " passed, 0 failed")

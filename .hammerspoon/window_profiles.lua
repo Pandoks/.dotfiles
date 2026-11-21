@@ -8,6 +8,7 @@ local windowManager = require("lib.window_manager")
 ---@field title string
 ---@field minimized boolean
 ---@field recent integer
+---@field observed boolean
 
 ---@type table<string, { windows: WindowFilter, deadline: hs.timer }>
 local launching = {}
@@ -27,15 +28,26 @@ local serial = 0
 ---@param id integer
 ---@param title string
 ---@param minimized boolean
+---@param observed? boolean
 ---@return KnownWindow
-local function cache(pid, id, title, minimized)
+local function cache(pid, id, title, minimized, observed)
   local entry = known[id]
   if entry and entry.pid == pid then
     entry.title = title
     entry.minimized = minimized
+    if observed then
+      entry.observed = true
+    end
     return entry
   end
-  entry = { pid = pid, id = id, title = title, minimized = minimized, recent = 0 }
+  entry = {
+    pid = pid,
+    id = id,
+    title = title,
+    minimized = minimized,
+    recent = 0,
+    observed = observed == true,
+  }
   known[id] = entry
   return entry
 end
@@ -50,6 +62,7 @@ tracker:subscribe({
 }, function(window, _, event, id)
   local entry = known[id]
   if entry then
+    entry.observed = true
     if event == filter.windowFocused then
       recent = recent + 1
       entry.recent = recent
@@ -77,7 +90,7 @@ tracker:subscribe({
       and event ~= filter.windowFocused
       and window:isMinimized() == true
     )
-  local stored = cache(app:pid(), id, window:title() or "", minimized)
+  local stored = cache(app:pid(), id, window:title() or "", minimized, true)
   if event == filter.windowFocused then
     recent = recent + 1
     stored.recent = recent
@@ -214,11 +227,11 @@ local function openOrFocusWindow(profile)
     end
   end
 
-  -- Cached windows first: zero AX IPC, verified live via SkyLight Space lookup
+  -- Cached windows first: zero AX IPC for tracker-observed entries (or untitled profiles)
   ---@type KnownWindow?, integer?, integer?
   local cached, bestCached, bestSpace
   for id, entry in pairs(known) do
-    if owners[entry.pid] and matcher(entry.title) then
+    if owners[entry.pid] and (profile.match == nil or entry.observed) and matcher(entry.title) then
       local space = windowManager.spaceOf(id)
       if not space then
         known[id] = nil
@@ -325,12 +338,7 @@ local function openOrFocusWindow(profile)
     target.recent = recent
     focus(profile.bundleId, target.pid, target.id, target.minimized, token, bestSpace)
   end
-  local native = windowManager.native --[[@as { displaySpaces?: function }?]]
-  if not native or native.displaySpaces ~= nil then
-    list(scanned, pids)
-  else
-    list(scanned)
-  end
+  list(scanned, pids)
 end
 
 return openOrFocusWindow
