@@ -19,6 +19,7 @@ module.blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = 
 ---@field windows WindowRecord[]
 ---@field byElement table<hs.axuielement, WindowRecord>
 ---@field byId table<integer, WindowRecord>
+---@field ignored table<integer, boolean>
 ---@field failed? boolean
 
 ---@class WindowFilter
@@ -30,7 +31,7 @@ Filter.__index = Filter
 
 ---@type table<integer, WindowObserver>, table<WindowFilter, boolean>, table<integer, boolean>
 local apps, filters, launching = {}, {}, {}
-local recent = 0
+local recent, focusSerial = 0, 0
 local order = {}
 local applicationWatcher, spaceWatcher, detach
 local notifications = {
@@ -162,7 +163,7 @@ local function retire(app)
     app.observer = nil
   end
   local windows = app.windows
-  app.windows, app.byElement, app.byId = {}, {}, {}
+  app.windows, app.byElement, app.byId, app.ignored = {}, {}, {}, {}
   for _, record in ipairs(windows) do
     if not record.failed then
       record.failed = true
@@ -265,6 +266,7 @@ local function track(app, element)
     return
   end
   app.byId[record.id] = record
+  app.ignored[record.id] = nil
   emit(app, record, module.windowCreated)
   return record
 end
@@ -321,9 +323,59 @@ local function changed(app, element, event)
   end
 end
 
+---@param pid integer
+---@param done fun(id?: integer, err?: string)
+---@return boolean
+local function focusedWindowAsync(pid, done)
+  local manager = package.loaded["lib.window_manager"] --[[@as { native?: { focusedWindow?: fun(pid: integer, done: fun(id?: integer, err?: string)) } }?]]
+  local native = manager and manager.native
+  if native and native.focusedWindow then
+    native.focusedWindow(pid, done)
+    return true
+  end
+  return false
+end
+
 ---@param app WindowObserver
 local function focused(app)
   if not frontmost(app) then
+    return
+  end
+  focusSerial = focusSerial + 1
+  local serial, pid = focusSerial, app.app:pid()
+  if
+    focusedWindowAsync(pid, function(id, err)
+      if serial ~= focusSerial or apps[pid] ~= app or app.failed or not frontmost(app) then
+        return
+      end
+      if err == "cancelled" then
+        return
+      elseif err then
+        failure(app, "focused window: " .. tostring(err))
+        return
+      elseif not id then
+        return
+      end
+      local record = app.byId[id]
+      if record and not record.failed then
+        changed(app, record.element, "AXFocusedWindowChanged")
+        return
+      end
+      local ok, failureMessage = pcall(function()
+        local window = app.app:focusedWindow()
+        if window then
+          local element = hs.axuielement.windowElement(window) --[[@as hs.axuielement?]]
+          if not element then
+            error("focused window Accessibility unavailable", 0)
+          end
+          changed(app, element, "AXFocusedWindowChanged")
+        end
+      end)
+      if not ok then
+        failure(app, "focused window: " .. tostring(failureMessage))
+      end
+    end)
+  then
     return
   end
   local window = app.app:focusedWindow()
@@ -349,7 +401,7 @@ local function attach(application)
     return
   end
   ---@type WindowObserver
-  local app = { app = application, windows = {}, byElement = {}, byId = {} }
+  local app = { app = application, windows = {}, byElement = {}, byId = {}, ignored = {} }
   apps[pid] = app
   local ok, err = pcall(function()
     local element = hs.axuielement.applicationElement(application) --[[@as hs.axuielement?]]
@@ -460,7 +512,7 @@ function module.new(predicate)
     spaceWatcher = hs.spaces.watcher.new(function()
       -- Only apps with untracked on-screen layer-0 windows can reveal windows AXWindows omitted.
       -- Plain `list()` drops windows in front of the first one titled "Dock".
-      local visible, scan = {}, {}
+      local visible, scan, scanIds = {}, {}, {}
       for _, info in
         ipairs(hs.window.list(true) --[[@as table[] ]])
       do
@@ -468,13 +520,19 @@ function module.new(predicate)
         if pid then
           visible[pid] = true
           local id = info.kCGWindowNumber
+          local app = apps[pid]
           if id == nil then
             scan[pid] = true
-          elseif (info.kCGWindowLayer or 0) == 0 then
-            local app = apps[pid]
-            if app and not app.byId[id] then
-              scan[pid] = true
-            end
+          elseif
+            (info.kCGWindowLayer or 0) == 0
+            and app
+            and not app.byId[id]
+            and not app.ignored[id]
+          then
+            scan[pid] = true
+            local list = scanIds[pid] or {}
+            list[#list + 1] = id
+            scanIds[pid] = list
           end
         end
       end
@@ -485,7 +543,13 @@ function module.new(predicate)
         elseif visible[pid] and scan[pid] and app.observer and not app.failed then
           -- The observer still works.
           local ok, err = pcall(snapshot, app)
-          if not ok then
+          if ok then
+            for _, id in ipairs(scanIds[pid] or {}) do
+              if not app.byId[id] then
+                app.ignored[id] = true
+              end
+            end
+          else
             failure(app, "window snapshot: " .. tostring(err))
           end
         end
@@ -598,8 +662,9 @@ function module.stop()
       app.observer:stop()
       app.observer = nil
     end
-    app.windows, app.byElement, app.byId = {}, {}, {}
+    app.windows, app.byElement, app.byId, app.ignored = {}, {}, {}, {}
   end
+  focusSerial = 0
   apps, filters, launching, wanted, order = {}, {}, {}, { AXUIElementDestroyed = true }, {}
   applicationWatcher, spaceWatcher = nil, nil
 end
