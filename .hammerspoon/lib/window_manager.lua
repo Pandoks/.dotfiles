@@ -17,7 +17,9 @@ local utils = require("lib.utils")
 
 ---@class WindowManagerNative
 ---@field move fun(right: boolean, count: integer, x: number, y: number): boolean, string?
----@field focus fun(pid: integer, id: integer, done?: WindowManagerDone)
+---@field focus fun(pid: integer, id: integer, done?: WindowManagerDone, space?: integer)
+---@field cancelFocus? fun()
+---@field focusedWindow? fun(pid: integer, done: fun(id?: integer, err?: string))
 ---@field frame fun(pid: integer, id: integer, x: number, y: number, w: number, h: number, done?: WindowManagerDone)
 ---@field minimize fun(pid: integer, id: integer, minimized: boolean, done?: WindowManagerDone)
 ---@field windows fun(done: fun(ok: boolean, err?: string, rows: table[]), pids?: integer[]|table<integer, boolean>)
@@ -41,6 +43,17 @@ local windowManager = { native = native }
 
 ---@type SpaceJump?
 local jump
+---@type { space?: integer, pid: integer, id: integer }?
+local focusing
+---@type { space?: integer, pid: integer, id: integer, timer?: hs.timer }?
+local settled
+
+local function clearSettled()
+  if settled and settled.timer then
+    settled.timer:stop()
+  end
+  settled = nil
+end
 
 ---@return table<string, integer>?
 ---@return string?
@@ -163,12 +176,18 @@ local function jumpTo(index, done, layout)
 
   -- Swipes in flight on this display still land; the watcher continues from there.
   if jump and jump.display == display then
+    if native.cancelFocus then
+      native.cancelFocus()
+    end
     local previous = jump.done
     jump.space, jump.index, jump.done = targetID, index, done
     deadline(jump)
     previous(false, "superseded")
     return
   elseif jump then
+    if native.cancelFocus then
+      native.cancelFocus()
+    end
     finish(false, "superseded")
   end
   if current == targetID then
@@ -178,6 +197,9 @@ local function jumpTo(index, done, layout)
   if not origin then
     done(false, "current Space unavailable")
     return
+  end
+  if native.cancelFocus then
+    native.cancelFocus()
   end
   jump = {
     space = targetID,
@@ -195,6 +217,7 @@ end
 ---@param index number Mission Control index
 ---@param done? WindowManagerDone
 function windowManager.space(index, done)
+  clearSettled()
   jumpTo(index, done)
 end
 
@@ -209,11 +232,35 @@ end
 ---@param done? WindowManagerDone
 ---@param minimized? boolean unminimize once its Space shows; earlier, macOS animates there itself
 ---@param live? fun(): boolean false cancels the remaining steps
-function windowManager.focus(pid, id, done, minimized, live)
+---@param knownSpace? integer
+function windowManager.focus(pid, id, done, minimized, live, knownSpace)
   done = done or function() end
+  local space = knownSpace or windowManager.spaceOf(id)
+  local job = { space = space, pid = pid, id = id }
+  focusing = job
+  clearSettled()
+  local function complete(ok, err)
+    local current = focusing == job
+    if current then
+      focusing = nil
+    end
+    if ok and current then
+      local entry = { space = space, pid = pid, id = id }
+      settled = entry
+      entry.timer = hs.timer.doAfter(0.3, function()
+        if settled == entry then
+          settled = nil
+        end
+      end)
+    end
+    done(ok, err)
+  end
   local function cancelled()
     if live and not live() then
-      done(false, "cancelled")
+      if native.cancelFocus then
+        native.cancelFocus()
+      end
+      complete(false, "cancelled")
       return true
     end
   end
@@ -221,19 +268,18 @@ function windowManager.focus(pid, id, done, minimized, live)
     if cancelled() then
       return
     elseif not minimized then
-      native.focus(pid, id, done)
+      native.focus(pid, id, complete, space)
       return
     end
     native.minimize(pid, id, false, function(ok, err)
       if not ok then
-        done(false, err)
+        complete(false, err)
       elseif not cancelled() then
-        native.focus(pid, id, done)
+        native.focus(pid, id, complete, space)
       end
     end)
   end
   -- No Space to show first.
-  local space = windowManager.spaceOf(id)
   if not space then
     show()
     return
@@ -242,18 +288,18 @@ function windowManager.focus(pid, id, done, minimized, live)
     if ok then
       show()
     else
-      done(false, failure)
+      complete(false, failure)
     end
   end
   if native.displaySpaces then
     local layout, err = native.displaySpaces()
     if not layout then
-      done(false, err)
+      complete(false, err)
       return
     end
     local entry = layout.bySpace[space]
     if not entry then
-      done(false, "display unavailable for Space " .. space)
+      complete(false, "display unavailable for Space " .. space)
       return
     end
     if layout.active[entry.display] == space then
@@ -266,7 +312,7 @@ function windowManager.focus(pid, id, done, minimized, live)
   local display = hs.spaces.spaceDisplay(space)
   local active, err = hs.spaces.activeSpaces()
   if not display or not active then
-    done(false, display and err or "display unavailable for Space " .. space)
+    complete(false, display and err or "display unavailable for Space " .. space)
     return
   end
   if active[display] == space then
@@ -279,12 +325,28 @@ function windowManager.focus(pid, id, done, minimized, live)
       return
     end
   end
-  done(false, "window Space unavailable")
+  complete(false, "window Space unavailable")
 end
 
+---@param space? integer
+---@param pid? integer
 ---@return boolean
-function windowManager.isBusy()
-  return jump ~= nil
+function windowManager.isBusy(space, pid)
+  if jump ~= nil or focusing ~= nil then
+    return true
+  end
+  if
+    settled ~= nil
+    and ((space ~= nil and settled.space == space) or (pid ~= nil and settled.pid == pid))
+  then
+    return true
+  end
+  return false
+end
+
+---@return { space?: integer, pid: integer, id: integer }?
+function windowManager.focusedTarget()
+  return focusing or settled
 end
 
 windowManager.frame = native.frame
@@ -295,6 +357,11 @@ native.windows(function() end)
 
 function windowManager.stop()
   watcher:stop()
+  focusing = nil
+  clearSettled()
+  if native.cancelFocus then
+    native.cancelFocus()
+  end
   if jump then
     finish(false, "stopped")
   end
