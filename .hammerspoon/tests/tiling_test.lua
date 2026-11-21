@@ -863,7 +863,7 @@ test(
   end
 )
 
-test("fallback spaceCheckAfterDrop does not restart while a drop check is pending", function()
+test("fallback spaceCheckAfterDrop rearms on every release so back-to-back drops settle", function()
   local desktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
   local checks = desktop.counts.spaceCheck
   desktop.releaseMouse()
@@ -871,8 +871,8 @@ test("fallback spaceCheckAfterDrop does not restart while a drop check is pendin
   desktop.releaseMouse()
   assertEqual(
     desktop.counts.spaceCheck,
-    checks + 1,
-    "unrelated click while pending does not reset timer"
+    checks + 2,
+    "second release rearms fallback timer for a later Mission Control drop"
   )
   desktop:windowSpec(1).space = 4
   desktop.runSpaceCheck()
@@ -880,7 +880,7 @@ test("fallback spaceCheckAfterDrop does not restart while a drop check is pendin
   desktop.releaseMouse()
   assertEqual(
     desktop.counts.spaceCheck,
-    checks + 2,
+    checks + 3,
     "subsequent release after firing arms check again"
   )
 end)

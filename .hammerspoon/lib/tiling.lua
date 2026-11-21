@@ -648,7 +648,6 @@ end)
 local pendingSpaceSync ---@type hs.timer?
 local changedSpaceIds = {} ---@type table<integer, boolean>
 local stopWindowSpaceWatcher ---@type (fun())?
-local spaceCheckPending = false
 
 ---@param id integer
 local function scheduleSpaceSync(id)
@@ -699,7 +698,6 @@ end
 
 -- A Mission Control drop changes a window's Space ~0.6 s after the release, with no window event.
 tiling.spaceCheckAfterDrop = hs.timer.delayed.new(1, function()
-  spaceCheckPending = false
   local ids = {}
   for id in pairs(tiled) do
     ids[#ids + 1] = id
@@ -744,8 +742,7 @@ tiling.mouseReleaseTap = hs.eventtap
     for space in pairs(spaces) do
       apply(space)
     end
-    if not stopWindowSpaceWatcher and next(tiled) ~= nil and not spaceCheckPending then
-      spaceCheckPending = true
+    if not stopWindowSpaceWatcher and next(tiled) ~= nil then
       tiling.spaceCheckAfterDrop:start()
     end
     return false
