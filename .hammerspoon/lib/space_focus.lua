@@ -5,7 +5,7 @@ local missionControl = require("lib.mission_control")
 local utils = require("lib.utils")
 local windowManager = require("lib.window_manager")
 local module = {}
-local recent, guard = {}, nil
+local recent, guard, lastFocused = {}, nil, nil
 local stopped = false
 local lastSpace = hs.spaces.focusedSpace()
 local marker = 1397769029
@@ -37,11 +37,56 @@ local function eligible(row)
   return row.app ~= "Hammerspoon" and not isPiP(row.title)
 end
 
+---@param list table[]
+---@param pid? integer
+---@return boolean
+local function hasPiPFor(list, pid)
+  if not pid then
+    return false
+  end
+  for _, entry in ipairs(list) do
+    if entry.kCGWindowOwnerPID == pid then
+      local layer = entry.kCGWindowLayer
+      if (entry.kCGWindowName ~= nil or layer == nil or layer > 0) and isPiP(titleOf(entry)) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+---@param list table[]
+---@param pid? integer
+---@param frame table
+---@return boolean
+local function hasOutsideWindowFor(list, pid, frame)
+  if not pid then
+    return false
+  end
+  for _, entry in ipairs(list) do
+    if entry.kCGWindowOwnerPID == pid and (entry.kCGWindowLayer or 0) == 0 then
+      local bounds = entry.kCGWindowBounds
+      local x, y = bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2
+      if
+        not (x >= frame.x and x < frame.x + frame.w and y >= frame.y and y < frame.y + frame.h)
+      then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 -- WindowServer order needs no app replies; focus can be on another screen (e.g. PiP).
 -- Plain `list()` drops windows in front of the first one titled "Dock".
-local function snapshot(frame, list)
-  local focusedWindow = hs.window.focusedWindow()
-  local focusedID = focusedWindow and focusedWindow:id()
+local function snapshot(frame, list, needFocused, knownFocusedID)
+  local focusedID
+  if knownFocusedID ~= nil then
+    focusedID = knownFocusedID or nil
+  elseif needFocused then
+    local focusedWindow = hs.window.focusedWindow()
+    focusedID = focusedWindow and focusedWindow:id()
+  end
   local rows, cover, tracked, focused = {}, {}, {}, nil
   for _, info in
     ipairs(list or hs.window.list(true) --[[@as table[] ]])
@@ -85,8 +130,24 @@ local function menuBusy()
   return switcherBusy() or missionControl.isActive()
 end
 
+---@return table[]?, string?
+local function managedSpaces()
+  if windowManager.native.displaySpaces then
+    local layout, err = windowManager.native.displaySpaces()
+    if not layout then
+      return nil, err
+    end
+    local spaces = {}
+    for index, space in ipairs(layout.spaces) do
+      spaces[index] = { ManagedSpaceID = space.id, display = space.display }
+    end
+    return spaces
+  end
+  return utils.spaces()
+end
+
 local function spaceIndex(id, spaces)
-  spaces = spaces or utils.spaces()
+  spaces = spaces or managedSpaces()
   for index, space in ipairs(spaces or {}) do
     if space.ManagedSpaceID == id then
       return index
@@ -118,6 +179,15 @@ end
 local function shown(space, focused)
   if (focused or hs.spaces.focusedSpace()) == space then
     return true
+  end
+  if windowManager.native.displaySpaces then
+    local layout = windowManager.native.displaySpaces()
+    for _, active in pairs(layout and layout.active or {}) do
+      if active == space then
+        return true
+      end
+    end
+    return false
   end
   for _, display in ipairs(hs.spaces.data_managedDisplaySpaces() or {}) do
     if display["Current Space"].ManagedSpaceID == space then
@@ -176,15 +246,20 @@ local function desktopPoint(screen, rows)
   end
 end
 
-local function check(job, list, checked)
-  if job.task or not valid(job, checked) then
+local function check(job, list, checked, knownFocusedID)
+  if job.task or (job.probing and knownFocusedID == nil) or not valid(job, checked) then
     return
   end
-  local rows, focused, cover = snapshot(job.frame, list)
-  local candidate, targetValid
+  if knownFocusedID ~= nil then
+    job.probing = nil
+  end
+  list = list or hs.window.list(true) --[[@as table[] ]]
+  local rows, focused, cover = snapshot(job.frame, list, false, knownFocusedID)
+  local candidate, targetValid, targetRow
   for _, row in ipairs(rows) do
     if row.id == job.target and row.pid == job.targetPID and eligible(row) then
       targetValid = true
+      targetRow = row
     end
     if eligible(row) then
       candidate = candidate or row
@@ -201,6 +276,93 @@ local function check(job, list, checked)
   if job.target and not targetValid then
     finish(job, false, "target window is no longer available")
     return
+  end
+  local front = hs.application.frontmostApplication()
+  local frontPid = front and front.pid and front:pid()
+  if knownFocusedID == nil then
+    if job.target then
+      if
+        lastFocused
+        and lastFocused.id == job.target
+        and lastFocused.pid == job.targetPID
+        and (not frontPid or frontPid == job.targetPID)
+      then
+        focused = targetRow
+      elseif windowManager.native.focusedWindow then
+        job.probing = true
+        windowManager.native.focusedWindow(job.targetPID, function(id)
+          if guard ~= job then
+            return
+          end
+          job.probing = nil
+          local nowFront = hs.application.frontmostApplication()
+          local nowPid = nowFront and nowFront.pid and nowFront:pid()
+          if id and nowPid and nowPid ~= job.targetPID then
+            id = false
+          end
+          check(job, nil, nil, id or false)
+        end)
+        return
+      else
+        rows, focused, cover = snapshot(job.frame, list, true)
+      end
+    elseif not job.force and not job.desktop then
+      if frontPid and not hasPiPFor(list, frontPid) then
+        finish(job, true)
+        return
+      elseif frontPid and windowManager.native.focusedWindow then
+        job.probing = true
+        windowManager.native.focusedWindow(frontPid, function(id)
+          if guard ~= job then
+            return
+          end
+          job.probing = nil
+          check(job, list, true, id or false)
+        end)
+        return
+      else
+        rows, focused, cover = snapshot(job.frame, list, true)
+      end
+    elseif candidate then
+      if
+        frontPid
+        and frontPid == candidate.pid
+        and lastFocused
+        and lastFocused.id == candidate.id
+        and lastFocused.pid == candidate.pid
+        and not hasPiPFor(list, frontPid)
+      then
+        recent[job.space] = { id = candidate.id, pid = candidate.pid }
+        finish(job, true)
+        return
+      elseif not frontPid and not windowManager.native.focusedWindow then
+        rows, focused, cover = snapshot(job.frame, list, true)
+      end
+    elseif not job.desktop then
+      if
+        frontPid
+        and front
+        and front:bundleID() == "com.apple.finder"
+        and hs.spaces.focusedSpace() == job.space
+        and not hasPiPFor(list, frontPid)
+        and not hasOutsideWindowFor(list, frontPid, job.frame)
+      then
+        finish(job, true)
+        return
+      elseif frontPid and windowManager.native.focusedWindow then
+        job.probing = true
+        windowManager.native.focusedWindow(frontPid, function(id)
+          if guard ~= job then
+            return
+          end
+          job.probing = nil
+          check(job, list, true, id or false)
+        end)
+        return
+      else
+        rows, focused, cover = snapshot(job.frame, list, true)
+      end
+    end
   end
   if
     job.target
@@ -241,7 +403,7 @@ local function check(job, list, checked)
             check(job)
           end
         end
-      end)
+      end, job.space)
     end)
   elseif not job.desktop then
     if
@@ -272,8 +434,8 @@ local function check(job, list, checked)
       movement:setProperty(event.properties.eventSourceUserData, marker)
       movement:post()
       -- An already active Finder reports no activation for its desktop.
-      local front = hs.application.frontmostApplication()
-      if front and front:bundleID() == "com.apple.finder" then
+      local activeFront = hs.application.frontmostApplication()
+      if activeFront and activeFront:bundleID() == "com.apple.finder" then
         finish(job, true)
       end
     end)
@@ -338,7 +500,7 @@ end
 
 function module.switchSpace(selector)
   local fromSpace = guard and guard.switching and guard.space or hs.spaces.focusedSpace()
-  local spaces, err = utils.spaces()
+  local spaces, err = managedSpaces()
   if not spaces then
     logger.error("Space focus: " .. tostring(err))
     return
@@ -360,6 +522,9 @@ function module.switchSpace(selector)
   end
   local moving = guard and guard.switching
   if guard then
+    if windowManager.native.cancelFocus then
+      windowManager.native.cancelFocus()
+    end
     finish(guard, false, "superseded")
   end
   local job = {
@@ -397,7 +562,7 @@ end
 function module.moveWindow(index)
   local window = hs.window.focusedWindow()
   local app = window and window:application()
-  local spaces, err = utils.spaces()
+  local spaces, err = managedSpaces()
   local target = spaces and spaces[index]
   if not app then
     return
@@ -523,7 +688,9 @@ local function recordManaged(space)
     lastSpace = space
     local target = windowManager.focusedTarget and windowManager.focusedTarget()
     if target and target.space == space and target.id and target.pid then
-      recent[space] = { id = target.id, pid = target.pid }
+      local entry = { id = target.id, pid = target.pid }
+      recent[space] = entry
+      lastFocused = entry
     end
   end
 end
@@ -540,16 +707,19 @@ local function observe(window, list, standard, name)
     arrive(space, true, list)
     return
   end
-  if windowManager.isBusy and windowManager.isBusy(space) then
+  if not guard and windowManager.isBusy and windowManager.isBusy(space) then
     recordManaged(space)
     return
   end
   local changed = space ~= lastSpace
   lastSpace = space
-  local title, app
+  local title, app, windowID
   if window then
     title = window:title()
-    if (standard or window:isStandard()) and not isPiP(title) then
+    windowID = window:id()
+    if isPiP(title) then
+      lastFocused = nil
+    elseif standard or window:isStandard() then
       local ownerName = name
       if ownerName == nil then
         app = window:application()
@@ -558,14 +728,16 @@ local function observe(window, list, standard, name)
       if ownerName ~= "Hammerspoon" then
         app = app or window:application()
         if app then
-          recent[space] = { id = window:id(), pid = app:pid() }
+          local entry = { id = windowID, pid = app:pid() }
+          recent[space] = entry
+          lastFocused = entry
         end
       end
     end
   end
   -- Another display's Space can take focus just after the event that moved it.
   if guard and (guard.space == space or guard.away) then
-    check(guard, list)
+    check(guard, list, nil, windowID)
   end
   local now = hs.timer.secondsSinceEpoch()
   if window and isPiP(title) and retake(list, now, space) then
@@ -583,7 +755,7 @@ local function observe(window, list, standard, name)
   end
   if window and activation and isPiP(title) then
     app = app or window:application()
-    leavePiP(window:id(), app and app:pid(), list)
+    leavePiP(windowID, app and app:pid(), list)
   end
 end
 
@@ -594,11 +766,7 @@ module.appWatcher = hs.application.watcher
       return
     end
     local space = hs.spaces.focusedSpace()
-    if
-      not (guard and guard.switching)
-      and windowManager.isBusy
-      and windowManager.isBusy(space, app:pid())
-    then
+    if not guard and windowManager.isBusy and windowManager.isBusy(space, app:pid()) then
       recordManaged(space)
       return
     end
@@ -690,6 +858,7 @@ end
 function module.stop()
   stopped = true
   screens = {}
+  lastFocused = nil
   if guard then
     finish(guard, false, "stopped")
   end
