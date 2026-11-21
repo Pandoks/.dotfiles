@@ -516,4 +516,25 @@ test(
   end
 )
 
+test(
+  "focusing a same-Space window supersedes an in-flight cross-Space jump instead of landing away",
+  function()
+    local desktop = harness({ nativeDisplaySpaces = true })
+    local firstResult, secondResult
+    desktop.windowManager.focus(10, 1, function(ok, err)
+      firstResult = ok and "ok" or err
+    end, false, nil, 300)
+    assertEqual(#desktop.inflight, 1, "cross-Space jump started")
+
+    desktop.windowManager.focus(20, 2, function(ok, err)
+      secondResult = ok and "ok" or err
+    end, false, nil, 100)
+    assertEqual(firstResult, "superseded", "in-flight cross-Space jump is superseded")
+    desktop:settle()
+    assertEqual(desktop.current, 100, "returns to current Space instead of staying on stale Space")
+    assertEqual(secondResult, "ok")
+    assertEqual(desktop.focused, 2)
+  end
+)
+
 print("RESULT " .. passed .. " passed, 0 failed")

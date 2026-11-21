@@ -283,6 +283,9 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
   end
   -- No Space to show first.
   if not space then
+    if jump then
+      finish(false, "superseded")
+    end
     show()
     return
   end
@@ -304,7 +307,7 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
       complete(false, "display unavailable for Space " .. space)
       return
     end
-    if layout.active[entry.display] == space then
+    if not jump and layout.active[entry.display] == space then
       show()
       return
     end
@@ -317,7 +320,7 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
     complete(false, display and err or "display unavailable for Space " .. space)
     return
   end
-  if active[display] == space then
+  if not jump and active[display] == space then
     show()
     return
   end
