@@ -34,6 +34,7 @@ local applied = {} ---@type table<integer, { x: number, y: number, w: number, h:
 local moving = {} ---@type table<integer, integer> in-flight frame updates
 local stopped = false
 local resyncOnRelease = false
+local unplaced = false
 
 local function isPiP(title)
   title = (title or ""):lower():gsub("[^%a]", "")
@@ -237,6 +238,7 @@ local function sync(mouseReleased)
     return
   end
   resyncOnRelease = false
+  unplaced = false
   local changedSpaces, stillManaged, ids, pids, allowed = {}, {}, {}, {}, {}
   for _, window in ipairs(tiling.windows:getWindows()) do
     local id, pid = manageable(window, allowed)
@@ -260,6 +262,8 @@ local function sync(mouseReleased)
         insert(space, id, pids[index])
         changedSpaces[space] = true
       end
+    else
+      unplaced = true
     end
   end
   for id, entry in pairs(tiled) do
@@ -695,9 +699,45 @@ tiling.mouseReleaseTap = hs.eventtap
   :start() --[[@as hs.eventtap]]
 tiling.spaceWatcher = hs.spaces.watcher
   .new(function()
+    if stopped then
+      return
+    end
     -- It passes the Space, not `mouseReleased`.
+    local previous = areas
     areas = {}
-    sync()
+    local ids = {}
+    for id in pairs(tiled) do
+      ids[#ids + 1] = id
+    end
+    local changed = unplaced
+    if not changed and #ids > 0 then
+      local spaces = windowManager.native.spaces(ids)
+      for _, id in ipairs(ids) do
+        if spaces[id] and spaces[id] ~= tiled[id].space then
+          changed = true
+          break
+        end
+      end
+    end
+    local resized = {}
+    if not changed then
+      for space in pairs(trees) do
+        local old, current = previous[space], area(space)
+        if not current then
+          changed = true
+          break
+        elseif not old or not old:equals(current) then
+          resized[#resized + 1] = space
+        end
+      end
+    end
+    if changed then
+      sync()
+    else
+      for _, space in ipairs(resized) do
+        apply(space)
+      end
+    end
   end)
   :start() --[[@as hs.spaces.watcher]]
 tiling.screenWatcher = hs.screen.watcher
@@ -734,6 +774,7 @@ function tiling.stop()
   areas = {}
   applied = {}
   pips = {}
+  unplaced = false
   tiling.mouseReleaseTap:stop()
   tiling.spaceCheckAfterDrop:stop()
   tiling.spaceWatcher:stop()
