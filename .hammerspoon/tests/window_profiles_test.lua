@@ -2,7 +2,7 @@
 local root = assert(arg[1], "pass a lib directory")
 local tasks, errors, calls, reportRaises = {}, {}, {}, false
 local apps, rows, failure, filters, timers = {}, {}, nil, {}, {}
-local scans, pendingScans, focusLive, deferScans = {}, {}, {}, false
+local scans, scanArgs, pendingScans, focusLive, deferScans = {}, {}, {}, {}, false
 local mainWindowCalls, allWindowsCalls = 0, 0
 local environment = setmetatable({
   hs = {
@@ -97,8 +97,10 @@ local modules = {
     end,
   },
   ["lib.window_manager"] = {
-    windows = function(done, pids)
+    windows = function(done, ...)
+      local pids = ...
       scans[#scans + 1] = pids
+      scanArgs[#scanArgs + 1] = select("#", ...) + 1
       if deferScans then
         pendingScans[#pendingScans + 1] = done
         return
@@ -134,8 +136,9 @@ local personal = chromium.window({ bundleID = "net.imput.helium", profile = "Per
 local passed = 0
 local function reset()
   tasks, errors, calls, apps, rows, failure, filters, timers = {}, {}, {}, {}, {}, nil, {}, {}
-  scans, pendingScans, focusLive, deferScans = {}, {}, {}, false
+  scans, scanArgs, pendingScans, focusLive, deferScans = {}, {}, {}, {}, false
   mainWindowCalls, allWindowsCalls = 0, 0
+  modules["lib.window_manager"].native = nil
   openOrFocusWindow = assert(loadfile(root .. "/../window_profiles.lua", "t", environment))()
 end
 ---@param main? table
@@ -420,5 +423,19 @@ check("windowManager.windows receives deduplicated targeted pids for matching ap
   assert(#scans == 1 and type(scans[1]) == "table")
   assert(#scans[1] == 2 and scans[1][1] == 7 and scans[1][2] == 11)
   assert(calls[1] == "focus 11 5")
+end)
+check("windowManager.windows omits pids when native lacks displaySpaces", function()
+  modules["lib.window_manager"].native = {}
+  apps, rows = helium(), { row(5, "Mail - Helium - Work") }
+  openOrFocusWindow(work)
+  assert(#scanArgs == 1 and scanArgs[1] == 1 and scans[1] == nil)
+  assert(calls[1] == "focus 7 5")
+
+  reset()
+  modules["lib.window_manager"].native = { displaySpaces = function() end }
+  apps, rows = helium(), { row(5, "Mail - Helium - Work") }
+  openOrFocusWindow(work)
+  assert(#scanArgs == 1 and scanArgs[1] == 2 and type(scans[1]) == "table" and scans[1][1] == 7)
+  assert(calls[1] == "focus 7 5")
 end)
 print("RESULT " .. passed .. " passed, 0 failed")
