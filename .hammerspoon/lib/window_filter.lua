@@ -6,6 +6,7 @@ module.blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = 
 ---@field element hs.axuielement
 ---@field window? hs.window
 ---@field id? integer
+---@field index integer
 ---@field recent integer
 ---@field failed? boolean
 ---@field allowed table<WindowFilter, boolean>
@@ -16,6 +17,8 @@ module.blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = 
 ---@field element? hs.axuielement
 ---@field observer? hs.axuielement.observer
 ---@field windows WindowRecord[]
+---@field byElement table<hs.axuielement, WindowRecord>
+---@field byId table<integer, WindowRecord>
 ---@field failed? boolean
 
 ---@class WindowFilter
@@ -77,16 +80,42 @@ local function failure(app, message)
   logger.error("Window tracking (" .. (app.app:name() or "exited app") .. "): " .. message)
 end
 
+---@param app WindowObserver
+---@param element hs.axuielement
+---@return WindowRecord?
+local function lookup(app, element)
+  local record = app.byElement[element]
+  if record then
+    return record
+  end
+  -- Different hs.axuielement userdata can wrap the same AXUIElementRef (__eq uses CFEqual).
+  for _, candidate in ipairs(app.windows) do
+    if candidate.element == element then
+      return candidate
+    end
+  end
+end
+
+---@param element hs.axuielement
+---@param window hs.window
+local function check(element, window)
+  return eligible(element, window:subrole())
+end
+
 ---@param filter WindowFilter
 ---@param record WindowRecord
-local function matches(filter, record)
+---@param ok? boolean
+---@param allowed? boolean|string
+local function matches(filter, record, ok, allowed)
   if not record.window or record.failed or filter.failed then
     return false
   end
-  local ok, allowed = pcall(function()
-    return eligible(record.element, record.window:subrole())
-      and (not filter.predicate or filter.predicate(record.window))
-  end)
+  if ok == nil then
+    ok, allowed = pcall(check, record.element, record.window)
+  end
+  if ok and allowed and filter.predicate then
+    ok, allowed = pcall(filter.predicate, record.window)
+  end
   if not ok then
     filter.failed = true
     logger.error("Window filter: " .. tostring(allowed))
@@ -99,9 +128,17 @@ end
 ---@param record WindowRecord
 ---@param event string
 local function emit(app, record, event)
+  local baseOk, baseAllowed
   for filter in pairs(filters) do
-    local allowed = event == module.windowDestroyed and record.allowed[filter]
-      or (event ~= module.windowDestroyed and matches(filter, record))
+    local allowed
+    if event == module.windowDestroyed then
+      allowed = record.allowed[filter]
+    else
+      if baseOk == nil and record.window and not record.failed and not filter.failed then
+        baseOk, baseAllowed = pcall(check, record.element, record.window)
+      end
+      allowed = matches(filter, record, baseOk, baseAllowed)
+    end
     if allowed then
       local callbacks, index = filter.callbacks[event] or {}, 1
       while callbacks[index] do
@@ -124,7 +161,9 @@ local function retire(app)
     app.observer:stop()
     app.observer = nil
   end
-  for _, record in ipairs(app.windows) do
+  local windows = app.windows
+  app.windows, app.byElement, app.byId = {}, {}, {}
+  for _, record in ipairs(windows) do
     if not record.failed then
       record.failed = true
       emit(app, record, module.windowDestroyed)
@@ -161,6 +200,9 @@ local function watch(app, record)
       local ok, err = pcall(app.observer.addWatcher, app.observer, record.element, notification)
       if not ok then
         record.failed = true
+        if record.id and app.byId[record.id] == record then
+          app.byId[record.id] = nil
+        end
         unwatch(app, record)
         emit(app, record, module.windowDestroyed)
         failure(app, notification .. ": " .. tostring(err))
@@ -179,10 +221,9 @@ local function track(app, element)
   if not app.observer then
     return
   end
-  for _, record in ipairs(app.windows) do
-    if record.element == element then
-      return record.window and not record.failed and record or nil
-    end
+  local existing = lookup(app, element)
+  if existing then
+    return existing.window and not existing.failed and existing or nil
   end
   if
     element:attributeValue("AXRole") ~= "AXWindow"
@@ -194,13 +235,17 @@ local function track(app, element)
   if parent and parent:attributeValue("AXRole") ~= "AXApplication" then
     return
   end
+  local index = #app.windows + 1
+  ---@type WindowRecord
   local record = {
     element = element,
+    index = index,
     recent = 0,
     allowed = {},
     notifications = {},
   }
-  app.windows[#app.windows + 1] = record
+  app.windows[index] = record
+  app.byElement[element] = record
   local ok, err = pcall(function()
     local window = element:asHSWindow()
     local id = window and window:id()
@@ -216,9 +261,10 @@ local function track(app, element)
     return
   end
   watch(app, record)
-  if record.failed or not record.window then
+  if record.failed or not record.window or not record.id then
     return
   end
+  app.byId[record.id] = record
   emit(app, record, module.windowCreated)
   return record
 end
@@ -242,15 +288,23 @@ local function changed(app, element, event)
     return
   end
   if event == "AXUIElementDestroyed" then
-    for index, record in ipairs(app.windows) do
-      if record.element == element then
-        table.remove(app.windows, index)
-        unwatch(app, record)
-        if not record.failed then
-          emit(app, record, module.windowDestroyed)
-        end
-        return
-      end
+    local record = lookup(app, element)
+    if not record then
+      return
+    end
+    local last = app.windows[#app.windows]
+    app.windows[#app.windows] = nil
+    if last ~= record then
+      app.windows[record.index] = last
+      last.index = record.index
+    end
+    app.byElement[record.element] = nil
+    if record.id and app.byId[record.id] == record then
+      app.byId[record.id] = nil
+    end
+    unwatch(app, record)
+    if not record.failed then
+      emit(app, record, module.windowDestroyed)
     end
     return
   end
@@ -295,7 +349,7 @@ local function attach(application)
     return
   end
   ---@type WindowObserver
-  local app = { app = application, windows = {} }
+  local app = { app = application, windows = {}, byElement = {}, byId = {} }
   apps[pid] = app
   local ok, err = pcall(function()
     local element = hs.axuielement.applicationElement(application) --[[@as hs.axuielement?]]
@@ -404,19 +458,31 @@ function module.new(predicate)
     end)
     applicationWatcher:start()
     spaceWatcher = hs.spaces.watcher.new(function()
-      -- Only apps on visible Spaces can reveal windows AXWindows omitted.
+      -- Only apps with untracked on-screen layer-0 windows can reveal windows AXWindows omitted.
       -- Plain `list()` drops windows in front of the first one titled "Dock".
-      local visible = {}
+      local visible, scan = {}, {}
       for _, info in
         ipairs(hs.window.list(true) --[[@as table[] ]])
       do
-        visible[info.kCGWindowOwnerPID] = true
+        local pid = info.kCGWindowOwnerPID
+        if pid then
+          visible[pid] = true
+          local id = info.kCGWindowNumber
+          if id == nil then
+            scan[pid] = true
+          elseif (info.kCGWindowLayer or 0) == 0 then
+            local app = apps[pid]
+            if app and not app.byId[id] then
+              scan[pid] = true
+            end
+          end
+        end
       end
       for pid, app in pairs(apps) do
         -- Space notifications can precede app termination callbacks.
         if not app.app:isRunning() then
           detach(pid)
-        elseif visible[pid] and app.observer and not app.failed then
+        elseif visible[pid] and scan[pid] and app.observer and not app.failed then
           -- The observer still works.
           local ok, err = pcall(snapshot, app)
           if not ok then
@@ -487,12 +553,12 @@ end
 ---@return hs.window?
 function Filter:getWindow(id, pid)
   local app = apps[pid]
-  if filters[self] and app and not app.failed then
-    for _, record in ipairs(app.windows) do
-      if record.id == id and matches(self, record) then
-        return record.window
-      end
-    end
+  if not filters[self] or not app or app.failed then
+    return
+  end
+  local record = app.byId[id]
+  if record and matches(self, record) then
+    return record.window
   end
 end
 
@@ -530,7 +596,9 @@ function module.stop()
   for _, app in pairs(apps) do
     if app.observer then
       app.observer:stop()
+      app.observer = nil
     end
+    app.windows, app.byElement, app.byId = {}, {}, {}
   end
   apps, filters, launching, wanted, order = {}, {}, {}, { AXUIElementDestroyed = true }, {}
   applicationWatcher, spaceWatcher = nil, nil
