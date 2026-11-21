@@ -407,7 +407,7 @@ end)
 test(
   "focus forwards space, skips spaces() with knownSpace, cancels, and tracks settle state",
   function()
-    local desktop = harness({ nativeDisplaySpaces = true, deferFocus = true })
+    local desktop = harness({ nativeDisplaySpaces = true, deferred = true, deferFocus = true })
     local spacesBefore = desktop.calls.spaces
     local cancelsBefore = desktop.calls.cancelFocus
     local result
