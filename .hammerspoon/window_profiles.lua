@@ -287,7 +287,10 @@ local function openOrFocusWindow(profile)
 
   -- Every Space: targeted PID scan, preferring this Space, then others, then minimized
   local list = windowManager.windows --[[@as fun(done: fun(ok: boolean, err?: string, rows: table[]), pids?: integer[])]]
-  list(function(ok, err, rows)
+  ---@param ok boolean
+  ---@param err? string
+  ---@param rows table[]
+  local function scanned(ok, err, rows)
     if token ~= serial then
       return
     end
@@ -317,7 +320,13 @@ local function openOrFocusWindow(profile)
     recent = recent + 1
     target.recent = recent
     focus(profile.bundleId, target.pid, target.id, target.minimized, token)
-  end, pids)
+  end
+  local native = windowManager.native --[[@as { displaySpaces?: function }?]]
+  if not native or native.displaySpaces ~= nil then
+    list(scanned, pids)
+  else
+    list(scanned)
+  end
 end
 
 return openOrFocusWindow
