@@ -92,7 +92,8 @@ end)
 ---@param id integer
 ---@param minimized? boolean
 ---@param token? integer
-local function focus(bundleId, pid, id, minimized, token)
+---@param space? integer
+local function focus(bundleId, pid, id, minimized, token, space)
   local live = token and function()
     return token == serial
   end or nil
@@ -105,12 +106,16 @@ local function focus(bundleId, pid, id, minimized, token)
       print("Focused window", bundleId, id)
     elseif reason ~= "superseded" and reason ~= "stopped" and reason ~= "cancelled" then
       local entry = known[id]
-      if entry and entry.pid == pid then
+      if
+        entry
+        and entry.pid == pid
+        and (reason == "window unavailable" or reason == "process unavailable")
+      then
         known[id] = nil
       end
       logger.error(string.format("Could not focus %s: %s", bundleId, reason))
     end
-  end, minimized, live)
+  end, minimized, live, space)
 end
 
 ---@param profile WindowProfile
@@ -210,8 +215,8 @@ local function openOrFocusWindow(profile)
   end
 
   -- Cached windows first: zero AX IPC, verified live via SkyLight Space lookup
-  ---@type KnownWindow?, integer?
-  local cached, bestCached
+  ---@type KnownWindow?, integer?, integer?
+  local cached, bestCached, bestSpace
   for id, entry in pairs(known) do
     if owners[entry.pid] and matcher(entry.title) then
       local space = windowManager.spaceOf(id)
@@ -228,7 +233,7 @@ local function openOrFocusWindow(profile)
             and (entry.recent > cached.recent or (entry.recent == cached.recent and id < cached.id))
           )
         then
-          cached, bestCached = entry, rank
+          cached, bestCached, bestSpace = entry, rank, space
         end
       end
     end
@@ -236,7 +241,7 @@ local function openOrFocusWindow(profile)
   if cached then
     recent = recent + 1
     cached.recent = recent
-    focus(profile.bundleId, cached.pid, cached.id, cached.minimized, token)
+    focus(profile.bundleId, cached.pid, cached.id, cached.minimized, token, bestSpace)
     return
   end
 
@@ -269,7 +274,7 @@ local function openOrFocusWindow(profile)
     if entry then
       recent = recent + 1
       entry.recent = recent
-      focus(profile.bundleId, entry.pid, entry.id, false, token)
+      focus(profile.bundleId, entry.pid, entry.id, false, token, currentSpace)
       return
     end
   end
@@ -279,7 +284,7 @@ local function openOrFocusWindow(profile)
       if entry then
         recent = recent + 1
         entry.recent = recent
-        focus(profile.bundleId, entry.pid, entry.id, false, token)
+        focus(profile.bundleId, entry.pid, entry.id, false, token, currentSpace)
         return
       end
     end
@@ -298,17 +303,16 @@ local function openOrFocusWindow(profile)
       logger.error("Could not list windows: " .. tostring(err))
       return
     end
-    ---@type KnownWindow?, integer?
-    local target, best
+    ---@type KnownWindow?, integer?, integer?
+    local target, best, bestSpace
     for _, row in ipairs(rows) do
       if owners[row.pid] and row.root and row.subrole == "AXStandardWindow" then
         local entry = cache(row.pid, row.id, row.title or "", row.minimized == true)
         if matcher(entry.title) then
-          local rank = entry.minimized and 3
-            or windowManager.spaceOf(row.id) == currentSpace and 1
-            or 2
+          local space = windowManager.spaceOf(row.id)
+          local rank = entry.minimized and 3 or space == currentSpace and 1 or 2
           if not target or not best or rank < best then
-            target, best = entry, rank
+            target, best, bestSpace = entry, rank, space
           end
         end
       end
@@ -319,7 +323,7 @@ local function openOrFocusWindow(profile)
     end
     recent = recent + 1
     target.recent = recent
-    focus(profile.bundleId, target.pid, target.id, target.minimized, token)
+    focus(profile.bundleId, target.pid, target.id, target.minimized, token, bestSpace)
   end
   local native = windowManager.native --[[@as { displaySpaces?: function }?]]
   if not native or native.displaySpaces ~= nil then
