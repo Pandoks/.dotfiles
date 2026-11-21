@@ -164,7 +164,7 @@ packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 ## Hub
 
-The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], [ARTEX], and
+The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], [ARTEX], [MCPHub], and
 [Proton Mail Bridge]:
 
 ```sh
@@ -174,6 +174,7 @@ sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
 sudo tailscale serve --service=svc:cliproxyapi-api --https=443 http://127.0.0.1:8318
 sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 sudo tailscale serve --service=svc:artex --https=443 http://127.0.0.1:8787
+sudo tailscale serve --service=svc:mcphub --https=443 http://127.0.0.1:3000
 sudo tailscale serve --service=svc:protonmail-bridge --tcp=1143 tcp://127.0.0.1:1143
 sudo tailscale serve --service=svc:protonmail-bridge --tcp=1025 tcp://127.0.0.1:1025
 ```
@@ -209,10 +210,20 @@ systemctl --user start dev.mise.protonmail-bridge
 Clients use `protonmail-bridge.<tailnet>.ts.net` (IMAP 1143, SMTP 1025,
 STARTTLS) with the `info` credentials and accept Bridge's self-signed cert.
 
+**MCPHub:** get the first-boot `admin` password from `sudo docker logs hub-mcphub-1`,
+sign in at `https://mcphub.<tailnet>.ts.net`, and disable **Bearer Auth** under
+**Settings → Routing** (and optionally enable **Skip Auth**) since Tailscale
+already restricts access to the tailnet. Add upstream MCP servers in the UI —
+DCR servers (Notion, Linear, Figma, Cloudflare) authenticate in one click;
+providers needing manual OAuth apps (Slack, Google Workspace) use the callback
+URL `https://mcphub.<tailnet>.ts.net/oauth/callback`. Antigravity, Codex, and
+Claude Code are pre-wired to `https://mcphub.<tailnet>.ts.net/mcp`.
+
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [ARTEX]: https://github.com/jiwoochris/artex-global
 [Beszel]: https://beszel.dev/
 [CLIProxyAPI]: https://github.com/router-for-me/CLIProxyAPI
 [Homebrew]: https://brew.sh/
+[MCPHub]: https://github.com/samanhappy/mcphub
 [mise]: https://mise.jdx.dev/
 [Proton Mail Bridge]: https://proton.me/mail/bridge
