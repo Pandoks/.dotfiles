@@ -216,9 +216,8 @@ sign in at `https://mcphub.<tailnet>.ts.net`, and disable **Bearer Auth** under
 already restricts access to the tailnet. Add upstream MCP servers in the UI —
 DCR servers (Notion, Linear, Figma, Cloudflare) authenticate in one click;
 providers needing manual OAuth apps (Slack, Google Workspace) use the callback
-URL `https://mcphub.<tailnet>.ts.net/oauth/callback`. Antigravity and Codex are
-pre-wired to `https://mcphub.<tailnet>.ts.net/mcp`; for Claude Code, optionally
-run `claude mcp add --transport http --scope user mcphub https://mcphub.<tailnet>.ts.net/mcp`.
+URL `https://mcphub.<tailnet>.ts.net/oauth/callback`. Antigravity, Codex, and
+Claude Code are pre-wired to `https://mcphub.<tailnet>.ts.net/mcp`.
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [ARTEX]: https://github.com/jiwoochris/artex-global
