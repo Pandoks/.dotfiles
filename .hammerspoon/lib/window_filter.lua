@@ -216,8 +216,9 @@ end
 
 ---@param app WindowObserver
 ---@param element hs.axuielement
+---@param rejected? table<integer, boolean>
 ---@return WindowRecord?
-local function track(app, element)
+local function track(app, element, rejected)
   -- Retired mid-scan.
   if not app.observer then
     return
@@ -226,14 +227,21 @@ local function track(app, element)
   if existing then
     return existing.window and not existing.failed and existing or nil
   end
-  if
-    element:attributeValue("AXRole") ~= "AXWindow"
-    or not eligible(element, element:attributeValue("AXSubrole"))
-  then
+  if element:attributeValue("AXRole") ~= "AXWindow" then
     return
   end
   local parent = element:attributeValue("AXParent")
-  if parent and parent:attributeValue("AXRole") ~= "AXApplication" then
+  if
+    not eligible(element, element:attributeValue("AXSubrole"))
+    or (parent and parent:attributeValue("AXRole") ~= "AXApplication")
+  then
+    if rejected then
+      local ok, window = pcall(element.asHSWindow, element)
+      local id = ok and window and window:id()
+      if id and id ~= 0 then
+        rejected[id] = true
+      end
+    end
     return
   end
   local index = #app.windows + 1
@@ -272,14 +280,17 @@ local function track(app, element)
 end
 
 ---@param app WindowObserver
+---@return table<integer, boolean>
 local function snapshot(app)
   local windows, err = app.element:attributeValue("AXWindows")
   if type(windows) ~= "table" then
     error(err or "window list unavailable", 0)
   end
+  local rejected = {}
   for _, element in ipairs(windows) do
-    track(app, element)
+    track(app, element, rejected)
   end
+  return rejected
 end
 
 ---@param app WindowObserver
@@ -583,15 +594,16 @@ function module.new(predicate)
           detach(pid)
         elseif visible[pid] and scan[pid] and app.observer and not app.failed then
           -- The observer still works.
-          local ok, err = pcall(snapshot, app)
+          local ok, result = pcall(snapshot, app)
           if ok then
+            local rejected = result or {}
             for _, id in ipairs(scanIds[pid] or {}) do
-              if not app.byId[id] then
+              if not app.byId[id] and not rejected[id] then
                 app.ignored[id] = true
               end
             end
           else
-            failure(app, "window snapshot: " .. tostring(err))
+            failure(app, "window snapshot: " .. tostring(result))
           end
         end
       end

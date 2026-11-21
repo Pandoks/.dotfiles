@@ -1066,22 +1066,46 @@ test("activation uses async focusedWindow when available and drops stale callbac
   end
 end)
 
-test("Space changes ignore layer-0 IDs that snapshots could not track", function()
-  local model = setup()
-  local reads = model.reads
-  local helper = model:window(0)
-  helper.attributeValue = function()
-    return "AXScrollArea"
+test(
+  "Space changes ignore non-AX helper IDs but recheck rejected AXWindows once eligible",
+  function()
+    local model = setup()
+    local reads = model.reads
+    local helper = model:window(0)
+    helper.attributeValue = function()
+      return "AXScrollArea"
+    end
+    model.list = {
+      { kCGWindowOwnerPID = 42, kCGWindowNumber = 100, kCGWindowLayer = 0 },
+      { kCGWindowOwnerPID = 42, kCGWindowNumber = 777, kCGWindowLayer = 0 },
+    }
+    model.spaceCallback()
+    assert(model.reads == reads + 1, "first Space switch snapshots once")
+    model.spaceCallback()
+    assert(model.reads == reads + 1, "ignored non-AX helper ID does not re-trigger snapshot")
+
+    -- A rejected AXWindow (e.g., sheet with non-AXApplication parent) is NOT permanently ignored.
+    local sheet = model:window(888)
+    local sheetParentRole = "AXWindow"
+    local origAttr = sheet.attributeValue
+    sheet.attributeValue = function(self, name)
+      if name == "AXParent" then
+        return {
+          attributeValue = function(_, attr)
+            return attr == "AXRole" and sheetParentRole or nil
+          end,
+        }
+      end
+      return origAttr(self, name)
+    end
+    model.list[3] = { kCGWindowOwnerPID = 42, kCGWindowNumber = 888, kCGWindowLayer = 0 }
+    model.spaceCallback()
+    assert(model.reads == reads + 2 and model.filter:getWindow(888, 42) == nil)
+    sheetParentRole = "AXApplication"
+    model.spaceCallback()
+    assert(model.reads == reads + 3 and model.filter:getWindow(888, 42) == sheet.window)
   end
-  model.list = {
-    { kCGWindowOwnerPID = 42, kCGWindowNumber = 100, kCGWindowLayer = 0 },
-    { kCGWindowOwnerPID = 42, kCGWindowNumber = 777, kCGWindowLayer = 0 },
-  }
-  model.spaceCallback()
-  assert(model.reads == reads + 1, "first Space switch snapshots once")
-  model.spaceCallback()
-  assert(model.reads == reads + 1, "ignored ID does not re-trigger snapshot")
-end)
+)
 
 test(
   "watchWindowSpaces snapshots untracked windows landing on active Spaces without timers",
