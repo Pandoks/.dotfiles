@@ -34,7 +34,8 @@ local function rect(left, top, width, height)
 end
 
 -- Spaces 1 and 4 on a 1000x600 display, Space 2 on one to its right, Space 3 on none.
-local function fakeDesktop(windowSpecs)
+local function fakeDesktop(windowSpecs, options)
+  options = options or {}
   local desktop = {
     subscribers = {},
     frames = {},
@@ -42,6 +43,8 @@ local function fakeDesktop(windowSpecs)
     logs = {},
     focusRequests = {},
     frameRequests = {},
+    windowSpaceListeners = {},
+    doAfterTimers = {},
     failFrame = false,
     windows = {},
     mouseButtons = {},
@@ -54,6 +57,7 @@ local function fakeDesktop(windowSpecs)
       appName = 0,
       appHidden = 0,
       spaceCheck = 0,
+      doAfter = 0,
     },
     runSpaceCheck = function() end,
     screenWatcher = function() end,
@@ -170,6 +174,14 @@ local function fakeDesktop(windowSpecs)
       return desktop:windowSpec(id).space or 1
     end,
   }
+  if options.watchWindowSpaces then
+    function windowManager.watchWindowSpaces(callback)
+      desktop.windowSpaceListeners[callback] = true
+      return function()
+        desktop.windowSpaceListeners[callback] = nil
+      end
+    end
+  end
   local function watcherFor(key)
     return {
       new = function(callback)
@@ -210,6 +222,15 @@ local function fakeDesktop(windowSpecs)
         end,
       },
       timer = {
+        doAfter = function(_, callback)
+          desktop.counts.doAfter = desktop.counts.doAfter + 1
+          local timer = { callback = callback, active = true }
+          function timer:stop()
+            self.active = false
+          end
+          desktop.doAfterTimers[#desktop.doAfterTimers + 1] = timer
+          return timer
+        end,
         delayed = {
           new = function(_, callback)
             return {
@@ -306,6 +327,23 @@ local function fakeDesktop(windowSpecs)
   function desktop:frame(id)
     local frame = self.frames[id]
     return frame and string.format("%d,%d %dx%d", frame.x, frame.y, frame.w, frame.h) or "none"
+  end
+  function desktop:emitWindowSpace(id, space, added, pid)
+    local snapshot = {}
+    for listener in pairs(self.windowSpaceListeners) do
+      snapshot[#snapshot + 1] = listener
+    end
+    for _, listener in ipairs(snapshot) do
+      listener(id, space, added, pid)
+    end
+  end
+  function desktop:flushSpaceSync()
+    for _, timer in ipairs(self.doAfterTimers) do
+      if timer.active then
+        timer.active = false
+        timer.callback()
+      end
+    end
   end
   return desktop
 end
@@ -771,6 +809,80 @@ test("spaceWatcher skips AX window scan unless a tiled window moved Spaces or di
   assertEqual(desktop.counts.frame > framesBefore, true, "resized display reapplies frames")
   assertEqual(desktop:frame(2), "0,0 600x600")
   assertEqual(desktop:frame(1), "600,0 600x600")
+end)
+
+test(
+  "watchWindowSpaces coalesces Space moves without spaceCheckAfterDrop and cleans up on stop",
+  function()
+    local desktop = fakeDesktop(
+      { { id = 1, app = "Ghostty", space = 1 }, { id = 2, app = "Slack", space = 1 } },
+      { watchWindowSpaces = true }
+    )
+    local spaceChecks = desktop.counts.spaceCheck
+    desktop.releaseMouse()
+    assertEqual(
+      desktop.counts.spaceCheck,
+      spaceChecks,
+      "skips 1s drop check when watchWindowSpaces is active"
+    )
+
+    local getWindows, spaces = desktop.counts.getWindows, desktop.counts.spaces
+    -- Unmanaged window or redundant event is ignored / no-op after space verification.
+    desktop:emitWindowSpace(999, 4, true, 99)
+    desktop:emitWindowSpace(1, 1, true, 10)
+    assertEqual(desktop.counts.doAfter, 0, "matching space addition skips scheduleSpaceSync")
+
+    -- Noisy removal event where SkyLight still shows the old space skips full sync.
+    desktop:emitWindowSpace(1, 1, false, 10)
+    assertEqual(desktop.counts.doAfter, 1)
+    desktop:flushSpaceSync()
+    assertEqual(desktop.counts.spaces, spaces + 1)
+    assertEqual(desktop.counts.getWindows, getWindows, "unchanged Space skips getWindows")
+
+    -- Moving window 1 from Space 1 to Space 4 emits both 1325 and 1326 and coalesces into 1 sync.
+    desktop:windowSpec(1).space = 4
+    desktop:emitWindowSpace(1, 4, true, 10)
+    desktop:emitWindowSpace(1, 1, false, 10)
+    assertEqual(desktop.counts.doAfter, 2, "coalesces multiple events into one doAfter(0)")
+    desktop:flushSpaceSync()
+    assertEqual(desktop.counts.getWindows, getWindows + 1, "runs single sync on move")
+    assertEqual(desktop:frame(2), "0,0 1000x600", "remaining window takes Space 1 immediately")
+    assertEqual(desktop:frame(1), "0,0 1000x600", "moved window fills Space 4 immediately")
+
+    local listenerCount = 0
+    for _ in pairs(desktop.windowSpaceListeners) do
+      listenerCount = listenerCount + 1
+    end
+    assertEqual(listenerCount, 1)
+    desktop.tiling.stop()
+    listenerCount = 0
+    for _ in pairs(desktop.windowSpaceListeners) do
+      listenerCount = listenerCount + 1
+    end
+    assertEqual(listenerCount, 0, "stop() unregisters watchWindowSpaces")
+  end
+)
+
+test("fallback spaceCheckAfterDrop does not restart while a drop check is pending", function()
+  local desktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
+  local checks = desktop.counts.spaceCheck
+  desktop.releaseMouse()
+  assertEqual(desktop.counts.spaceCheck, checks + 1, "first release arms fallback check")
+  desktop.releaseMouse()
+  assertEqual(
+    desktop.counts.spaceCheck,
+    checks + 1,
+    "unrelated click while pending does not reset timer"
+  )
+  desktop:windowSpec(1).space = 4
+  desktop.runSpaceCheck()
+  assertEqual(desktop:frame(2), "0,0 1000x600")
+  desktop.releaseMouse()
+  assertEqual(
+    desktop.counts.spaceCheck,
+    checks + 2,
+    "subsequent release after firing arms check again"
+  )
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")
