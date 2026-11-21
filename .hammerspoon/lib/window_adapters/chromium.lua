@@ -3,8 +3,54 @@ local chromium = {}
 
 ---@alias ChromiumProfile { bundleID: string, profile: string } `profile` is the display name
 
----@type table<string, { mtime: number, profiles: table<string, string> }>
+---@type table<string, { signature: string, profiles: table<string, string> }>
 local states = {}
+---@type table<string, hs.pathwatcher>
+local watchers = {}
+
+---@param path string
+---@return string?
+local function signature(path)
+  local attributes = hs.fs and hs.fs.attributes
+  if not attributes then
+    return nil
+  end
+  local info = attributes(path)
+  if type(info) == "table" then
+    return string.format(
+      "%s:%s:%s:%s",
+      tostring(info.ino),
+      tostring(info.modification),
+      tostring(info.change),
+      tostring(info.size)
+    )
+  end
+  local mtime = attributes(path, "modification")
+  return type(mtime) == "number" and tostring(mtime) or nil
+end
+
+---@param path string
+local function watch(path)
+  if watchers[path] or not (hs.pathwatcher and hs.pathwatcher.new) then
+    return
+  end
+  local dir = path:match("^(.+)/[^/]+$")
+  if not dir then
+    return
+  end
+  local watcher = hs.pathwatcher.new(dir, function(paths)
+    for _, changed in ipairs(paths or {}) do
+      if changed == path or changed:match("/Local State$") then
+        states[path] = nil
+        return
+      end
+    end
+  end)
+  if watcher then
+    watcher:start()
+    watchers[path] = watcher
+  end
+end
 
 ---@param profile ChromiumProfile
 ---@return string? directory
@@ -13,9 +59,9 @@ local function directory(profile)
     .. "/Library/Application Support/"
     .. profile.bundleID
     .. "/Local State"
-  local mtime = hs.fs and hs.fs.attributes and hs.fs.attributes(path, "modification")
-  local entry = type(mtime) == "number" and states[path] or nil
-  if entry and entry.mtime == mtime then
+  local stamp = signature(path)
+  local entry = stamp and states[path] or nil
+  if entry and entry.signature == stamp then
     return entry.profiles[profile.profile]
   end
   local file = io.open(path, "r")
@@ -33,8 +79,9 @@ local function directory(profile)
       profiles[info.name] = name
     end
   end
-  if decoded and type(mtime) == "number" then
-    states[path] = { mtime = mtime, profiles = profiles }
+  if decoded and stamp then
+    states[path] = { signature = stamp, profiles = profiles }
+    watch(path)
   elseif not decoded then
     states[path] = nil
   end
