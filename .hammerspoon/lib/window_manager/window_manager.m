@@ -21,7 +21,6 @@ static NSMutableDictionary<NSNumber *, dispatch_queue_t> *queues;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *focusQueues;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *focusedQueues;
 static NSMutableDictionary<NSNumber *, NSValue *> *frames;
-static NSMutableDictionary<NSNumber *, NSValue *> *appliedFrames;
 static NSMutableDictionary<NSNumber *, NSObject *> *scans;
 static NSMutableDictionary<NSNumber *, EnhancedState *> *enhancedStates;
 static _Atomic BOOL naturalScroll = YES;
@@ -29,6 +28,7 @@ static _Atomic uint64_t focusGeneration = 0;
 static _Atomic uint64_t focusedGeneration = 0;
 
 extern AXError _AXUIElementGetWindow(AXUIElementRef element, CGWindowID *windowID);
+typedef void (*SLSNotifyProc)(uint32_t type, void *data, size_t dataLength, void *userData, int cid);
 static AXUIElementRef (*remoteElement)(CFDataRef token);
 static CGError (*setFront)(ProcessSerialNumber *process, CGWindowID windowID, uint32_t mode);
 static CGError (*postRecord)(ProcessSerialNumber *process, uint8_t *bytes);
@@ -42,7 +42,20 @@ static bool (*advance)(CFTypeRef iterator);
 static uint32_t (*windowOf)(CFTypeRef iterator), (*parentOf)(CFTypeRef iterator);
 static int (*pidOf)(CFTypeRef iterator), (*levelOf)(CFTypeRef iterator);
 static uint64_t (*tagsOf)(CFTypeRef iterator), (*attributesOf)(CFTypeRef iterator);
+static CGError (*registerNotify)(int cid, SLSNotifyProc proc, uint32_t event, void *userData);
+static CGError (*removeNotify)(int cid, SLSNotifyProc proc, uint32_t event, void *userData);
+static CGError (*windowBounds)(int cid, uint32_t wid, CGRect *outBounds);
+static CGError (*windowLevel)(int cid, uint32_t wid, int32_t *outLevel);
+static CGError (*windowOwner)(int cid, uint32_t wid, int *outOwner);
+static CGError (*connectionPID)(int cid, pid_t *outPID);
 static int connection;
+
+enum { spaceWindowAdded = 1325, spaceWindowRemoved = 1326 };
+static int spaceWindowRef = LUA_NOREF;
+static LSGCCanary spaceWindowCanary;
+static BOOL hasSpaceWindowCanary = NO;
+static BOOL spaceWindowRegistered = NO;
+static _Atomic uint64_t spaceWindowGeneration = 0;
 
 // Lua closes loadlib handles on reload while queued blocks may still run.
 static BOOL keepImageLoaded(void) {
@@ -251,6 +264,47 @@ static BOOL onSameDisplay(CGRect first, CGRect second, CGRect *bounds) {
 static NSMutableDictionary<NSNumber *, NSMutableDictionary<NSNumber *, id> *> *elements;
 static NSMutableDictionary<NSNumber *, NSMutableSet<NSNumber *> *> *absent;
 
+static BOOL screenIsLocked(void) {
+  NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+  if (![session isKindOfClass:NSDictionary.class]) return NO;
+  NSNumber *locked = session[@"CGSSessionScreenIsLocked"];
+  if ([locked isKindOfClass:NSNumber.class] && locked.boolValue) return YES;
+  NSNumber *onConsole = session[(__bridge NSString *)kCGSessionOnConsoleKey];
+  if ([onConsole isKindOfClass:NSNumber.class] && !onConsole.boolValue) return YES;
+  return NO;
+}
+
+static void clearAbsent(void) {
+  NSArray<NSNumber *> *pids;
+  @synchronized(elements) {
+    pids = absent.allKeys;
+  }
+  for (NSNumber *pidKey in pids) {
+    NSMutableDictionary<NSNumber *, id> *cache;
+    NSMutableSet<NSNumber *> *skipped;
+    @synchronized(elements) {
+      cache = elements[pidKey];
+      skipped = absent[pidKey];
+    }
+    if (!skipped) continue;
+    if (cache) {
+      @synchronized(cache) {
+        [skipped removeAllObjects];
+      }
+    } else {
+      @synchronized(elements) {
+        [skipped removeAllObjects];
+      }
+    }
+  }
+}
+
+static void screenUnlocked(CFNotificationCenterRef center, void *observer, CFNotificationName name,
+  const void *object, CFDictionaryRef info) {
+  (void)center; (void)observer; (void)name; (void)object; (void)info;
+  clearAbsent();
+}
+
 // Windows on other Spaces aren't in AXWindows; unseen ids are searched once by remote token.
 static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wanted, NSSet<NSNumber *> *searchable) {
   NSMutableDictionary<NSNumber *, id> *cache;
@@ -275,11 +329,18 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     }
   }
   if (!missing.count && !unlisted.count) return resolved;
+  if (screenIsLocked()) return resolved;
 
   // AXWindows is rechecked every time: a window can gain its element after a search missed it.
   NSMutableDictionary<NSNumber *, id> *discovered = [NSMutableDictionary dictionary];
   AXUIElementRef app = application(pid);
-  for (id element in attribute(app, kAXWindowsAttribute) ?: @[]) {
+  CFTypeRef axValue = NULL;
+  AXError axStatus = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, &axValue);
+  BOOL axHealthy = (axStatus == kAXErrorSuccess || axStatus == kAXErrorNoValue
+    || axStatus == kAXErrorAttributeUnsupported);
+  NSArray *axList = (axStatus == kAXErrorSuccess && axValue) ? CFBridgingRelease(axValue) : nil;
+  if (axStatus != kAXErrorSuccess && axValue) CFRelease(axValue);
+  for (id element in [axList isKindOfClass:NSArray.class] ? axList : @[]) {
     CGWindowID windowID = 0;
     if (_AXUIElementGetWindow((__bridge AXUIElementRef)element, &windowID) != kAXErrorSuccess) continue;
     AXUIElementSetMessagingTimeout((__bridge AXUIElementRef)element, 1.0);
@@ -292,7 +353,7 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
   @synchronized(cache) {
     [cache addEntriesFromDictionary:discovered];
     // Unsearchable ids count only while AXWindows lists them.
-    if (unlisted.count) {
+    if (unlisted.count && axHealthy) {
       NSArray *drop = unlisted.allObjects;
       [cache removeObjectsForKeys:drop];
       [resolved removeObjectsForKeys:drop];
@@ -307,7 +368,7 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     [missing minusSet:skipped];
   }
   [missing intersectSet:searchable];
-  if (!missing.count) return resolved;
+  if (!missing.count || !axHealthy || screenIsLocked()) return resolved;
 
   @synchronized(scanLock) {
     @synchronized(cache) {
@@ -320,7 +381,7 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
       }
       [missing minusSet:skipped];
     }
-    if (!missing.count) return resolved;
+    if (!missing.count || screenIsLocked()) return resolved;
 
     uint8_t token[0x14] = { 0 };
     uint32_t magic = 0x636f636f;
@@ -328,6 +389,7 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     memcpy(token + 0x8, &magic, sizeof magic);
     NSMutableDictionary<NSNumber *, id> *found = [NSMutableDictionary dictionary];
     NSMutableSet<NSNumber *> *unread = [NSMutableSet set];
+    BOOL scanAborted = NO;
     for (uint64_t element = 0; element < 0x7fff && missing.count; element++) {
       memcpy(token + 0xc, &element, sizeof element);
       CFDataRef data = CFDataCreate(NULL, token, sizeof token);
@@ -335,7 +397,13 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
       CFRelease(data);
       if (!candidate) continue;
       CGWindowID windowID = 0;
-      if (_AXUIElementGetWindow(candidate, &windowID) == kAXErrorSuccess && [missing containsObject:@(windowID)]) {
+      AXError widError = _AXUIElementGetWindow(candidate, &windowID);
+      if (widError == kAXErrorAPIDisabled || widError == kAXErrorCannotComplete) {
+        scanAborted = YES;
+        CFRelease(candidate);
+        break;
+      }
+      if (widError == kAXErrorSuccess && [missing containsObject:@(windowID)]) {
         AXUIElementSetMessagingTimeout(candidate, 1.0);
         // Menu bars report their window's id too.
         CFTypeRef role = NULL;
@@ -352,9 +420,11 @@ static NSDictionary<NSNumber *, id> *resolve(pid_t pid, NSSet<NSNumber *> *wante
     @synchronized(cache) {
       [cache addEntriesFromDictionary:found];
       [resolved addEntriesFromDictionary:found];
-      // A timed-out read isn't proof of absence; search again next time.
-      [missing minusSet:unread];
-      [skipped unionSet:missing];
+      if (!scanAborted && !screenIsLocked()) {
+        // A timed-out read isn't proof of absence; search again next time.
+        [missing minusSet:unread];
+        [skipped unionSet:missing];
+      }
     }
   }
   return resolved;
@@ -372,14 +442,10 @@ static void forget(pid_t pid, CGWindowID windowID) {
   @synchronized(elements) {
     cache = elements[@(pid)];
   }
-  NSNumber *key = @(windowID);
   if (cache) {
     @synchronized(cache) {
-      [cache removeObjectForKey:key];
+      [cache removeObjectForKey:@(windowID)];
     }
-  }
-  @synchronized(appliedFrames) {
-    [appliedFrames removeObjectForKey:key];
   }
 }
 
@@ -541,6 +607,10 @@ static int focusedWindow(lua_State *state) {
   return 0;
 }
 
+static BOOL closeEnough(CGFloat first, CGFloat second) {
+  return fabs(first - second) < 0.5;
+}
+
 /// Requests not yet started collapse to the latest.
 static int frame(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
@@ -562,19 +632,19 @@ static int frame(lua_State *state) {
     }
     if (!value) return nil;
     NSRect rect = value.rectValue;
-    NSValue *previous;
-    @synchronized(appliedFrames) {
-      previous = appliedFrames[key];
+    CGRect target = NSRectToCGRect(rect);
+    CGRect actual = CGRectZero;
+    BOOL hasActual = (windowBounds(connection, windowID, &actual) == kCGErrorSuccess
+      && actual.size.width > 0 && actual.size.height > 0);
+    if (hasActual && closeEnough(actual.origin.x, target.origin.x)
+      && closeEnough(actual.origin.y, target.origin.y)
+      && closeEnough(actual.size.width, target.size.width)
+      && closeEnough(actual.size.height, target.size.height)) {
+      return nil;
     }
-    if (previous && NSEqualRects(previous.rectValue, rect)) return nil;
 
     AXUIElementRef window = copyWindow(pid, windowID);
-    if (!window) {
-      @synchronized(appliedFrames) {
-        [appliedFrames removeObjectForKey:key];
-      }
-      return @"window unavailable";
-    }
+    if (!window) return @"window unavailable";
 
     // Chromium and Electron animate frame changes while enhanced UI is on.
     EnhancedState *enhanced;
@@ -595,7 +665,8 @@ static int frame(lua_State *state) {
     }
 
     // Size, position, size: a window shrinking across a display edge is clamped otherwise.
-    BOOL sameSize = previous != nil && NSEqualSizes(previous.rectValue.size, rect.size);
+    BOOL sameSize = hasActual && closeEnough(actual.size.width, target.size.width)
+      && closeEnough(actual.size.height, target.size.height);
     CGPoint origin = rect.origin;
     AXValueRef originValue = AXValueCreate(kAXValueCGPointType, &origin);
     AXError moved = kAXErrorSuccess, resized = kAXErrorSuccess;
@@ -605,13 +676,11 @@ static int frame(lua_State *state) {
       CGSize size = rect.size;
       AXValueRef sizeValue = AXValueCreate(kAXValueCGSizeType, &size);
       BOOL leadSize = YES;
-      if (previous) {
-        CGRect oldRect = NSRectToCGRect(previous.rectValue);
-        CGRect newRect = NSRectToCGRect(rect);
-        CGRect bounds = CGRectZero;
-        if (onSameDisplay(oldRect, newRect, &bounds)
-          && CGRectContainsRect(bounds, CGRectMake(newRect.origin.x, newRect.origin.y,
-            oldRect.size.width, oldRect.size.height))) {
+      if (hasActual) {
+        CGRect displayBounds = CGRectZero;
+        if (onSameDisplay(actual, target, &displayBounds)
+          && CGRectContainsRect(displayBounds, CGRectMake(target.origin.x, target.origin.y,
+            actual.size.width, actual.size.height))) {
           leadSize = NO;
         }
       }
@@ -628,21 +697,15 @@ static int frame(lua_State *state) {
       dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(150 * NSEC_PER_MSEC)), queue, ^{
         if (!enhanced.disabled || enhanced.generation != token) return;
         enhanced.disabled = NO;
-        AXUIElementRef target = application(pid);
-        AXUIElementSetAttributeValue(target, CFSTR("AXEnhancedUserInterface"), kCFBooleanTrue);
-        CFRelease(target);
+        AXUIElementRef targetApp = application(pid);
+        AXUIElementSetAttributeValue(targetApp, CFSTR("AXEnhancedUserInterface"), kCFBooleanTrue);
+        CFRelease(targetApp);
       });
     }
 
     if (moved == kAXErrorInvalidUIElement || resized == kAXErrorInvalidUIElement) forget(pid, windowID);
     if (moved != kAXErrorSuccess || resized != kAXErrorSuccess) {
-      @synchronized(appliedFrames) {
-        [appliedFrames removeObjectForKey:key];
-      }
       return [NSString stringWithFormat:@"frame failed (%d, %d)", moved, resized];
-    }
-    @synchronized(appliedFrames) {
-      appliedFrames[key] = value;
     }
     return nil;
   });
@@ -922,6 +985,93 @@ static int displaySpaces(lua_State *state) {
   return 1;
 }
 
+static void spaceWindowChanged(uint32_t type, void *data, size_t dataLength, void *userData, int cid);
+
+static void clearSpaceWindowWatcher(void) {
+  atomic_fetch_add(&spaceWindowGeneration, 1);
+  if (spaceWindowRegistered) {
+    removeNotify(connection, spaceWindowChanged, spaceWindowAdded, NULL);
+    removeNotify(connection, spaceWindowChanged, spaceWindowRemoved, NULL);
+    spaceWindowRegistered = NO;
+  }
+  if (hasSpaceWindowCanary) {
+    LuaSkin *skin = [LuaSkin sharedWithState:NULL];
+    if (skin && [skin checkGCCanary:spaceWindowCanary]) {
+      if (spaceWindowRef != LUA_NOREF) {
+        [skin luaUnref:refTable ref:spaceWindowRef];
+      }
+      [skin destroyGCCanary:&spaceWindowCanary];
+    }
+    hasSpaceWindowCanary = NO;
+  }
+  spaceWindowRef = LUA_NOREF;
+}
+
+static void spaceWindowChanged(uint32_t type, void *data, size_t dataLength, void *userData, int cid) {
+  (void)userData;
+  (void)cid;
+  if (!data || dataLength < sizeof(uint64_t) + sizeof(uint32_t)) return;
+  uint64_t spaceID = 0;
+  uint32_t windowID = 0;
+  memcpy(&spaceID, data, sizeof spaceID);
+  memcpy(&windowID, (const uint8_t *)data + sizeof spaceID, sizeof windowID);
+  if (!spaceID || !windowID) return;
+
+  int32_t level = 0;
+  if (windowLevel(connection, windowID, &level) == kCGErrorSuccess && level != 0) return;
+
+  pid_t ownerPID = 0;
+  int ownerCid = 0;
+  if (windowOwner(connection, windowID, &ownerCid) == kCGErrorSuccess) {
+    connectionPID(ownerCid, &ownerPID);
+  }
+  if (ownerPID == getpid()) return;
+
+  BOOL added = (type == spaceWindowAdded);
+  uint64_t generation = atomic_load(&spaceWindowGeneration);
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (atomic_load(&spaceWindowGeneration) != generation || !hasSpaceWindowCanary || spaceWindowRef == LUA_NOREF) {
+      return;
+    }
+    LuaSkin *main = [LuaSkin sharedWithState:NULL];
+    if (![main checkGCCanary:spaceWindowCanary]) {
+      clearSpaceWindowWatcher();
+      return;
+    }
+    lua_State *lua = main.L;
+    _lua_stackguard_entry(lua);
+    [main pushLuaRef:refTable ref:spaceWindowRef];
+    lua_pushinteger(lua, (lua_Integer)windowID);
+    lua_pushinteger(lua, (lua_Integer)spaceID);
+    lua_pushboolean(lua, added);
+    if (ownerPID > 0) lua_pushinteger(lua, (lua_Integer)ownerPID); else lua_pushnil(lua);
+    [main protectedCallAndError:@"window_manager windowSpace callback" nargs:4 nresults:0];
+    _lua_stackguard_exit(lua);
+  });
+}
+
+static int watchWindowSpaces(lua_State *state) {
+  LuaSkin *skin = [LuaSkin sharedWithState:state];
+  [skin checkArgs:LS_TFUNCTION | LS_TNIL, LS_TBREAK];
+  clearSpaceWindowWatcher();
+  if (lua_isfunction(state, 1)) {
+    lua_pushvalue(state, 1);
+    spaceWindowRef = [skin luaRef:refTable];
+    spaceWindowCanary = [skin createGCCanary];
+    hasSpaceWindowCanary = YES;
+    if (registerNotify(connection, spaceWindowChanged, spaceWindowAdded, NULL) != kCGErrorSuccess
+      || registerNotify(connection, spaceWindowChanged, spaceWindowRemoved, NULL) != kCGErrorSuccess) {
+      clearSpaceWindowWatcher();
+      lua_pushboolean(state, 0);
+      lua_pushstring(state, "could not watch window Spaces");
+      return 2;
+    }
+    spaceWindowRegistered = YES;
+  }
+  lua_pushboolean(state, 1);
+  return 1;
+}
+
 static const luaL_Reg functions[] = {
   { "move", move },
   { "focus", focus },
@@ -932,6 +1082,7 @@ static const luaL_Reg functions[] = {
   { "windows", windows },
   { "spaces", spaces },
   { "displaySpaces", displaySpaces },
+  { "watchWindowSpaces", watchWindowSpaces },
   { NULL, NULL },
 };
 
@@ -947,7 +1098,9 @@ int luaopen_window_manager(lua_State *state) {
       "SLSWindowQueryResultCopyWindows", "SLSWindowIteratorAdvance", "SLSWindowIteratorGetWindowID",
       "SLSWindowIteratorGetParentID", "SLSWindowIteratorGetPID", "SLSWindowIteratorGetLevel",
       "SLSWindowIteratorGetTags", "SLSWindowIteratorGetAttributes",
-      "SLSCopyManagedDisplaySpaces", "SLSCopyWindowsWithOptionsAndTags" };
+      "SLSCopyManagedDisplaySpaces", "SLSCopyWindowsWithOptionsAndTags",
+      "SLSRegisterConnectionNotifyProc", "SLSRemoveConnectionNotifyProc",
+      "SLSGetWindowBounds", "SLSGetWindowLevel", "SLSGetWindowOwner", "SLSConnectionGetPID" };
     void *found[sizeof names / sizeof *names];
     for (size_t index = 0; index < sizeof names / sizeof *names; index++) {
       found[index] = dlsym(index == 4 ? services : skyLight, names[index]);
@@ -970,6 +1123,12 @@ int luaopen_window_manager(lua_State *state) {
     attributesOf = found[13];
     copyDisplaySpaces = found[14];
     copySpaceWindows = found[15];
+    registerNotify = found[16];
+    removeNotify = found[17];
+    windowBounds = found[18];
+    windowLevel = found[19];
+    windowOwner = found[20];
+    connectionPID = found[21];
     frontQueue = dispatch_queue_create("window_manager.front", dispatch_queue_attr_make_with_qos_class(
       DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
     queues = [NSMutableDictionary dictionary];
@@ -978,14 +1137,18 @@ int luaopen_window_manager(lua_State *state) {
     elements = [NSMutableDictionary dictionary];
     absent = [NSMutableDictionary dictionary];
     frames = [NSMutableDictionary dictionary];
-    appliedFrames = [NSMutableDictionary dictionary];
     scans = [NSMutableDictionary dictionary];
     enhancedStates = [NSMutableDictionary dictionary];
     CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(), NULL, scrollChanged,
       CFSTR("SwipeScrollDirectionDidChangeNotification"), NULL,
       CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(), NULL, screenUnlocked,
+      CFSTR("com.apple.screenIsUnlocked"), NULL,
+      CFNotificationSuspensionBehaviorDeliverImmediately);
     loaded = YES;
   }
+  clearSpaceWindowWatcher();
+  clearAbsent();
   refreshScroll();
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   refTable = [skin registerLibrary:"window_manager" functions:functions metaFunctions:nil];

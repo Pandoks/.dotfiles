@@ -36,6 +36,7 @@ local function harness(options)
       timers = 0,
       cancelFocus = 0,
       spaces = 0,
+      watchWindowSpaces = 0,
     },
   }
   local spaces = {}
@@ -76,6 +77,11 @@ local function harness(options)
     end,
     windows = function()
       desktop.listed = (desktop.listed or 0) + 1
+    end,
+    watchWindowSpaces = function(callback)
+      desktop.calls.watchWindowSpaces = desktop.calls.watchWindowSpaces + 1
+      desktop.windowSpaceCallback = callback
+      return true
     end,
   }
   if options and options.nativeDisplaySpaces then
@@ -485,6 +491,50 @@ test(
     desktop.windowManager.stop()
     assertEqual(desktop.windowManager.isBusy(100), false, "stop() clears settled state")
     assertEqual(desktop.calls.cancelFocus, cancelsNow + 1, "stop() calls cancelFocus")
+  end
+)
+
+test(
+  "watchWindowSpaces multiplexes listeners, cleans up on last stop, and stops on windowManager.stop",
+  function()
+    local desktop = harness({ nativeDisplaySpaces = true })
+    assertEqual(desktop.calls.watchWindowSpaces, 0)
+    local eventsA, eventsB = {}, {}
+    local stopB
+    local stopA = desktop.windowManager.watchWindowSpaces(function(id, space, added, pid)
+      eventsA[#eventsA + 1] = string.format("%s:%s:%s:%s", id, space, added, pid)
+    end)
+    stopB = desktop.windowManager.watchWindowSpaces(function(id, space, added, pid)
+      eventsB[#eventsB + 1] = string.format("%s:%s:%s:%s", id, space, added, pid)
+      if added then
+        stopB()
+      end
+    end)
+    assertEqual(desktop.calls.watchWindowSpaces, 1, "native watcher registered once")
+    assertEqual(type(desktop.windowSpaceCallback), "function")
+
+    desktop.windowSpaceCallback(42, 4, true, 900)
+    assertEqual(#eventsA, 1)
+    assertEqual(eventsA[1], "42:4:true:900")
+    assertEqual(#eventsB, 1)
+    assertEqual(eventsB[1], "42:4:true:900")
+    assertEqual(desktop.calls.watchWindowSpaces, 1, "stays registered while listener A remains")
+
+    desktop.windowSpaceCallback(42, 1, false, 900)
+    assertEqual(#eventsA, 2)
+    assertEqual(eventsA[2], "42:1:false:900")
+    assertEqual(#eventsB, 1, "unsubscribed listener B stops receiving events")
+
+    stopA()
+    assertEqual(desktop.calls.watchWindowSpaces, 2, "unregisters native watcher on last stop")
+    assertEqual(desktop.windowSpaceCallback, nil)
+
+    desktop.windowManager.watchWindowSpaces(function() end)
+    assertEqual(desktop.calls.watchWindowSpaces, 3)
+    assertEqual(type(desktop.windowSpaceCallback), "function")
+    desktop.windowManager.stop()
+    assertEqual(desktop.calls.watchWindowSpaces, 4, "stop() unregisters native watcher")
+    assertEqual(desktop.windowSpaceCallback, nil)
   end
 )
 

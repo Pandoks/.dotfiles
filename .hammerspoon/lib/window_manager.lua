@@ -2,6 +2,7 @@ local dock = require("lib.dock")
 local utils = require("lib.utils")
 
 ---@alias WindowManagerDone fun(ok: boolean, err?: string)
+---@alias WindowSpaceCallback fun(id: integer, space: integer, added: boolean, pid?: integer)
 
 ---@class DisplaySpace
 ---@field id integer
@@ -26,6 +27,7 @@ local utils = require("lib.utils")
 ---@field windows fun(done: fun(ok: boolean, err?: string, rows: table[]), pids?: integer[]|table<integer, boolean>)
 ---@field spaces fun(ids: integer[]): table<integer, integer>
 ---@field displaySpaces? fun(): DisplaySpaces?, string?
+---@field watchWindowSpaces? fun(callback?: WindowSpaceCallback): boolean, string?
 
 local native = utils.native("window_manager") --[[@as WindowManagerNative]]
 
@@ -265,12 +267,53 @@ end
 windowManager.frame = native.frame
 windowManager.windows = native.windows
 
+local spaceListeners, watchingSpaces = {}, false
+
+---@param callback WindowSpaceCallback
+---@return fun() stop
+function windowManager.watchWindowSpaces(callback)
+  if not native.watchWindowSpaces then
+    return function() end
+  end
+  spaceListeners[callback] = true
+  if not watchingSpaces then
+    local ok, err = native.watchWindowSpaces(function(id, space, added, pid)
+      local snapshot = {}
+      for listener in pairs(spaceListeners) do
+        snapshot[#snapshot + 1] = listener
+      end
+      for _, listener in ipairs(snapshot) do
+        if spaceListeners[listener] then
+          listener(id, space, added, pid)
+        end
+      end
+    end)
+    if not ok then
+      spaceListeners[callback] = nil
+      error(err or "could not watch window Spaces", 0)
+    end
+    watchingSpaces = true
+  end
+  return function()
+    spaceListeners[callback] = nil
+    if watchingSpaces and not next(spaceListeners) then
+      watchingSpaces = false
+      native.watchWindowSpaces(nil)
+    end
+  end
+end
+
 -- Cache other-Space windows so the first Cmd-Tab doesn't search.
 native.windows(function() end)
 
 function windowManager.stop()
   focusing = nil
   clearSettled()
+  if watchingSpaces and native.watchWindowSpaces then
+    watchingSpaces = false
+    spaceListeners = {}
+    native.watchWindowSpaces(nil)
+  end
   if native.cancelFocus then
     native.cancelFocus()
   end
