@@ -3,22 +3,42 @@ local chromium = {}
 
 ---@alias ChromiumProfile { bundleID: string, profile: string } `profile` is the display name
 
+---@type table<string, { mtime: number, profiles: table<string, string> }>
+local states = {}
+
 ---@param profile ChromiumProfile
 ---@return string? directory
 local function directory(profile)
-  local path = os.getenv("HOME") .. "/Library/Application Support/" .. profile.bundleID
-  local file = io.open(path .. "/Local State", "r")
+  local path = os.getenv("HOME")
+    .. "/Library/Application Support/"
+    .. profile.bundleID
+    .. "/Local State"
+  local mtime = hs.fs and hs.fs.attributes and hs.fs.attributes(path, "modification")
+  local entry = type(mtime) == "number" and states[path] or nil
+  if entry and entry.mtime == mtime then
+    return entry.profiles[profile.profile]
+  end
+  local file = io.open(path, "r")
   if not file then
+    states[path] = nil
     return nil
   end
   local decoded, state = pcall(hs.json.decode, file:read("a"))
   file:close()
-  local cache = decoded and state and state.profile and state.profile.info_cache or {}
+  local profiles = {}
+  local cache = decoded and type(state) == "table" and state.profile and state.profile.info_cache
+    or {}
   for name, info in pairs(cache) do
-    if info.name == profile.profile then
-      return name
+    if type(info) == "table" and type(info.name) == "string" then
+      profiles[info.name] = name
     end
   end
+  if decoded and type(mtime) == "number" then
+    states[path] = { mtime = mtime, profiles = profiles }
+  elseif not decoded then
+    states[path] = nil
+  end
+  return profiles[profile.profile]
 end
 
 ---@param profile ChromiumProfile

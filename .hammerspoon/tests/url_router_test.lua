@@ -77,7 +77,10 @@ local function browser(options)
         end,
       },
       fs = {
-        attributes = function()
+        attributes = function(_, name)
+          if name == "modification" and settings.localStateMtime ~= nil then
+            return settings.localStateMtime
+          end
           return not settings.missingDirectory
               and (settings.fileDirectory and "file" or "directory")
             or nil
@@ -823,5 +826,33 @@ test("malformed pattern suffixes fail explicitly without poisoning valid routing
   assert(state.installed and state.route("https://example.com/test") == false)
   assert(#state.logs == 1 and #state.tasks == 0)
   assert(state.route("https://other.com/") == "native")
+end)
+test("chromium.url caches Local State by modification time and reloads on change", function()
+  local state = browser({ localStateMtime = 100 })
+  assert(
+    state.route("https://app.ramp.com/") == true
+      and state.reads == 1
+      and state.tasks[1].arguments[5] == "--profile-directory=Profile 1"
+  )
+  assert(
+    state.route("https://app.ramp.com/second") == true
+      and state.reads == 1
+      and state.tasks[2].arguments[5] == "--profile-directory=Profile 1"
+  )
+  assert(
+    state.route("https://app.notion.com/p/pandoks/document") == true
+      and state.reads == 1
+      and state.tasks[3].arguments[5] == "--profile-directory=Default"
+  )
+  state.settings.localStateMtime = 101
+  assert(
+    state.route("https://app.ramp.com/third") == true
+      and state.reads == 2
+      and state.tasks[4].arguments[5] == "--profile-directory=Profile 1"
+  )
+  state.settings.missingProfile = true
+  state.settings.localStateMtime = 102
+  assert(state.route("https://app.ramp.com/fourth") == false and state.reads == 3)
+  assert(#state.tasks == 4 and #state.logs == 1)
 end)
 print("RESULT " .. passed .. " passed, 0 failed")

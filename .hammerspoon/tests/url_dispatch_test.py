@@ -150,6 +150,8 @@ do {
         'case .success("true"):\n                    print("ACCEPTED"); mockAccepted()')
     bridge = replace(bridge, 'NSLog("URL routing failed for %@", url.host ?? "unknown host")',
         'print("REJECTED"); if ProcessInfo.processInfo.environment["URL_TEST_KEEP_ALIVE"] != "1" { exit(0) }')
+    bridge = replace(bridge, "CFMessagePortCreateRemote(", "mockCreateRemote(")
+    bridge = replace(bridge, "Darwin.open(", "mockOpen(")
     assert not any(name in bridge for name in ("NSAlert()", "NSWorkspace.shared", "NSRunningApplication", "FileManager.default", "NSApplication.shared"))
     bridge += r"""
 @MainActor final class MockAlert {
@@ -172,6 +174,18 @@ do {
 func mockConfstr(_ name: Int32, _ buffer: UnsafeMutablePointer<CChar>, _ size: Int) -> Int {
     guard name == _CS_DARWIN_USER_CACHE_DIR else { return 0 }
     return ProcessInfo.processInfo.environment["URL_TEST_HOME"]!.withCString { strlcpy(buffer, $0, size) + 1 }
+}
+func mockCreateRemote(_ allocator: CFAllocator?, _ name: CFString!) -> CFMessagePort? {
+    if ProcessInfo.processInfo.environment["URL_TEST_TRACE"] == "1" {
+        print("CONNECT")
+    }
+    return CFMessagePortCreateRemote(allocator, name)
+}
+func mockOpen(_ path: UnsafePointer<CChar>, _ oflag: Int32) -> Int32 {
+    if ProcessInfo.processInfo.environment["URL_TEST_TRACE"] == "1" {
+        print("READ")
+    }
+    return Darwin.open(path, oflag)
 }
 nonisolated(unsafe) var accepted = 0
 func mockAccepted() {
@@ -200,6 +214,16 @@ if let type = ProcessInfo.processInfo.environment["URL_TEST_ACTIVITY"] {
     if !accepted { exit(0) }
 } else if let count = Int(ProcessInfo.processInfo.environment["URL_TEST_BATCH", default: ""]) {
     delegate.application(NSApplication.shared, open: (0..<count).map { URL(string: "https://app.ramp.com/\($0)")! })
+} else if ProcessInfo.processInfo.environment["URL_TEST_STDIN"] == "1" {
+    DispatchQueue.global().async {
+        while let line = readLine() {
+            if line == "quit" { exit(0) }
+            if let url = URL(string: line) {
+                DispatchQueue.main.async { delegate.route(url) }
+            }
+        }
+        exit(0)
+    }
 } else {
     if ProcessInfo.processInfo.environment["URL_TEST_MODAL"] == "1" {
         delegate.application(NSApplication.shared, open: [URL(string: "fixture://another-link")!])
@@ -351,6 +375,157 @@ int main(int argc, char **argv) {
         assert result.stdout.count("ACCEPTED") == 10 and "POPUP " not in result.stdout and "FINAL" not in result.stdout, result.stdout
         assert sorted(requests(log)) == sorted(expected + b"%d" % index for index in range(10)), requests(log)
         print("PASS URL delivery replies to every link in one open event within 2 seconds")
+
+        live_home = directory / "live-home"
+        live_rules = live_home / "Library/Application Support/HammerspoonURLRouter/selectors/rules.json"
+        live_rules.parent.mkdir(parents=True)
+        live_status = live_home / "HammerspoonURLRouter/status.json"
+        live_status.parent.mkdir(parents=True)
+        gen1 = "11111111-1111-4111-8111-111111111111"
+        gen2 = "22222222-2222-4222-8222-222222222222"
+
+        def write_atomic(target, payload):
+            tmp = target.with_name(target.name + ".tmp")
+            tmp.write_bytes(payload)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, target)
+
+        def write_pair(generation):
+            rules_bytes = json.dumps({"version": 1, "generation": generation, "rules": []}).encode()
+            write_atomic(live_rules, rules_bytes)
+            status_bytes = json.dumps({
+                "version": 1,
+                "kind": "ready",
+                "generation": generation,
+                "sha256": hashlib.sha256(rules_bytes).hexdigest(),
+            }).encode()
+            write_atomic(live_status, status_bytes)
+            return rules_bytes, status_bytes
+
+        rules1, status1 = write_pair(gen1)
+        live_port, live_log1 = serve("live")
+        live_bridge = subprocess.Popen(
+            [str(binary)],
+            env=dict(os.environ, URL_TEST_HOME=str(live_home), URL_TEST_PORT=live_port,
+                     URL_TEST_KEEP_ALIVE="1", URL_TEST_STDIN="1", URL_TEST_TRACE="1"),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            bufsize=0,
+        )
+        servers.append(live_bridge)
+        live_buffer = bytearray()
+
+        def send(url):
+            assert live_bridge.stdin and live_bridge.stdout
+            live_bridge.stdin.write((url + "\n").encode())
+            live_bridge.stdin.flush()
+            lines = []
+            deadline = time.monotonic() + 5
+            fd = live_bridge.stdout.fileno()
+            while True:
+                while b"\n" not in live_buffer:
+                    remaining = max(0.01, deadline - time.monotonic())
+                    ready_io, _, _ = select.select([fd], [], [], remaining)
+                    assert ready_io, (url, lines, bytes(live_buffer))
+                    chunk = os.read(fd, 4096)
+                    assert chunk, (url, lines, bytes(live_buffer))
+                    live_buffer.extend(chunk)
+                line_bytes, _, rest = live_buffer.partition(b"\n")
+                live_buffer[:] = rest
+                line = line_bytes.decode()
+                lines.append(line)
+                if line == "ACCEPTED" or line.startswith("POPUP "):
+                    return lines
+
+        lines = send("https://app.ramp.com/1")
+        assert lines.count("READ") == 2 and lines.count("CONNECT") == 1 and lines[-1] == "ACCEPTED", lines
+        lines = send("https://app.ramp.com/2")
+        assert lines.count("READ") == 0 and lines.count("CONNECT") == 0 and lines[-1] == "ACCEPTED", lines
+        assert requests(live_log1) == [
+            f"1:{gen1}\nhttps://app.ramp.com/1".encode(),
+            f"1:{gen1}\nhttps://app.ramp.com/2".encode(),
+        ], requests(live_log1)
+
+        write_atomic(live_status, json.dumps({
+            "version": 1, "kind": "error", "generation": gen1,
+            "sha256": hashlib.sha256(rules1).hexdigest(),
+        }).encode())
+        lines = send("https://app.ramp.com/bad-status")
+        assert lines[-1].startswith("POPUP ") and "not acknowledged" in lines[-1], lines
+        assert len(requests(live_log1)) == 2
+
+        write_atomic(live_status, status1)
+        lines = send("https://app.ramp.com/restored-gen1")
+        assert lines.count("READ") == 2 and lines.count("CONNECT") == 0 and lines[-1] == "ACCEPTED", lines
+
+        rules2 = json.dumps({"version": 1, "generation": gen2, "rules": []}).encode()
+        write_atomic(live_rules, rules2)
+        lines = send("https://app.ramp.com/mismatch-rules")
+        assert lines[-1].startswith("POPUP ") and "not acknowledged" in lines[-1], lines
+        assert len(requests(live_log1)) == 3
+
+        write_pair(gen2)
+        lines = send("https://app.ramp.com/gen2-1")
+        assert lines.count("READ") == 2 and lines.count("CONNECT") == 0 and lines[-1] == "ACCEPTED", lines
+        lines = send("https://app.ramp.com/gen2-2")
+        assert lines.count("READ") == 0 and lines.count("CONNECT") == 0 and lines[-1] == "ACCEPTED", lines
+        assert requests(live_log1)[-2:] == [
+            f"1:{gen2}\nhttps://app.ramp.com/gen2-1".encode(),
+            f"1:{gen2}\nhttps://app.ramp.com/gen2-2".encode(),
+        ]
+
+        live_rules.unlink()
+        lines = send("https://app.ramp.com/deleted-rules")
+        assert lines[-1].startswith("POPUP "), lines
+        write_pair(gen2)
+        live_status.unlink()
+        lines = send("https://app.ramp.com/deleted-status")
+        assert lines[-1].startswith("POPUP "), lines
+        write_pair(gen2)
+        lines = send("https://app.ramp.com/restored-gen2")
+        assert lines.count("READ") == 2 and lines[-1] == "ACCEPTED", lines
+
+        os.chmod(live_rules, 0o620)
+        lines = send("https://app.ramp.com/writable")
+        assert lines[-1].startswith("POPUP ") and "regular" in lines[-1], lines
+        os.chmod(live_rules, 0o600)
+        lines = send("https://app.ramp.com/mode-ok")
+        assert lines.count("READ") == 2 and lines[-1] == "ACCEPTED", lines
+        assert len(requests(live_log1)) == 7
+
+        srv1 = servers[-2]
+        srv1.kill()
+        srv1.wait()
+        if srv1.stdout:
+            srv1.stdout.close()
+        live_log2 = directory / "live2.requests"
+        live_log2.write_bytes(b"")
+        srv2 = subprocess.Popen([str(server), live_port, str(live_log2), "true", "0"], stdout=subprocess.PIPE, text=True)
+        servers.append(srv2)
+        assert srv2.stdout and srv2.stdout.readline() == "READY\n"
+
+        lines = send("https://app.ramp.com/reconnected-1")
+        assert lines.count("READ") == 0 and lines.count("CONNECT") == 1 and lines[-1] == "ACCEPTED", lines
+        lines = send("https://app.ramp.com/reconnected-2")
+        assert lines.count("READ") == 0 and lines.count("CONNECT") == 0 and lines[-1] == "ACCEPTED", lines
+        assert requests(live_log2) == [
+            f"1:{gen2}\nhttps://app.ramp.com/reconnected-1".encode(),
+            f"1:{gen2}\nhttps://app.ramp.com/reconnected-2".encode(),
+        ], requests(live_log2)
+
+        srv2.kill()
+        srv2.wait()
+        if srv2.stdout:
+            srv2.stdout.close()
+        lines = send("https://app.ramp.com/down")
+        assert lines[-1].startswith("POPUP ") and "not listening" in lines[-1], lines
+
+        assert live_bridge.stdin
+        live_bridge.stdin.write(b"quit\n")
+        live_bridge.stdin.flush()
+        live_bridge.stdin.close()
+        assert live_bridge.wait(timeout=5) == 0
+        print("PASS URL bridge caches verified selectors and Mach port, invalidates immediately, and reconnects")
 
         output, _ = timeout.communicate(timeout=20)
         elapsed = time.monotonic() - started
