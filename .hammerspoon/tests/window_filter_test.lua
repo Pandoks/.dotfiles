@@ -1009,4 +1009,78 @@ test("indexed window lookup stays consistent across track, destroy, retire, and 
   assert(model.filter:getWindow(100, 42) == model.first.window)
 end)
 
+test("activation uses async focusedWindow when available and drops stale callbacks", function()
+  local savedManager = package.loaded["lib.window_manager"]
+  local pendingFocused = {}
+  package.loaded["lib.window_manager"] = {
+    native = {
+      focusedWindow = function(pid, done)
+        pendingFocused[#pendingFocused + 1] = { pid = pid, done = done }
+      end,
+    },
+  }
+  local ok, err = pcall(function()
+    local model = setup({ background = true })
+    local events, focusedIds = 0, {}
+    local second = model:window(200)
+    model:emit(second, "AXWindowCreated")
+    model.filter:subscribe(model.module.windowFocused, function(window)
+      events = events + 1
+      focusedIds[#focusedIds + 1] = window:id()
+    end)
+
+    model.background = false
+    -- Cached ID in app.byId emits without touching app:focusedWindow().
+    model.appCallback("Browser", 2, model.app)
+    assert(#pendingFocused == 1 and pendingFocused[1].pid == 42)
+    assert(model.focusedReads == 0)
+
+    -- A newer activation supersedes the earlier async response.
+    model.appCallback("Browser", 2, model.app)
+    assert(#pendingFocused == 2)
+    pendingFocused[1].done(100)
+    assert(events == 0, "stale focusedWindow callback must be ignored")
+    pendingFocused[2].done(200)
+    assert(events == 1 and focusedIds[1] == 200 and model.focusedReads == 0)
+
+    -- Cancelled responses do not report errors.
+    model.appCallback("Browser", 2, model.app)
+    pendingFocused[3].done(nil, "cancelled")
+    assert(#model.logs == 0 and #model.alerts == 0)
+
+    -- Async error reports once via failure().
+    model.appCallback("Browser", 2, model.app)
+    pendingFocused[4].done(nil, "focused window failed (-25204)")
+    assert(#model.logs == 1 and #model.alerts == 1)
+
+    -- Untracked ID falls back to app:focusedWindow().
+    local third = model:window(300)
+    model.focused = third
+    model.appCallback("Browser", 2, model.app)
+    pendingFocused[5].done(300)
+    assert(model.focusedReads == 1 and events == 2 and focusedIds[2] == 300)
+  end)
+  package.loaded["lib.window_manager"] = savedManager
+  if not ok then
+    error(err, 0)
+  end
+end)
+
+test("Space changes ignore layer-0 IDs that snapshots could not track", function()
+  local model = setup()
+  local reads = model.reads
+  local helper = model:window(0)
+  helper.attributeValue = function()
+    return "AXScrollArea"
+  end
+  model.list = {
+    { kCGWindowOwnerPID = 42, kCGWindowNumber = 100, kCGWindowLayer = 0 },
+    { kCGWindowOwnerPID = 42, kCGWindowNumber = 777, kCGWindowLayer = 0 },
+  }
+  model.spaceCallback()
+  assert(model.reads == reads + 1, "first Space switch snapshots once")
+  model.spaceCallback()
+  assert(model.reads == reads + 1, "ignored ID does not re-trigger snapshot")
+end)
+
 print("RESULT " .. passed .. " passed, 0 failed")
