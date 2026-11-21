@@ -19,39 +19,11 @@ local function assertEqual(actual, expected, label)
   end
 end
 
--- hs.timer keeps a stopped timer's callback: count timers alive only through it.
-local function leaked(timers)
-  local here, registry = debug.getinfo(1, "S").source, {}
-  local weak = setmetatable({}, { __mode = "k" })
-  for i = #timers, 1, -1 do
-    local timer = timers[i]
-    if not timer.active then
-      table.remove(timers, i)
-      if debug.getinfo(timer.callback, "S").source ~= here then
-        registry[#registry + 1], weak[timer] = timer.callback, true
-      end
-    end
-  end
-  local function alive()
-    local count = 0
-    for _ = 1, 3 do
-      collectgarbage()
-    end
-    for _ in pairs(weak) do
-      count = count + 1
-    end
-    return count
-  end
-  local held = alive()
-  registry = nil
-  return held - alive()
-end
-
--- The Dock lands each batch of swipes as one Space change.
 local function harness(options)
   local desktop = {
     current = 100,
     steps = 0,
+    switches = {},
     inflight = {},
     results = {},
     timers = {},
@@ -61,6 +33,7 @@ local function harness(options)
       spaceDisplay = 0,
       utilsSpaces = 0,
       displaySpaces = 0,
+      timers = 0,
       cancelFocus = 0,
       spaces = 0,
     },
@@ -69,11 +42,9 @@ local function harness(options)
   for i = 1, 4 do
     spaces[i] = { ManagedSpaceID = i * 100, display = "d" }
   end
-  local spaceChanged
   local nativeMock = {
-    move = function(right, count)
-      desktop.steps = desktop.steps + count
-      desktop.inflight[#desktop.inflight + 1] = (right and 100 or -100) * count
+    move = function()
+      desktop.steps = desktop.steps + 1
       return true
     end,
     spaces = function(ids)
@@ -124,6 +95,21 @@ local function harness(options)
       return { spaces = list, active = { d = desktop.current }, bySpace = bySpace }
     end
   end
+  local dockMock = {
+    switch = function(space, done)
+      desktop.switches[#desktop.switches + 1] = space
+      if desktop.dockError then
+        done(false, desktop.dockError)
+        return
+      end
+      if options and options.deferred then
+        desktop.inflight[#desktop.inflight + 1] = { space = space, done = done }
+        return
+      end
+      desktop.current = space
+      done(true)
+    end,
+  }
   local environment = setmetatable({
     hs = {
       spaces = {
@@ -131,17 +117,6 @@ local function harness(options)
           desktop.calls.spaceDisplay = desktop.calls.spaceDisplay + 1
           return not desktop.displayGone and space and "d" or nil
         end,
-        watcher = {
-          new = function(callback)
-            spaceChanged = callback
-            return {
-              start = function(self)
-                return self
-              end,
-              stop = function() end,
-            }
-          end,
-        },
         activeSpaces = function()
           desktop.calls.activeSpaces = desktop.calls.activeSpaces + 1
           if desktop.unavailable then
@@ -151,7 +126,10 @@ local function harness(options)
         end,
       },
       screen = {
-        find = function()
+        find = function(display)
+          if desktop.screenGone or not display then
+            return nil
+          end
           return {
             frame = function()
               return { center = { x = 0, y = 0 } }
@@ -161,6 +139,7 @@ local function harness(options)
       },
       timer = {
         doAfter = function(_, callback)
+          desktop.calls.timers = desktop.calls.timers + 1
           local timer = { callback = callback, active = true }
           function timer:stop()
             self.active = false
@@ -170,7 +149,10 @@ local function harness(options)
         end,
       },
     },
-    require = function()
+    require = function(name)
+      if name == "lib.dock" then
+        return dockMock
+      end
       return {
         spaces = function()
           desktop.calls.utilsSpaces = desktop.calls.utilsSpaces + 1
@@ -190,54 +172,91 @@ local function harness(options)
   end
   function desktop:settle()
     while #self.inflight > 0 do
-      self.current = self.current + table.remove(self.inflight, 1)
-      desktop.notifications = (desktop.notifications or 0) + 1
-      spaceChanged()
+      local job = table.remove(self.inflight, 1)
+      if not desktop.ignoreUpdate then
+        self.current = job.space
+      end
+      job.done(true)
     end
   end
   return desktop
 end
 
-test("a jump sends every swipe at once and reports when it arrives", function()
-  local desktop = harness()
-  desktop:space(4)
-  assertEqual(#desktop.inflight, 1, "one batch")
-  desktop:settle()
-  assertEqual(desktop.current, 400)
-  assertEqual(desktop.steps, 3)
-  assertEqual(desktop.notifications, 1, "no Space between is shown")
-  assertEqual(desktop.results[4], "ok")
-end)
-
-test("presses during a jump wait for its swipes to land, then continue from there", function()
-  for _, case in ipairs({ { second = 1, steps = 2 }, { second = 3, steps = 2 } }) do
+test(
+  "direct Space switch updates Space immediately through dock.switch without swipes or timers",
+  function()
     local desktop = harness()
-    desktop:space(2)
-    desktop:space(case.second)
-    assertEqual(#desktop.inflight, 1, "no swipes posted while others are in flight")
-    desktop:settle()
-    assertEqual(desktop.current, case.second * 100, "lands on the latest press")
-    assertEqual(desktop.steps, case.steps)
-    assertEqual(desktop.results[2], "superseded")
-    assertEqual(desktop.results[case.second], "ok")
+    desktop:space(4)
+    assertEqual(#desktop.switches, 1)
+    assertEqual(desktop.switches[1], 400)
+    assertEqual(desktop.current, 400)
+    assertEqual(desktop.steps, 0, "no swipe fallback")
+    assertEqual(desktop.calls.timers, 0, "no swipe deadline timers")
+    assertEqual(desktop.results[4], "ok")
+    assertEqual(desktop.windowManager.isBusy(), false)
+  end
+)
+
+test("rapid back-to-back switches execute immediately in order with zero wait lock", function()
+  local desktop = harness({ nativeDisplaySpaces = true })
+  for _, index in ipairs({ 2, 3, 4, 1 }) do
+    desktop:space(index)
+    assertEqual(desktop.windowManager.isBusy(), false, "idle after each switch")
+  end
+  assertEqual(table.concat(desktop.switches, ","), "200,300,400,100")
+  assertEqual(desktop.current, 100)
+  assertEqual(desktop.steps, 0)
+  for _, index in ipairs({ 2, 3, 4, 1 }) do
+    assertEqual(desktop.results[index], "ok", "switch " .. index)
   end
 end)
 
-test("finished jumps release their timers", function()
-  local desktop = harness()
+test("deferred switch supersedes older request and ignores its stale reply", function()
+  local desktop = harness({ deferred = true })
   desktop:space(2)
+  assertEqual(desktop.windowManager.isBusy(), true)
+  desktop:space(3)
+  assertEqual(desktop.results[2], "superseded")
+  assertEqual(#desktop.inflight, 2)
+  local stale = table.remove(desktop.inflight, 1)
+  stale.done(true)
+  assertEqual(desktop.windowManager.isBusy(), true, "stale reply does not clear active switch")
+  assertEqual(desktop.results[3], nil)
   desktop:settle()
-  assertEqual(desktop.results[2], "ok")
-  assertEqual(leaked(desktop.timers), 0)
+  assertEqual(desktop.current, 300)
+  assertEqual(desktop.results[3], "ok")
+  assertEqual(desktop.windowManager.isBusy(), false)
 end)
 
-test("an unreadable Space layout fails at once instead of waiting for the timeout", function()
-  local desktop = harness()
-  desktop.unavailable = true
+test("Dock helper failure fails fast", function()
+  local desktop = harness({ nativeDisplaySpaces = true })
+  desktop.dockError = "Dock helper not loaded"
   desktop:space(3)
-  assertEqual(desktop.results[3], "Spaces unavailable")
-  assertEqual(desktop.steps, 0)
+  assertEqual(desktop.results[3], "Dock helper not loaded")
+  assertEqual(desktop.current, 100)
+  assertEqual(desktop.windowManager.isBusy(), false)
 end)
+
+test(
+  "unreadable layout, missing Space, and unavailable display fail at once without switching",
+  function()
+    local desktop = harness()
+    desktop.unavailable = true
+    desktop:space(3)
+    assertEqual(desktop.results[3], "Spaces unavailable")
+    assertEqual(#desktop.switches, 0)
+
+    desktop.unavailable = false
+    desktop:space(9)
+    assertEqual(desktop.results[9], "Space 9 does not exist")
+    assertEqual(#desktop.switches, 0)
+
+    desktop.screenGone = true
+    desktop:space(2)
+    assertEqual(desktop.results[2], "display unavailable")
+    assertEqual(#desktop.switches, 0)
+  end
+)
 
 test(
   "focusing a window whose display can't be found fails instead of skipping its Space",
@@ -250,33 +269,37 @@ test(
     end)
     assertEqual(result, "display unavailable for Space 300")
     assertEqual(desktop.focused, nil, "not focused without showing its Space")
-    assertEqual(desktop.steps, 0)
+    assertEqual(#desktop.switches, 0)
   end
 )
 
 test("a minimized window is restored, on another Space only once that Space shows", function()
-  for _, space in ipairs({ 300, 100, false }) do
-    local desktop = harness()
-    desktop.windowSpace = space or nil
-    local result
-    desktop.windowManager.focus(10, 7, function(ok, err)
-      result = ok and "ok" or err
-    end, true)
-    assertEqual(#desktop.order, space == 300 and 0 or 2, "restored before its Space shows")
-    desktop:settle()
-    local shown = space == 300 and 300 or 100
-    assertEqual(
-      table.concat(desktop.order, ", "),
-      "minimized=false on " .. shown .. ", focus on " .. shown,
-      tostring(space)
-    )
-    assertEqual(result, "ok")
+  for _, deferred in ipairs({ false, true }) do
+    for _, space in ipairs({ 300, 100, false }) do
+      local desktop = harness({ deferred = deferred })
+      desktop.windowSpace = space or nil
+      local result
+      desktop.windowManager.focus(10, 7, function(ok, err)
+        result = ok and "ok" or err
+      end, true)
+      if deferred then
+        assertEqual(#desktop.order, space == 300 and 0 or 2, "restored before its Space shows")
+        desktop:settle()
+      end
+      local shown = space == 300 and 300 or 100
+      assertEqual(
+        table.concat(desktop.order, ", "),
+        "minimized=false on " .. shown .. ", focus on " .. shown,
+        tostring(space)
+      )
+      assertEqual(result, "ok")
+    end
   end
 end)
 
 test("a cancelled focus neither restores nor focuses its window afterwards", function()
   for _, stage in ipairs({ "jump", "restore" }) do
-    local desktop = harness()
+    local desktop = harness({ deferred = true })
     desktop.windowSpace = 300
     local live, result = true, nil
     desktop.minimizing = function()
@@ -310,13 +333,12 @@ test("loading starts one window search, so the first Cmd-Tab is cached", functio
 end)
 
 test("native.displaySpaces fast path avoids hs.spaces and utils.spaces", function()
-  local desktop = harness({ nativeDisplaySpaces = true })
+  local desktop = harness({ nativeDisplaySpaces = true, deferred = true })
   desktop:space(3)
-  assertEqual(desktop.windowManager.isBusy(), true, "busy while jump is in flight")
+  assertEqual(desktop.windowManager.isBusy(), true, "busy while switch is in flight")
   desktop:settle()
   assertEqual(desktop.windowManager.isBusy(), false, "idle after settle")
   assertEqual(desktop.current, 300)
-  assertEqual(desktop.steps, 2)
   assertEqual(desktop.results[3], "ok")
   assertEqual(desktop.calls.activeSpaces, 0, "no hs.spaces.activeSpaces")
   assertEqual(desktop.calls.spaceDisplay, 0, "no hs.spaces.spaceDisplay")
@@ -340,7 +362,7 @@ test("native.displaySpaces fast path avoids hs.spaces and utils.spaces", functio
   assertEqual(desktop.calls.activeSpaces, 0)
   assertEqual(desktop.calls.spaceDisplay, 0)
   assertEqual(desktop.calls.utilsSpaces, 0)
-  assertEqual(readsBeforeSettle, 3, "space() + settle() used 2, focus() reused layout for 1")
+  assertEqual(readsBeforeSettle, 2, "space() read 1, focus() reused layout for 1")
 end)
 
 test("native.displaySpaces handles unreadable layout and missing Space display", function()
@@ -348,7 +370,7 @@ test("native.displaySpaces handles unreadable layout and missing Space display",
   desktop.unavailable = true
   desktop:space(2)
   assertEqual(desktop.results[2], "Spaces unavailable")
-  assertEqual(desktop.steps, 0)
+  assertEqual(#desktop.switches, 0)
   assertEqual(desktop.windowManager.isBusy(), false)
 
   desktop.unavailable = false
@@ -359,17 +381,17 @@ test("native.displaySpaces handles unreadable layout and missing Space display",
   end)
   assertEqual(result, "display unavailable for Space 300")
   assertEqual(desktop.focused, nil)
-  assertEqual(desktop.steps, 0)
+  assertEqual(#desktop.switches, 0)
 end)
 
-test("isBusy reflects active jumps across supersede, settle, and stop", function()
-  local desktop = harness({ nativeDisplaySpaces = true })
+test("isBusy reflects active switches across no-op, supersede, settle, and stop", function()
+  local desktop = harness({ nativeDisplaySpaces = true, deferred = true })
   assertEqual(desktop.windowManager.isBusy(), false, "idle initially")
   desktop:space(1)
-  assertEqual(desktop.windowManager.isBusy(), false, "no-op jump stays idle")
+  assertEqual(desktop.windowManager.isBusy(), false, "no-op switch stays idle")
 
   desktop:space(3)
-  assertEqual(desktop.windowManager.isBusy(), true, "busy after jump starts")
+  assertEqual(desktop.windowManager.isBusy(), true, "busy after switch starts")
   desktop:space(2)
   assertEqual(desktop.windowManager.isBusy(), true, "still busy when superseded")
   desktop:settle()
@@ -385,7 +407,7 @@ end)
 test(
   "focus forwards space, skips spaces() with knownSpace, cancels, and tracks settle state",
   function()
-    local desktop = harness({ nativeDisplaySpaces = true, deferFocus = true })
+    local desktop = harness({ nativeDisplaySpaces = true, deferred = true, deferFocus = true })
     local spacesBefore = desktop.calls.spaces
     local cancelsBefore = desktop.calls.cancelFocus
     local result

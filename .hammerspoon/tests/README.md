@@ -22,14 +22,16 @@ sibling reclaim on close, directional focus, swap, warp, edge resize that moves 
 opposite edge at the screen's edge, mouse resizes that move the dragged edges' splits on
 release, balance, a column mode that keeps equal widths as windows open and close, zoom,
 and float. The window manager suite checks
-that a Space jump posts all its swipes at once and reports once on arrival, that a press
-during a jump continues from that jump's target, and that finished jumps release their timers.
+direct Space switches through `lib.dock`, rapid back-to-back switches without wait locks,
+deferred-load superseding and shutdown cancellation, fast failures, and `native.displaySpaces` caching.
 A minimized window on another Space is restored only once that Space shows; restored earlier,
 macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
-Neither touches the real window server; the native gesture, focus, and Accessibility calls in
-`lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
+The Dock suite (`dock_test.lua`) checks persistent message-port caching, invalidation recovery,
+error replies, queued injection, and shutdown.
+Neither touches the real window server; the native Dock helper, focus, and Accessibility calls in
+`lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` were checked live on macOS 27.0.1.
 
 The URL router suites cover Lua rules, profiles, and selector readiness
 (`url_router_test.lua`); native selector publication and watchers
@@ -175,20 +177,20 @@ Spaces, minimized, or hidden at load), read from `lib.window_filter` without a w
 query. A failed focus command logs with a popup and is not retried. Space jobs and their transitions
 take priority.
 
-`window_manager.space` posts one synthetic swipe per Space at once, so the display goes
-straight to the target without showing the Spaces between, and replies once
-the display shows the target, or at once when it already does. Focus can report the
-new Space just after the display does, so the reply, Space notification, or app/window
-focus event that first sees the target Space starts focus restoration. Failed replies
-stop immediately; a Space that never arrives times out after 1.5 s. Each failure logs
-once with a popup.
+`window_manager.space` switches Spaces directly through `lib.dock` (using a cached
+remote `CFMessagePort` with a private reply mode) without swipe serialization, replying
+immediately once warm (or superseding pending switches while the Dock helper loads).
+Focus can report the new Space just after the display does, so the reply, Space
+notification, or app/window focus event that first sees the target Space starts focus
+restoration. Failed replies stop immediately; a Space that never arrives times out after
+1.5 s. Each failure logs once with a popup.
 Space shortcuts keep one current job for the switch and focus restoration.
 A new shortcut cancels the old job's timers and ignores its replies, then calls
 `window_manager.space` immediately without waiting for the previous Space or focus reply;
 `window_manager.space` reports the older request as superseded.
 Only the current job can continue after a reply. Focus and desktop-click actions
 yield to the next run-loop turn so a newer shortcut can cancel them before dispatch.
-A swipe already posted or a running native call cannot be recalled.
+A running native call cannot be recalled.
 There is no Space-command queue or retry.
 Mission Control state is read from the Dock's `mc` element on each check, because macOS 27
 no longer posts the Dock's overview notifications; a relaunched Dock is picked up on the next
