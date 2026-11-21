@@ -551,16 +551,32 @@ focus = function(window, fresh)
   end)
   local function moveAndFocus()
     job.target = window.id
+    local function finishIfFocused(focusedId)
+      if operation ~= job or focusedId ~= window.id then
+        return false
+      end
+      recent[window.id] = hs.timer.secondsSinceEpoch()
+      finish(job)
+      return true
+    end
     -- Re-run by the window-focused event.
-    job.confirmFocus = function()
+    job.confirmFocus = function(confirmed)
       if operation ~= job then
         return
       end
-      local focused = hs.window.focusedWindow()
-      if focused and focused:id() == window.id then
-        recent[window.id] = hs.timer.secondsSinceEpoch()
-        finish(job)
+      if confirmed then
+        finishIfFocused(window.id)
+        return
       end
+      local native = windowManager.native --[[@as { focusedWindow?: fun(pid: integer, done: fun(id?: integer, err?: string)) }?]]
+      if native and native.focusedWindow then
+        native.focusedWindow(window.pid, function(id)
+          finishIfFocused(id)
+        end)
+        return
+      end
+      local focused = hs.window.focusedWindow()
+      finishIfFocused(focused and focused:id() or nil)
     end
     local function live()
       return operation == job

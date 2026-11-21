@@ -89,6 +89,7 @@ local function harness(options)
     tasks = {},
     unhides = 0,
     raisedPrints = 0,
+    focusedReads = 0,
   }
   for i = 1, options.count or 9 do
     desktop.windows[i] = {
@@ -519,6 +520,7 @@ local function harness(options)
         return copy(options.order or {})
       end,
       focusedWindow = function()
+        desktop.focusedReads = desktop.focusedReads + 1
         for _, row in ipairs(desktop.windows) do
           if row["has-focus"] then
             return desktop:window(row)
@@ -2696,6 +2698,46 @@ test(
     long:key("keyDown", "left", {})
     long:advance(0)
     assertEqual(#long.draws, 2, "scrolling to another viewport triggers full redraw")
+  end
+)
+
+test(
+  "confirmFocus skips hs.window.focusedWindow on event confirmation and uses native focusedWindow",
+  function()
+    local confirmedDesktop = harness()
+    confirmedDesktop:open()
+    confirmedDesktop:release()
+    confirmedDesktop:advance(0.002)
+    assertEqual(confirmedDesktop.menu.status().busy, true)
+    local readsBeforeConfirm = confirmedDesktop.focusedReads
+    confirmedDesktop:advance(0.05)
+    assertEqual(confirmedDesktop.menu.status().busy, false)
+    assertEqual(
+      confirmedDesktop.focusedReads,
+      readsBeforeConfirm,
+      "windowFocused event confirms without polling focusedWindow"
+    )
+
+    local asyncPending = {}
+    local asyncDesktop = harness({
+      focusEvents = false,
+      native = {
+        focusedWindow = function(pid, done)
+          asyncPending[#asyncPending + 1] = { pid = pid, done = done }
+        end,
+      },
+    })
+    asyncDesktop:key("keyDown", "tab", { cmd = true })
+    asyncDesktop:advance(0.01)
+    asyncDesktop:key("flagsChanged", "cmd", {})
+    asyncDesktop.focusedReads = 0
+    asyncDesktop:advance(0.01)
+    assertEqual(#asyncPending, 1)
+    assertEqual(asyncPending[1].pid, 102)
+    assertEqual(asyncDesktop.focusedReads, 0, "native.focusedWindow avoids hs.window.focusedWindow")
+    assertEqual(asyncDesktop.menu.status().busy, true)
+    asyncPending[1].done(2)
+    assertEqual(asyncDesktop.menu.status().busy, false)
   end
 )
 
