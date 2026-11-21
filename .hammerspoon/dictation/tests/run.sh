@@ -9,6 +9,10 @@ frameworks="${HAMMERSPOON_APP:-/Applications/Hammerspoon.app}/Contents/Framework
 clang -Wall -Wextra -Werror -I"$frameworks/LuaSkin.framework/Headers" -F"$frameworks" \
   -framework LuaSkin -Wl,-rpath,"$frameworks" "$test_dir/../../tests/lua_runner.c" \
   -o "$test_build/lua"
+clang -O2 -Wall -Wextra -Wshadow -Wconversion -Wpedantic -Werror \
+  -fobjc-arc -fmodules -bundle -undefined dynamic_lookup \
+  -I"$frameworks/LuaSkin.framework/Headers" -F"$frameworks" \
+  "$test_dir/../../lib/stream/stream.m" -o "$test_build/stream.so"
 mkdir "$test_build/home"
 for suite in spacing history engine init recorder; do
   HOME="$test_build/home" "$test_build/lua" "$test_dir/${suite}_test.lua" "$test_dir/.." "$frameworks" "$test_build"

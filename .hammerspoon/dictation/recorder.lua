@@ -19,6 +19,7 @@ local recorder = {}
 
 ---@class StreamNative
 ---@field listen fun(path: string, callback: fun(chunk?: string, problem?: string)): (fun(): string, string?)?, string?
+---@field analyze fun(pcm: string, bins: integer[]): number, number, number, number[]
 
 -- A socket, not hs.task's stream: it drops output that is not UTF-8.
 local stream = utils.native("stream") --[[@as StreamNative]]
@@ -26,70 +27,10 @@ local stream = utils.native("stream") --[[@as StreamNative]]
 local rate = 16000
 local size = 1024 -- FFT window, in samples
 
--- Hann window.
-local window = {}
-for sample = 1, size do
-  window[sample] = 0.5 - 0.5 * math.cos(2 * math.pi * (sample - 1) / (size - 1))
-end
-
 -- mise's own binary, through its ffmpeg shim (a symlink): resolved once, as the shim adds ~15 ms.
 local mise = hs.fs.pathToAbsolute(os.getenv("HOME") .. "/.local/share/mise/shims/ffmpeg")
 local which = mise and hs.execute("cd / && " .. utils.quote(mise) .. " which ffmpeg")
 recorder.ffmpeg = which and which:match("^(/.*/ffmpeg)%s*$")
-
--- In-place iterative radix-2 FFT.
----@param real number[]
----@param imaginary number[]
-local function fft(real, imaginary)
-  local count = #real
-  local bitReversed = 1
-  for index = 1, count - 1 do
-    if index < bitReversed then
-      real[index], real[bitReversed] = real[bitReversed], real[index]
-      imaginary[index], imaginary[bitReversed] = imaginary[bitReversed], imaginary[index]
-    end
-    local bit = count // 2
-    while bit >= 1 and bitReversed > bit do
-      bitReversed = bitReversed - bit
-      bit = bit // 2
-    end
-    bitReversed = bitReversed + bit
-  end
-  local span = 2
-  while span <= count do
-    local angle = -2 * math.pi / span
-    local stepReal, stepImaginary = math.cos(angle), math.sin(angle)
-    for start = 1, count, span do
-      local twiddleReal, twiddleImaginary = 1, 0
-      for offset = 0, span // 2 - 1 do
-        local upper, lower = start + offset, start + offset + span // 2
-        local productReal = real[lower] * twiddleReal - imaginary[lower] * twiddleImaginary
-        local productImaginary = real[lower] * twiddleImaginary + imaginary[lower] * twiddleReal
-        real[lower], imaginary[lower] =
-          real[upper] - productReal, imaginary[upper] - productImaginary
-        real[upper], imaginary[upper] =
-          real[upper] + productReal, imaginary[upper] + productImaginary
-        twiddleReal, twiddleImaginary =
-          twiddleReal * stepReal - twiddleImaginary * stepImaginary,
-          twiddleReal * stepImaginary + twiddleImaginary * stepReal
-      end
-    end
-    span = span * 2
-  end
-end
-
--- Samples (-1..1) of the window starting at byte `from`, and its loudness 0..1 (-50..-10 dBFS).
----@param pcm string s16le mono
----@param from integer
-local function samples(pcm, from)
-  local values, energy = {}, 0
-  for sample = 1, size do
-    local value = string.unpack("<i2", pcm, from + 2 * sample - 2) / 32768
-    values[sample], energy = value, energy + value * value
-  end
-  local rms = math.sqrt(energy / size) + 1e-9
-  return values, math.max(0, math.min(1, (20 * math.log(rms, 10) + 50) / 40)), energy
-end
 
 ---@param bands integer
 ---@param backend string? the socket the backend reads the take from while it records
@@ -224,37 +165,22 @@ function recorder.analyze(recording)
   if #fresh == 0 or #recording.tail < size * 2 then
     return nil
   end
-  local real, level, energy = samples(recording.tail, 1)
+  local level, energy, peak, bands = stream.analyze(pcm, recording.bins)
   -- Every window since the last frame counts toward the peak: a busy main thread can leave several.
-  recording.peak = math.max(recording.peak, level)
-  for last = #pcm - size * 2, size * 2, -size * 2 do
-    local _, older = samples(pcm, last - size * 2 + 1)
-    recording.peak = math.max(recording.peak, older)
-  end
-  local imaginary = {}
-  for sample = 1, size do
-    real[sample], imaginary[sample] = real[sample] * window[sample], 0
-  end
+  recording.peak = math.max(recording.peak, peak)
   -- Bars move only above the room's floor, which starts at most ~-38 dBFS: speech may open a take.
   if energy > 0 then
     recording.floor = math.min(level, recording.floor and recording.floor + 0.002 or 0.3)
   end
   -- Full at ~11 dB over the room.
   local gain = math.max(0, math.min(1, (level - (recording.floor or level) - 0.08) / 0.2))
-  fft(real, imaginary)
-  local bands, loudest, bins, peaks = {}, 0, recording.bins, recording.peaks
-  for band = 1, #bins do
-    local low, high = bins[band - 1], math.max(bins[band - 1] + 1, bins[band])
-    local sum = 0
-    for bin = low, high - 1 do
-      sum = sum + math.sqrt(real[bin + 1] ^ 2 + imaginary[bin + 1] ^ 2)
-    end
-    bands[band] = math.sqrt(sum / (high - low)) -- perceptual compression
+  local loudest, peaks = 0, recording.peaks
+  for band = 1, #bands do
     peaks[band] = math.max((peaks[band] or 1e-4) * 0.999, bands[band])
     loudest = math.max(loudest, peaks[band])
   end
   -- Peaks floored at 0.4 of the loudest, or the first word after silence fills every band.
-  for band = 1, #bins do
+  for band = 1, #bands do
     bands[band] = gain
       * math.min(1, bands[band] / (math.max(peaks[band], loudest * 0.4) + 1e-6)) ^ 0.5
   end
