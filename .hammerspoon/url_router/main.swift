@@ -74,29 +74,19 @@ private func connect() throws -> CFMessagePort {
 
 // Blocks up to 15 seconds per request; callers stay off the main actor so a popup can't stall the reply.
 private func requestRoute(_ request: Data) throws -> String {
-    var port: CFMessagePort
-    let reused: Bool
+    let port: CFMessagePort
     if let cached = remote, CFMessagePortIsValid(cached) {
         port = cached
-        reused = true
     } else {
         remote = nil
         port = try connect()
-        reused = false
     }
     var reply: Unmanaged<CFData>?
-    var status = CFMessagePortSendRequest(port, 1, request as CFData, 5, 10, CFRunLoopMode.defaultMode.rawValue, &reply)
-    if reused && status == kCFMessagePortIsInvalid {
-        _ = reply?.takeRetainedValue()
-        CFMessagePortInvalidate(port)
-        remote = nil
-        port = try connect()
-        reply = nil
-        status = CFMessagePortSendRequest(port, 1, request as CFData, 5, 10, CFRunLoopMode.defaultMode.rawValue, &reply)
-    }
+    let status = CFMessagePortSendRequest(port, 1, request as CFData, 5, 10, CFRunLoopMode.defaultMode.rawValue, &reply)
     let data = reply?.takeRetainedValue()
     guard status == kCFMessagePortSuccess else {
-        if !CFMessagePortIsValid(port) { remote = nil }
+        CFMessagePortInvalidate(port)
+        remote = nil
         let message = switch status {
         case kCFMessagePortSendTimeout: "Hammerspoon URL router did not accept the link within 5 seconds"
         case kCFMessagePortReceiveTimeout: "Hammerspoon URL router did not reply within 10 seconds"
