@@ -24,7 +24,7 @@ module.blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = 
 
 ---@class WindowFilter
 ---@field failed? boolean
----@field predicate? fun(window: hs.window): boolean?
+---@field predicate? fun(window: hs.window, app?: hs.application): boolean?
 ---@field callbacks table<string, fun(window: hs.window, app: string, event: string, id: integer)[]>
 local Filter = {}
 Filter.__index = Filter
@@ -105,9 +105,10 @@ end
 
 ---@param filter WindowFilter
 ---@param record WindowRecord
+---@param app? WindowObserver
 ---@param ok? boolean
 ---@param allowed? boolean|string
-local function matches(filter, record, ok, allowed)
+local function matches(filter, record, app, ok, allowed)
   if not record.window or record.failed or filter.failed then
     return false
   end
@@ -115,7 +116,7 @@ local function matches(filter, record, ok, allowed)
     ok, allowed = pcall(check, record.element, record.window)
   end
   if ok and allowed and filter.predicate then
-    ok, allowed = pcall(filter.predicate, record.window)
+    ok, allowed = pcall(filter.predicate, record.window, app and app.app or nil)
   end
   if not ok then
     filter.failed = true
@@ -138,7 +139,7 @@ local function emit(app, record, event)
       if baseOk == nil and record.window and not record.failed and not filter.failed then
         baseOk, baseAllowed = pcall(check, record.element, record.window)
       end
-      allowed = matches(filter, record, baseOk, baseAllowed)
+      allowed = matches(filter, record, app, baseOk, baseAllowed)
     end
     if allowed then
       local callbacks, index = filter.callbacks[event] or {}, 1
@@ -650,7 +651,7 @@ function Filter:getWindows()
   for _, app in pairs(apps) do
     if not app.failed then
       for _, record in ipairs(app.windows) do
-        if matches(self, record) then
+        if matches(self, record, app) then
           records[#records + 1] = record
         end
       end
@@ -675,7 +676,7 @@ function Filter:getWindow(id, pid)
     return
   end
   local record = app.byId[id]
-  if record and matches(self, record) then
+  if record and matches(self, record, app) then
     return record.window
   end
 end
@@ -691,6 +692,16 @@ function module.windowsOf(pid)
     end
   end
   return windows
+end
+
+---@param id integer
+---@return hs.application?
+function module.applicationOf(id)
+  for _, app in pairs(apps) do
+    if not app.failed and app.byId[id] then
+      return app.app
+    end
+  end
 end
 
 function Filter:delete()

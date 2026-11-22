@@ -1168,4 +1168,20 @@ test(
   end
 )
 
+test(
+  "predicates receive tracked app and applicationOf resolves without window:application()",
+  function()
+    local model = setup()
+    local seenApp
+    local custom = model.module.new(function(_, app)
+      seenApp = app
+      return app == model.app
+    end)
+    assert(#custom:getWindows() == 1 and seenApp == model.app)
+    assert(model.module.applicationOf(100) == model.app)
+    assert(model.module.applicationOf(999) == nil)
+    custom:delete()
+  end
+)
+
 print("RESULT " .. passed .. " passed, 0 failed")
