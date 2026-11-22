@@ -45,6 +45,7 @@ local function setup(options)
     conversions = 0,
     focusedReads = 0,
     runningReads = 0,
+    subroleReads = 0,
     background = options.background,
     running = not options.newApp,
     visible = true,
@@ -115,6 +116,7 @@ local function setup(options)
       end,
       subrole = function()
         assert(not record.destroyed, "subrole read after destruction")
+        model.subroleReads = model.subroleReads + 1
         return record.subrole or (record.standard == false and "AXUnknown" or "AXStandardWindow")
       end,
     }
@@ -203,8 +205,16 @@ local function setup(options)
         end,
         -- On-screen, front to back.
         list = function(all)
-          local rows = { model.visible and { kCGWindowOwnerPID = 42 } or nil }
-          rows[#rows + 1] = { kCGWindowOwnerPID = 7, kCGWindowName = model.dock and "Dock" or nil }
+          local rows = {}
+          if model.list then
+            for _, row in ipairs(model.list) do
+              rows[#rows + 1] = row
+            end
+          else
+            rows[#rows + 1] = model.visible and { kCGWindowOwnerPID = 42 } or nil
+            rows[#rows + 1] =
+              { kCGWindowOwnerPID = 7, kCGWindowName = model.dock and "Dock" or nil }
+          end
           for i, row in ipairs(rows) do
             if not all and row.kCGWindowName == "Dock" then
               return { table.unpack(rows, i + 1) }
@@ -861,5 +871,317 @@ test("deleting the final filter stops observers and late callbacks", function()
   model:emit(model.first, "AXWindowCreated")
   assert(#model.filter:getWindows() == 0 and #model.logs == 0)
 end)
+
+test("multiple active filters share one subrole read per emitted event", function()
+  local model = setup()
+  local p1, p2, p3 = 0, 0, 0
+  local c1, c2, c3 = 0, 0, 0
+  local d1, d2, d3 = 0, 0, 0
+  model.filter.predicate = function()
+    p1 = p1 + 1
+    return true
+  end
+  local f2 = model.module.new(function()
+    p2 = p2 + 1
+    return true
+  end)
+  local f3 = model.module.new(function()
+    p3 = p3 + 1
+    return true
+  end)
+  for _, entry in ipairs({
+    {
+      model.filter,
+      function()
+        c1 = c1 + 1
+      end,
+      function()
+        d1 = d1 + 1
+      end,
+    },
+    {
+      f2,
+      function()
+        c2 = c2 + 1
+      end,
+      function()
+        d2 = d2 + 1
+      end,
+    },
+    {
+      f3,
+      function()
+        c3 = c3 + 1
+      end,
+      function()
+        d3 = d3 + 1
+      end,
+    },
+  }) do
+    entry[1]:subscribe({ model.module.windowFocused, model.module.windowTitleChanged }, entry[2])
+    entry[1]:subscribe(model.module.windowDestroyed, entry[3])
+  end
+  p1, p2, p3 = 0, 0, 0
+  local reads = model.subroleReads
+  model:emit(model.first, "AXFocusedWindowChanged")
+  assert(model.subroleReads == reads + 1)
+  assert(c1 == 1 and c2 == 1 and c3 == 1 and p1 == 1 and p2 == 1 and p3 == 1)
+  model.first.subrole = "AXDialog"
+  model:emit(model.first, "AXTitleChanged")
+  assert(model.subroleReads == reads + 2)
+  assert(c1 == 1 and c2 == 1 and c3 == 1 and p1 == 1 and p2 == 1 and p3 == 1)
+  model.first.subrole = "AXStandardWindow"
+  f2.predicate = function()
+    error("f2 predicate failed")
+  end
+  model:emit(model.first, "AXFocusedWindowChanged")
+  assert(model.subroleReads == reads + 3)
+  assert(c1 == 2 and c2 == 1 and c3 == 2 and #model.logs == 1)
+  model.first.destroyed = true
+  model:emit(model.first, "AXUIElementDestroyed")
+  assert(model.subroleReads == reads + 3 and d1 == 1 and d2 == 0 and d3 == 1)
+end)
+
+test("Space changes skip snapshots when on-screen layer-0 windows are already tracked", function()
+  local model = setup()
+  local reads = model.reads
+  model.list = { { kCGWindowOwnerPID = 42, kCGWindowNumber = 100, kCGWindowLayer = 0 } }
+  model.spaceCallback()
+  assert(model.reads == reads)
+  model.list[2] = { kCGWindowOwnerPID = 42, kCGWindowNumber = 999, kCGWindowLayer = 3 }
+  model.spaceCallback()
+  assert(model.reads == reads)
+  local second = model:window(200)
+  model.list[3] = { kCGWindowOwnerPID = 42, kCGWindowNumber = 200, kCGWindowLayer = 0 }
+  model.spaceCallback()
+  assert(model.reads == reads + 1)
+  assert(model.filter:getWindow(200, 42) == second.window and #model.filter:getWindows() == 2)
+  model.spaceCallback()
+  assert(model.reads == reads + 1)
+  model:emit(second, "AXUIElementDestroyed")
+  model.spaceCallback()
+  assert(model.reads == reads + 2)
+end)
+
+test("indexed window lookup stays consistent across track, destroy, retire, and stop", function()
+  local model = setup()
+  local second = model:window(200)
+  local third = model:window(300)
+  local focused, destroyed
+  model.filter:subscribe(model.module.windowFocused, function(window)
+    focused = window
+  end)
+  model.filter:subscribe(model.module.windowDestroyed, function(_, _, _, id)
+    destroyed = id
+  end)
+  model:emit(second, "AXWindowCreated")
+  model:emit(third, "AXWindowCreated")
+  assert(model.filter:getWindow(100, 42) == model.first.window)
+  assert(model.filter:getWindow(200, 42) == second.window)
+  assert(model.filter:getWindow(300, 42) == third.window)
+  assert(model.filter:getWindow(999, 42) == nil)
+  local proxy = setmetatable({}, {
+    __eq = function(left, right)
+      return rawequal(left, second) or rawequal(right, second)
+    end,
+  })
+  model:emit(proxy, "AXFocusedWindowChanged")
+  assert(#model.filter:getWindows() == 3 and focused == second.window)
+  model:emit(proxy, "AXUIElementDestroyed")
+  assert(destroyed == 200 and model.filter:getWindow(200, 42) == nil)
+  assert(#model.filter:getWindows() == 2)
+  model:emit(model.first, "AXUIElementDestroyed")
+  assert(destroyed == 100 and model.filter:getWindow(100, 42) == nil)
+  assert(model.filter:getWindow(300, 42) == third.window)
+  model:emit(third, "AXUIElementDestroyed")
+  assert(destroyed == 300 and model.filter:getWindow(300, 42) == nil)
+  assert(#model.filter:getWindows() == 0)
+  local fourth = model:window(400)
+  model:emit(fourth, "AXWindowCreated")
+  assert(model.filter:getWindow(400, 42) == fourth.window)
+  model.appCallback("Browser", 3, model.app)
+  assert(model.filter:getWindow(400, 42) == nil and #model.filter:getWindows() == 0)
+  model.appCallback("Browser", 1, model.app)
+  assert(model.filter:getWindow(100, 42) == model.first.window)
+  model.module.stop()
+  assert(model.filter:getWindow(100, 42) == nil)
+  model.filter = model.module.new()
+  assert(model.filter:getWindow(100, 42) == model.first.window)
+end)
+
+test("activation uses async focusedWindow when available and drops stale callbacks", function()
+  local savedManager = package.loaded["lib.window_manager"]
+  local pendingFocused = {}
+  package.loaded["lib.window_manager"] = {
+    native = {
+      focusedWindow = function(pid, done)
+        pendingFocused[#pendingFocused + 1] = { pid = pid, done = done }
+      end,
+    },
+  }
+  local ok, err = pcall(function()
+    local model = setup({ background = true })
+    local events, focusedIds = 0, {}
+    local second = model:window(200)
+    model:emit(second, "AXWindowCreated")
+    model.filter:subscribe(model.module.windowFocused, function(window)
+      events = events + 1
+      focusedIds[#focusedIds + 1] = window:id()
+    end)
+
+    model.background = false
+    -- Cached ID in app.byId emits without touching app:focusedWindow().
+    model.appCallback("Browser", 2, model.app)
+    assert(#pendingFocused == 1 and pendingFocused[1].pid == 42)
+    assert(model.focusedReads == 0)
+
+    -- A newer activation supersedes the earlier async response.
+    model.appCallback("Browser", 2, model.app)
+    assert(#pendingFocused == 2)
+    pendingFocused[1].done(100)
+    assert(events == 0, "stale focusedWindow callback must be ignored")
+    pendingFocused[2].done(200)
+    assert(events == 1 and focusedIds[1] == 200 and model.focusedReads == 0)
+
+    -- Cancelled responses do not report errors.
+    model.appCallback("Browser", 2, model.app)
+    pendingFocused[3].done(nil, "cancelled")
+    assert(#model.logs == 0 and #model.alerts == 0)
+
+    -- Async error reports once via failure().
+    model.appCallback("Browser", 2, model.app)
+    pendingFocused[4].done(nil, "focused window failed (-25204)")
+    assert(#model.logs == 1 and #model.alerts == 1)
+
+    -- Untracked ID falls back to app:focusedWindow().
+    local third = model:window(300)
+    model.focused = third
+    model.appCallback("Browser", 2, model.app)
+    pendingFocused[5].done(300)
+    assert(model.focusedReads == 1 and events == 2 and focusedIds[2] == 300)
+  end)
+  package.loaded["lib.window_manager"] = savedManager
+  if not ok then
+    error(err, 0)
+  end
+end)
+
+test(
+  "Space changes ignore non-AX helper IDs but recheck rejected AXWindows once eligible",
+  function()
+    local model = setup()
+    local reads = model.reads
+    local helper = model:window(0)
+    helper.attributeValue = function()
+      return "AXScrollArea"
+    end
+    model.list = {
+      { kCGWindowOwnerPID = 42, kCGWindowNumber = 100, kCGWindowLayer = 0 },
+      { kCGWindowOwnerPID = 42, kCGWindowNumber = 777, kCGWindowLayer = 0 },
+    }
+    model.spaceCallback()
+    assert(model.reads == reads + 1, "first Space switch snapshots once")
+    model.spaceCallback()
+    assert(model.reads == reads + 1, "ignored non-AX helper ID does not re-trigger snapshot")
+
+    -- A rejected AXWindow (e.g., sheet with non-AXApplication parent) is NOT permanently ignored.
+    local sheet = model:window(888)
+    local sheetParentRole = "AXWindow"
+    local origAttr = sheet.attributeValue
+    sheet.attributeValue = function(self, name)
+      if name == "AXParent" then
+        return {
+          attributeValue = function(_, attr)
+            return attr == "AXRole" and sheetParentRole or nil
+          end,
+        }
+      end
+      return origAttr(self, name)
+    end
+    model.list[3] = { kCGWindowOwnerPID = 42, kCGWindowNumber = 888, kCGWindowLayer = 0 }
+    model.spaceCallback()
+    assert(model.reads == reads + 2 and model.filter:getWindow(888, 42) == nil)
+    sheetParentRole = "AXApplication"
+    model.spaceCallback()
+    assert(model.reads == reads + 3 and model.filter:getWindow(888, 42) == sheet.window)
+  end
+)
+
+test(
+  "watchWindowSpaces snapshots untracked windows landing on active Spaces without timers",
+  function()
+    local savedManager = package.loaded["lib.window_manager"]
+    local spaceListener
+    local unsubscribed = 0
+    package.loaded["lib.window_manager"] = {
+      native = {
+        displaySpaces = function()
+          return { active = { main = 1 } }
+        end,
+      },
+      watchWindowSpaces = function(callback)
+        spaceListener = callback
+        return function()
+          unsubscribed = unsubscribed + 1
+          spaceListener = nil
+        end
+      end,
+    }
+    local ok, err = pcall(function()
+      local model = setup({ mainOnly = true })
+      local reads = model.reads
+      local created = {}
+      model.filter:subscribe(model.module.windowCreated, function(_, _, _, id)
+        created[#created + 1] = id
+      end)
+      assert(type(spaceListener) == "function", "subscribes to watchWindowSpaces")
+
+      -- Ignored: removal, missing pid, already tracked, or inactive Space.
+      spaceListener(200, 1, false, 42)
+      spaceListener(200, 1, true, nil)
+      spaceListener(100, 1, true, 42)
+      spaceListener(200, 4, true, 42)
+      assert(model.reads == reads and #created == 0)
+
+      -- Untracked window landing on active Space 1 triggers snapshot without timers.
+      local second = model:window(200)
+      local original = model.element.attributeValue
+      model.element.attributeValue = function(target, name)
+        if name == "AXWindows" then
+          model.reads = model.reads + 1
+          return { model.first, second }
+        end
+        return original(target, name)
+      end
+      spaceListener(200, 1, true, 42)
+      assert(model.reads == reads + 1)
+      assert(#created == 1 and created[1] == 200)
+      assert(model.filter:getWindow(200, 42) == second.window)
+
+      model.module.stop()
+      assert(unsubscribed == 1 and spaceListener == nil)
+    end)
+    package.loaded["lib.window_manager"] = savedManager
+    if not ok then
+      error(err, 0)
+    end
+  end
+)
+
+test(
+  "predicates receive tracked app and applicationOf resolves without window:application()",
+  function()
+    local model = setup()
+    local seenApp
+    local custom = model.module.new(function(_, app)
+      seenApp = app
+      return app == model.app
+    end)
+    assert(#custom:getWindows() == 1 and seenApp == model.app)
+    assert(model.module.applicationOf(100) == model.app)
+    assert(model.module.applicationOf(999) == nil)
+    custom:delete()
+  end
+)
 
 print("RESULT " .. passed .. " passed, 0 failed")
