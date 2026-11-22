@@ -202,8 +202,9 @@ end
 ---@param allowed? table<integer, boolean>
 ---@return integer? id, integer? pid
 local function manageable(window, allowed)
-  local app = window:application()
-  if not app then
+  local id = window:id() --[[@as integer?]]
+  local app = (id and filter.applicationOf and filter.applicationOf(id)) or window:application()
+  if not id or not app then
     return nil
   end
   local pid = app:pid() --[[@as integer]]
@@ -218,7 +219,6 @@ local function manageable(window, allowed)
   if not ok or not window:isStandard() or window:isMinimized() or window:isFullScreen() then
     return nil
   end
-  local id = window:id() --[[@as integer]]
   local pip = isPiP(window:title())
   pips[id] = pip or nil
   if pip or floating[id] then
@@ -594,8 +594,8 @@ function tiling.float()
   sync()
 end
 
-tiling.windows = filter.new(function(window)
-  local app = window:application()
+tiling.windows = filter.new(function(window, app)
+  app = app or window:application()
   return app ~= nil and apps[app:name()] == true
 end)
 tiling.windows:subscribe({

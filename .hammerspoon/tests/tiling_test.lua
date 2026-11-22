@@ -82,6 +82,9 @@ local function fakeDesktop(windowSpecs, options)
         return spec.id
       end,
       application = function()
+        if spec.transientNilApp then
+          return nil
+        end
         return app
       end,
       title = function()
@@ -100,7 +103,8 @@ local function fakeDesktop(windowSpecs, options)
         desktop.counts.windowFrame = desktop.counts.windowFrame + 1
         return desktop.frames[spec.id]
       end,
-    }
+    },
+      app
   end
   function desktop:windowSpec(id)
     for _, entry in ipairs(self.windows) do
@@ -111,7 +115,8 @@ local function fakeDesktop(windowSpecs, options)
     return {}
   end
   function desktop:add(spec)
-    self.windows[#self.windows + 1] = { spec = spec, window = fakeWindow(spec) }
+    local window, app = fakeWindow(spec)
+    self.windows[#self.windows + 1] = { spec = spec, window = window, app = app }
   end
   for _, spec in ipairs(windowSpecs) do
     desktop:add(spec)
@@ -125,6 +130,13 @@ local function fakeDesktop(windowSpecs, options)
     windowUnhidden = "unhidden",
     windowTitleChanged = "title",
     windowMoved = "moved",
+    applicationOf = function(id)
+      for _, entry in ipairs(desktop.windows) do
+        if entry.spec.id == id then
+          return entry.app
+        end
+      end
+    end,
     new = function(predicate)
       return {
         subscribe = function(_, events, callback)
@@ -136,7 +148,7 @@ local function fakeDesktop(windowSpecs, options)
           desktop.counts.getWindows = desktop.counts.getWindows + 1
           local matching = {}
           for _, entry in ipairs(desktop.windows) do
-            if predicate(entry.window) then
+            if predicate(entry.window, entry.app) then
               matching[#matching + 1] = entry.window
             end
           end
@@ -884,5 +896,27 @@ test("fallback spaceCheckAfterDrop rearms on every release so back-to-back drops
     "subsequent release after firing arms check again"
   )
 end)
+
+test(
+  "keeps window tiled and resizes it when window:application() transiently returns nil",
+  function()
+    local desktop = fakeDesktop({
+      { id = 1, app = "Helium", space = 1 },
+      { id = 2, app = "Ghostty", space = 1 },
+    })
+    assertEqual(desktop:frame(1), "0,0 500x600")
+    assertEqual(desktop:frame(2), "500,0 500x600")
+
+    -- Simulate Ghostty quitting while window:application() transiently fails for Helium.
+    desktop:windowSpec(1).transientNilApp = true
+    table.remove(desktop.windows, 2)
+    desktop:event("destroyed", 2)
+    assertEqual(desktop:frame(1), "0,0 1000x600", "Helium stays tiled and expands to full screen")
+
+    -- Moving Helium still snaps back without needing to toggle float twice.
+    desktop:drag(1, rect(100, 100, 400, 400))
+    assertEqual(desktop:frame(1), "0,0 1000x600", "Helium remains managed and snaps back on move")
+  end
+)
 
 print("RESULT " .. passed .. " passed, 0 failed")
