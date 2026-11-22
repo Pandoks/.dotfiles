@@ -221,8 +221,8 @@ has already changed focus. Window subscriptions use `lib.window_filter`, a share
 Accessibility observer per application, rather than `hs.window.filter`. Missing IDs,
 observer errors, and unsupported notifications stop tracking the affected process or element and log
 the operation that failed. Space notifications first detach exited apps via `isRunning()`,
-even before their termination callbacks arrive, then re-scan only apps with on-screen
-windows; they never list running applications.
+even before their termination callbacks arrive, then re-scan only apps with untracked on-screen
+layer-0 windows; they never list running applications.
 Top-level, nonmodal `AXDialog` windows with an enabled minimize button are tracked
 as normal switcher windows, including Maps while minimized. Dialogs without that
 capability, system dialogs, floating panels, and child windows remain excluded.
