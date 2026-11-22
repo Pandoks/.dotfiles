@@ -36,12 +36,12 @@ static dispatch_queue_t frontQueue;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *queues;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *focusQueues;
 static NSMutableDictionary<NSNumber *, dispatch_queue_t> *focusedQueues;
+static NSMutableDictionary<NSNumber *, NSNumber *> *focusedGenerations;
 static NSMutableDictionary<NSNumber *, PendingFrame *> *frames;
 static NSMutableDictionary<NSNumber *, NSObject *> *scans;
 static NSMutableDictionary<NSNumber *, EnhancedState *> *enhancedStates;
 static _Atomic BOOL naturalScroll = YES;
 static _Atomic uint64_t focusGeneration = 0;
-static _Atomic uint64_t focusedGeneration = 0;
 
 extern AXError _AXUIElementGetWindow(AXUIElementRef element, CGWindowID *windowID);
 typedef void (*SLSNotifyProc)(uint32_t type, void *data, size_t dataLength, void *userData, int cid);
@@ -602,6 +602,21 @@ static int focus(lua_State *state) {
   return 0;
 }
 
+static uint64_t nextFocusedGeneration(pid_t pid) {
+  NSNumber *key = @(pid);
+  @synchronized(focusedGenerations) {
+    uint64_t next = [focusedGenerations[key] unsignedLongLongValue] + 1;
+    focusedGenerations[key] = @(next);
+    return next;
+  }
+}
+
+static uint64_t currentFocusedGeneration(pid_t pid) {
+  @synchronized(focusedGenerations) {
+    return [focusedGenerations[@(pid)] unsignedLongLongValue];
+  }
+}
+
 static int focusedWindow(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TFUNCTION, LS_TBREAK];
@@ -609,11 +624,11 @@ static int focusedWindow(lua_State *state) {
   lua_pushvalue(state, 2);
   int callback = [skin luaRef:refTable];
   LSGCCanary canary = [skin createGCCanary];
-  uint64_t token = atomic_fetch_add(&focusedGeneration, 1) + 1;
+  uint64_t token = nextFocusedGeneration(pid);
   dispatch_async(queueFor(focusedQueues, "window_manager.focused", pid), ^{
     CGWindowID windowID = 0;
     NSString *failure = nil;
-    if (atomic_load(&focusedGeneration) != token) {
+    if (currentFocusedGeneration(pid) != token) {
       failure = @"cancelled";
     } else {
       AXUIElementRef app = application(pid);
@@ -621,7 +636,7 @@ static int focusedWindow(lua_State *state) {
       AXError status = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute, &value);
       CFRelease(app);
       if (status == kAXErrorSuccess) {
-        if (atomic_load(&focusedGeneration) != token) {
+        if (currentFocusedGeneration(pid) != token) {
           failure = @"cancelled";
         } else if (value) {
           if (_AXUIElementGetWindow((AXUIElementRef)value, &windowID) != kAXErrorSuccess) windowID = 0;
@@ -953,10 +968,17 @@ static int spaces(lua_State *state) {
     [wanted addObject:@((CGWindowID)windowID)];
   }
   NSArray *displays = CFBridgingRelease(copyDisplaySpaces(connection));
+  if (![displays isKindOfClass:NSArray.class]) {
+    return luaL_error(state, "could not read managed Spaces");
+  }
   for (NSDictionary *display in displays) {
     if (!wanted.count) break;
-    for (NSDictionary *entry in display[@"Spaces"]) {
+    if (![display isKindOfClass:NSDictionary.class]) continue;
+    NSArray *entries = display[@"Spaces"];
+    if (![entries isKindOfClass:NSArray.class]) continue;
+    for (NSDictionary *entry in entries) {
       if (!wanted.count) break;
+      if (![entry isKindOfClass:NSDictionary.class]) continue;
       NSNumber *spaceID = entry[@"ManagedSpaceID"];
       if (![spaceID isKindOfClass:NSNumber.class]) continue;
       uint64_t setTags = 0, clearTags = 0;
@@ -969,13 +991,6 @@ static int spaces(lua_State *state) {
         [wanted removeObject:member];
         if (!wanted.count) break;
       }
-    }
-  }
-  for (NSNumber *missing in wanted) {
-    NSArray *found = CFBridgingRelease(copySpaces(connection, 0x7, (__bridge CFArrayRef)@[ missing ]));
-    if (found.count) {
-      lua_pushinteger(state, [found.firstObject longLongValue]);
-      lua_rawseti(state, -2, missing.longLongValue);
     }
   }
   return 1;
@@ -1122,6 +1137,12 @@ static int watchWindowSpaces(lua_State *state) {
   [skin checkArgs:LS_TFUNCTION | LS_TNIL, LS_TBREAK];
   clearSpaceWindowWatcher();
   if (lua_isfunction(state, 1)) {
+    // 1325/1326 carry Space-membership payloads on macOS 27+.
+    if (NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27) {
+      lua_pushboolean(state, 0);
+      lua_pushstring(state, "window Space notifications need macOS 27");
+      return 2;
+    }
     lua_pushvalue(state, 1);
     spaceWindowRef = [skin luaRef:refTable];
     spaceWindowCanary = [skin createGCCanary];
@@ -1207,6 +1228,7 @@ int luaopen_window_manager(lua_State *state) {
     queues = [NSMutableDictionary dictionary];
     focusQueues = [NSMutableDictionary dictionary];
     focusedQueues = [NSMutableDictionary dictionary];
+    focusedGenerations = [NSMutableDictionary dictionary];
     elements = [NSMutableDictionary dictionary];
     absent = [NSMutableDictionary dictionary];
     frames = [NSMutableDictionary dictionary];
