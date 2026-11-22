@@ -77,13 +77,31 @@ local function browser(options)
         end,
       },
       fs = {
-        attributes = function()
+        attributes = function(path, name)
+          if not name and settings.localStateStat ~= nil and path:match("/Local State$") then
+            return settings.localStateStat
+          end
+          if name == "modification" and settings.localStateMtime ~= nil then
+            return settings.localStateMtime
+          end
           return not settings.missingDirectory
               and (settings.fileDirectory and "file" or "directory")
             or nil
         end,
         mkdir = function()
           return not settings.mkdirFailure, "creation failed"
+        end,
+      },
+      pathwatcher = {
+        new = function(dir, callback)
+          local watcher = { dir = dir, callback = callback, started = false }
+          function watcher:start()
+            self.started = true
+            return self
+          end
+          state.pathwatchers = state.pathwatchers or {}
+          state.pathwatchers[#state.pathwatchers + 1] = watcher
+          return watcher
         end,
       },
       json = {
@@ -823,5 +841,38 @@ test("malformed pattern suffixes fail explicitly without poisoning valid routing
   assert(state.installed and state.route("https://example.com/test") == false)
   assert(#state.logs == 1 and #state.tasks == 0)
   assert(state.route("https://other.com/") == "native")
+end)
+test("chromium.url caches Local State by stat signature and pathwatcher events", function()
+  local state = browser({
+    localStateStat = { ino = 10, modification = 100, change = 100, size = 512 },
+  })
+  assert(
+    state.route("https://app.ramp.com/") == true
+      and state.reads == 1
+      and state.tasks[1].arguments[5] == "--profile-directory=Profile 1"
+  )
+  assert(
+    state.route("https://app.ramp.com/second") == true
+      and state.reads == 1
+      and state.tasks[2].arguments[5] == "--profile-directory=Profile 1"
+  )
+  assert(
+    state.route("https://app.notion.com/p/pandoks/document") == true
+      and state.reads == 1
+      and state.tasks[3].arguments[5] == "--profile-directory=Default"
+  )
+  -- Replacing Local State with the same modification timestamp still invalidates via inode/size.
+  state.settings.localStateStat = { ino = 11, modification = 100, change = 100, size = 512 }
+  assert(
+    state.route("https://app.ramp.com/third") == true
+      and state.reads == 2
+      and state.tasks[4].arguments[5] == "--profile-directory=Profile 1"
+  )
+  -- Pathwatcher invalidates even if stat metadata stays identical.
+  assert(state.pathwatchers and #state.pathwatchers == 1 and state.pathwatchers[1].started)
+  state.pathwatchers[1].callback({ state.pathwatchers[1].dir .. "/Local State" })
+  state.settings.missingProfile = true
+  assert(state.route("https://app.ramp.com/fourth") == false and state.reads == 3)
+  assert(#state.tasks == 4 and #state.logs == 1)
 end)
 print("RESULT " .. passed .. " passed, 0 failed")
