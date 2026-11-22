@@ -317,7 +317,7 @@ local function check(job, list, checked, knownFocusedID)
             return
           end
           job.probing = nil
-          check(job, list, true, id or false)
+          check(job, nil, nil, id or false)
         end)
         return
       else
@@ -356,7 +356,7 @@ local function check(job, list, checked, knownFocusedID)
             return
           end
           job.probing = nil
-          check(job, list, true, id or false)
+          check(job, nil, nil, id or false)
         end)
         return
       else
@@ -708,8 +708,17 @@ local function observe(window, list, standard, name)
     return
   end
   if not guard and windowManager.isBusy and windowManager.isBusy(space) then
-    recordManaged(space)
-    return
+    local target = windowManager.focusedTarget and windowManager.focusedTarget()
+    local focusedId = window and window:id()
+    if
+      not focusedId
+      or not target
+      or target.id == focusedId
+      or isPiP(window and window:title())
+    then
+      recordManaged(space)
+      return
+    end
   end
   local changed = space ~= lastSpace
   lastSpace = space

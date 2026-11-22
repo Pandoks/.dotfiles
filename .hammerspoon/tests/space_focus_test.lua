@@ -2500,4 +2500,351 @@ test(
   end
 )
 
+test(
+  "async probe rechecks menu state and refreshes list; user focus during settled is preserved",
+  function()
+    local currentSpace, focusedId, frontPidValue = 101, 1, 101
+    local mcActive, busy, target = false, false, nil
+    local rows = {
+      {
+        id = 1,
+        pid = 101,
+        app = "Code",
+        title = "Editor",
+        space = 101,
+        frame = { x = 0, y = 0, w = 500, h = 500 },
+      },
+      {
+        id = 2,
+        pid = 102,
+        app = "Notes",
+        title = "Doc",
+        space = 101,
+        frame = { x = 500, y = 0, w = 500, h = 500 },
+      },
+      {
+        id = 50,
+        pid = 500,
+        app = "Browser",
+        title = "Picture in Picture",
+        space = 0,
+        layer = 3,
+        frame = { x = 800, y = 400, w = 200, h = 150 },
+      },
+    }
+    local function rowById(id)
+      for _, row in ipairs(rows) do
+        if row.id == id then
+          return row
+        end
+      end
+    end
+    local function makeWindow(row)
+      if not row then
+        return nil
+      end
+      return {
+        id = function()
+          return row.id
+        end,
+        title = function()
+          return row.title
+        end,
+        isStandard = function()
+          return (row.layer or 0) == 0
+        end,
+        application = function()
+          return {
+            pid = function()
+              return row.pid
+            end,
+            name = function()
+              return row.app
+            end,
+          }
+        end,
+      }
+    end
+    local now, timers, asyncProbes, clicks = 10, {}, {}, 0
+    local spaceCallback, focusCallback
+    local screen = {
+      getUUID = function()
+        return "main"
+      end,
+      frame = function()
+        return { x = 0, y = 0, w = 1000, h = 800 }
+      end,
+      fullFrame = function()
+        return { x = 0, y = 0, w = 1000, h = 800 }
+      end,
+    }
+    local env = setmetatable({
+      hs = {
+        timer = {
+          secondsSinceEpoch = function()
+            return now
+          end,
+          doAfter = function(delay, fn)
+            local timer = { at = now + delay, fn = fn, active = true }
+            function timer:stop()
+              self.active = false
+            end
+            timers[#timers + 1] = timer
+            return timer
+          end,
+        },
+        spaces = {
+          focusedSpace = function()
+            return currentSpace
+          end,
+          spaceDisplay = function()
+            return "main"
+          end,
+          watcher = {
+            new = function(fn)
+              spaceCallback = fn
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        screen = {
+          find = function()
+            return screen
+          end,
+          allScreens = function()
+            return { screen }
+          end,
+          watcher = {
+            new = function()
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        application = {
+          frontmostApplication = function()
+            return {
+              pid = function()
+                return frontPidValue
+              end,
+              bundleID = function()
+                return "com.example.browser"
+              end,
+            }
+          end,
+          watcher = {
+            activated = 1,
+            new = function()
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        window = {
+          focusedWindow = function()
+            return makeWindow(rowById(focusedId))
+          end,
+          list = function()
+            local list = {}
+            for _, row in ipairs(rows) do
+              if row.space == 0 or row.space == currentSpace then
+                list[#list + 1] = {
+                  kCGWindowNumber = row.id,
+                  kCGWindowOwnerPID = row.pid,
+                  kCGWindowOwnerName = row.app,
+                  kCGWindowName = row.title,
+                  kCGWindowLayer = row.layer or 0,
+                  kCGWindowBounds = {
+                    X = row.frame.x,
+                    Y = row.frame.y,
+                    Width = row.frame.w,
+                    Height = row.frame.h,
+                  },
+                }
+              end
+            end
+            return list
+          end,
+        },
+        keycodes = { map = { left = 123, right = 124 } },
+        eventtap = {
+          event = {
+            types = { leftMouseDown = 1, leftMouseUp = 2, rightMouseDown = 3 },
+            properties = { eventSourceUserData = 1 },
+            newMouseEvent = function()
+              return {
+                setProperty = function() end,
+                post = function()
+                  clicks = clicks + 1
+                end,
+              }
+            end,
+          },
+          new = function()
+            return {
+              start = function(self)
+                return self
+              end,
+              stop = function() end,
+              isEnabled = function()
+                return true
+              end,
+            }
+          end,
+        },
+      },
+      print = function() end,
+      package = { loaded = {} },
+      require = function(name)
+        if name == "lib.window_filter" then
+          return {
+            windowFocused = "windowFocused",
+            new = function()
+              return {
+                subscribe = function(_, _, fn)
+                  focusCallback = fn
+                end,
+                delete = function() end,
+              }
+            end,
+            windowsOf = function(pid)
+              local out = {}
+              for _, row in ipairs(rows) do
+                if row.pid == pid and (row.layer or 0) == 0 then
+                  out[row.id] = makeWindow(row)
+                end
+              end
+              return out
+            end,
+          }
+        elseif name == "lib.window_manager" then
+          return {
+            native = {
+              displaySpaces = function()
+                return {
+                  spaces = {
+                    { id = 101, display = "main" },
+                    { id = 202, display = "main" },
+                  },
+                  active = { main = currentSpace },
+                  bySpace = {
+                    [101] = { index = 1, display = "main" },
+                    [202] = { index = 2, display = "main" },
+                  },
+                }
+              end,
+              focusedWindow = function(pid, done)
+                asyncProbes[#asyncProbes + 1] = { pid = pid, done = done }
+              end,
+              focus = function(pid, id, done)
+                frontPidValue, focusedId = pid, id
+                done(true)
+              end,
+              cancelFocus = function() end,
+            },
+            space = function(index, done)
+              currentSpace = index == 1 and 101 or 202
+              done(true)
+            end,
+            isBusy = function()
+              return busy
+            end,
+            focusedTarget = function()
+              return target
+            end,
+          }
+        elseif name == "lib.logger" then
+          return { error = function() end }
+        elseif name == "lib.mission_control" then
+          return {
+            isActive = function()
+              return mcActive
+            end,
+          }
+        elseif name == "lib.dock" then
+          return { move = function() end }
+        elseif name == "lib.utils" then
+          return { spaces = function() end }
+        end
+        error("unexpected require " .. name)
+      end,
+    }, { __index = _G })
+
+    local module = assert(loadfile(root .. "/space_focus.lua", "t", env))()
+    local function flushTimers()
+      while true do
+        local ran = false
+        for _, timer in ipairs(timers) do
+          if timer.active and timer.at <= now + 0.05 then
+            timer.active = false
+            timer.fn()
+            ran = true
+          end
+        end
+        if not ran then
+          break
+        end
+      end
+    end
+
+    -- 1. User focuses window 2 during windowManager's settled interval for window 1: preserved in recent[101].
+    busy, target = true, { space = 101, pid = 101, id = 1 }
+    focusCallback(makeWindow(rowById(2)), "Notes", "windowFocused", 2)
+    busy, target = false, nil
+    -- Switch to Space 202 (empty) and back to Space 101: restores window 2, not stale target 1.
+    now = now + 1
+    currentSpace, focusedId, frontPidValue = 202, 50, 500
+    module.switchSpace(1)
+    flushTimers()
+    assertEqual(focusedId, 2, "user focus during settled interval is preserved")
+    if #asyncProbes > 0 then
+      asyncProbes[#asyncProbes].done(2)
+    end
+    assertEqual(module.status().busy, false)
+
+    -- 2. Mission Control opens while async probe is in flight: resumed check supersedes instead of acting.
+    now = now + 1
+    local beforeMc = #asyncProbes
+    currentSpace, focusedId, frontPidValue = 202, 50, 500
+    spaceCallback()
+    assertEqual(#asyncProbes, beforeMc + 1)
+    mcActive = true
+    asyncProbes[#asyncProbes].done(50)
+    flushTimers()
+    assertEqual(module.status().last.error, "superseded")
+    mcActive = false
+
+    -- 3. New window appears on initially empty Space while async probe is in flight: refreshed list avoids desktop click.
+    now = now + 1
+    local beforeEmpty = #asyncProbes
+    currentSpace, focusedId, frontPidValue = 101, 1, 101
+    module.switchSpace(2)
+    assertEqual(#asyncProbes, beforeEmpty + 1)
+    rows[#rows + 1] = {
+      id = 3,
+      pid = 103,
+      app = "App",
+      title = "New",
+      space = 202,
+      frame = { x = 0, y = 0, w = 500, h = 500 },
+    }
+    asyncProbes[#asyncProbes].done(50)
+    flushTimers()
+    assertEqual(clicks, 0, "refreshed list sees newly arrived window instead of clicking desktop")
+  end
+)
+
 print("RESULT " .. passed .. " passed, 0 failed")
