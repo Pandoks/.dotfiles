@@ -161,16 +161,41 @@ local function harness(options)
     return count
   end
   function desktop:setWindowFocus(id)
+    local focused
     for _, window in ipairs(self.windows) do
       window["has-focus"] = window.id == id
+      if window.id == id then
+        focused = window
+      end
     end
     local callback = options.focusEvents ~= false and self.menu.windows.subscriptions.windowFocused
     if callback then
-      callback({
-        id = function()
-          return id
-        end,
-      })
+      local forbidden = {}
+      for _, method in ipairs({
+        "id",
+        "title",
+        "subrole",
+        "isStandard",
+        "isMinimized",
+        "isFullScreen",
+        "frame",
+        "role",
+        "application",
+      }) do
+        forbidden[method] = function()
+          error("synchronous Accessibility read on focus: " .. method)
+        end
+      end
+      local state = focused
+          and {
+            id = focused.id,
+            pid = focused.pid,
+            standard = focused.subrole == "AXStandardWindow",
+            title = focused.title or "",
+            minimized = false,
+          }
+        or nil
+      callback(forbidden, focused and focused.app, "windowFocused", id, state)
     end
   end
   function desktop:rows(pids)

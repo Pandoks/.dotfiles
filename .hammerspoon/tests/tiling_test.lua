@@ -53,6 +53,7 @@ local function fakeDesktop(windowSpecs)
       frame = 0,
       spaceDisplay = 0,
       windowFrame = 0,
+      windowTitle = 0,
       appName = 0,
       appHidden = 0,
       doAfter = 0,
@@ -85,6 +86,7 @@ local function fakeDesktop(windowSpecs)
         return app
       end,
       title = function()
+        desktop.counts.windowTitle = desktop.counts.windowTitle + 1
         return spec.title or ""
       end,
       isStandard = function()
@@ -127,6 +129,7 @@ local function fakeDesktop(windowSpecs)
     windowUnhidden = "unhidden",
     windowTitleChanged = "title",
     windowMoved = "moved",
+    windowFocused = "focused",
     applicationOf = function(id)
       for _, entry in ipairs(desktop.windows) do
         if entry.spec.id == id then
@@ -145,7 +148,14 @@ local function fakeDesktop(windowSpecs)
           desktop.counts.getWindows = desktop.counts.getWindows + 1
           local matching = {}
           for _, entry in ipairs(desktop.windows) do
-            if predicate(entry.window, entry.app) then
+            local state = {
+              id = entry.spec.id,
+              pid = entry.spec.pid or entry.spec.id * 10,
+              standard = true,
+              title = entry.spec.title or "",
+              minimized = entry.spec.minimized == true,
+            }
+            if predicate(entry.window, entry.app, state) then
               matching[#matching + 1] = entry.window
             end
           end
@@ -313,14 +323,21 @@ local function fakeDesktop(windowSpecs)
   function desktop:event(name, id)
     local callback = self.subscribers[name]
     if callback then
-      local window, app
+      local window, app, state
       for _, entry in ipairs(self.windows) do
         if entry.spec.id == id then
           window, app = entry.window, entry.spec.app
+          state = {
+            id = id,
+            pid = entry.spec.pid or id * 10,
+            standard = true,
+            title = entry.spec.title or "",
+            minimized = entry.spec.minimized == true,
+          }
           break
         end
       end
-      callback(window, app, name, id)
+      callback(window, app, name, id, state)
     end
   end
   function desktop:drag(id, frame)
@@ -612,7 +629,9 @@ test("non-PiP title changes skip sync, while Picture-in-Picture toggles still sy
   })
   desktop.focusedId = 4
   desktop.tiling.float()
-  local getWindows, spaces = desktop.counts.getWindows, desktop.counts.spaces
+  local getWindows, spaces, titles =
+    desktop.counts.getWindows, desktop.counts.spaces, desktop.counts.windowTitle
+  assertEqual(desktop.subscribers.focused, nil, "tiling does not subscribe to focus events")
 
   desktop:windowSpec(1).title = "vim"
   desktop:event("title", 1)
@@ -622,6 +641,7 @@ test("non-PiP title changes skip sync, while Picture-in-Picture toggles still sy
   desktop:event("title", 3)
   assertEqual(desktop.counts.getWindows, getWindows, "non-PiP title updates skip getWindows")
   assertEqual(desktop.counts.spaces, spaces, "non-PiP title updates skip spaces query")
+  assertEqual(desktop.counts.windowTitle, titles, "non-PiP title updates read cached state")
 
   desktop:windowSpec(2).title = "Picture-in-Picture"
   desktop:event("title", 2)

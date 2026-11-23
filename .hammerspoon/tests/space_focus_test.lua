@@ -249,6 +249,35 @@ local function harness(options)
       end,
     }
   end
+  local function stateOf(row)
+    local subrole = row.subrole or "AXStandardWindow"
+    return {
+      id = row.id,
+      pid = row.pid,
+      standard = subrole == "AXStandardWindow",
+      title = row.title or "",
+      minimized = row.minimized == true,
+    }
+  end
+  local function raisingWindow()
+    local forbidden = {}
+    for _, name in ipairs({
+      "id",
+      "title",
+      "subrole",
+      "isStandard",
+      "isMinimized",
+      "isFullScreen",
+      "frame",
+      "role",
+      "application",
+    }) do
+      forbidden[name] = function()
+        error("synchronous Accessibility read on focus: " .. name)
+      end
+    end
+    return forbidden
+  end
   function desktop:focus(id)
     local row = self:row(id)
     -- Focusing a window on another Space switches to it before notifications arrive.
@@ -261,7 +290,11 @@ local function harness(options)
       self.spaceCallback()
     end
     if self.focusCallback then
-      self.focusCallback(window(id), row and row.app, 1, id)
+      local state = row and stateOf(row) or nil
+      local target = self.forbidFocusReads and row and raisingWindow() or window(id)
+      if not row or not self.predicate or self.predicate(target, self:app(row.pid), state) then
+        self.focusCallback(target, row and row.app, 1, id, state)
+      end
     end
   end
   function desktop:activate(id, pid)
@@ -460,13 +493,16 @@ local function harness(options)
     end)
   end
   local filter = {
-    new = object,
+    new = function(predicate)
+      desktop.predicate = predicate
+      return object()
+    end,
     windowFocused = 1,
-    windowsOf = function(pid)
-      local windows, ids = {}, {}
+    statesOf = function(pid)
+      local states, ids = {}, {}
       for _, row in ipairs(desktop.rows) do
         if row.pid == pid and not row.untracked then
-          windows[row.id] = window(row.id)
+          states[row.id] = stateOf(row)
           ids[#ids + 1] = row.id
         end
       end
@@ -474,7 +510,7 @@ local function harness(options)
       table.sort(ids, function(a, b)
         return a > b
       end)
-      return setmetatable(windows, {
+      return setmetatable(states, {
         __pairs = function(tracked)
           local i = 0
           return function()
@@ -2083,10 +2119,27 @@ test(
     desktop:advance(0.3)
     assertEqual(desktop.focused, 3)
 
-    -- Non-busy windowFocused skips redundant window:isStandard() call.
+    -- Non-busy windowFocused makes zero synchronous Accessibility reads (predicate or handler).
     local standardsBefore = desktop.standardReads
+    desktop.accessibilityReads = {}
+    desktop.forbidFocusReads = true
     desktop:focus(2)
     assertEqual(desktop.standardReads, standardsBefore)
+    assertEqual(next(desktop.accessibilityReads), nil)
+    -- Busy non-target windowFocused also makes zero synchronous reads.
+    desktop.managerBusy, desktop.focusedTarget = true, { space = 202, pid = 103, id = 3 }
+    desktop:focus(2)
+    assertEqual(next(desktop.accessibilityReads), nil)
+    desktop.managerBusy, desktop.focusedTarget = false, nil
+
+    -- PiP focus redirect without Screen Recording (noTitles) makes zero synchronous reads.
+    local pipDesktop = pip({ noTitles = true })
+    pipDesktop:activate(61)
+    pipDesktop.accessibilityReads = {}
+    pipDesktop.forbidFocusReads = true
+    pipDesktop:focus(50)
+    assertEqual(pipDesktop:countFocus(60), 1)
+    assertEqual(next(pipDesktop.accessibilityReads), nil)
   end
 )
 

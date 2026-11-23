@@ -3,12 +3,23 @@ local windowManager = require("lib.window_manager")
 local module = {}
 module.blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = true }
 
+-- Cached per window; focus refreshes non-standard windows, while standard-to-nonstandard
+-- waits for a non-focus event or query and silent title or minimize changes stay stale.
+---@class WindowState
+---@field id integer
+---@field pid integer
+---@field standard boolean
+---@field title string
+---@field minimized boolean
+
 ---@class WindowRecord
 ---@field element hs.axuielement
 ---@field window? hs.window
 ---@field id? integer
+---@field state? WindowState
 ---@field index integer
 ---@field recent integer
+---@field eligible boolean
 ---@field failed? boolean
 ---@field allowed table<WindowFilter, boolean>
 ---@field notifications table<string, boolean>
@@ -25,8 +36,8 @@ module.blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = 
 
 ---@class WindowFilter
 ---@field failed? boolean
----@field predicate? fun(window: hs.window, app?: hs.application): boolean?
----@field callbacks table<string, fun(window: hs.window, app: string, event: string, id: integer)[]>
+---@field predicate? fun(window: hs.window, app: hs.application, state: WindowState): boolean?
+---@field callbacks table<string, fun(window: hs.window, app: string, event: string, id: integer, state: WindowState)[]>
 local Filter = {}
 Filter.__index = Filter
 
@@ -43,7 +54,15 @@ local notifications = {
   AXWindowMiniaturized = "windowMinimized",
   AXWindowDeminiaturized = "windowUnminimized",
 }
-local wanted = { AXUIElementDestroyed = true }
+local function defaultWanted()
+  return {
+    AXUIElementDestroyed = true,
+    AXTitleChanged = true,
+    AXWindowMiniaturized = true,
+    AXWindowDeminiaturized = true,
+  }
+end
+local wanted = defaultWanted()
 for _, event in pairs(notifications) do
   module[event] = event
 end
@@ -98,26 +117,17 @@ local function lookup(app, element)
   end
 end
 
----@param element hs.axuielement
----@param window hs.window
-local function check(element, window)
-  return eligible(element, window:subrole())
-end
-
 ---@param filter WindowFilter
 ---@param record WindowRecord
----@param app? WindowObserver
----@param ok? boolean
+---@param app WindowObserver
+---@param ok boolean
 ---@param allowed? boolean|string
 local function matches(filter, record, app, ok, allowed)
-  if not record.window or record.failed or filter.failed then
+  if not record.window or not record.state or record.failed or filter.failed then
     return false
   end
-  if ok == nil then
-    ok, allowed = pcall(check, record.element, record.window)
-  end
   if ok and allowed and filter.predicate then
-    ok, allowed = pcall(filter.predicate, record.window, app and app.app or nil)
+    ok, allowed = pcall(filter.predicate, record.window, app.app, record.state)
   end
   if not ok then
     filter.failed = true
@@ -127,31 +137,114 @@ local function matches(filter, record, app, ok, allowed)
   return record.allowed[filter]
 end
 
+---@return WindowFilter[]
+local function members()
+  local list = {}
+  for filter in pairs(filters) do
+    list[#list + 1] = filter
+  end
+  return list
+end
+
+-- Re-reads the subrole; when it changed, every filter's membership is recomputed together.
+---@param app WindowObserver
+---@param record WindowRecord
+---@return boolean ok
+---@return boolean|string changed or the error
+local function refresh(app, record)
+  local window, state = record.window, record.state
+  if not window or not state or record.failed then
+    return true, false
+  end
+  local ok, subrole, allowed = pcall(function()
+    local read = window:subrole()
+    return read, eligible(record.element, read)
+  end)
+  if not ok then
+    return false, subrole
+  end
+  local standard = subrole == "AXStandardWindow"
+  if standard == state.standard and allowed == record.eligible then
+    return true, false
+  end
+  state.standard, record.eligible = standard, allowed
+  for _, filter in ipairs(members()) do
+    matches(filter, record, app, true, record.eligible)
+  end
+  return true, true
+end
+
+---@param filter WindowFilter
+---@param record WindowRecord
+---@param app WindowObserver
+---@return boolean
+local function query(filter, record, app)
+  if not record.window or not record.state or record.failed or filter.failed then
+    return false
+  end
+  local ok, changed = refresh(app, record)
+  if not ok then
+    return matches(filter, record, app, false, changed)
+  elseif changed then
+    return not record.failed and not filter.failed and record.allowed[filter] == true
+  end
+  return matches(filter, record, app, true, record.eligible)
+end
+
 ---@param app WindowObserver
 ---@param record WindowRecord
 ---@param event string
 local function emit(app, record, event)
-  local baseOk, baseAllowed
-  for filter in pairs(filters) do
-    local allowed
-    if event == module.windowDestroyed then
-      allowed = record.allowed[filter]
-    else
-      if baseOk == nil and record.window and not record.failed and not filter.failed then
-        baseOk, baseAllowed = pcall(check, record.element, record.window)
+  local ok, err = true, nil
+  if event == module.windowFocused then
+    if not record.window or not record.state or record.failed then
+      return
+    end
+    if not record.state.standard then
+      ok, err = refresh(app, record)
+      if not ok then
+        failure(app, "windowFocused: " .. tostring(err))
+        return
       end
-      allowed = matches(filter, record, app, baseOk, baseAllowed)
+    end
+  elseif event ~= module.windowCreated and event ~= module.windowDestroyed then
+    ok, err = refresh(app, record)
+  end
+  local cached = event == module.windowDestroyed or event == module.windowFocused
+  for _, filter in ipairs(members()) do
+    local allowed
+    if cached then
+      allowed = record.allowed[filter]
+    elseif ok then
+      -- Read at delivery time: a callback may have refreshed the record meanwhile.
+      allowed = matches(filter, record, app, true, record.eligible)
+    else
+      allowed = matches(filter, record, app, false, err)
     end
     if allowed then
       local callbacks, index = filter.callbacks[event] or {}, 1
       while callbacks[index] do
-        local ok, err =
-          xpcall(callbacks[index], debug.traceback, record.window, app.app:name(), event, record.id)
-        if ok then
+        if
+          not filters[filter]
+          or event ~= module.windowDestroyed
+            and (record.failed or filter.failed or not record.allowed[filter])
+        then
+          break
+        end
+        local delivered, message = xpcall(
+          callbacks[index],
+          debug.traceback,
+          record.window,
+          app.app:name(),
+          event,
+          record.id,
+          record.state
+        )
+        if delivered then
           index = index + 1
         else
           table.remove(callbacks, index)
-          logger.error("Window callback: " .. tostring(err))
+          logger.error("Window callback: " .. tostring(message))
         end
       end
     end
@@ -227,14 +320,14 @@ local function track(app, element, rejected)
   end
   local existing = lookup(app, element)
   if existing then
-    return existing.window and not existing.failed and existing or nil
+    return existing.window and existing.state and not existing.failed and existing or nil
   end
   if element:attributeValue("AXRole") ~= "AXWindow" then
     return
   end
-  local parent = element:attributeValue("AXParent")
+  local parent, subrole = element:attributeValue("AXParent"), element:attributeValue("AXSubrole")
   if
-    not eligible(element, element:attributeValue("AXSubrole"))
+    not eligible(element, subrole)
     or (parent and parent:attributeValue("AXRole") ~= "AXApplication")
   then
     if rejected then
@@ -252,6 +345,7 @@ local function track(app, element, rejected)
     element = element,
     index = index,
     recent = 0,
+    eligible = true,
     allowed = {},
     notifications = {},
   }
@@ -273,6 +367,22 @@ local function track(app, element, rejected)
   end
   watch(app, record)
   if record.failed or not record.window or not record.id then
+    return
+  end
+  -- Watch before reading so no title or minimize event is lost.
+  ok, err = pcall(function()
+    record.state = {
+      id = record.id,
+      pid = app.app:pid(),
+      standard = subrole == "AXStandardWindow",
+      title = record.window:title() or "",
+      minimized = element:attributeValue("AXMinimized") == true,
+    }
+  end)
+  if not ok then
+    record.failed = true
+    unwatch(app, record)
+    failure(app, "window registration: " .. tostring(err))
     return
   end
   app.byId[record.id] = record
@@ -319,19 +429,28 @@ local function changed(app, element, event)
     end
     unwatch(app, record)
     if not record.failed then
+      record.failed = true
       emit(app, record, module.windowDestroyed)
     end
     return
   end
   local record = track(app, element)
-  if not record then
+  if not record or not record.window or not record.state then
     return
   end
   if event == "AXFocusedWindowChanged" then
     recent = recent + 1
     record.recent = recent
+    record.state.minimized = false
     emit(app, record, module.windowFocused)
   elseif notifications[event] then
+    if event == "AXTitleChanged" then
+      record.state.title = record.window:title() or ""
+    elseif event == "AXWindowMiniaturized" then
+      record.state.minimized = true
+    elseif event == "AXWindowDeminiaturized" then
+      record.state.minimized = false
+    end
     emit(app, record, notifications[event])
   end
 end
@@ -483,7 +602,7 @@ local function ensureWindowSpaceWatcher()
   end)
 end
 
----@param predicate? fun(window: hs.window, app?: hs.application): boolean?
+---@param predicate? fun(window: hs.window, app: hs.application, state: WindowState): boolean?
 ---@return WindowFilter
 function module.new(predicate)
   local filter = setmetatable({ predicate = predicate, callbacks = {} }, Filter)
@@ -588,12 +707,25 @@ function module.new(predicate)
     order = {}
   end
   ensureWindowSpaceWatcher()
-  filter:getWindows()
+  for _, app in pairs(apps) do
+    if not app.failed then
+      for _, record in ipairs(app.windows) do
+        if
+          record.window
+          and record.state
+          and not record.failed
+          and record.allowed[filter] == nil
+        then
+          matches(filter, record, app, true, record.eligible)
+        end
+      end
+    end
+  end
   return filter
 end
 
 ---@param events string|string[]
----@param callback fun(window: hs.window, app: string, event: string, id: integer)
+---@param callback fun(window: hs.window, app: string, event: string, id: integer, state: WindowState)
 function Filter:subscribe(events, callback)
   for _, event in ipairs(type(events) == "table" and events or { events }) do
     self.callbacks[event] = self.callbacks[event] or {}
@@ -623,7 +755,7 @@ function Filter:getWindows()
   for _, app in pairs(apps) do
     if not app.failed then
       for _, record in ipairs(app.windows) do
-        if matches(self, record, app) then
+        if query(self, record, app) then
           records[#records + 1] = record
         end
       end
@@ -648,22 +780,22 @@ function Filter:getWindow(id, pid)
     return
   end
   local record = app.byId[id]
-  if record and matches(self, record, app) then
+  if record and query(self, record, app) then
     return record.window
   end
 end
 
 -- Skips the Accessibility reads of filter matching.
 ---@param pid integer
----@return table<integer, hs.window>
-function module.windowsOf(pid)
-  local app, windows = apps[pid], {}
+---@return table<integer, WindowState>
+function module.statesOf(pid)
+  local app, states = apps[pid], {}
   for _, record in ipairs(app and not app.failed and app.windows or {}) do
-    if record.window and not record.failed then
-      windows[record.id] = record.window
+    if record.window and record.state and not record.failed then
+      states[record.id] = record.state
     end
   end
-  return windows
+  return states
 end
 
 ---@param id integer
@@ -706,7 +838,8 @@ function module.stop()
     app.windows, app.byElement, app.byId, app.ignored = {}, {}, {}, {}
   end
   focusSerial = 0
-  apps, filters, launching, wanted, order = {}, {}, {}, { AXUIElementDestroyed = true }, {}
+  apps, filters, launching, order = {}, {}, {}, {}
+  wanted = defaultWanted()
   applicationWatcher, spaceWatcher = nil, nil
 end
 
