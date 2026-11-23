@@ -533,6 +533,10 @@ static int cancelFocus(lua_State *state) {
   return 0;
 }
 
+static BOOL focusSuperseded(uint64_t token, uint64_t expectedSpace) {
+  return atomic_load(&focusGeneration) != token || (expectedSpace && !spaceIsActive(expectedSpace));
+}
+
 static int focus(lua_State *state) {
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   [skin checkArgs:LS_TNUMBER | LS_TINTEGER, LS_TNUMBER | LS_TINTEGER,
@@ -547,57 +551,67 @@ static int focus(lua_State *state) {
   LSGCCanary canary = [skin createGCCanary];
   uint64_t expectedSpace = lua_isnumber(state, 4) ? (uint64_t)lua_tointeger(state, 4) : 0;
   uint64_t token = atomic_fetch_add(&focusGeneration, 1) + 1;
-  dispatch_async(frontQueue, ^{
-    if (atomic_load(&focusGeneration) != token || (expectedSpace && !spaceIsActive(expectedSpace))) {
+  dispatch_async(queueFor(focusQueues, "window_manager.focus", pid), ^{
+    if (atomic_load(&focusGeneration) != token) {
       deliver(callback, canary, @"superseded");
       return;
     }
-    ProcessSerialNumber process;
-    if (GetProcessForPID(pid, &process) != noErr) {
-      deliver(callback, canary, @"process unavailable");
+
+    // Serialize front-process and key-window events across apps without holding frontQueue across AX raise.
+    __block NSString *failure = nil;
+    __block BOOL missing = NO;
+    dispatch_sync(frontQueue, ^{
+      if (focusSuperseded(token, expectedSpace)) {
+        failure = @"superseded";
+        return;
+      }
+      ProcessSerialNumber process;
+      if (GetProcessForPID(pid, &process) != noErr) {
+        failure = @"process unavailable";
+        return;
+      }
+      if (!windowExists(pid, windowID)) {
+        missing = YES;
+        failure = @"window unavailable";
+        return;
+      }
+      CGError fronted = setFront(&process, windowID, 0x200);
+      uint8_t record[0xf8] = { [0x04] = 0xf8, [0x3a] = 0x10 };
+      memcpy(record + 0x3c, &windowID, sizeof windowID);
+      memset(record + 0x20, 0xFF, 0x10);
+      record[0x08] = 0x01;
+      CGError pressed = fronted ?: postRecord(&process, record);
+      record[0x08] = 0x02;
+      CGError released = pressed ?: postRecord(&process, record);
+      if (released != kCGErrorSuccess) {
+        failure = [NSString stringWithFormat:@"focus failed (%d)", released];
+      }
+    });
+    if (failure) {
+      if (missing) forget(pid, windowID);
+      deliver(callback, canary, failure);
       return;
     }
-    if (!windowExists(pid, windowID)) {
-      forget(pid, windowID);
+
+    if (atomic_load(&focusGeneration) != token) {
+      deliver(callback, canary, @"superseded");
+      return;
+    }
+    AXUIElementRef target = copyWindow(pid, windowID);
+    if (!target) {
       deliver(callback, canary, @"window unavailable");
       return;
     }
-
-    // Front process and key-window event records return immediately; AX raise finishes on the app's queue.
-    CGError fronted = setFront(&process, windowID, 0x200);
-    uint8_t record[0xf8] = { [0x04] = 0xf8, [0x3a] = 0x10 };
-    memcpy(record + 0x3c, &windowID, sizeof windowID);
-    memset(record + 0x20, 0xFF, 0x10);
-    record[0x08] = 0x01;
-    CGError pressed = fronted ?: postRecord(&process, record);
-    record[0x08] = 0x02;
-    CGError released = pressed ?: postRecord(&process, record);
-    if (released != kCGErrorSuccess) {
-      deliver(callback, canary, [NSString stringWithFormat:@"focus failed (%d)", released]);
+    if (focusSuperseded(token, expectedSpace)) {
+      CFRelease(target);
+      deliver(callback, canary, @"superseded");
       return;
     }
-
-    dispatch_async(queueFor(focusQueues, "window_manager.focus", pid), ^{
-      if (atomic_load(&focusGeneration) != token || (expectedSpace && !spaceIsActive(expectedSpace))) {
-        deliver(callback, canary, @"superseded");
-        return;
-      }
-      AXUIElementRef target = copyWindow(pid, windowID);
-      if (!target) {
-        deliver(callback, canary, @"window unavailable");
-        return;
-      }
-      if (atomic_load(&focusGeneration) != token || (expectedSpace && !spaceIsActive(expectedSpace))) {
-        CFRelease(target);
-        deliver(callback, canary, @"superseded");
-        return;
-      }
-      AXError raised = AXUIElementPerformAction(target, kAXRaiseAction);
-      CFRelease(target);
-      if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
-      deliver(callback, canary,
-        raised == kAXErrorSuccess ? nil : [NSString stringWithFormat:@"raise failed (%d)", raised]);
-    });
+    AXError raised = AXUIElementPerformAction(target, kAXRaiseAction);
+    CFRelease(target);
+    if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
+    deliver(callback, canary,
+      raised == kAXErrorSuccess ? nil : [NSString stringWithFormat:@"raise failed (%d)", raised]);
   });
   return 0;
 }

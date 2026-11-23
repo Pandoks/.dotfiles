@@ -29,7 +29,8 @@ macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
 The Dock suite (`dock_test.lua`) checks persistent message-port caching, invalidation recovery,
-error replies, queued injection, and shutdown.
+error replies, queued injection, the load-time `workspaces-auto-swoosh` preference check, and
+shutdown.
 Neither touches the real window server; the native Dock helper, focus, and Accessibility calls in
 `lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` were checked live on macOS 27.0.1.
 

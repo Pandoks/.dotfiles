@@ -135,6 +135,14 @@ function dock.switch(space, done)
   return request("switch", "switch " .. space, done)
 end
 
+-- The Dock follows a frontmost app's window to another Space unless this is boolean false.
+local preferences = hs.plist.read(os.getenv("HOME") .. "/Library/Preferences/com.apple.dock.plist")
+if not preferences or preferences["workspaces-auto-swoosh"] ~= false then
+  logger.error(
+    "Dock helper needs auto-swoosh off: run defaults write com.apple.dock workspaces-auto-swoosh -bool NO && killall Dock"
+  )
+end
+
 if not connect() then
   inject()
 end
