@@ -27,7 +27,7 @@ native modules etc.
   - You don't need to create a module or function for every small feature as that clutters
     everything.
   - For miscellaneous utility functions, put that in a module named `utils`.
-- Comment only above a function when the LSP needs it and, for large functions ONLY, with a one-line
-  label at the top of each logical block.
+- Comment in two places only: above a function when the LSP needs it, and, in large functions ONLY,
+  as a one-line label at the top of each logical block.
 - We don't need retry logic or fallbacks. Just make it fail fast, log it, and notify the user with a
   pop up message.
