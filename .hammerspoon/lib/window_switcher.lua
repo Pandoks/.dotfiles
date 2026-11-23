@@ -568,15 +568,9 @@ focus = function(window, fresh)
         finishIfFocused(window.id)
         return
       end
-      local native = windowManager.native --[[@as { focusedWindow?: fun(pid: integer, done: fun(id?: integer, err?: string)) }?]]
-      if native and native.focusedWindow then
-        native.focusedWindow(window.pid, function(id)
-          finishIfFocused(id)
-        end)
-        return
-      end
-      local focused = hs.window.focusedWindow()
-      finishIfFocused(focused and focused:id() or nil)
+      windowManager.native.focusedWindow(window.pid, function(id)
+        finishIfFocused(id)
+      end)
     end
     local function live()
       return operation == job
@@ -662,13 +656,7 @@ focus = function(window, fresh)
       end
       activate(row)
     end
-    local native = windowManager.native --[[@as { displaySpaces?: function }?]]
-    if not native or native.displaySpaces ~= nil then
-      local list = windowManager.windows --[[@as fun(done: fun(ok: boolean, err?: string, rows: table[]), pids?: integer[])]]
-      list(handle, { window.pid })
-    else
-      windowManager.windows(handle)
-    end
+    windowManager.windows(handle, { window.pid })
   end
   if not fresh then
     requery()

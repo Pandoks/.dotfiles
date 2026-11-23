@@ -49,7 +49,45 @@ local function setup(options)
     background = options.background,
     running = not options.newApp,
     visible = true,
+    pending = {},
+    layout = { active = { main = 1 } },
+    unsubscribed = 0,
   }
+  local function unused(name)
+    return function()
+      error(name .. " must not be called")
+    end
+  end
+  local native, manager = {}, {}
+  for _, name in ipairs({
+    "focus",
+    "cancelFocus",
+    "frame",
+    "minimize",
+    "windows",
+    "spaces",
+    "watchWindowSpaces",
+  }) do
+    native[name] = unused("native." .. name)
+  end
+  -- Asynchronous like the native module: tests resolve `model.pending`.
+  function native.focusedWindow(pid, done)
+    model.pending[#model.pending + 1] = { pid = pid, done = done }
+  end
+  function native.displaySpaces()
+    return model.layout
+  end
+  for _, name in ipairs({ "space", "spaceOf", "focus", "isBusy", "focusedTarget", "stop" }) do
+    manager[name] = unused("windowManager." .. name)
+  end
+  manager.native, manager.frame, manager.windows = native, native.frame, native.windows
+  function manager.watchWindowSpaces(callback)
+    model.spaceListener = callback
+    return function()
+      model.unsubscribed = model.unsubscribed + 1
+      model.spaceListener = nil
+    end
+  end
   local windows = {}
   local app = {
     name = function()
@@ -280,6 +318,9 @@ local function setup(options)
     if name == "lib.toast" then
       return { show = environment.hs.alert.show }
     end
+    if name == "lib.window_manager" then
+      return manager
+    end
     assert(name == "lib.logger")
     return logger
   end
@@ -321,7 +362,7 @@ test("background launches attach when complete without waiting for activation", 
   assert(model.attributeReads == 0)
   model.appCallback("Browser", 1, model.app)
   assert(#model.observers == 1 and model.observers[1].active)
-  assert(#model.filter:getWindows() == 1 and model.focusedReads == 0)
+  assert(#model.filter:getWindows() == 1 and model.focusedReads == 0 and #model.pending == 0)
 end)
 
 test("termination during launch clears pending state before PID reuse", function()
@@ -364,12 +405,14 @@ test("accessory and menu-bar apps stay excluded after activation", function()
   model.appCallback("Browser", 2, model.app)
   model.spaceCallback()
   assert(#model.observers == 0 and #model.filter:getWindows() == 0)
-  assert(model.reads == 0 and model.focusedReads == 0 and #model.alerts == 0)
+  assert(
+    model.reads == 0 and model.focusedReads == 0 and #model.pending == 0 and #model.alerts == 0
+  )
 end)
 
 test("background documents are tracked without querying their focused window", function()
   local model = setup({ background = true })
-  assert(#model.filter:getWindows() == 1 and model.focusedReads == 0)
+  assert(#model.filter:getWindows() == 1 and model.focusedReads == 0 and #model.pending == 0)
   model:emit(model:window(200), "AXWindowCreated")
   assert(#model.filter:getWindows() == 2)
   assert(#model.logs == 0 and #model.alerts == 0)
@@ -378,7 +421,9 @@ end)
 test("main document windows on inactive Spaces are seeded without foreground focus", function()
   local model = setup({ background = true, mainOnly = true })
   assert(#model.filter:getWindows() == 1 and model.filter:getWindows()[1] == model.first.window)
-  assert(model.focusedReads == 0 and #model.logs == 0 and #model.alerts == 0)
+  assert(
+    model.focusedReads == 0 and #model.pending == 0 and #model.logs == 0 and #model.alerts == 0
+  )
 end)
 
 test("background Messaging failed errors log, alert, and re-attach only on activation", function()
@@ -422,7 +467,7 @@ end)
 test("unknown main windows are seeded on inactive Spaces without fullscreen checks", function()
   local model = setup({ unknown = true, background = true, mainOnly = true })
   assert(model.filter:getWindow(100, 42) == model.first.window)
-  assert(model.focusedReads == 0 and #model.logs == 0)
+  assert(model.focusedReads == 0 and #model.pending == 0 and #model.logs == 0)
 end)
 
 test(
@@ -694,11 +739,13 @@ test("focus follows the system frontmost app without asking the app", function()
   model.focused = second
   model:emit(second, "AXFocusedWindowChanged")
   model.appCallback("Browser", 2, model.app)
-  assert(focused == 0 and model.focusedReads == 0)
+  assert(focused == 0 and model.focusedReads == 0 and #model.pending == 0)
   model.background = false
   model:emit(second, "AXFocusedWindowChanged")
   model.appCallback("Browser", 2, model.app)
-  assert(focused == 2 and model.focusedReads == 1)
+  assert(#model.pending == 1)
+  model.pending[1].done(200)
+  assert(focused == 2 and model.focusedReads == 0)
   assert(#model.logs == 0 and #model.alerts == 0)
 end)
 
@@ -1009,61 +1056,47 @@ test("indexed window lookup stays consistent across track, destroy, retire, and 
   assert(model.filter:getWindow(100, 42) == model.first.window)
 end)
 
-test("activation uses async focusedWindow when available and drops stale callbacks", function()
-  local savedManager = package.loaded["lib.window_manager"]
-  local pendingFocused = {}
-  package.loaded["lib.window_manager"] = {
-    native = {
-      focusedWindow = function(pid, done)
-        pendingFocused[#pendingFocused + 1] = { pid = pid, done = done }
-      end,
-    },
-  }
-  local ok, err = pcall(function()
-    local model = setup({ background = true })
-    local events, focusedIds = 0, {}
-    local second = model:window(200)
-    model:emit(second, "AXWindowCreated")
-    model.filter:subscribe(model.module.windowFocused, function(window)
-      events = events + 1
-      focusedIds[#focusedIds + 1] = window:id()
-    end)
-
-    model.background = false
-    -- Cached ID in app.byId emits without touching app:focusedWindow().
-    model.appCallback("Browser", 2, model.app)
-    assert(#pendingFocused == 1 and pendingFocused[1].pid == 42)
-    assert(model.focusedReads == 0)
-
-    -- A newer activation supersedes the earlier async response.
-    model.appCallback("Browser", 2, model.app)
-    assert(#pendingFocused == 2)
-    pendingFocused[1].done(100)
-    assert(events == 0, "stale focusedWindow callback must be ignored")
-    pendingFocused[2].done(200)
-    assert(events == 1 and focusedIds[1] == 200 and model.focusedReads == 0)
-
-    -- Cancelled responses do not report errors.
-    model.appCallback("Browser", 2, model.app)
-    pendingFocused[3].done(nil, "cancelled")
-    assert(#model.logs == 0 and #model.alerts == 0)
-
-    -- Async error reports once via failure().
-    model.appCallback("Browser", 2, model.app)
-    pendingFocused[4].done(nil, "focused window failed (-25204)")
-    assert(#model.logs == 1 and #model.alerts == 1)
-
-    -- Untracked ID falls back to app:focusedWindow().
-    local third = model:window(300)
-    model.focused = third
-    model.appCallback("Browser", 2, model.app)
-    pendingFocused[5].done(300)
-    assert(model.focusedReads == 1 and events == 2 and focusedIds[2] == 300)
+test("activation uses async focusedWindow and drops stale callbacks", function()
+  local model = setup({ background = true })
+  local pending = model.pending
+  local events, focusedIds = 0, {}
+  local second = model:window(200)
+  model:emit(second, "AXWindowCreated")
+  model.filter:subscribe(model.module.windowFocused, function(window)
+    events = events + 1
+    focusedIds[#focusedIds + 1] = window:id()
   end)
-  package.loaded["lib.window_manager"] = savedManager
-  if not ok then
-    error(err, 0)
-  end
+
+  model.background = false
+  -- Cached ID in app.byId emits without touching app:focusedWindow().
+  model.appCallback("Browser", 2, model.app)
+  assert(#pending == 1 and pending[1].pid == 42)
+  assert(model.focusedReads == 0)
+
+  -- A newer activation supersedes the earlier async response.
+  model.appCallback("Browser", 2, model.app)
+  assert(#pending == 2)
+  pending[1].done(100)
+  assert(events == 0, "stale focusedWindow callback must be ignored")
+  pending[2].done(200)
+  assert(events == 1 and focusedIds[1] == 200 and model.focusedReads == 0)
+
+  -- Cancelled responses do not report errors.
+  model.appCallback("Browser", 2, model.app)
+  pending[3].done(nil, "cancelled")
+  assert(#model.logs == 0 and #model.alerts == 0)
+
+  -- Async error reports once via failure().
+  model.appCallback("Browser", 2, model.app)
+  pending[4].done(nil, "focused window failed (-25204)")
+  assert(#model.logs == 1 and #model.alerts == 1)
+
+  -- Untracked ID falls back to app:focusedWindow().
+  local third = model:window(300)
+  model.focused = third
+  model.appCallback("Browser", 2, model.app)
+  pending[5].done(300)
+  assert(model.focusedReads == 1 and events == 2 and focusedIds[2] == 300)
 end)
 
 test(
@@ -1110,61 +1143,39 @@ test(
 test(
   "watchWindowSpaces snapshots untracked windows landing on active Spaces without timers",
   function()
-    local savedManager = package.loaded["lib.window_manager"]
-    local spaceListener
-    local unsubscribed = 0
-    package.loaded["lib.window_manager"] = {
-      native = {
-        displaySpaces = function()
-          return { active = { main = 1 } }
-        end,
-      },
-      watchWindowSpaces = function(callback)
-        spaceListener = callback
-        return function()
-          unsubscribed = unsubscribed + 1
-          spaceListener = nil
-        end
-      end,
-    }
-    local ok, err = pcall(function()
-      local model = setup({ mainOnly = true })
-      local reads = model.reads
-      local created = {}
-      model.filter:subscribe(model.module.windowCreated, function(_, _, _, id)
-        created[#created + 1] = id
-      end)
-      assert(type(spaceListener) == "function", "subscribes to watchWindowSpaces")
-
-      -- Ignored: removal, missing pid, already tracked, or inactive Space.
-      spaceListener(200, 1, false, 42)
-      spaceListener(200, 1, true, nil)
-      spaceListener(100, 1, true, 42)
-      spaceListener(200, 4, true, 42)
-      assert(model.reads == reads and #created == 0)
-
-      -- Untracked window landing on active Space 1 triggers snapshot without timers.
-      local second = model:window(200)
-      local original = model.element.attributeValue
-      model.element.attributeValue = function(target, name)
-        if name == "AXWindows" then
-          model.reads = model.reads + 1
-          return { model.first, second }
-        end
-        return original(target, name)
-      end
-      spaceListener(200, 1, true, 42)
-      assert(model.reads == reads + 1)
-      assert(#created == 1 and created[1] == 200)
-      assert(model.filter:getWindow(200, 42) == second.window)
-
-      model.module.stop()
-      assert(unsubscribed == 1 and spaceListener == nil)
+    local model = setup({ mainOnly = true })
+    local reads = model.reads
+    local created = {}
+    model.filter:subscribe(model.module.windowCreated, function(_, _, _, id)
+      created[#created + 1] = id
     end)
-    package.loaded["lib.window_manager"] = savedManager
-    if not ok then
-      error(err, 0)
+    local listener = model.spaceListener
+    assert(type(listener) == "function", "subscribes to watchWindowSpaces")
+
+    -- Ignored: removal, missing pid, already tracked, or inactive Space.
+    listener(200, 1, false, 42)
+    listener(200, 1, true, nil)
+    listener(100, 1, true, 42)
+    listener(200, 4, true, 42)
+    assert(model.reads == reads and #created == 0)
+
+    -- Untracked window landing on active Space 1 triggers snapshot without timers.
+    local second = model:window(200)
+    local original = model.element.attributeValue
+    model.element.attributeValue = function(target, name)
+      if name == "AXWindows" then
+        model.reads = model.reads + 1
+        return { model.first, second }
+      end
+      return original(target, name)
     end
+    listener(200, 1, true, 42)
+    assert(model.reads == reads + 1)
+    assert(#created == 1 and created[1] == 200)
+    assert(model.filter:getWindow(200, 42) == second.window)
+
+    model.module.stop()
+    assert(model.unsubscribed == 1 and model.spaceListener == nil)
   end
 )
 

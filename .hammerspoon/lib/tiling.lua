@@ -203,7 +203,7 @@ end
 ---@return integer? id, integer? pid
 local function manageable(window, allowed)
   local id = window:id() --[[@as integer?]]
-  local app = (id and filter.applicationOf and filter.applicationOf(id)) or window:application()
+  local app = (id and filter.applicationOf(id)) or window:application()
   if not id or not app then
     return nil
   end
@@ -681,33 +681,16 @@ local function scheduleSpaceSync(id)
   end)
 end
 
-if windowManager.watchWindowSpaces then
-  stopWindowSpaceWatcher = windowManager.watchWindowSpaces(function(id, space, added)
-    if stopped then
-      return
-    end
-    local entry = tiled[id]
-    if not entry then
-      return
-    end
-    if (added and space ~= entry.space) or (not added and space == entry.space) then
-      scheduleSpaceSync(id)
-    end
-  end)
-end
-
--- A Mission Control drop changes a window's Space ~0.6 s after the release, with no window event.
-tiling.spaceCheckAfterDrop = hs.timer.delayed.new(1, function()
-  local ids = {}
-  for id in pairs(tiled) do
-    ids[#ids + 1] = id
+stopWindowSpaceWatcher = windowManager.watchWindowSpaces(function(id, space, added)
+  if stopped then
+    return
   end
-  local spaces = windowManager.native.spaces(ids)
-  for id, entry in pairs(tiled) do
-    if spaces[id] and spaces[id] ~= entry.space then
-      sync()
-      return
-    end
+  local entry = tiled[id]
+  if not entry then
+    return
+  end
+  if (added and space ~= entry.space) or (not added and space == entry.space) then
+    scheduleSpaceSync(id)
   end
 end)
 tiling.mouseReleaseTap = hs.eventtap
@@ -741,9 +724,6 @@ tiling.mouseReleaseTap = hs.eventtap
     dragged = {}
     for space in pairs(spaces) do
       apply(space)
-    end
-    if not stopWindowSpaceWatcher and next(tiled) ~= nil then
-      tiling.spaceCheckAfterDrop:start()
     end
     return false
   end)
@@ -822,7 +802,6 @@ end
 
 function tiling.stop()
   stopped = true
-  spaceCheckPending = false
   changedSpaceIds = {}
   areas = {}
   applied = {}
@@ -837,7 +816,6 @@ function tiling.stop()
     stopWindowSpaceWatcher = nil
   end
   tiling.mouseReleaseTap:stop()
-  tiling.spaceCheckAfterDrop:stop()
   tiling.spaceWatcher:stop()
   tiling.screenWatcher:stop()
   tiling.windows:delete()

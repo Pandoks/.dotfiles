@@ -1,37 +1,6 @@
 ---@class UtilityModule
 local utils = {}
 
----@class ManagedSpace
----@field ManagedSpaceID integer `hs.spaces` id
----@field id64 integer
----@field type integer
----@field uuid string
----@field display string screen UUID
-
----@return ManagedSpace[]? spaces `spaces[i]` is Mission Control index `i`
----@return string? errorMessage
-function utils.spaces()
-  local data, err = hs.spaces.data_managedDisplaySpaces()
-  if type(data) ~= "table" then
-    return nil, err or "could not read managed Spaces"
-  end
-
-  ---@type ManagedSpace[]
-  local spaces = {}
-  for _, display in ipairs(data) do
-    local uuid = display["Display Identifier"]
-    if uuid == "Main" then
-      uuid = hs.screen.mainScreen():getUUID()
-    end
-    for _, space in ipairs(display.Spaces or {}) do
-      space.display = uuid
-      spaces[#spaces + 1] = space
-    end
-  end
-
-  return spaces
-end
-
 ---@param value string
 ---@return string
 function utils.quote(value)

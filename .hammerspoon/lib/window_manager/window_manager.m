@@ -1,7 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import <LuaSkin/LuaSkin.h>
 #include <dlfcn.h>
-#include <mach/mach_time.h>
 #include <stdatomic.h>
 
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -40,7 +39,6 @@ static NSMutableDictionary<NSNumber *, NSNumber *> *focusedGenerations;
 static NSMutableDictionary<NSNumber *, PendingFrame *> *frames;
 static NSMutableDictionary<NSNumber *, NSObject *> *scans;
 static NSMutableDictionary<NSNumber *, EnhancedState *> *enhancedStates;
-static _Atomic BOOL naturalScroll = YES;
 static _Atomic uint64_t focusGeneration = 0;
 
 extern AXError _AXUIElementGetWindow(AXUIElementRef element, CGWindowID *windowID);
@@ -82,160 +80,6 @@ static BOOL keepImageLoaded(void) {
   if (!dladdr(&queues, &image)) return NO;
   handle = dlopen(image.dli_fname, RTLD_NOW | RTLD_LOCAL);
   return handle != NULL;
-}
-
-#pragma mark - Space switching
-
-// Swipe synthesis from rift (src/sys/space_switch.rs, Apache-2.0) and InstantSpaceSwitcher (MIT).
-enum {
-  typeField = 55, hidTypeField = 110, maskField = 115, motionField = 123, progressField = 124,
-  positionXField = 125, positionYField = 126, velocityXField = 129, velocityYField = 130,
-  phaseField = 132, phaseMirrorField = 134, flavorField = 138, timestampField = 169,
-  payloadField = 4205,
-};
-enum { gesture = 29, dockControl = 30, dockSwipe = 23, began = 1, changed = 2, ended = 4 };
-
-#pragma pack(push, 1)
-typedef struct { uint64_t timestamp, sender; uint32_t options, attributes, count; } QueueElement;
-typedef struct { uint32_t size, type, options; uint8_t depth, reserved[3]; } HIDBase;
-typedef struct {
-  HIDBase base; int32_t x, y, z; uint32_t mask; uint16_t motion, flavor; int32_t progress;
-} HIDGesture;
-typedef struct { HIDBase base; int32_t x, y, z; } HIDVelocity;
-#pragma pack(pop)
-
-static int32_t fixed(double value) {
-  int32_t result = (int32_t)(value * 65536.0);
-  return (result == 0 && value != 0) ? (value < 0 ? -1 : 1) : result;
-}
-
-// Near-zero progress leaves nothing to animate; the fling on the ended phase commits the switch.
-static CGEventRef swipe(int phase, uint32_t mask, double sign, CGPoint point) {
-  CGEventRef event = CGEventCreate(NULL);
-  CGEventSetLocation(event, point);
-  CGEventSetIntegerValueField(event, typeField, dockControl);
-  CGEventSetIntegerValueField(event, hidTypeField, dockSwipe);
-  CGEventSetIntegerValueField(event, phaseField, phase);
-  CGEventSetIntegerValueField(event, phaseMirrorField, phase);
-  CGEventSetIntegerValueField(event, motionField, 1);
-  CGEventSetIntegerValueField(event, maskField, mask);
-  CGEventSetDoubleValueField(event, progressField, sign * 0.000016);
-  if (phase == ended) CGEventSetDoubleValueField(event, velocityXField, sign * 9999.0);
-  CGEventSetDoubleValueField(event, flavorField, 3.0);
-  CGEventSetDoubleValueField(event, timestampField, (double)mach_absolute_time());
-  CGEventSetDoubleValueField(event, positionXField, 0.1);
-  return event;
-}
-
-// macOS 27 reads the gesture from an IOHID payload inside the serialized event.
-static CGEventRef withPayload(CGEventRef event) {
-  CFDataRef data = CGEventCreateData(NULL, event);
-  if (!data) return NULL;
-  const uint8_t *bytes = CFDataGetBytePtr(data);
-  CFIndex length = CFDataGetLength(data);
-  if (length < 4 || OSReadBigInt32(bytes, 0) != 2) {
-    CFRelease(data);
-    return NULL;
-  }
-
-  int phase = (int)CGEventGetIntegerValueField(event, phaseField);
-  double velocity = CGEventGetDoubleValueField(event, velocityXField);
-  BOOL moving = velocity != 0 || phase == ended;
-  QueueElement header = { CGEventGetTimestamp(event) ?: mach_absolute_time(), 0, 0, 0, moving ? 2 : 1 };
-  HIDGesture gesture = {
-    { sizeof(HIDGesture), 23, ((uint32_t)phase & 0xFF) << 24, 0, { 0 } },
-    fixed(CGEventGetDoubleValueField(event, positionXField)),
-    fixed(CGEventGetDoubleValueField(event, positionYField)), 0,
-    (uint32_t)CGEventGetIntegerValueField(event, maskField),
-    (uint16_t)CGEventGetIntegerValueField(event, motionField), 3,
-    fixed(CGEventGetDoubleValueField(event, progressField)),
-  };
-  HIDVelocity motion = {
-    { sizeof(HIDVelocity), 9, 0, 1, { 0 } },
-    fixed(velocity), fixed(CGEventGetDoubleValueField(event, velocityYField)), 0,
-  };
-  NSMutableData *payload = [NSMutableData dataWithBytes:&header length:sizeof header];
-  [payload appendBytes:&gesture length:sizeof gesture];
-  if (moving) [payload appendBytes:&motion length:sizeof motion];
-
-  // Fields are (size, tag << 14 | field, value), sorted by field.
-  NSMutableData *serialized = [NSMutableData dataWithBytes:bytes length:4];
-  BOOL inserted = NO;
-  void (^insert)(void) = ^{
-    uint16_t head[2] = { OSSwapHostToBigInt16((uint16_t)payload.length), OSSwapHostToBigInt16(payloadField) };
-    [serialized appendBytes:head length:sizeof head];
-    [serialized appendData:payload];
-  };
-  for (CFIndex offset = 4; offset + 4 <= length;) {
-    uint16_t size = OSReadBigInt16(bytes, offset), tagged = OSReadBigInt16(bytes, offset + 2);
-    uint16_t tag = tagged >> 14, field = tagged & 0x3FFF;
-    CFIndex width = tag == 1 ? 4 : tag == 3 ? (size == 2 ? 8 : 4) : (size == 1 ? 8 : size);
-    if (offset + 4 + width > length) break;
-    if (!inserted && field >= payloadField) {
-      insert();
-      inserted = YES;
-    }
-    if (field != payloadField) [serialized appendBytes:bytes + offset length:4 + width];
-    offset += 4 + width;
-  }
-  if (!inserted) insert();
-  CFRelease(data);
-  return CGEventCreateFromData(NULL, (__bridge CFDataRef)serialized);
-}
-
-// The Dock ignores a swipe without a companion gesture event.
-static BOOL post(CGEventRef event) {
-  CGEventRef augmented = withPayload(event);
-  CFRelease(event);
-  if (!augmented) return NO;
-  CGEventRef companion = CGEventCreate(NULL);
-  CGEventSetIntegerValueField(companion, typeField, gesture);
-  CGEventPost(kCGSessionEventTap, augmented);
-  CGEventPost(kCGSessionEventTap, companion);
-  CFRelease(augmented);
-  CFRelease(companion);
-  return YES;
-}
-
-// The Dock reads the sign through the natural scrolling preference (on unless set off).
-static void refreshScroll(void) {
-  CFPreferencesAppSynchronize(kCFPreferencesAnyApplication);
-  Boolean valid = false;
-  Boolean natural = CFPreferencesGetAppBooleanValue(CFSTR("com.apple.swipescrolldirection"),
-    kCFPreferencesAnyApplication, &valid);
-  atomic_store(&naturalScroll, !valid || natural);
-}
-
-static void scrollChanged(CFNotificationCenterRef center, void *observer, CFNotificationName name,
-  const void *object, CFDictionaryRef info) {
-  (void)center; (void)observer; (void)name; (void)object; (void)info;
-  refreshScroll();
-}
-
-static int move(lua_State *state) {
-  LuaSkin *skin = [LuaSkin sharedWithState:state];
-  [skin checkArgs:LS_TBOOLEAN, LS_TNUMBER | LS_TINTEGER, LS_TNUMBER, LS_TNUMBER, LS_TBREAK];
-  if (NSProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27) {
-    lua_pushboolean(state, 0);
-    lua_pushstring(state, "instant Space switching needs macOS 27");
-    return 2;
-  }
-  BOOL right = lua_toboolean(state, 1);
-  lua_Integer count = lua_tointeger(state, 2);
-  CGPoint point = { lua_tonumber(state, 3), lua_tonumber(state, 4) };
-
-  double sign = (right ? -1.0 : 1.0) * (atomic_load(&naturalScroll) ? 1.0 : -1.0);
-  uint32_t mask = right ? 4 : 8;
-  for (lua_Integer index = 0; index < count; index++) {
-    if (!post(swipe(began, mask, sign, point)) || !post(swipe(changed, mask, sign, point))
-      || !post(swipe(ended, mask, sign, point))) {
-      lua_pushboolean(state, 0);
-      lua_pushstring(state, "could not build the Space swipe");
-      return 2;
-    }
-  }
-  lua_pushboolean(state, 1);
-  return 1;
 }
 
 #pragma mark - Accessibility
@@ -1167,7 +1011,6 @@ static int watchWindowSpaces(lua_State *state) {
 }
 
 static const luaL_Reg functions[] = {
-  { "move", move },
   { "focus", focus },
   { "cancelFocus", cancelFocus },
   { "focusedWindow", focusedWindow },
@@ -1234,9 +1077,6 @@ int luaopen_window_manager(lua_State *state) {
     frames = [NSMutableDictionary dictionary];
     scans = [NSMutableDictionary dictionary];
     enhancedStates = [NSMutableDictionary dictionary];
-    CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(), NULL, scrollChanged,
-      CFSTR("SwipeScrollDirectionDidChangeNotification"), NULL,
-      CFNotificationSuspensionBehaviorDeliverImmediately);
     CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(), NULL, screenUnlocked,
       CFSTR("com.apple.screenIsUnlocked"), NULL,
       CFNotificationSuspensionBehaviorDeliverImmediately);
@@ -1244,7 +1084,6 @@ int luaopen_window_manager(lua_State *state) {
   }
   clearSpaceWindowWatcher();
   clearAbsent();
-  refreshScroll();
   LuaSkin *skin = [LuaSkin sharedWithState:state];
   refTable = [skin registerLibrary:"window_manager" functions:functions metaFunctions:nil];
   return 1;
