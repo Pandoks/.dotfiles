@@ -5,7 +5,9 @@
 #import <malloc/malloc.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <pthread.h>
 #import <ptrauth.h>
+#import <time.h>
 
 extern int SLSMainConnectionID(void);
 extern void SLSMoveWindowsToManagedSpace(int connection, CFArrayRef windows, uint64_t space);
@@ -173,9 +175,8 @@ static id findDisplaySpaces(uint32_t displayID, uint64_t currentSpace) {
   return fallback;
 }
 
-static CFDataRef switchSpace(uint64_t space) {
+static CFDataRef switchSpace(uint64_t space, NSString *uuid, BOOL *changed) {
   int connection = SLSMainConnectionID();
-  NSString *uuid = displayUUID(connection, space);
   if (!uuid) return reply([NSString stringWithFormat:@"Space %llu has no display", space]);
   uint64_t current = SLSManagedDisplayGetCurrentSpace(connection, (__bridge CFStringRef)uuid);
   if (current == space) return NULL;
@@ -232,6 +233,7 @@ static CFDataRef switchSpace(uint64_t space) {
   if (((BOOL (*)(id, SEL))objc_msgSend)(target, sel_registerName("userSpace"))) {
     weakAssign((void *)((char *)(__bridge void *)entry + ivar_getOffset(lastUserIvar)), target);
   }
+  if (changed) *changed = YES;
   return NULL;
 }
 
@@ -246,39 +248,282 @@ static CFDataRef moveWindow(unsigned long long window, unsigned long long space)
   return NULL;
 }
 
-// "<window> <space>" or "switch <space>" in; nothing out on success, else the error.
+typedef void (*FollowSetter)(void (^block)(CFDictionaryRef info));
+
+typedef struct {
+  uint32_t window;
+  uint64_t time;
+} Leaving;
+
+// Stale follows were observed 25-280 ms after our switch; WindowServer waits 100 ms before asking Dock.
+static const uint64_t leavingDuration = 1ULL * NSEC_PER_SEC;
+static const uint64_t switchDuration = 300ULL * NSEC_PER_MSEC;
+static NSString *const followStateKey = @"org.hammerspoon.dock.follow";
+
+static NSString *portName;
+static NSString *followError;
+static uint64_t switchedSpace;
+static NSString *switchedDisplay;
+static uint64_t switchedTime;
+static Leaving recentLeaving[8];
+
+// "<window> <space>", "switch <space> [<leaving>]", or "follow" in; nothing out on success, else the error.
 static CFDataRef handle(__unused CFMessagePortRef port, __unused SInt32 message, CFDataRef data, __unused void *info) {
-  NSString *request = [[NSString alloc] initWithData:(__bridge NSData *)data encoding:NSUTF8StringEncoding];
-  unsigned long long window, space;
-  if (sscanf(request.UTF8String, "switch %llu", &space) == 1) {
-    return switchSpace(space);
+  @autoreleasepool {
+    @try {
+      if (!data) return reply(@"malformed request");
+      NSString *request = [[NSString alloc] initWithData:(__bridge NSData *)data encoding:NSUTF8StringEncoding];
+      if (!request) return reply(@"malformed request");
+      if ([request isEqualToString:@"follow"]) {
+        return followError ? reply(followError) : NULL;
+      }
+      const char *text = request.UTF8String;
+      unsigned long long window, space, leaving = 0;
+      int consumed = 0;
+      BOOL isSwitch = NO;
+      if (sscanf(text, "switch %llu %llu%n", &space, &leaving, &consumed) == 2 && !text[consumed] &&
+          leaving <= UINT32_MAX) {
+        isSwitch = YES;
+      } else if (sscanf(text, "switch %llu%n", &space, &consumed) == 1 && !text[consumed]) {
+        leaving = 0;
+        isSwitch = YES;
+      }
+      if (isSwitch) {
+        NSString *uuid = displayUUID(SLSMainConnectionID(), space);
+        CFDataRef error = switchSpace(space, uuid, NULL);
+        if (!error) {
+          uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+          switchedSpace = space;
+          switchedDisplay = uuid;
+          switchedTime = now;
+          if (leaving != 0) {
+            uint32_t leavingWindow = (uint32_t)leaving;
+            size_t slot = 0;
+            for (size_t index = 0; index < sizeof(recentLeaving) / sizeof(recentLeaving[0]); index++) {
+              if (recentLeaving[index].window == leavingWindow) {
+                slot = index;
+                break;
+              }
+              if (recentLeaving[index].time < recentLeaving[slot].time) slot = index;
+            }
+            recentLeaving[slot] = (Leaving){ .window = leavingWindow, .time = now };
+          }
+        }
+        return error;
+      }
+      if (sscanf(text, "%llu %llu%n", &window, &space, &consumed) == 2 && !text[consumed]) {
+        return moveWindow(window, space);
+      }
+      return reply([NSString stringWithFormat:@"malformed request %@", request]);
+    } @catch (NSException *exception) {
+      return reply(exception.reason ?: @"exception");
+    }
   }
-  if (sscanf(request.UTF8String, "%llu %llu", &window, &space) == 2) {
-    return moveWindow(window, space);
+}
+
+static void followSpace(uint64_t space, uint32_t window, uint64_t generation) {
+  @autoreleasepool {
+    @try {
+      id state = NSThread.mainThread.threadDictionary[followStateKey];
+      NSMutableDictionary *shared = [state isKindOfClass:[NSMutableDictionary class]] ? state : nil;
+      id current = shared[@"generation"];
+      if (![current isKindOfClass:[NSNumber class]] ||
+          [(NSNumber *)current unsignedLongLongValue] != generation) {
+        return;
+      }
+
+      uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+      if (window != 0) {
+        for (size_t index = 0; index < sizeof(recentLeaving) / sizeof(recentLeaving[0]); index++) {
+          Leaving entry = recentLeaving[index];
+          if (entry.window == window && entry.time != 0 &&
+              now >= entry.time && (now - entry.time) <= leavingDuration) {
+            NSLog(@"%@: ignored follow space=%llu window=%u reason=leaving",
+                  portName, space, window);
+            return;
+          }
+        }
+      }
+
+      NSString *uuid = displayUUID(SLSMainConnectionID(), space);
+      if (switchedTime != 0 && now >= switchedTime &&
+          (now - switchedTime) <= switchDuration && space != switchedSpace &&
+          uuid && switchedDisplay && [uuid isEqualToString:switchedDisplay]) {
+        NSLog(@"%@: ignored follow space=%llu window=%u reason=recent-switch target=%llu",
+              portName, space, window, switchedSpace);
+        return;
+      }
+
+      // Relies on switchSpace's checks; Dock's Mission Control, gesture, and kiosk guards are not mirrored.
+      BOOL changed = NO;
+      CFDataRef failure = switchSpace(space, uuid, &changed);
+      if (failure) {
+        NSString *message = [[NSString alloc] initWithData:(__bridge_transfer NSData *)failure
+                                                  encoding:NSUTF8StringEncoding];
+        NSLog(@"%@: ignored follow space=%llu window=%u reason=%@",
+              portName, space, window, message);
+        return;
+      }
+      if (!changed) {
+        NSLog(@"%@: ignored follow space=%llu window=%u reason=already-current",
+              portName, space, window);
+        return;
+      }
+      NSLog(@"%@: performed follow space=%llu window=%u", portName, space, window);
+    } @catch (NSException *exception) {
+      NSLog(@"%@: follow handler exception: %@", portName, exception);
+    }
   }
-  return reply([NSString stringWithFormat:@"malformed request %@", request]);
+}
+
+static void failFollow(NSString *reason) {
+  followError = reason;
+  NSLog(@"%@: follow handler not installed: %@", portName, reason);
+}
+
+static void installFollow(void) {
+  @try {
+    if (!pthread_main_np()) {
+      failFollow(@"follow handler must register on main thread");
+      return;
+    }
+
+    Boolean exists = false;
+    Boolean swoosh = CFPreferencesGetAppBooleanValue(
+      CFSTR("workspaces-auto-swoosh"), CFSTR("com.apple.dock"), &exists);
+    if (exists && !swoosh) {
+      failFollow(@"workspaces-auto-swoosh is disabled");
+      return;
+    }
+
+    void *setter = dlsym(
+      RTLD_DEFAULT, "SLSSetWindowDidOrderInOnNonCurrentManagedSpacesOnlyNotificationBlock");
+    void *alias = dlsym(
+      RTLD_DEFAULT, "CGSSetWindowDidOrderInOnNonCurrentManagedSpacesOnlyNotificationBlock");
+    if (!setter || !alias || setter != alias) {
+      failFollow(@"SkyLight follow notification symbol unavailable");
+      return;
+    }
+    Dl_info symbol = { 0 };
+    if (!dladdr(setter, &symbol) || !symbol.dli_fname ||
+        !strstr(symbol.dli_fname, "SkyLight.framework")) {
+      failFollow(@"SkyLight follow notification symbol outside SkyLight");
+      return;
+    }
+
+    if (SLSMainConnectionID() == 0) {
+      failFollow(@"SLSMainConnectionID unavailable");
+      return;
+    }
+    if (!weakAssign) {
+      failFollow(@"swift_unknownObjectWeakAssign unavailable");
+      return;
+    }
+
+    if (!loadWeak(&dockSpacesRef) || !displaySpacesCount) {
+      NSString *error = discover();
+      if (error) {
+        failFollow(error);
+        return;
+      }
+    }
+    id spaces = loadWeak(&dockSpacesRef);
+    if (!spaces || !displaySpacesCount) {
+      failFollow(@"Dock Spaces state not found");
+      return;
+    }
+    if (![spaces respondsToSelector:sel_registerName("anySwitchingOccurring")] ||
+        ![spaces respondsToSelector:sel_registerName("spacesForDisplay:")] ||
+        ![spaces respondsToSelector:sel_registerName("displayForSPID:")]) {
+      failFollow(@"Dock Spaces selectors unavailable");
+      return;
+    }
+    Class spaceClass = NSClassFromString(@"ManagedSpace");
+    if (!spaceClass ||
+        ![spaceClass instancesRespondToSelector:sel_registerName("spid")] ||
+        ![spaceClass instancesRespondToSelector:sel_registerName("userSpace")]) {
+      failFollow(@"Dock ManagedSpace selectors unavailable");
+      return;
+    }
+
+    id state = NSThread.mainThread.threadDictionary[followStateKey];
+    NSMutableDictionary *shared = [state isKindOfClass:[NSMutableDictionary class]] ? state : nil;
+    if (!shared) {
+      shared = [NSMutableDictionary dictionary];
+      NSThread.mainThread.threadDictionary[followStateKey] = shared;
+    }
+    id previous = shared[@"generation"];
+    uint64_t generation =
+      ([previous isKindOfClass:[NSNumber class]] ? [(NSNumber *)previous unsignedLongLongValue] : 0) + 1;
+    shared[@"generation"] = @(generation);
+
+    ((FollowSetter)setter)(^(CFDictionaryRef info) {
+      @autoreleasepool {
+        @try {
+          if (!info || CFGetTypeID(info) != CFDictionaryGetTypeID()) return;
+          NSDictionary *dictionary = (__bridge NSDictionary *)info;
+          id list = dictionary[@"Spaces Info"];
+          if (![list isKindOfClass:[NSArray class]] || [(NSArray *)list count] == 0) return;
+          id first = ((NSArray *)list)[0];
+          if (![first isKindOfClass:[NSDictionary class]]) return;
+          id managed = ((NSDictionary *)first)[@"ManagedSpaceID"];
+          if (!managed || CFGetTypeID((__bridge CFTypeRef)managed) != CFNumberGetTypeID()) return;
+          uint64_t space = [(NSNumber *)managed unsignedLongLongValue];
+          if (space == 0) return;
+          uint32_t window = 0;
+          id windowValue = dictionary[@"WindowID"];
+          if (windowValue) {
+            if (CFGetTypeID((__bridge CFTypeRef)windowValue) != CFNumberGetTypeID()) return;
+            window = [(NSNumber *)windowValue unsignedIntValue];
+          }
+
+          if (pthread_main_np()) {
+            followSpace(space, window, generation);
+          } else {
+            dispatch_async(dispatch_get_main_queue(), ^{
+              followSpace(space, window, generation);
+            });
+          }
+        } @catch (NSException *exception) {
+          NSLog(@"%@: follow handler exception: %@", portName, exception);
+        }
+      }
+    });
+    followError = nil;
+  } @catch (NSException *exception) {
+    failFollow(exception.reason ?: @"exception");
+  }
 }
 
 // The port is named after this file, so each build answers on its own port.
 __attribute__((constructor)) static void load(void) {
-  weakInit = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakInit");
-  weakAssign = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakAssign");
-  weakLoadStrong = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakLoadStrong");
-  weakDestroy = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakDestroy");
-  Dl_info image;
-  dladdr((const void *)load, &image);
-  NSString *name = [@"org.hammerspoon." stringByAppendingString:@(image.dli_fname).lastPathComponent];
-  dispatch_async(dispatch_get_main_queue(), ^{
-    CFMessagePortRef port = CFMessagePortCreateLocal(NULL, (__bridge CFStringRef)name, handle, NULL, NULL);
-    if (!port) {
-      NSLog(@"%@: could not create message port", name);
-      return;
-    }
-    CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(NULL, port, 0);
-    CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
-    CFRelease(source);
+  @autoreleasepool {
+    weakInit = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakInit");
+    weakAssign = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakAssign");
+    weakLoadStrong = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakLoadStrong");
+    weakDestroy = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakDestroy");
+    Dl_info image = { 0 };
+    dladdr((const void *)load, &image);
+    NSString *base = image.dli_fname ? @(image.dli_fname).lastPathComponent : @"dock";
+    portName = [@"org.hammerspoon." stringByAppendingString:base];
     dispatch_async(dispatch_get_main_queue(), ^{
-      if (!loadWeak(&dockSpacesRef)) discover();
+      @autoreleasepool {
+        CFMessagePortRef port =
+          CFMessagePortCreateLocal(NULL, (__bridge CFStringRef)portName, handle, NULL, NULL);
+        if (!port) {
+          NSLog(@"%@: could not create message port", portName);
+          return;
+        }
+        CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(NULL, port, 0);
+        if (!source) {
+          CFRelease(port);
+          NSLog(@"%@: could not create run loop source", portName);
+          return;
+        }
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
+        CFRelease(source);
+        installFollow();
+      }
     });
-  });
+  }
 }

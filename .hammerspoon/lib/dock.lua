@@ -19,6 +19,8 @@ local binary =
 local name = "org.hammerspoon." .. binary:match("[^/]+$")
 ---@type DockPort?
 local remote
+---@type string?
+local declined
 ---@type { kind: "move"|"switch", callback: fun(err?: string), done: fun(ok: boolean, err?: string), cancelled?: boolean }[]
 local waiting = {}
 
@@ -36,6 +38,22 @@ local function connect()
   end
   disconnect()
   remote = native.open(name)
+  if not remote then
+    return nil
+  end
+  local sent, response = remote:send("follow", 0.5)
+  if not sent then
+    disconnect()
+    return nil
+  end
+  if response and response ~= "" then
+    if response ~= declined then
+      declined = response
+      logger.error("Dock helper did not take over Space follow: " .. response)
+    end
+  else
+    declined = nil
+  end
   return remote
 end
 
@@ -130,9 +148,10 @@ end
 
 ---@param space integer
 ---@param done fun(ok: boolean, err?: string)
+---@param leaving? integer
 ---@return fun()? cancel
-function dock.switch(space, done)
-  return request("switch", "switch " .. space, done)
+function dock.switch(space, done, leaving)
+  return request("switch", "switch " .. space .. " " .. (leaving or 0), done)
 end
 
 if not connect() then

@@ -22,16 +22,24 @@ sibling reclaim on close, directional focus, swap, warp, edge resize that moves 
 opposite edge at the screen's edge, mouse resizes that move the dragged edges' splits on
 release, balance, a column mode that keeps equal widths as windows open and close, zoom,
 and float. The window manager suite checks
-direct Space switches through `lib.dock`, rapid back-to-back switches without wait locks,
+direct Space switches through `lib.dock`, leaving-window tracking at the `native.focus` boundary
+for explicit switches (cross-Space focuses, direct `windowManager.native.focus` callers, minimized
+restores, and `windowManager.space`, reporting each left window at most once per focus and omitting
+it when none or refocusing the same window),
+rapid back-to-back switches without wait locks,
 deferred-load superseding and shutdown cancellation, fast failures, and `native.displaySpaces` caching.
 A minimized window on another Space is restored only once that Space shows; restored earlier,
 macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
-The Dock suite (`dock_test.lua`) checks persistent message-port caching, invalidation recovery,
-error replies, queued injection, and shutdown.
-Neither touches the real window server; the native Dock helper, focus, and Accessibility calls in
-`lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` were checked live on macOS 27.0.1.
+The Dock suite (`dock_test.lua`) checks persistent message-port caching, `switch <space> <leaving>`
+payloads, follow-takeover status checks (with bounded timeout, single-shot per-reason decline
+reporting, and re-reporting after recovery through `lib.logger` while Space switching keeps
+working), invalidation recovery, error replies, queued injection, and shutdown.
+Neither touches the real window server; the native Dock helper (including its notification-1415
+follow handler), focus, and Accessibility calls in
+`lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` require live checks
+on macOS 27.0.1.
 
 The URL router suites cover Lua rules, profiles, and selector readiness
 (`url_router_test.lua`); native selector publication and watchers
@@ -303,6 +311,11 @@ For a live check after reloading Hammerspoon:
     appear without changing the selection. Close a window while the menu is open;
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
+13. Rapidly switch between two windows of the same app on different Spaces; confirm the
+    display stays on the second Space and `log show --predicate 'process == "Dock"'` logs
+    `ignored follow ... reason=leaving` or `reason=recent-switch`. Then click a link that
+    opens an existing browser window on another Space; confirm it switches immediately
+    without animation and logs `performed follow`.
 
 The logger, window profiles and toast Lua regressions also run with `tests/run.sh`. The toast
 suite covers placement, stacking, repeats, click dismissal, wrapping, themes, light and dark,

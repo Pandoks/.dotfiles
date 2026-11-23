@@ -24,6 +24,7 @@ local function harness(options)
     current = 100,
     steps = 0,
     switches = {},
+    leaving = {},
     inflight = {},
     results = {},
     timers = {},
@@ -73,6 +74,10 @@ local function harness(options)
       if desktop.minimizing then
         desktop.minimizing()
       end
+      if desktop.minimizeError then
+        done(false, desktop.minimizeError)
+        return
+      end
       done(true)
     end,
     windows = function()
@@ -102,8 +107,9 @@ local function harness(options)
     end
   end
   local dockMock = {
-    switch = function(space, done)
+    switch = function(space, done, leaving)
       desktop.switches[#desktop.switches + 1] = space
+      desktop.leaving[#desktop.switches] = leaving
       if desktop.dockError then
         done(false, desktop.dockError)
         return
@@ -564,5 +570,139 @@ test(
     assertEqual(desktop.focused, 2)
   end
 )
+
+test("explicit Space switches pass the last window handed to native.focus as leaving", function()
+  -- Nothing to leave before any native.focus call.
+  local desktop = harness({ nativeDisplaySpaces = true, deferred = true, deferFocus = true })
+  desktop:space(2)
+  assertEqual(desktop.leaving[1], nil, "space() has nothing to leave initially")
+  desktop:settle()
+
+  desktop.windowManager.focus(10, 7, function() end, false, nil, 300)
+  assertEqual(desktop.leaving[2], nil, "focus() has nothing to leave before first native.focus")
+  desktop:settle()
+  -- Window 7 has now been handed to native.focus (still in flight).
+
+  -- Focusing window 8 on another Space leaves 7 even before 7's native.focus replies.
+  desktop.windowManager.focus(10, 8, function() end, false, nil, 400)
+  assertEqual(desktop.leaving[3], 7, "focus on another Space leaves last focused window")
+
+  -- Superseding 8 before its Space arrives never hands 8 to native.focus, so leaving stays 7.
+  desktop.windowManager.focus(10, 9, function() end, false, nil, 200)
+  assertEqual(desktop.leaving[4], 7, "unfocused superseded target does not replace leaving")
+  desktop:settle()
+  desktop.pendingFocus(true)
+
+  -- Focusing the same window (9) again on another Space must not mark it as leaving.
+  desktop.windowManager.focus(10, 9, function() end, false, nil, 300)
+  assertEqual(desktop.leaving[5], nil, "refocusing the same window passes no leaving window")
+  desktop:settle()
+  desktop.pendingFocus(true)
+
+  -- Expiring the settle timer and calling no-op space(3) keeps 9 as the leaving window.
+  for _, timer in ipairs(desktop.timers) do
+    if timer.active then
+      timer.active = false
+      timer.callback()
+    end
+  end
+  desktop:space(3)
+  assertEqual(#desktop.switches, 5, "no-op space() does not switch")
+  desktop:space(2)
+  assertEqual(desktop.leaving[6], 9, "space(index) leaves last focused window after settle")
+  desktop:settle()
+
+  -- A later switch without another focus must not report window 9 as left a second time.
+  desktop:space(4)
+  assertEqual(desktop.leaving[7], nil, "space(index) does not report the same left window twice")
+  desktop:settle()
+  desktop.windowManager.focus(10, 10, function() end, false, nil, 100)
+  assertEqual(desktop.leaving[8], nil, "later cross-Space focus does not re-report left window")
+  desktop:settle()
+  desktop.pendingFocus(true)
+
+  -- Direct windowManager.native.focus callers (space_focus, tiling) update the leaving window.
+  desktop.windowManager.native.focus(10, 9, function() end, 100)
+  assertEqual(desktop.focused, 9, "native.focus wrapper forwards id")
+  assertEqual(desktop.focusedSpace, 100, "native.focus wrapper forwards space")
+  desktop:space(2)
+  assertEqual(
+    desktop.leaving[9],
+    9,
+    "refocusing via windowManager.native.focus reports window again"
+  )
+  desktop:settle()
+
+  desktop.windowManager.native.focus(10, 12, function() end)
+  desktop.windowManager.focus(10, 13, function() end, false, nil, 300)
+  assertEqual(desktop.leaving[10], 12, "cross-Space focus reports window focused via native.focus")
+  desktop:settle()
+  desktop.pendingFocus(true)
+
+  -- Failed or cancelled unminimize must not overwrite the tracked leaving window.
+  desktop.minimizeError = "unminimize failed"
+  local failedResult
+  desktop.windowManager.focus(10, 14, function(ok, err)
+    failedResult = ok and "ok" or err
+  end, true, nil, 300)
+  assertEqual(failedResult, "unminimize failed")
+  desktop.minimizeError = nil
+
+  local live, cancelledResult = true, nil
+  desktop.minimizing = function()
+    live = false
+  end
+  desktop.windowManager.focus(
+    10,
+    15,
+    function(ok, err)
+      cancelledResult = ok and "ok" or err
+    end,
+    true,
+    function()
+      return live
+    end,
+    300
+  )
+  assertEqual(cancelledResult, "cancelled")
+  desktop.minimizing = nil
+
+  desktop:space(4)
+  assertEqual(desktop.leaving[11], 13, "failed and cancelled unminimizes preserve leaving window")
+  desktop:settle()
+
+  -- Successful minimized restore updates the tracked leaving window.
+  desktop.windowManager.focus(10, 16, function() end, true, nil, 400)
+  desktop.pendingFocus(true)
+  desktop:space(1)
+  assertEqual(desktop.leaving[12], 16, "restored minimized window is reported as leaving")
+  desktop:settle()
+
+  -- stop() clears the tracked leaving window.
+  desktop.windowManager.native.focus(10, 17, function() end, 100)
+  desktop.windowManager.stop()
+  desktop:space(2)
+  assertEqual(desktop.leaving[13], nil, "stop() clears leaving window")
+  desktop:settle()
+
+  -- Synchronous native.focus inside space(index)'s callback is kept for the next switch.
+  local sync = harness({ nativeDisplaySpaces = true })
+  sync.windowManager.native.focus(10, 50, function() end)
+  sync.windowManager.space(2, function(ok)
+    assertEqual(ok, true)
+    sync.windowManager.native.focus(10, 51, function() end)
+  end)
+  sync.windowManager.space(3)
+  assertEqual(sync.leaving[1], 50, "sync space() reports previous focused window")
+  assertEqual(sync.leaving[2], 51, "sync callback focus is preserved for next switch")
+
+  -- Fallback hs.spaces path also forwards leaving on cross-Space focus.
+  local fallback = harness()
+  fallback.windowSpace = 100
+  fallback.windowManager.focus(10, 41)
+  fallback.windowSpace = 300
+  fallback.windowManager.focus(10, 42)
+  assertEqual(fallback.leaving[1], 41, "hs.spaces fallback path forwards leaving window")
+end)
 
 print("RESULT " .. passed .. " passed, 0 failed")

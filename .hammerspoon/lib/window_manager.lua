@@ -29,7 +29,15 @@ local utils = require("lib.utils")
 ---@field displaySpaces? fun(): DisplaySpaces?, string?
 ---@field watchWindowSpaces? fun(callback?: WindowSpaceCallback): boolean, string?
 
-local native = utils.native("window_manager") --[[@as WindowManagerNative]]
+local raw = utils.native("window_manager") --[[@as WindowManagerNative]]
+---@type integer?
+local focused
+
+local native = setmetatable({}, { __index = raw }) --[[@as WindowManagerNative]]
+function native.focus(pid, id, done, space)
+  focused = id
+  raw.focus(pid, id, done, space)
+end
 
 ---@class WindowManager
 local windowManager = { native = native }
@@ -64,7 +72,9 @@ end
 ---@param index number Mission Control index
 ---@param done? WindowManagerDone
 ---@param layout? DisplaySpaces
-local function jumpTo(index, done, layout)
+---@param leaving? integer
+---@param reset? boolean
+local function jumpTo(index, done, layout, leaving, reset)
   done = done or function() end
   local targetID, display, current
   if not layout and native.displaySpaces then
@@ -122,6 +132,9 @@ local function jumpTo(index, done, layout)
   if native.cancelFocus then
     native.cancelFocus()
   end
+  if reset then
+    focused = nil
+  end
   local job = { done = done }
   switching = job
   job.cancel = dock.switch(targetID, function(ok, err)
@@ -129,14 +142,14 @@ local function jumpTo(index, done, layout)
       switching = nil
       job.done(ok, err)
     end
-  end)
+  end, leaving)
 end
 
 ---@param index number Mission Control index
 ---@param done? WindowManagerDone
 function windowManager.space(index, done)
   clearSettled()
-  jumpTo(index, done)
+  jumpTo(index, done, nil, focused, true)
 end
 
 ---@param id integer
@@ -212,6 +225,7 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
       complete(false, failure)
     end
   end
+  local leaving = focused ~= id and focused or nil
   if native.displaySpaces then
     local layout, err = native.displaySpaces()
     if not layout then
@@ -230,7 +244,7 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
       show()
       return
     end
-    jumpTo(entry.index, arrive, layout)
+    jumpTo(entry.index, arrive, layout, leaving)
     return
   end
   local display = hs.spaces.spaceDisplay(space)
@@ -248,7 +262,7 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
   end
   for index, row in ipairs(utils.spaces() or {}) do
     if row.ManagedSpaceID == space then
-      jumpTo(index, arrive)
+      jumpTo(index, arrive, nil, leaving)
       return
     end
   end
@@ -320,6 +334,7 @@ native.windows(function() end)
 
 function windowManager.stop()
   focusing = nil
+  focused = nil
   clearSettled()
   if watchingSpaces and native.watchWindowSpaces then
     watchingSpaces = false
