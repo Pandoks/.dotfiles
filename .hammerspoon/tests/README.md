@@ -23,10 +23,7 @@ opposite edge at the screen's edge, mouse resizes that move the dragged edges' s
 release, balance, a column mode that keeps equal widths as windows open and close, zoom,
 and float. The window manager suite checks
 direct Space switches through `lib.dock`, rapid back-to-back switches without wait locks,
-deferred-load superseding and shutdown cancellation, fast failures, `native.displaySpaces` caching,
-and per-app focus serialization (remembering only the newest same-app request until an in-flight
-restore or focus finishes so the Space never switches under it, while other apps proceed
-immediately, and honouring `live`, Space lookup on start, and `stop()`).
+deferred-load superseding and shutdown cancellation, fast failures, and `native.displaySpaces` caching.
 A minimized window on another Space is restored only once that Space shows; restored earlier,
 macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds

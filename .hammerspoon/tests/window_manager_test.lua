@@ -25,8 +25,6 @@ local function harness(options)
     steps = 0,
     switches = {},
     inflight = {},
-    focuses = {},
-    minimizes = {},
     results = {},
     timers = {},
     order = {},
@@ -54,11 +52,10 @@ local function harness(options)
       desktop.calls.spaces = desktop.calls.spaces + 1
       return { [ids[1]] = desktop.windowSpace }
     end,
-    focus = function(pid, id, done, space)
+    focus = function(_, id, done, space)
       desktop.focused = id
       desktop.focusedSpace = space
       desktop.order[#desktop.order + 1] = "focus on " .. desktop.current
-      desktop.focuses[#desktop.focuses + 1] = { pid = pid, id = id, done = done, space = space }
       if options and options.deferFocus then
         desktop.pendingFocus = done
         return
@@ -68,23 +65,13 @@ local function harness(options)
     cancelFocus = function()
       desktop.calls.cancelFocus = desktop.calls.cancelFocus + 1
     end,
-    minimize = function(pid, id, minimized, done)
+    minimize = function(_, _, minimized, done)
       desktop.order[#desktop.order + 1] = "minimized="
         .. tostring(minimized)
         .. " on "
         .. desktop.current
-      desktop.minimizes[#desktop.minimizes + 1] = {
-        pid = pid,
-        id = id,
-        minimized = minimized,
-        done = done,
-      }
       if desktop.minimizing then
         desktop.minimizing()
-      end
-      if options and options.deferMinimize then
-        desktop.pendingMinimize = done
-        return
       end
       done(true)
     end,
@@ -577,277 +564,5 @@ test(
     assertEqual(desktop.focused, 2)
   end
 )
-
-test(
-  "same-pid focus waits for in-flight native focus or restore, suppresses stale failure, and resolves Space on start",
-  function()
-    local desktop = harness({ nativeDisplaySpaces = true, deferFocus = true })
-    local firstResult, firstCalls = nil, 0
-    local secondResult, secondCalls = nil, 0
-    desktop.windowManager.focus(10, 1, function(ok, err)
-      firstCalls = firstCalls + 1
-      firstResult = ok and "ok" or err
-    end, false, nil, 300)
-    assertEqual(#desktop.switches, 1)
-    assertEqual(desktop.current, 300)
-    assertEqual(#desktop.focuses, 1)
-    local cancelsAfterFirst = desktop.calls.cancelFocus
-
-    -- Same pid while native.focus is in flight: no switch, cancel, Space lookup, or native call.
-    desktop.windowSpace = 200
-    desktop.windowManager.focus(10, 2, function(ok, err)
-      secondCalls = secondCalls + 1
-      secondResult = ok and "ok" or err
-    end, true)
-    assertEqual(#desktop.switches, 1, "does not switch Space under in-flight same-pid focus")
-    assertEqual(desktop.current, 300)
-    assertEqual(desktop.calls.cancelFocus, cancelsAfterFirst, "does not cancel in-flight focus")
-    assertEqual(#desktop.focuses, 1, "does not call native.focus while same pid is in flight")
-    assertEqual(#desktop.minimizes, 0, "does not call native.minimize while same pid is in flight")
-    assertEqual(desktop.calls.spaces, 0, "defers Space lookup until remembered request starts")
-    assertEqual(desktop.windowManager.isBusy(), true, "stays busy while request is remembered")
-    assertEqual(desktop.windowManager.focusedTarget().id, 2, "target tracks newest request")
-    assertEqual(desktop.windowManager.focusedTarget().pid, 10)
-    assertEqual(firstCalls, 0)
-    assertEqual(secondCalls, 0)
-
-    -- Space changes before the remembered request starts; in-flight failure stays silent.
-    desktop.windowSpace = 400
-    desktop.focuses[1].done(false, "raise failed (-25204)")
-    assertEqual(firstCalls, 1)
-    assertEqual(firstResult, "superseded", "superseded in-flight failure is reported silently")
-    assertEqual(desktop.calls.spaces, 1, "looks up Space when remembered request starts")
-    assertEqual(#desktop.switches, 2, "switches Space once in-flight focus returns")
-    assertEqual(desktop.switches[2], 400, "uses Space looked up on start")
-    assertEqual(desktop.current, 400)
-    assertEqual(#desktop.minimizes, 1, "honours remembered minimized flag")
-    assertEqual(#desktop.focuses, 2)
-    assertEqual(desktop.focuses[2].id, 2)
-    assertEqual(desktop.focuses[2].space, 400)
-    assertEqual(desktop.windowManager.focusedTarget().space, 400)
-    assertEqual(
-      table.concat(desktop.order, ", "),
-      "focus on 300, minimized=false on 400, focus on 400"
-    )
-
-    desktop.focuses[2].done(true)
-    assertEqual(secondCalls, 1)
-    assertEqual(secondResult, "ok")
-    assertEqual(desktop.windowManager.isBusy(), false)
-    assertEqual(desktop.windowManager.isBusy(400), true)
-    assertEqual(desktop.windowManager.isBusy(nil, 10), true)
-    assertEqual(desktop.windowManager.focusedTarget().id, 2)
-
-    -- In-flight native.minimize also holds a same-pid request and skips raising the stale window.
-    local restore = harness({ nativeDisplaySpaces = true, deferFocus = true, deferMinimize = true })
-    local minFirst, minSecond
-    restore.windowManager.focus(10, 5, function(ok, err)
-      minFirst = ok and "ok" or err
-    end, true, nil, 200)
-    assertEqual(#restore.minimizes, 1)
-    assertEqual(#restore.focuses, 0)
-    local restoreCancels = restore.calls.cancelFocus
-
-    restore.windowManager.focus(10, 6, function(ok, err)
-      minSecond = ok and "ok" or err
-    end, false, nil, 300)
-    assertEqual(#restore.switches, 1, "does not switch Space under in-flight native.minimize")
-    assertEqual(restore.calls.cancelFocus, restoreCancels)
-    assertEqual(#restore.focuses, 0)
-
-    restore.minimizes[1].done(true)
-    assertEqual(minFirst, "superseded")
-    assertEqual(#restore.switches, 2)
-    assertEqual(restore.switches[2], 300)
-    assertEqual(#restore.focuses, 1, "skips native.focus for superseded minimized window")
-    assertEqual(restore.focuses[1].id, 6)
-    restore.focuses[1].done(true)
-    assertEqual(minSecond, "ok")
-  end
-)
-
-test(
-  "replacing a remembered same-pid focus supersedes it once, and a different pid proceeds immediately",
-  function()
-    local desktop = harness({ nativeDisplaySpaces = true, deferFocus = true })
-    local results, counts = {}, { 0, 0, 0, 0 }
-    local function record(slot)
-      return function(ok, err)
-        counts[slot] = counts[slot] + 1
-        results[slot] = ok and "ok" or err
-      end
-    end
-
-    desktop.windowManager.focus(10, 1, record(1), false, nil, 300)
-    desktop.windowManager.focus(10, 2, record(2), false, nil, 200)
-    desktop.windowManager.focus(10, 3, record(3), false, nil, 400)
-    assertEqual(results[2], "superseded", "replaced remembered request finishes superseded")
-    assertEqual(counts[2], 1, "replaced request callback runs once")
-    assertEqual(#desktop.switches, 1)
-    assertEqual(#desktop.focuses, 1)
-    assertEqual(desktop.windowManager.focusedTarget().id, 3)
-    assertEqual(desktop.windowManager.focusedTarget().space, 400)
-
-    desktop.focuses[1].done(true)
-    assertEqual(counts[1], 1)
-    assertEqual(results[1], "ok", "an in-flight success is still reported")
-    assertEqual(counts[2], 1, "replaced request is not called again")
-    assertEqual(desktop.calls.spaces, 0, "remembered knownSpace skips native.spaces")
-    assertEqual(#desktop.switches, 2)
-    assertEqual(desktop.switches[2], 400)
-    assertEqual(#desktop.focuses, 2)
-    assertEqual(desktop.focuses[2].id, 3)
-
-    -- Different pid proceeds immediately while pid 10 is still in flight.
-    desktop.windowManager.focus(20, 9, record(4), false, nil, 200)
-    assertEqual(#desktop.switches, 3, "different pid switches Space immediately")
-    assertEqual(desktop.switches[3], 200)
-    assertEqual(#desktop.focuses, 3, "different pid calls native.focus immediately")
-    assertEqual(desktop.focuses[3].pid, 20)
-    assertEqual(desktop.focuses[3].id, 9)
-    assertEqual(desktop.windowManager.focusedTarget().id, 9)
-    assertEqual(desktop.windowManager.focusedTarget().pid, 20)
-
-    desktop.focuses[3].done(true)
-    assertEqual(results[4], "ok")
-    desktop.focuses[2].done(false, "raise failed (-25204)")
-    assertEqual(results[3], "superseded")
-    assertEqual(desktop.windowManager.focusedTarget().id, 9)
-
-    -- A different-pid request also supersedes a remembered same-pid request so it never hijacks later.
-    local cross = harness({ nativeDisplaySpaces = true, deferFocus = true })
-    local crossResults, crossCounts = {}, { 0, 0, 0 }
-    local function crossRecord(slot)
-      return function(ok, err)
-        crossCounts[slot] = crossCounts[slot] + 1
-        crossResults[slot] = ok and "ok" or err
-      end
-    end
-    cross.windowManager.focus(10, 1, crossRecord(1), false, nil, 300)
-    cross.windowManager.focus(10, 2, crossRecord(2), false, nil, 200)
-    cross.windowManager.focus(20, 9, crossRecord(3), false, nil, 400)
-    assertEqual(crossResults[2], "superseded")
-    assertEqual(crossCounts[2], 1)
-    assertEqual(#cross.switches, 2)
-    assertEqual(cross.switches[2], 400)
-    assertEqual(#cross.focuses, 2)
-    assertEqual(cross.focuses[2].pid, 20)
-
-    cross.focuses[1].done(true)
-    assertEqual(crossCounts[2], 1)
-    assertEqual(#cross.switches, 2, "old pid completion does not replay superseded request")
-    assertEqual(#cross.focuses, 2)
-    cross.focuses[2].done(true)
-    assertEqual(crossResults[3], "ok")
-  end
-)
-
-test(
-  "remembered same-pid focus honours live cancellation without switching and clears on stop",
-  function()
-    local desktop = harness({ nativeDisplaySpaces = true, deferFocus = true })
-    local live = true
-    local firstResult, secondResult, secondCalls = nil, nil, 0
-    desktop.windowManager.focus(10, 1, function(ok, err)
-      firstResult = ok and "ok" or err
-    end, false, nil, 300)
-    desktop.windowSpace = 200
-    desktop.windowManager.focus(
-      10,
-      2,
-      function(ok, err)
-        secondCalls = secondCalls + 1
-        secondResult = ok and "ok" or err
-      end,
-      false,
-      function()
-        return live
-      end
-    )
-    local cancelsBefore = desktop.calls.cancelFocus
-    live = false
-    desktop.focuses[1].done(true)
-    assertEqual(firstResult, "ok")
-    assertEqual(secondCalls, 1)
-    assertEqual(secondResult, "cancelled")
-    assertEqual(#desktop.switches, 1, "cancelled remembered request does not switch Space")
-    assertEqual(desktop.current, 300)
-    assertEqual(desktop.calls.spaces, 0, "cancelled remembered request does not look up Space")
-    assertEqual(desktop.calls.cancelFocus, cancelsBefore)
-    assertEqual(#desktop.focuses, 1)
-    assertEqual(desktop.windowManager.isBusy(), false)
-    assertEqual(desktop.windowManager.focusedTarget(), nil)
-
-    -- stop() finishes a remembered request with stopped and leaves nothing behind.
-    local stopCase = harness({ nativeDisplaySpaces = true, deferFocus = true })
-    local thirdResult, fourthResult, fourthCalls = nil, nil, 0
-    stopCase.windowManager.focus(10, 3, function(ok, err)
-      thirdResult = ok and "ok" or err
-    end, false, nil, 300)
-    stopCase.windowManager.focus(10, 4, function(ok, err)
-      fourthCalls = fourthCalls + 1
-      fourthResult = ok and "ok" or err
-    end, false, nil, 200)
-    assertEqual(stopCase.windowManager.isBusy(), true)
-    assertEqual(stopCase.windowManager.focusedTarget().id, 4)
-
-    stopCase.windowManager.stop()
-    assertEqual(fourthCalls, 1)
-    assertEqual(fourthResult, "stopped")
-    assertEqual(stopCase.windowManager.isBusy(), false)
-    assertEqual(stopCase.windowManager.focusedTarget(), nil)
-
-    stopCase.focuses[1].done(true)
-    assertEqual(thirdResult, "ok")
-    assertEqual(fourthCalls, 1, "late callback does not re-run stopped request")
-    assertEqual(#stopCase.switches, 1)
-    assertEqual(#stopCase.focuses, 1)
-    assertEqual(stopCase.windowManager.isBusy(), false)
-
-    -- A new same-pid request after stop() proceeds immediately.
-    local fifthResult
-    stopCase.windowManager.focus(10, 5, function(ok, err)
-      fifthResult = ok and "ok" or err
-    end, false, nil, 400)
-    assertEqual(#stopCase.switches, 2)
-    assertEqual(stopCase.switches[2], 400)
-    assertEqual(#stopCase.focuses, 2)
-    stopCase.focuses[2].done(true)
-    assertEqual(fifthResult, "ok")
-  end
-)
-
-test("a remembered focus starts only behind its own app and a Space switch drops it", function()
-  local desktop = harness({ nativeDisplaySpaces = true, deferFocus = true })
-  local results = {}
-  local function record(slot)
-    return function(ok, err)
-      results[slot] = ok and "ok" or err
-    end
-  end
-  desktop.windowManager.focus(10, 1, record(1), false, nil, 300)
-  desktop.windowManager.focus(20, 9, record(2), false, nil, 200)
-  desktop.windowManager.focus(20, 8, record(3), false, nil, 400)
-  assertEqual(#desktop.focuses, 2, "the second app's second request is remembered")
-  desktop.focuses[1].done(true)
-  assertEqual(#desktop.focuses, 2, "another app finishing does not start it")
-  assertEqual(#desktop.switches, 2)
-  desktop.focuses[2].done(true)
-  assertEqual(desktop.focuses[3].id, 8, "its own app finishing starts it")
-  assertEqual(desktop.switches[3], 400)
-  desktop.focuses[3].done(true)
-  assertEqual(results[3], "ok")
-
-  desktop.windowManager.focus(10, 1, record(4), false, nil, 300)
-  desktop.windowManager.focus(10, 2, record(5), false, nil, 200)
-  desktop:space(1)
-  assertEqual(results[5], "superseded", "a direct Space switch drops the remembered request")
-  assertEqual(desktop.windowManager.focusedTarget(), nil)
-  local switches, focuses = #desktop.switches, #desktop.focuses
-  desktop.focuses[focuses].done(true)
-  assertEqual(#desktop.switches, switches, "the dropped request never switches the Space back")
-  assertEqual(#desktop.focuses, focuses)
-  assertEqual(desktop.windowManager.isBusy(), false)
-end)
 
 print("RESULT " .. passed .. " passed, 0 failed")

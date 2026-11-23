@@ -17,11 +17,6 @@ local utils = require("lib.utils")
 ---@field active table<string, integer>
 ---@field bySpace table<integer, DisplaySpaceEntry>
 
----@class FocusTarget
----@field space? integer
----@field pid integer
----@field id integer
-
 ---@class WindowManagerNative
 ---@field move fun(right: boolean, count: integer, x: number, y: number): boolean, string?
 ---@field focus fun(pid: integer, id: integer, done?: WindowManagerDone, space?: integer)
@@ -41,14 +36,10 @@ local windowManager = { native = native }
 
 ---@type { done: WindowManagerDone, cancel?: fun() }?
 local switching
----@type FocusTarget?
+---@type { space?: integer, pid: integer, id: integer }?
 local focusing
 ---@type { space?: integer, pid: integer, id: integer, timer?: hs.timer }?
 local settled
----@type table<integer, FocusTarget>
-local running = {}
----@type { job: FocusTarget, done: WindowManagerDone, minimized?: boolean, live?: fun(): boolean }?
-local pending
 
 local function clearSettled()
   if settled and settled.timer then
@@ -145,11 +136,6 @@ end
 ---@param done? WindowManagerDone
 function windowManager.space(index, done)
   clearSettled()
-  local queued = pending
-  if queued then
-    pending, focusing = nil, nil
-    queued.done(false, "superseded")
-  end
   jumpTo(index, done)
 end
 
@@ -159,23 +145,25 @@ function windowManager.spaceOf(id)
   return native.spaces({ id })[id]
 end
 
----@param job FocusTarget
----@param done WindowManagerDone
----@param minimized? boolean
----@param live? fun(): boolean
-local function start(job, done, minimized, live)
-  local pid, id = job.pid, job.id
+---@param pid integer
+---@param id integer
+---@param done? WindowManagerDone
+---@param minimized? boolean unminimize once its Space shows; earlier, macOS animates there itself
+---@param live? fun(): boolean false cancels the remaining steps
+---@param knownSpace? integer
+function windowManager.focus(pid, id, done, minimized, live, knownSpace)
+  done = done or function() end
+  local space = knownSpace or windowManager.spaceOf(id)
+  local job = { space = space, pid = pid, id = id }
+  focusing = job
+  clearSettled()
   local function complete(ok, err)
     local current = focusing == job
     if current then
       focusing = nil
     end
-    local active = running[pid] == job
-    if active then
-      running[pid] = nil
-    end
     if ok and current then
-      local entry = { space = job.space, pid = pid, id = id }
+      local entry = { space = space, pid = pid, id = id }
       settled = entry
       entry.timer = hs.timer.doAfter(0.3, function()
         if settled == entry then
@@ -183,23 +171,8 @@ local function start(job, done, minimized, live)
         end
       end)
     end
-    -- A failure of a request the owner has moved on from is not theirs to see.
-    if not current and not ok and err ~= "stopped" then
-      err = "superseded"
-    end
     done(ok, err)
-    if active and pending and pending.job.pid == pid then
-      local queued = pending
-      pending = nil
-      start(queued.job, queued.done, queued.minimized, queued.live)
-    end
   end
-  if live and not live() then
-    complete(false, "cancelled")
-    return
-  end
-  local space = job.space or windowManager.spaceOf(id)
-  job.space = space
   local function cancelled()
     if live and not live() then
       if native.cancelFocus then
@@ -213,16 +186,12 @@ local function start(job, done, minimized, live)
     if cancelled() then
       return
     elseif not minimized then
-      running[pid] = job
       native.focus(pid, id, complete, space)
       return
     end
-    running[pid] = job
     native.minimize(pid, id, false, function(ok, err)
       if not ok then
         complete(false, err)
-      elseif focusing ~= job then
-        complete(false, "superseded")
       elseif not cancelled() then
         native.focus(pid, id, complete, space)
       end
@@ -286,38 +255,6 @@ local function start(job, done, minimized, live)
   complete(false, "window Space unavailable")
 end
 
----@param pid integer
----@param id integer
----@param done? WindowManagerDone
----@param minimized? boolean unminimize once its Space shows; earlier, macOS animates there itself
----@param live? fun(): boolean false cancels the remaining steps
----@param knownSpace? integer
-function windowManager.focus(pid, id, done, minimized, live, knownSpace)
-  done = done or function() end
-  local job = { space = knownSpace, pid = pid, id = id }
-  focusing = job
-  clearSettled()
-  local replaced = pending
-  -- Wait for an in-flight same-app focus so macOS does not follow a stale raise across Spaces.
-  if running[pid] then
-    pending = { job = job, done = done, minimized = minimized, live = live }
-    if switching then
-      cancel("superseded")
-    end
-    if replaced then
-      replaced.done(false, "superseded")
-    end
-    return
-  end
-  pending = nil
-  if replaced then
-    replaced.done(false, "superseded")
-  end
-  if focusing == job then
-    start(job, done, minimized, live)
-  end
-end
-
 ---@param space? integer
 ---@param pid? integer
 ---@return boolean
@@ -334,7 +271,7 @@ function windowManager.isBusy(space, pid)
   return false
 end
 
----@return FocusTarget?
+---@return { space?: integer, pid: integer, id: integer }?
 function windowManager.focusedTarget()
   return focusing or settled
 end
@@ -384,9 +321,6 @@ native.windows(function() end)
 function windowManager.stop()
   focusing = nil
   clearSettled()
-  running = {}
-  local queued = pending
-  pending = nil
   if watchingSpaces and native.watchWindowSpaces then
     watchingSpaces = false
     spaceListeners = {}
@@ -396,9 +330,6 @@ function windowManager.stop()
     native.cancelFocus()
   end
   cancel("stopped")
-  if queued then
-    queued.done(false, "stopped")
-  end
 end
 
 return windowManager
