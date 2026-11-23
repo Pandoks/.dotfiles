@@ -23,14 +23,16 @@ opposite edge at the screen's edge, mouse resizes that move the dragged edges' s
 release, balance, a column mode that keeps equal widths as windows open and close, zoom,
 and float. The window manager suite checks
 direct Space switches through `lib.dock`, rapid back-to-back switches without wait locks,
-deferred-load superseding and shutdown cancellation, fast failures, and `native.displaySpaces` caching.
+deferred-load superseding and shutdown cancellation, fast failures, `native.displaySpaces` caching,
+and per-app focus serialization (remembering only the newest same-app request until an in-flight
+restore or focus finishes so the Space never switches under it, while other apps proceed
+immediately, and honouring `live`, Space lookup on start, and `stop()`).
 A minimized window on another Space is restored only once that Space shows; restored earlier,
 macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
 The Dock suite (`dock_test.lua`) checks persistent message-port caching, invalidation recovery,
-error replies, queued injection, the load-time `workspaces-auto-swoosh` preference check, and
-shutdown.
+error replies, queued injection, and shutdown.
 Neither touches the real window server; the native Dock helper, focus, and Accessibility calls in
 `lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` were checked live on macOS 27.0.1.
 

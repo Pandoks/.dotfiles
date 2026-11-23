@@ -109,13 +109,6 @@ Some features need [SIP] partially disabled.
 
 </details>
 
-Disable Dock auto-swoosh so macOS does not animate back when switching rapidly
-between windows of the same app on different Spaces:
-
-```sh
-defaults write com.apple.dock workspaces-auto-swoosh -bool NO && killall Dock
-```
-
 ## Bootstrap
 
 ```sh

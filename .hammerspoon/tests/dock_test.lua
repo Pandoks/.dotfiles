@@ -29,7 +29,6 @@ local function harness(options)
     deletes = 0,
     sends = {},
     injects = 0,
-    reads = 0,
     tasks = {},
     errors = {},
     handles = {},
@@ -77,16 +76,6 @@ local function harness(options)
       execute = function()
         return state.devEnabled and "Developer mode is currently enabled.\n" or "disabled\n"
       end,
-      plist = {
-        read = function(path)
-          assertEqual(path, os.getenv("HOME") .. "/Library/Preferences/com.apple.dock.plist")
-          state.reads = state.reads + 1
-          if options.preferences == nil then
-            return { ["workspaces-auto-swoosh"] = false }
-          end
-          return options.preferences or nil
-        end,
-      },
       task = {
         new = function(path, callback, args)
           state.injects = state.injects + 1
@@ -298,32 +287,6 @@ test("cold load queues multiple callers behind one inject and stop cleans up", f
   state.dock.stop()
   assertEqual(pendingTask.terminated, true)
   assertEqual(state.handles[1].deleted, true)
-end)
-
-test("loading reports auto-swoosh unless it is boolean false, once, and still switches", function()
-  local command = "defaults write com.apple.dock workspaces-auto-swoosh -bool NO && killall Dock"
-  local cases = {
-    { name = "off", preferences = { ["workspaces-auto-swoosh"] = false }, reported = 0 },
-    { name = "on", preferences = { ["workspaces-auto-swoosh"] = true }, reported = 1 },
-    { name = "unset", preferences = {}, reported = 1 },
-    { name = "string", preferences = { ["workspaces-auto-swoosh"] = "0" }, reported = 1 },
-    { name = "unreadable", preferences = false, reported = 1 },
-  }
-  for _, case in ipairs(cases) do
-    local state = harness({ preferences = case.preferences })
-    assertEqual(#state.errors, case.reported, case.name .. " reported at load")
-    if case.reported == 1 then
-      assert(state.errors[1]:find(command, 1, true), case.name .. " names the command")
-    end
-    local ok
-    state.dock.switch(4, function(status)
-      ok = status
-    end)
-    assertEqual(ok, true, case.name .. " still switches")
-    assertEqual(state.sends[1].payload, "switch 4", case.name .. " reaches the Dock")
-    assertEqual(state.reads, 1, case.name .. " read once")
-    assertEqual(#state.errors, case.reported, case.name .. " not reported again")
-  end
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")
