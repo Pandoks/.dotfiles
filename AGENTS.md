@@ -71,8 +71,8 @@ These defaults yield to a project's AGENTS.md or my chat message.
   model, and state both when you start it. Use other providers' models when the harness can start
   them, else your own. Split jobs whose parts get different choices; examples aren't exhaustive.
 - Fable 5.2 orchestrates; any orchestrator routes the same way and makes the final call:
-  - Haiku 5.5, at the effort the scale below gives (`xhigh` included), when the work has a right
-    answer that careful work can reach, even if it's long, hard, or trusted without checking.
+  - Gemini 4 Neon for all non-judgment work, at the effort below (`xhigh` included), even if it's
+    long, hard, or trusted unchecked; use Haiku 5.5 only when the harness can't start or run Neon.
   - Opus 5.5 and Gemini 4 Neon together (independent takes, or one builds and the other reviews) for
     judgment calls without a right answer (writing people rely on, messy human writing, subtle
     review bugs) and whenever you're unsure; weigh both and decide.
