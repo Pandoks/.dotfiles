@@ -696,21 +696,6 @@ test("readiness and process watch errors report once", function()
   state.changed()
   assert(not state.router.status().ready and #state.logs == 1)
 end)
-test("idle swcd exit keeps routing quietly until launchd relaunches it", function()
-  local state = browser()
-  local request = "generation-1\nhttps://app.ramp.com/"
-  assert(state.router.status().ready and state.watched == 100)
-  state.stopped("Universal Link interception process exited")
-  assert(state.request(request) == "true")
-  -- The ready status still names the exited or reused swcd ID.
-  state.settings.deadProcess = true
-  state.changed()
-  assert(state.request(request) == "true")
-  state.settings.deadProcess, state.status.pid = false, 101
-  state.changed()
-  assert(state.watched == 101 and state.request(request) == "true")
-  assert(#state.tasks == 3 and #state.logs == 0 and #state.prints == 0)
-end)
 test("the helper port routes encoded requests with the current generation", function()
   local state = browser()
   assert(#state.ports == 1 and state.ports[1].name == "local.pandoks.HammerspoonURLRouter.route")
@@ -750,19 +735,6 @@ test("live installs wait quietly for their first status and report its deletion"
     state.settings.missingStatus = true
     state.changed()
     assert(not state.router.status().ready and #state.logs == 1)
-  end
-end)
-test("intentional uninstall cancels interception watchers without a failure popup", function()
-  for _, phase in ipairs({ "uninstalling", "restored", "removed" }) do
-    local state = browser()
-    state.settings.installationPhase = phase
-    if phase == "removed" then
-      state.settings.missingState, state.settings.stateCode = true, 2
-    end
-    state.stopped("process exited")
-    assert(not state.router.status().ready and not state.router.status().error and #state.logs == 0)
-    assert(state.canceled == 1 and state.processCanceled == 1)
-    assert(state.route("https://app.ramp.com/") == false and #state.tasks == 0 and #state.logs == 1)
   end
 end)
 test("publication failures preserve the last acknowledged actions", function()

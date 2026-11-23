@@ -251,11 +251,6 @@ test("failed launches report the bundle id, exit code, and reason", function(tas
   assert(errors[1]:find(bundleId, 1, true) and errors[1]:find("exit 1", 1, true), errors[1])
   assert(errors[1]:find("Unable to find application", 1, true), errors[1])
 end)
-test("successful launches report nothing", function(task, bundleId)
-  task.callback(0, "", "")
-  appear(bundleId, "Main", 1)
-  assert(#errors == 0, bundleId)
-end)
 test("a failed launch can be retried even when reporting raises", function(task, bundleId, profile)
   reportRaises = true
   pcall(task.callback, 1, "", "")

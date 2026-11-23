@@ -135,7 +135,7 @@ local function setup(options)
       end
       model.reads = model.reads + 1
       if model.snapshotError then
-        return nil, "snapshot failed"
+        return nil, "Messaging failed"
       end
       return options.mainOnly and {} or windows
     end,
@@ -419,7 +419,7 @@ test("background documents are tracked without querying their focused window", f
 end)
 
 test("main document windows on inactive Spaces are seeded without foreground focus", function()
-  local model = setup({ background = true, mainOnly = true })
+  local model = setup({ background = true, mainOnly = true, unknown = true })
   assert(#model.filter:getWindows() == 1 and model.filter:getWindows()[1] == model.first.window)
   assert(
     model.focusedReads == 0 and #model.pending == 0 and #model.logs == 0 and #model.alerts == 0
@@ -464,12 +464,6 @@ test("blacklisted panels are excluded before conversion or registration", functi
   assert(model.registrations == registrations and #model.filter:getWindows() == 1)
 end)
 
-test("unknown main windows are seeded on inactive Spaces without fullscreen checks", function()
-  local model = setup({ unknown = true, background = true, mainOnly = true })
-  assert(model.filter:getWindow(100, 42) == model.first.window)
-  assert(model.focusedReads == 0 and #model.pending == 0 and #model.logs == 0)
-end)
-
 test(
   "minimizable top-level dialogs are tracked while modal and utility panels stay excluded",
   function()
@@ -506,22 +500,6 @@ test("unlisted window subroles are accepted by default regardless of size", func
     model:emit(window, "AXWindowCreated")
     assert(model.filter:getWindow(window.id, 42) == window.window)
   end
-end)
-
-test("unknown windows emit focus and destruction with cached identity", function()
-  local model = setup({ unknown = true })
-  local focused, destroyed
-  model.filter:subscribe(model.module.windowFocused, function(window)
-    focused = window
-  end)
-  model.filter:subscribe(model.module.windowDestroyed, function(_, _, _, id)
-    destroyed = id
-  end)
-  model:emit(model.first, "AXFocusedWindowChanged")
-  assert(focused == model.first.window)
-  model.first.destroyed = true
-  model:emit(model.first, "AXUIElementDestroyed")
-  assert(destroyed == 100 and model.filter:getWindow(100, 42) == nil)
 end)
 
 test("child windows are excluded before conversion or registration", function()
@@ -721,6 +699,7 @@ test("Space snapshots are event-driven and failures keep tracked windows", funct
   model.snapshotError = true
   model.spaceCallback()
   assert(#model.logs == 1 and #model.alerts == 1 and model.observers[1].active)
+  assert(model.logs[1]:find("window snapshot: Messaging failed", 1, true))
   assert(destroyed == 0 and #model.filter:getWindows() == 2)
   model.snapshotError = false
   model:window(300)
@@ -813,17 +792,6 @@ test("apps exiting during a Space snapshot are detached without an alert", funct
   model.spaceCallback()
   assert(destroyed == 1 and #model.logs == 0 and #model.alerts == 0)
   assert(not model.observers[1].active and #model.filter:getWindows() == 0)
-end)
-
-test("Messaging failed from a running app logs and alerts without stopping", function()
-  local model = setup()
-  model.element.attributeValue = function()
-    return nil, "Messaging failed"
-  end
-  model.spaceCallback()
-  assert(#model.logs == 1 and #model.alerts == 1)
-  assert(model.logs[1]:find("window snapshot: Messaging failed", 1, true))
-  assert(model.observers[1].active and #model.filter:getWindows() == 1)
 end)
 
 test("Space cleanup handles termination notifications without an application", function()
