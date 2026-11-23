@@ -65,6 +65,11 @@ local function harness(options)
     logs = {},
     alerts = {},
     busy = false,
+    managerBusy = false,
+    busyChecks = {},
+    standardReads = 0,
+    missionControlReads = 0,
+    screenReads = 0,
     recent = {},
     visible = {},
     accessibilityReads = {},
@@ -196,6 +201,7 @@ local function harness(options)
     end
     local methods = {
       isStandard = function()
+        desktop.standardReads = desktop.standardReads + 1
         return true
       end,
       isMinimized = function()
@@ -255,7 +261,7 @@ local function harness(options)
       self.spaceCallback()
     end
     if self.focusCallback then
-      self.focusCallback(window(id))
+      self.focusCallback(window(id), row and row.app, 1, id)
     end
   end
   function desktop:activate(id, pid)
@@ -321,6 +327,18 @@ local function harness(options)
     }
   end
   local windowManager, pending = { native = {} }, nil
+  if not options.noManagerBusy then
+    function windowManager.isBusy(space, pid)
+      desktop.busyChecks[#desktop.busyChecks + 1] = { space = space, pid = pid }
+      if type(desktop.managerBusy) == "function" then
+        return desktop.managerBusy(space, pid)
+      end
+      return desktop.managerBusy or pending ~= nil
+    end
+  end
+  function windowManager.focusedTarget()
+    return desktop.focusedTarget
+  end
   function windowManager.space(index, done)
     desktop.writes[#desktop.writes + 1] = { "space", index }
     local id = spaces[index].ManagedSpaceID
@@ -488,6 +506,7 @@ local function harness(options)
     },
     screen = {
       find = function(name)
+        desktop.screenReads = desktop.screenReads + 1
         local frame = screens[name]
         return frame
           and {
@@ -499,6 +518,12 @@ local function harness(options)
             end,
           }
       end,
+      watcher = not options.noScreenWatcher and {
+        new = function(callback)
+          desktop.screenCallback = callback
+          return object()
+        end,
+      } or nil,
     },
     mouse = {
       absolutePosition = function()
@@ -703,6 +728,7 @@ local function harness(options)
       elseif name == "lib.mission_control" then
         return {
           isActive = function()
+            desktop.missionControlReads = desktop.missionControlReads + 1
             if desktop.beforeMissionControl then
               local callback = desktop.beforeMissionControl
               desktop.beforeMissionControl = nil
@@ -1925,4 +1951,900 @@ test("shutdown stops arrow interception", function()
   assertEqual(desktop.module.keys:isEnabled(), false)
   assertEqual(desktop:key("keyDown", "right", { ctrl = true }), false)
 end)
+
+test("windowManager.isBusy suppresses competing protect during external Space jumps", function()
+  local desktop = harness()
+  desktop.managerBusy = true
+  desktop.space = 202
+  desktop.focused = 50
+  desktop.spaceCallback()
+  desktop:advance(0.3)
+  assertEqual(desktop:countFocus(), 0)
+  assertEqual(desktop.lists, 0)
+  assertEqual(desktop.missionControlReads, 0)
+  -- Once the external jump finishes, Space 202 is already recorded in lastSpace.
+  desktop.managerBusy = false
+  desktop.spaceCallback()
+  desktop:advance(0.3)
+  assertEqual(desktop:countFocus(), 0)
+  assertEqual(desktop.lists, 0)
+  -- Activation and focus events while busy also skip snapshots and retakes.
+  desktop.managerBusy = true
+  desktop.space = 101
+  desktop:activate(50)
+  desktop:focus(50)
+  desktop:advance(0.3)
+  assertEqual(desktop:countFocus(), 0)
+  assertEqual(desktop.lists, 0)
+  -- switchSpace() still arrives and restores focus when windowManager.isBusy() is true.
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  assertEqual(desktop.space, 202)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop:countFocus(), 1)
+  -- Works standalone when windowManager.isBusy is absent.
+  local standalone = harness({ noManagerBusy = true })
+  standalone.module.switchSpace(2)
+  standalone:advance(0.3)
+  assertEqual(standalone.focused, 2)
+  standalone:arrive(101, true)
+  standalone:advance(0.3)
+  assertEqual(standalone.focused, 1)
+end)
+
+test("app activation reuses one window list and skips layer-0 AX title reads", function()
+  -- Activation with a Space change onto PiP scans windows and reads Mission Control once.
+  local desktop = pip()
+  desktop.space = 202
+  desktop.focused = 50
+  desktop:activate(50)
+  assertEqual(desktop.lists, 1)
+  assertEqual(desktop.missionControlReads, 1)
+  desktop:advance(0.3)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop:countFocus(2), 1)
+  -- Activation redirect onto PiP without a Space change also scans once.
+  local redirect = pip()
+  redirect.recent = { [61] = 2 }
+  redirect:activate(50)
+  redirect:advance(0.3)
+  assertEqual(redirect.lists, 1)
+  assertEqual(redirect.missionControlReads, 0)
+  assertEqual(redirect.focused, 61)
+  assertEqual(redirect:countFocus(61), 1)
+  -- Without Screen Recording, layer-0 entries trigger no AX title() reads during activation.
+  local headless = pip({ noTitles = true })
+  headless:row(50).hidden = true
+  headless.accessibilityReads = {}
+  headless:activate(61)
+  assertEqual(headless.lists, 1)
+  assertEqual(headless.accessibilityReads[61], nil)
+  assertEqual(headless.accessibilityReads[60], nil)
+end)
+
+test("menuBusy skips Mission Control AX checks when window_switcher is busy", function()
+  local desktop = harness()
+  desktop.busy = true
+  desktop:arrive(202, true)
+  desktop:advance(0.3)
+  assertEqual(desktop.missionControlReads, 0)
+  assertEqual(desktop.lists, 0)
+  assertEqual(desktop:countFocus(), 0)
+  -- Activation with Space change while switcher is busy skips Mission Control too.
+  desktop.space = 303
+  desktop:activate(1)
+  desktop:advance(0.3)
+  assertEqual(desktop.lists, 1)
+  assertEqual(desktop.missionControlReads, 0)
+  assertEqual(desktop:countFocus(), 0)
+  -- Deferred valid(job) skips Mission Control when switcher becomes busy or Space changed.
+  for _, case in ipairs({ "busy", "moved" }) do
+    local deferred = harness()
+    deferred.busy = false
+    deferred.module.switchSpace(2)
+    deferred:advance(0.3, 1)
+    local reads = deferred.missionControlReads
+    if case == "busy" then
+      deferred.busy = true
+    else
+      deferred:arrive(101, false)
+    end
+    deferred:advance(0.3)
+    assertEqual(deferred.missionControlReads, reads)
+    assertEqual(deferred:countFocus(), 0)
+  end
+end)
+
+test("screen frame cache reuses finds and invalidates on screen watcher", function()
+  local desktop = harness()
+  assertEqual(desktop.module.screenWatcher.starts, 1)
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  desktop.module.switchSpace(1)
+  desktop:advance(0.3)
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  assertEqual(desktop.screenReads, 1)
+  desktop.screenCallback()
+  desktop.module.switchSpace(1)
+  desktop:advance(0.3)
+  assertEqual(desktop.screenReads, 2)
+  desktop.module.stop()
+  assertEqual(desktop.module.screenWatcher:isEnabled(), false)
+  local noWatcher = harness({ noScreenWatcher = true })
+  assertEqual(noWatcher.module.screenWatcher, nil)
+  noWatcher.module.switchSpace(2)
+  noWatcher:advance(0.3)
+  assertEqual(noWatcher.focused, 2)
+  noWatcher.module.stop()
+end)
+
+test(
+  "scoped isBusy skips AX reads, records focusedTarget, and windowFocused skips isStandard",
+  function()
+    local desktop = harness()
+    desktop.focusedTarget = { space = 202, pid = 103, id = 3 }
+    desktop.managerBusy = function(space, pid)
+      return space == 202 and (pid == nil or pid == 103)
+    end
+    desktop.space = 202
+    desktop.focused = 3
+    desktop.accessibilityReads = {}
+    desktop.busyChecks = {}
+    desktop:activate(3, 103)
+    desktop:focus(3)
+    assertEqual(desktop.busyChecks[1].space, 202)
+    assertEqual(desktop.busyChecks[1].pid, 103)
+    assertEqual(next(desktop.accessibilityReads), nil)
+    assertEqual(desktop.lists, 0)
+
+    -- Recorded focusedTarget feeds switchSpace() preferred candidate after busy settles.
+    desktop.managerBusy = false
+    desktop.focusedTarget = nil
+    desktop.module.switchSpace(1)
+    desktop:advance(0.3)
+    desktop.module.switchSpace(2)
+    desktop:advance(0.3)
+    assertEqual(desktop.focused, 3)
+
+    -- Non-busy windowFocused skips redundant window:isStandard() call.
+    local standardsBefore = desktop.standardReads
+    desktop:focus(2)
+    assertEqual(desktop.standardReads, standardsBefore)
+  end
+)
+
+test(
+  "fast path skips synchronous focusedWindow calls, forwards space, cancels on supersede, and still protects PiP",
+  function()
+    local syncFocusedReads = 0
+    local asyncProbes = {}
+    local cancelFocusCalls = 0
+    local focusSpaces = {}
+    local frontPidValue = 101
+    local spaces = {
+      { ManagedSpaceID = 101, display = "display" },
+      { ManagedSpaceID = 202, display = "display" },
+      { ManagedSpaceID = 303, display = "display" },
+    }
+    local currentSpace = 101
+    local focusedId = 1
+    local rows = {
+      {
+        id = 50,
+        pid = 500,
+        app = "Browser",
+        title = "Picture in Picture",
+        space = 0,
+        layer = 3,
+        frame = { x = 400, y = 350, w = 180, h = 180 },
+      },
+      {
+        id = 1,
+        pid = 101,
+        app = "Editor",
+        title = "Source",
+        space = 101,
+        frame = { x = 20, y = 20, w = 300, h = 200 },
+      },
+      {
+        id = 2,
+        pid = 102,
+        app = "Terminal",
+        title = "Shell",
+        space = 202,
+        frame = { x = 20, y = 20, w = 300, h = 200 },
+      },
+      {
+        id = 3,
+        pid = 500,
+        app = "Browser",
+        title = "Docs",
+        space = 303,
+        frame = { x = 20, y = 20, w = 300, h = 200 },
+      },
+    }
+    local function rowById(id)
+      for _, row in ipairs(rows) do
+        if row.id == id then
+          return row
+        end
+      end
+    end
+    local function makeWindow(row)
+      return row
+          and {
+            id = function()
+              return row.id
+            end,
+            title = function()
+              return row.title
+            end,
+            isStandard = function()
+              return true
+            end,
+            isMinimized = function()
+              return false
+            end,
+            application = function()
+              return {
+                name = function()
+                  return row.app
+                end,
+                pid = function()
+                  return row.pid
+                end,
+              }
+            end,
+          }
+        or nil
+    end
+
+    local timers, now = {}, 0
+    local spaceCallback, focusCallback
+    local function advance(dt)
+      local untilTime = now + dt
+      while true do
+        local nextTimer
+        for _, timer in ipairs(timers) do
+          if
+            timer.active
+            and timer.at <= untilTime
+            and (not nextTimer or timer.at < nextTimer.at)
+          then
+            nextTimer = timer
+          end
+        end
+        if not nextTimer then
+          break
+        end
+        now = nextTimer.at
+        nextTimer.active = false
+        nextTimer.callback()
+      end
+      now = untilTime
+    end
+
+    local windowManager = {
+      native = {
+        displaySpaces = function()
+          local list = {}
+          for i, s in ipairs(spaces) do
+            list[i] = { id = s.ManagedSpaceID, display = s.display }
+          end
+          return { spaces = list, active = { display = currentSpace } }
+        end,
+        cancelFocus = function()
+          cancelFocusCalls = cancelFocusCalls + 1
+        end,
+        focusedWindow = function(pid, done)
+          asyncProbes[#asyncProbes + 1] = { pid = pid, done = done }
+        end,
+        focus = function(pid, id, done, space)
+          focusSpaces[#focusSpaces + 1] = { pid = pid, id = id, space = space }
+          timers[#timers + 1] = {
+            at = now + 0.002,
+            active = true,
+            callback = function()
+              focusedId = id
+              frontPidValue = pid
+              if done then
+                done(true)
+              end
+            end,
+          }
+        end,
+      },
+      isBusy = function()
+        return false
+      end,
+      space = function(index, done)
+        currentSpace = spaces[index].ManagedSpaceID
+        if spaceCallback then
+          spaceCallback()
+        end
+        done(true)
+      end,
+    }
+    local filter = {
+      windowFocused = 1,
+      new = function()
+        return {
+          subscribe = function(self, _, callback)
+            focusCallback = callback
+            return self
+          end,
+          delete = function() end,
+        }
+      end,
+      windowsOf = function(pid)
+        local map = {}
+        for _, row in ipairs(rows) do
+          if row.pid == pid then
+            map[row.id] = makeWindow(row)
+          end
+        end
+        return map
+      end,
+    }
+    local env = setmetatable({
+      hs = {
+        application = {
+          frontmostApplication = function()
+            local row = rowById(focusedId)
+            return {
+              pid = function()
+                return frontPidValue
+              end,
+              bundleID = function()
+                return row and row.app or "com.apple.finder"
+              end,
+            }
+          end,
+          watcher = {
+            activated = 1,
+            new = function()
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        timer = {
+          doAfter = function(delay, callback)
+            local t = { at = now + delay, active = true, callback = callback }
+            timers[#timers + 1] = t
+            return {
+              stop = function()
+                t.active = false
+              end,
+            }
+          end,
+          secondsSinceEpoch = function()
+            return now
+          end,
+        },
+        spaces = {
+          focusedSpace = function()
+            return currentSpace
+          end,
+          spaceDisplay = function()
+            return "display"
+          end,
+          watcher = {
+            new = function(callback)
+              spaceCallback = callback
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        screen = {
+          find = function()
+            return {
+              frame = function()
+                return { x = 0, y = 0, w = 1000, h = 800 }
+              end,
+              fullFrame = function()
+                return { x = 0, y = 0, w = 1000, h = 800 }
+              end,
+            }
+          end,
+          watcher = {
+            new = function()
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        mouse = {
+          absolutePosition = function()
+            return { x = 0, y = 0 }
+          end,
+        },
+        geometry = {
+          new = function()
+            return {
+              inside = function()
+                return false
+              end,
+            }
+          end,
+        },
+        window = {
+          focusedWindow = function()
+            syncFocusedReads = syncFocusedReads + 1
+            return makeWindow(rowById(focusedId))
+          end,
+          list = function()
+            local list = {}
+            for _, row in ipairs(rows) do
+              if row.space == 0 or row.space == currentSpace then
+                list[#list + 1] = {
+                  kCGWindowNumber = row.id,
+                  kCGWindowOwnerPID = row.pid,
+                  kCGWindowOwnerName = row.app,
+                  kCGWindowName = row.title,
+                  kCGWindowLayer = row.layer or 0,
+                  kCGWindowBounds = {
+                    X = row.frame.x,
+                    Y = row.frame.y,
+                    Width = row.frame.w,
+                    Height = row.frame.h,
+                  },
+                }
+              end
+            end
+            return list
+          end,
+        },
+        keycodes = { map = { left = 123, right = 124 } },
+        eventtap = {
+          event = {
+            types = { leftMouseDown = 1, leftMouseUp = 2, rightMouseDown = 3 },
+            properties = { eventSourceUserData = 1 },
+          },
+          new = function()
+            return {
+              start = function(self)
+                return self
+              end,
+              stop = function() end,
+              isEnabled = function()
+                return true
+              end,
+            }
+          end,
+        },
+      },
+      print = function() end,
+      package = { loaded = {} },
+      require = function(name)
+        if name == "lib.window_filter" then
+          return filter
+        elseif name == "lib.window_manager" then
+          return windowManager
+        elseif name == "lib.logger" then
+          return { error = function() end }
+        elseif name == "lib.mission_control" then
+          return {
+            isActive = function()
+              return false
+            end,
+          }
+        elseif name == "lib.dock" then
+          return { move = function() end }
+        elseif name == "lib.utils" then
+          return {
+            spaces = function()
+              error("unexpected utils.spaces() call when native.displaySpaces exists")
+            end,
+          }
+        end
+        error("unexpected require " .. name)
+      end,
+    }, { __index = _G })
+
+    local module = assert(loadfile(root .. "/space_focus.lua", "t", env))()
+    syncFocusedReads = 0
+
+    -- Rapid switchSpace(3) -> superseded by switchSpace(2).
+    module.switchSpace(3)
+    assertEqual(syncFocusedReads, 0, "switchSpace(3) avoids synchronous focusedWindow")
+    module.switchSpace(2)
+    assertEqual(cancelFocusCalls, 1, "superseding switch calls cancelFocus")
+    advance(0.01)
+    assertEqual(#focusSpaces, 1)
+    assertEqual(focusSpaces[1].id, 2)
+    assertEqual(focusSpaces[1].space, 202)
+    assertEqual(#asyncProbes, 1, "uses async focusedWindow probe on focus confirmation")
+    assertEqual(asyncProbes[1].pid, 102)
+    asyncProbes[1].done(2)
+    assertEqual(module.status().busy, false)
+    assertEqual(module.status().last.ok, true)
+    assertEqual(syncFocusedReads, 0, "zero sync focusedWindow reads during rapid Space switch")
+
+    -- External swipe onto Space 101 (frontPid 101 has no PiP): zero sync or async focusedWindow reads.
+    currentSpace, focusedId, frontPidValue = 101, 1, 101
+    spaceCallback()
+    assertEqual(#asyncProbes, 1)
+    assertEqual(syncFocusedReads, 0)
+    assertEqual(module.status().busy, false)
+
+    -- External swipe onto Space 303 when frontPid 500 owns on-screen PiP 50: async probe detects PiP and redirects to window 3.
+    advance(1.0)
+    currentSpace, focusedId, frontPidValue = 303, 50, 500
+    spaceCallback()
+    assertEqual(#asyncProbes, 2, "probes frontmost PiP app asynchronously")
+    assertEqual(asyncProbes[2].pid, 500)
+    assertEqual(syncFocusedReads, 0)
+    asyncProbes[2].done(50)
+    advance(0.01)
+    assertEqual(focusSpaces[2].id, 3)
+    assertEqual(focusSpaces[2].space, 303)
+    focusCallback(makeWindow(rowById(3)), "Browser", 1, 3)
+    assertEqual(module.status().busy, false)
+    assertEqual(focusedId, 3)
+    assertEqual(syncFocusedReads, 0, "zero sync focusedWindow reads throughout PiP redirect")
+  end
+)
+
+test(
+  "async probe rechecks menu state and refreshes list; user focus during settled is preserved",
+  function()
+    local currentSpace, focusedId, frontPidValue = 101, 1, 101
+    local mcActive, busy, target = false, false, nil
+    local rows = {
+      {
+        id = 1,
+        pid = 101,
+        app = "Code",
+        title = "Editor",
+        space = 101,
+        frame = { x = 0, y = 0, w = 500, h = 500 },
+      },
+      {
+        id = 2,
+        pid = 102,
+        app = "Notes",
+        title = "Doc",
+        space = 101,
+        frame = { x = 500, y = 0, w = 500, h = 500 },
+      },
+      {
+        id = 50,
+        pid = 500,
+        app = "Browser",
+        title = "Picture in Picture",
+        space = 0,
+        layer = 3,
+        frame = { x = 800, y = 400, w = 200, h = 150 },
+      },
+    }
+    local function rowById(id)
+      for _, row in ipairs(rows) do
+        if row.id == id then
+          return row
+        end
+      end
+    end
+    local function makeWindow(row)
+      if not row then
+        return nil
+      end
+      return {
+        id = function()
+          return row.id
+        end,
+        title = function()
+          return row.title
+        end,
+        isStandard = function()
+          return (row.layer or 0) == 0
+        end,
+        application = function()
+          return {
+            pid = function()
+              return row.pid
+            end,
+            name = function()
+              return row.app
+            end,
+          }
+        end,
+      }
+    end
+    local now, timers, asyncProbes, clicks = 10, {}, {}, 0
+    local spaceCallback, focusCallback
+    local screen = {
+      getUUID = function()
+        return "main"
+      end,
+      frame = function()
+        return { x = 0, y = 0, w = 1000, h = 800 }
+      end,
+      fullFrame = function()
+        return { x = 0, y = 0, w = 1000, h = 800 }
+      end,
+    }
+    local env = setmetatable({
+      hs = {
+        timer = {
+          secondsSinceEpoch = function()
+            return now
+          end,
+          doAfter = function(delay, fn)
+            local timer = { at = now + delay, fn = fn, active = true }
+            function timer:stop()
+              self.active = false
+            end
+            timers[#timers + 1] = timer
+            return timer
+          end,
+        },
+        spaces = {
+          focusedSpace = function()
+            return currentSpace
+          end,
+          spaceDisplay = function()
+            return "main"
+          end,
+          watcher = {
+            new = function(fn)
+              spaceCallback = fn
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        screen = {
+          find = function()
+            return screen
+          end,
+          allScreens = function()
+            return { screen }
+          end,
+          watcher = {
+            new = function()
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        application = {
+          frontmostApplication = function()
+            return {
+              pid = function()
+                return frontPidValue
+              end,
+              bundleID = function()
+                return "com.example.browser"
+              end,
+            }
+          end,
+          watcher = {
+            activated = 1,
+            new = function()
+              return {
+                start = function(self)
+                  return self
+                end,
+                stop = function() end,
+              }
+            end,
+          },
+        },
+        window = {
+          focusedWindow = function()
+            return makeWindow(rowById(focusedId))
+          end,
+          list = function()
+            local list = {}
+            for _, row in ipairs(rows) do
+              if row.space == 0 or row.space == currentSpace then
+                list[#list + 1] = {
+                  kCGWindowNumber = row.id,
+                  kCGWindowOwnerPID = row.pid,
+                  kCGWindowOwnerName = row.app,
+                  kCGWindowName = row.title,
+                  kCGWindowLayer = row.layer or 0,
+                  kCGWindowBounds = {
+                    X = row.frame.x,
+                    Y = row.frame.y,
+                    Width = row.frame.w,
+                    Height = row.frame.h,
+                  },
+                }
+              end
+            end
+            return list
+          end,
+        },
+        keycodes = { map = { left = 123, right = 124 } },
+        eventtap = {
+          event = {
+            types = { leftMouseDown = 1, leftMouseUp = 2, rightMouseDown = 3 },
+            properties = { eventSourceUserData = 1 },
+            newMouseEvent = function()
+              return {
+                setProperty = function() end,
+                post = function()
+                  clicks = clicks + 1
+                end,
+              }
+            end,
+          },
+          new = function()
+            return {
+              start = function(self)
+                return self
+              end,
+              stop = function() end,
+              isEnabled = function()
+                return true
+              end,
+            }
+          end,
+        },
+      },
+      print = function() end,
+      package = { loaded = {} },
+      require = function(name)
+        if name == "lib.window_filter" then
+          return {
+            windowFocused = "windowFocused",
+            new = function()
+              return {
+                subscribe = function(_, _, fn)
+                  focusCallback = fn
+                end,
+                delete = function() end,
+              }
+            end,
+            windowsOf = function(pid)
+              local out = {}
+              for _, row in ipairs(rows) do
+                if row.pid == pid and (row.layer or 0) == 0 then
+                  out[row.id] = makeWindow(row)
+                end
+              end
+              return out
+            end,
+          }
+        elseif name == "lib.window_manager" then
+          return {
+            native = {
+              displaySpaces = function()
+                return {
+                  spaces = {
+                    { id = 101, display = "main" },
+                    { id = 202, display = "main" },
+                  },
+                  active = { main = currentSpace },
+                  bySpace = {
+                    [101] = { index = 1, display = "main" },
+                    [202] = { index = 2, display = "main" },
+                  },
+                }
+              end,
+              focusedWindow = function(pid, done)
+                asyncProbes[#asyncProbes + 1] = { pid = pid, done = done }
+              end,
+              focus = function(pid, id, done)
+                frontPidValue, focusedId = pid, id
+                done(true)
+              end,
+              cancelFocus = function() end,
+            },
+            space = function(index, done)
+              currentSpace = index == 1 and 101 or 202
+              done(true)
+            end,
+            isBusy = function()
+              return busy
+            end,
+            focusedTarget = function()
+              return target
+            end,
+          }
+        elseif name == "lib.logger" then
+          return { error = function() end }
+        elseif name == "lib.mission_control" then
+          return {
+            isActive = function()
+              return mcActive
+            end,
+          }
+        elseif name == "lib.dock" then
+          return { move = function() end }
+        elseif name == "lib.utils" then
+          return { spaces = function() end }
+        end
+        error("unexpected require " .. name)
+      end,
+    }, { __index = _G })
+
+    local module = assert(loadfile(root .. "/space_focus.lua", "t", env))()
+    local function flushTimers()
+      while true do
+        local ran = false
+        for _, timer in ipairs(timers) do
+          if timer.active and timer.at <= now + 0.05 then
+            timer.active = false
+            timer.fn()
+            ran = true
+          end
+        end
+        if not ran then
+          break
+        end
+      end
+    end
+
+    -- 1. User focuses window 2 during windowManager's settled interval for window 1: preserved in recent[101].
+    busy, target = true, { space = 101, pid = 101, id = 1 }
+    focusCallback(makeWindow(rowById(2)), "Notes", "windowFocused", 2)
+    busy, target = false, nil
+    -- Switch to Space 202 (empty) and back to Space 101: restores window 2, not stale target 1.
+    now = now + 1
+    currentSpace, focusedId, frontPidValue = 202, 50, 500
+    module.switchSpace(1)
+    flushTimers()
+    assertEqual(focusedId, 2, "user focus during settled interval is preserved")
+    if #asyncProbes > 0 then
+      asyncProbes[#asyncProbes].done(2)
+    end
+    assertEqual(module.status().busy, false)
+
+    -- 2. Mission Control opens while async probe is in flight: resumed check supersedes instead of acting.
+    now = now + 1
+    local beforeMc = #asyncProbes
+    currentSpace, focusedId, frontPidValue = 202, 50, 500
+    spaceCallback()
+    assertEqual(#asyncProbes, beforeMc + 1)
+    mcActive = true
+    asyncProbes[#asyncProbes].done(50)
+    flushTimers()
+    assertEqual(module.status().last.error, "superseded")
+    mcActive = false
+
+    -- 3. New window appears on initially empty Space while async probe is in flight: refreshed list avoids desktop click.
+    now = now + 1
+    local beforeEmpty = #asyncProbes
+    currentSpace, focusedId, frontPidValue = 101, 1, 101
+    module.switchSpace(2)
+    assertEqual(#asyncProbes, beforeEmpty + 1)
+    rows[#rows + 1] = {
+      id = 3,
+      pid = 103,
+      app = "App",
+      title = "New",
+      space = 202,
+      frame = { x = 0, y = 0, w = 500, h = 500 },
+    }
+    asyncProbes[#asyncProbes].done(50)
+    flushTimers()
+    assertEqual(clicks, 0, "refreshed list sees newly arrived window instead of clicking desktop")
+  end
+)
+
 print("RESULT " .. passed .. " passed, 0 failed")

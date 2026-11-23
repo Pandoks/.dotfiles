@@ -1,3 +1,4 @@
+local dock = require("lib.dock")
 local utils = require("lib.utils")
 
 ---@alias WindowManagerDone fun(ok: boolean, err?: string)
@@ -33,18 +34,8 @@ local native = utils.native("window_manager") --[[@as WindowManagerNative]]
 ---@class WindowManager
 local windowManager = { native = native }
 
----@class SpaceJump
----@field space integer
----@field index number
----@field landing integer Space in-flight swipes end on
----@field from number Mission Control index of `landing`
----@field display string
----@field point hs.geometry
----@field timer? hs.timer
----@field done WindowManagerDone
-
----@type SpaceJump?
-local jump
+---@type { done: WindowManagerDone, cancel?: fun() }?
+local switching
 ---@type { space?: integer, pid: integer, id: integer }?
 local focusing
 ---@type { space?: integer, pid: integer, id: integer, timer?: hs.timer }?
@@ -57,76 +48,25 @@ local function clearSettled()
   settled = nil
 end
 
----@return table<string, integer>?
----@return string?
-local function activeSpaces()
-  if native.displaySpaces then
-    local layout, err = native.displaySpaces()
-    return layout and layout.active or nil, err
-  end
-  return hs.spaces.activeSpaces()
-end
-
----@param ok boolean
 ---@param err? string
-local function finish(ok, err)
-  local job = assert(jump)
-  jump = nil
-  assert(job.timer):stop()
-  job.timer = nil
-  job.done(ok, err)
-end
-
----@param job SpaceJump
-local function deadline(job)
-  if job.timer then
-    job.timer:stop()
+local function cancel(err)
+  local job = switching
+  if not job then
+    return
   end
-  job.timer = hs.timer.doAfter(1.5, function()
-    if jump == job then
-      finish(false, "timed out showing Space " .. job.index)
-    end
-  end)
-end
-
--- Swipes posted together skip showing the Spaces between.
----@param job SpaceJump
----@param origin number Mission Control index
-local function send(job, origin)
-  job.landing, job.from = job.space, job.index
-  local ok, err =
-    native.move(job.index > origin, math.abs(job.index - origin), job.point.x, job.point.y)
-  if not ok then
-    finish(false, err)
+  switching = nil
+  if job.cancel then
+    job.cancel()
   end
+  job.done(false, err)
 end
-
--- The Dock mishandles swipes posted mid-flight, so later presses wait.
-local watcher = hs.spaces.watcher
-  .new(function()
-    local job = jump
-    if not job then
-      return
-    end
-    local active, err = activeSpaces()
-    if not active then
-      finish(false, err)
-    elseif active[job.display] ~= job.landing then
-      return
-    elseif job.landing == job.space then
-      finish(true)
-    else
-      send(job, job.from)
-    end
-  end)
-  :start() --[[@as hs.spaces.watcher]]
 
 ---@param index number Mission Control index
 ---@param done? WindowManagerDone
 ---@param layout? DisplaySpaces
 local function jumpTo(index, done, layout)
   done = done or function() end
-  local targetID, display, current, origin
+  local targetID, display, current
   if not layout and native.displaySpaces then
     local err
     layout, err = native.displaySpaces()
@@ -143,8 +83,6 @@ local function jumpTo(index, done, layout)
     end
     targetID, display = target.id, target.display
     current = layout.active[display]
-    local entry = current and layout.bySpace[current]
-    origin = entry and entry.index
   else
     local spaces, err = utils.spaces()
     if not spaces then
@@ -164,11 +102,6 @@ local function jumpTo(index, done, layout)
       return
     end
     current = active[display]
-    for position, space in ipairs(spaces) do
-      if space.ManagedSpaceID == current then
-        origin = position
-      end
-    end
   end
   local screen = hs.screen.find(display)
   if not screen or not current then
@@ -176,44 +109,27 @@ local function jumpTo(index, done, layout)
     return
   end
 
-  -- Swipes in flight on this display still land; the watcher continues from there.
-  if jump and jump.display == display then
+  if switching then
     if native.cancelFocus then
       native.cancelFocus()
     end
-    local previous = jump.done
-    jump.space, jump.index, jump.done = targetID, index, done
-    deadline(jump)
-    previous(false, "superseded")
-    return
-  elseif jump then
-    if native.cancelFocus then
-      native.cancelFocus()
-    end
-    finish(false, "superseded")
+    cancel("superseded")
   end
   if current == targetID then
     done(true)
     return
   end
-  if not origin then
-    done(false, "current Space unavailable")
-    return
-  end
   if native.cancelFocus then
     native.cancelFocus()
   end
-  jump = {
-    space = targetID,
-    index = index,
-    landing = current,
-    from = origin,
-    display = display,
-    point = screen:frame().center,
-    done = done,
-  }
-  deadline(jump)
-  send(jump, origin)
+  local job = { done = done }
+  switching = job
+  job.cancel = dock.switch(targetID, function(ok, err)
+    if switching == job then
+      switching = nil
+      job.done(ok, err)
+    end
+  end)
 end
 
 ---@param index number Mission Control index
@@ -283,8 +199,8 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
   end
   -- No Space to show first.
   if not space then
-    if jump then
-      finish(false, "superseded")
+    if switching then
+      cancel("superseded")
     end
     show()
     return
@@ -307,7 +223,10 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
       complete(false, "display unavailable for Space " .. space)
       return
     end
-    if not jump and layout.active[entry.display] == space then
+    if layout.active[entry.display] == space then
+      if switching then
+        cancel("superseded")
+      end
       show()
       return
     end
@@ -320,7 +239,10 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
     complete(false, display and err or "display unavailable for Space " .. space)
     return
   end
-  if not jump and active[display] == space then
+  if active[display] == space then
+    if switching then
+      cancel("superseded")
+    end
     show()
     return
   end
@@ -337,7 +259,7 @@ end
 ---@param pid? integer
 ---@return boolean
 function windowManager.isBusy(space, pid)
-  if jump ~= nil or focusing ~= nil then
+  if switching ~= nil or focusing ~= nil then
     return true
   end
   if
@@ -397,7 +319,6 @@ end
 native.windows(function() end)
 
 function windowManager.stop()
-  watcher:stop()
   focusing = nil
   clearSettled()
   if watchingSpaces and native.watchWindowSpaces then
@@ -408,9 +329,7 @@ function windowManager.stop()
   if native.cancelFocus then
     native.cancelFocus()
   end
-  if jump then
-    finish(false, "stopped")
-  end
+  cancel("stopped")
 end
 
 return windowManager

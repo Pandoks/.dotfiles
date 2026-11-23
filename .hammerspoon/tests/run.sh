@@ -22,6 +22,7 @@ clang -Wall -Wextra -Werror \
 
 "$test_build/lua" "$test_dir/tiling_test.lua" "$test_dir/../lib"
 "$test_build/lua" "$test_dir/window_manager_test.lua" "$test_dir/../lib"
+"$test_build/lua" "$test_dir/dock_test.lua" "$test_dir/../lib"
 
 "$test_build/lua" "$test_dir/url_router_test.lua" "$test_dir/../lib"
 
