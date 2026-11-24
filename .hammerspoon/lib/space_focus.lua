@@ -700,14 +700,12 @@ local function observe(list, state)
   end
   local changed = space ~= lastSpace
   lastSpace = space
-  if state then
-    if pip then
-      lastFocused = nil
-    elseif state.standard then
-      local entry = { id = windowID, pid = state.pid }
-      recent[space] = entry
-      lastFocused = entry
-    end
+  if pip then
+    lastFocused = nil
+  elseif state and state.standard then
+    local entry = { id = windowID, pid = state.pid }
+    recent[space] = entry
+    lastFocused = entry
   end
   -- Another display's Space can take focus just after the event that moved it.
   if guard and (guard.space == space or guard.away) then
@@ -727,7 +725,7 @@ local function observe(list, state)
     transitionSpace, transitionDeadline = space, now + 0.8
     protect(space, false, recent[space], list, true)
   end
-  if state and pip and activation then
+  if pip and activation then
     leavePiP(windowID, state.pid, list)
   end
 end

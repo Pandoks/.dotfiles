@@ -56,7 +56,7 @@ local function harness(options)
   local desktop = {
     now = 0,
     space = 101,
-    focused = options.focused or 1,
+    focused = options.focused == nil and 1 or options.focused,
     timers = {},
     writes = {},
     clicks = {},
@@ -202,15 +202,6 @@ local function harness(options)
       return nil
     end
     local methods = {
-      isStandard = function()
-        return true
-      end,
-      isMinimized = function()
-        return row.minimized == true
-      end,
-      title = function()
-        return row.title
-      end,
       id = function()
         return row.id
       end,
@@ -219,9 +210,6 @@ local function harness(options)
       end,
       application = function()
         return {
-          name = function()
-            return row.app
-          end,
           pid = function()
             return row.pid
           end,
@@ -1892,17 +1880,21 @@ test("non-PiP activations and other app events keep existing behaviour", functio
 end)
 
 test("PiP focus shortly after activating a real window is redirected", function()
-  local desktop = pip()
-  desktop:activate(61)
-  desktop:advance(0.015)
-  assertEqual(desktop:countFocus(), 0)
-  desktop:focus(50)
-  assertEqual(desktop:countFocus(), 1)
-  desktop:advance(0.3)
-  assertEqual(desktop:countFocus(), 1)
-  assertEqual(desktop.focused, 60)
-  assertEqual(desktop.space, 202)
-  assertEqual(#desktop.alerts, 0)
+  for _, noTitles in ipairs({ false, true }) do
+    local desktop = pip({ noTitles = noTitles })
+    desktop:activate(61)
+    desktop:advance(0.015)
+    assertEqual(desktop:countFocus(), 0)
+    desktop.accessibilityReads = {}
+    desktop:focus(50)
+    assertEqual(desktop:countFocus(), 1)
+    assertEqual(next(desktop.accessibilityReads), nil)
+    desktop:advance(0.3)
+    assertEqual(desktop:countFocus(), 1)
+    assertEqual(desktop.focused, 60)
+    assertEqual(desktop.space, 202)
+    assertEqual(#desktop.alerts, 0)
+  end
 end)
 
 test("PiP focus without an activation of its app does not redirect", function()
@@ -2123,15 +2115,16 @@ test(
     desktop:advance(0.3)
     assertEqual(desktop.focused, 1)
 
-    local pipDesktop = pip({ noTitles = true })
-    pipDesktop:activate(61)
-    pipDesktop.accessibilityReads = {}
-    pipDesktop:focus(50)
-    assertEqual(pipDesktop:countFocus(60), 1)
-    assertEqual(next(pipDesktop.accessibilityReads), nil)
-
-    for _, case in ipairs({ { expected = 3 }, { subroles = { [3] = "AXUnknown" }, expected = 2 } }) do
-      local seeded = harness({ space = 202, focused = 3, subroles = case.subroles })
+    for _, case in ipairs({
+      { expected = 3 },
+      { subroles = { [3] = "AXUnknown" }, expected = 2 },
+      { focused = false, expected = 2 },
+    }) do
+      local seeded = harness({
+        space = 202,
+        focused = case.focused == nil and 3 or case.focused,
+        subroles = case.subroles,
+      })
       seeded.module.switchSpace(1)
       seeded:advance(0.3)
       seeded.module.switchSpace(2)

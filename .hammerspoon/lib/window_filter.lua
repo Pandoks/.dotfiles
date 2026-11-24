@@ -115,108 +115,63 @@ local function lookup(app, element)
   end
 end
 
----@param filter WindowFilter
 ---@param record WindowRecord
----@param app WindowObserver
----@param err? string
-local function matches(filter, record, app, err)
-  if not filters[filter] or not record.state or record.failed or filter.failed then
-    return false
-  end
-  local ok, message, allowed = err == nil, err, err == nil and record.eligible
-  if allowed and filter.predicate then
-    local ran, value = pcall(filter.predicate, record.window, app.app, record.state)
-    ok, message, allowed = ran, not ran and tostring(value) or nil, ran and value == true
-  end
-  if not ok then
-    filter.failed = true
-    logger.error("Window filter: " .. tostring(message))
-  end
-  if not filters[filter] then
-    return false
-  end
-  record.allowed[filter] = allowed
-  return allowed
-end
-
----@return WindowFilter[]
-local function members()
-  local list = {}
-  for filter in pairs(filters) do
-    list[#list + 1] = filter
-  end
-  return list
-end
-
----@param app WindowObserver
----@param record WindowRecord
-local function refresh(app, record)
-  local window, state = record.window, record.state
-  if not window or not state or record.failed then
-    return false
-  end
-  local ok, subrole, allowed = pcall(function()
-    local read = window:subrole()
+---@return string?
+local function refresh(record)
+  local ok, subrole, qualifies = pcall(function()
+    local read = record.window:subrole()
     return read, eligible(record.element, read)
   end)
   if not ok then
-    return false, tostring(subrole)
+    return tostring(subrole)
   end
-  local standard = subrole == "AXStandardWindow"
-  if standard == state.standard and allowed == record.eligible then
-    return false
-  end
-  state.standard, record.eligible = standard, allowed
-  for _, filter in ipairs(members()) do
-    matches(filter, record, app)
-  end
-  return true
+  record.state.standard, record.eligible = subrole == "AXStandardWindow", qualifies
 end
 
 ---@param filter WindowFilter
 ---@param record WindowRecord
 ---@param app WindowObserver
-local function query(filter, record, app)
-  if not filters[filter] or filter.failed then
+---@param checked? boolean
+---@param err? string
+local function matches(filter, record, app, checked, err)
+  if record.failed or filter.failed then
     return false
   end
-  local changed, err = refresh(app, record)
-  if changed then
-    return filters[filter] == true
-      and not record.failed
-      and not filter.failed
-      and record.allowed[filter] == true
+  if not checked then
+    err = refresh(record)
   end
-  return matches(filter, record, app, err)
+  local allowed = err == nil and record.eligible
+  if allowed and filter.predicate then
+    local ok, value = pcall(filter.predicate, record.window, app.app, record.state)
+    allowed, err = ok and value == true, not ok and tostring(value) or nil
+  end
+  if err then
+    filter.failed = true
+    logger.error("Window filter: " .. err)
+  end
+  record.allowed[filter] = allowed
+  return allowed
 end
 
 ---@param app WindowObserver
 ---@param record WindowRecord
 ---@param event string
 local function emit(app, record, event)
-  local cached, err = event == module.windowDestroyed or event == module.windowFocused, nil
-  if event == module.windowFocused then
-    if not record.state or record.failed then
-      return
+  local checked, err =
+    event == module.windowCreated or (event == module.windowFocused and record.state.standard), nil
+  for filter in pairs(filters) do
+    local allowed
+    if event == module.windowDestroyed then
+      allowed = record.allowed[filter]
+    else
+      if not checked and not record.failed and not filter.failed then
+        checked, err = true, refresh(record)
+      end
+      allowed = matches(filter, record, app, true, err)
     end
-    if not record.state.standard then
-      _, err = refresh(app, record)
-      cached = err == nil
-    end
-  elseif event ~= module.windowCreated and event ~= module.windowDestroyed then
-    cached, err = refresh(app, record)
-  end
-  for _, filter in ipairs(members()) do
-    if cached and record.allowed[filter] or not cached and matches(filter, record, app, err) then
+    if allowed then
       local callbacks, index = filter.callbacks[event] or {}, 1
       while callbacks[index] do
-        if
-          not filters[filter]
-          or event ~= module.windowDestroyed
-            and (record.failed or filter.failed or not record.allowed[filter])
-        then
-          break
-        end
         local delivered, message = xpcall(
           callbacks[index],
           debug.traceback,
@@ -274,7 +229,7 @@ end
 ---@param app WindowObserver
 ---@param record WindowRecord
 local function watch(app, record)
-  if record.failed or not record.window then
+  if record.failed then
     return
   end
   for notification in pairs(wanted) do
@@ -306,7 +261,7 @@ local function track(app, element, rejected)
   end
   local existing = lookup(app, element)
   if existing then
-    return existing.state and not existing.failed and existing or nil
+    return not existing.failed and existing or nil
   end
   if element:attributeValue("AXRole") ~= "AXWindow" then
     return
@@ -337,6 +292,11 @@ local function track(app, element, rejected)
   }
   app.windows[index] = record
   app.byElement[element] = record
+  -- Watch before reading so no title or minimize event is lost.
+  watch(app, record)
+  if record.failed then
+    return
+  end
   local ok, err = pcall(function()
     local window = element:asHSWindow()
     local id = window and window:id()
@@ -345,23 +305,11 @@ local function track(app, element, rejected)
     end
     record.window, record.id = window, id
     record.recent = order[id] or 0
-  end)
-  if not ok then
-    record.failed = true
-    failure(app, "window registration: " .. tostring(err))
-    return
-  end
-  watch(app, record)
-  if record.failed or not record.window or not record.id then
-    return
-  end
-  -- Watch before reading so no title or minimize event is lost.
-  ok, err = pcall(function()
     record.state = {
-      id = record.id,
+      id = id,
       pid = app.app:pid(),
       standard = subrole == "AXStandardWindow",
-      title = record.window:title() or "",
+      title = window:title() or "",
       minimized = element:attributeValue("AXMinimized") == true,
     }
   end)
@@ -415,13 +363,12 @@ local function changed(app, element, event)
     end
     unwatch(app, record)
     if not record.failed then
-      record.failed = true
       emit(app, record, module.windowDestroyed)
     end
     return
   end
   local record = track(app, element)
-  if not record or not record.window or not record.state then
+  if not record then
     return
   end
   if event == "AXFocusedWindowChanged" then
@@ -694,7 +641,7 @@ function module.new(predicate)
   for _, app in pairs(apps) do
     for _, record in ipairs(app.windows) do
       if record.allowed[filter] == nil then
-        matches(filter, record, app)
+        matches(filter, record, app, true)
       end
     end
   end
@@ -726,10 +673,13 @@ end
 ---@return hs.window[]
 function Filter:getWindows()
   local records = {}
+  if not filters[self] then
+    return {}
+  end
   for _, app in pairs(apps) do
     if not app.failed then
       for _, record in ipairs(app.windows) do
-        if query(self, record, app) then
+        if matches(self, record, app) then
           records[#records + 1] = record
         end
       end
@@ -750,11 +700,11 @@ end
 ---@return hs.window?
 function Filter:getWindow(id, pid)
   local app = apps[pid]
-  if not app or app.failed then
+  if not filters[self] or not app or app.failed then
     return
   end
   local record = app.byId[id]
-  if record and query(self, record, app) then
+  if record and matches(self, record, app) then
     return record.window
   end
 end
@@ -765,7 +715,7 @@ end
 function module.statesOf(pid)
   local app, states = apps[pid], {}
   for _, record in ipairs(app and app.windows or {}) do
-    if record.state and not record.failed then
+    if not record.failed then
       states[record.state.id] = record.state
     end
   end

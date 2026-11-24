@@ -7,7 +7,7 @@ Set `HAMMERSPOON_APP` if Hammerspoon is installed outside `/Applications`.
 The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached window state (`statesOf` and event `state`), zero synchronous
 Accessibility reads on `windowFocused` for tracked standard windows (with one subrole
-refresh for non-standard windows and coherent cross-filter updates on subrole changes),
+refresh for non-standard windows),
 cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
 tracking failures with popups, re-attaching a failed app only when it launches or activates,

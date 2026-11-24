@@ -68,11 +68,15 @@ tracker:subscribe({
     known[id] = nil
     return
   end
-  local minimized = state.minimized
-  if event == filter.windowTitleChanged and entry and entry.pid == state.pid then
-    minimized = entry.minimized
+  local title, minimized = state.title, state.minimized
+  if entry and entry.pid == state.pid then
+    if event == filter.windowTitleChanged then
+      minimized = entry.minimized
+    elseif event ~= filter.windowCreated then
+      title = entry.title
+    end
   end
-  local stored = cache(state.pid, id, state.title, minimized, true)
+  local stored = cache(state.pid, id, title, minimized, true)
   if event == filter.windowFocused then
     recent = recent + 1
     stored.recent = recent

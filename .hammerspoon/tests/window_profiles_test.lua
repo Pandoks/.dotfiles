@@ -194,9 +194,6 @@ local function appear(bundleId, title, id, event, pid, options)
     bundleID = function()
       return bundleId
     end,
-    pid = function()
-      return pid or 7
-    end,
   }
   local state = {
     id = id,
@@ -409,6 +406,7 @@ check(
     })
     openOrFocusWindow(work)
     assert(#scans == 0 and calls[2] == "focus 7 10")
+    appear("net.imput.helium", "Renamed - Helium - Work", 10, "windowMinimized")
     appear("net.imput.helium", "Draft - Helium - Work", 10, "windowUnminimized")
     appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowTitleChanged")
     openOrFocusWindow(work)
@@ -416,19 +414,24 @@ check(
     assert(calls[3] == "focus 7 10")
 
     appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowMinimized")
+    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowFocused")
+    openOrFocusWindow(work)
+    assert(#scans == 0 and calls[4] == "focus 7 10")
+
+    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowMinimized")
     apps = helium(nil, nil, 8)
-    rows = { row(10, "Fresh - Helium - Work", { pid = 8, space = 2 }) }
+    rows = { row(10, "Fresh - Helium - Work", { pid = 8 }) }
     appear("net.imput.helium", "Fresh - Helium - Work", 10, "windowTitleChanged", 8)
     openOrFocusWindow(work)
-    assert(#scans == 0 and calls[4] == "focus 8 10")
+    assert(#scans == 0 and calls[5] == "focus 8 10")
   end
 )
 check("non-standard events keep cached entries and focus order updates recency", function()
   apps = helium()
   rows = {
-    row(11, "Plan - Helium - Work", { space = 2 }),
-    row(12, "Save - Helium - Work", { subrole = "AXDialog", space = 2 }),
-    row(13, "Notes - Helium - Work", { space = 2 }),
+    row(11, "Plan - Helium - Work"),
+    row(12, "Save - Helium - Work", { subrole = "AXDialog" }),
+    row(13, "Notes - Helium - Work"),
   }
 
   local nonStandard = { standard = false }
@@ -455,6 +458,23 @@ check("non-standard events keep cached entries and focus order updates recency",
   rows[3].subrole = "AXUnknown"
   openOrFocusWindow(work)
   assert(#scans == 1 and #tasks == 1)
+
+  reset()
+  apps = helium()
+  rows = { row(11, "Fresh - Helium - Work") }
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowCreated")
+  openOrFocusWindow(work)
+  assert(#scans == 1 and calls[1] == "focus 7 11")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowFocused")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowMinimized")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowUnminimized")
+  openOrFocusWindow(personal)
+  assert(#scans == 2 and #tasks == 1 and #calls == 1)
+  openOrFocusWindow(work)
+  assert(#scans == 2 and calls[2] == "focus 7 11")
+  appear("net.imput.helium", "New - Helium - Personal", 11, "windowCreated")
+  openOrFocusWindow(personal)
+  assert(#scans == 2 and calls[3] == "focus 7 11")
 end)
 check("cache invalidates on windowDestroyed or missing Space", function()
   apps = helium()
