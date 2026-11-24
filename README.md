@@ -181,9 +181,9 @@ sudo tailscale serve --service=svc:protonmail-bridge --tcp=1025 tcp://127.0.0.1:
 (never commit it), restart `dev.mise.cli-proxy-api`, then add accounts at
 `https://cliproxyapi.<tailnet>.ts.net/management.html` with **WebSockets** on
 for Codex accounts. In Claude Code, run `/login` once and don't set
-`ANTHROPIC_AUTH_TOKEN`. Console and AI Studio keys go under `api-keys` in the
-same file (never commit them); only `api/<model>` requests use them, and
-unprefixed models use only the accounts.
+`ANTHROPIC_AUTH_TOKEN`. Console and AI Studio keys go in the `keys` lists of
+`api-keys.claude` and `api-keys.gemini` in the same file (never commit them);
+only `api/<model>` requests use them.
 
 **Beszel:** login is off. At `https://beszel.<tailnet>.ts.net`, create the
 user `hub@beszel.local` (any password) and a permanent universal token. On each

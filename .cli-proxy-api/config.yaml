@@ -468,7 +468,6 @@ upstream:
 
 # BEGIN API KEY EXAMPLES
 
-# Fill the keys in on the host; never commit them.
 api-keys:
 #
 #   # Gemini API keys
