@@ -677,7 +677,7 @@ local function recordManaged(space)
   end
 end
 
-local function observe(list, name, state)
+local function observe(list, state)
   if stopped then
     return
   end
@@ -690,10 +690,10 @@ local function observe(list, name, state)
     return
   end
   local windowID = state and state.id
-  local title = state and state.title
+  local pip = state ~= nil and isPiP(state.title)
   if not guard and windowManager.isBusy(space) then
     local target = windowManager.focusedTarget()
-    if not windowID or not target or target.id == windowID or isPiP(title) then
+    if not windowID or not target or target.id == windowID or pip then
       recordManaged(space)
       return
     end
@@ -701,9 +701,9 @@ local function observe(list, name, state)
   local changed = space ~= lastSpace
   lastSpace = space
   if state then
-    if isPiP(title) then
+    if pip then
       lastFocused = nil
-    elseif state.standard and name ~= "Hammerspoon" and state.pid then
+    elseif state.standard then
       local entry = { id = windowID, pid = state.pid }
       recent[space] = entry
       lastFocused = entry
@@ -714,7 +714,7 @@ local function observe(list, name, state)
     check(guard, list, nil, windowID)
   end
   local now = hs.timer.secondsSinceEpoch()
-  if state and isPiP(title) and retake(list, now, space) then
+  if pip and retake(list, now, space) then
     return
   elseif
     changed
@@ -727,7 +727,7 @@ local function observe(list, name, state)
     transitionSpace, transitionDeadline = space, now + 0.8
     protect(space, false, recent[space], list, true)
   end
-  if state and activation and isPiP(title) then
+  if state and pip and activation then
     leavePiP(windowID, state.pid, list)
   end
 end
@@ -785,8 +785,8 @@ module.input = hs.eventtap
 module.windows = filter.new(function(_, _, state)
   return state.standard
 end)
-module.windows:subscribe(filter.windowFocused, function(_, name, _, _, state)
-  observe(nil, name, state)
+module.windows:subscribe(filter.windowFocused, function(_, _, _, _, state)
+  observe(nil, state)
 end)
 module.watcher = hs.spaces.watcher
   .new(function()
@@ -817,16 +817,8 @@ if hs.screen.watcher then
     :start() --[[@as hs.screen.watcher]]
 end
 local focused = hs.window.focusedWindow()
-if type(lastSpace) == "number" and focused then
-  local id = focused:id()
-  local app = id and not isPiP(focused:title()) and focused:isStandard() and focused:application()
-    or nil
-  if app and app:name() ~= "Hammerspoon" then
-    local entry = { id = id, pid = app:pid() }
-    recent[lastSpace] = entry
-    lastFocused = entry
-  end
-end
+local focusedApplication = focused and focused:application()
+observe(nil, focusedApplication and filter.statesOf(focusedApplication:pid())[focused:id()])
 
 function module.status()
   return {

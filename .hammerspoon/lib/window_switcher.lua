@@ -976,7 +976,6 @@ for index, id in ipairs(ordered) do
   recent[id] = #ordered - index + 1
 end
 switcher.windows:subscribe(filter.windowFocused, function(_, _, _, id)
-  id = assert(id)
   recent[id] = hs.timer.secondsSinceEpoch()
   if operation and operation.target == id and operation.confirmFocus then
     operation.confirmFocus(true)

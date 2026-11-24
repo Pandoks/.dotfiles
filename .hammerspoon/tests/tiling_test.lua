@@ -148,14 +148,7 @@ local function fakeDesktop(windowSpecs)
           desktop.counts.getWindows = desktop.counts.getWindows + 1
           local matching = {}
           for _, entry in ipairs(desktop.windows) do
-            local state = {
-              id = entry.spec.id,
-              pid = entry.spec.pid or entry.spec.id * 10,
-              standard = true,
-              title = entry.spec.title or "",
-              minimized = entry.spec.minimized == true,
-            }
-            if predicate(entry.window, entry.app, state) then
+            if predicate(entry.window, entry.app) then
               matching[#matching + 1] = entry.window
             end
           end

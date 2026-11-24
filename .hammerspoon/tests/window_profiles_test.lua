@@ -179,14 +179,17 @@ local function window(id, title)
     end,
   }
 end
+local forbiddenWindow = setmetatable({}, {
+  __index = function(_, method)
+    error("synchronous Accessibility read: " .. tostring(method))
+  end,
+})
 ---@param event? string
 ---@param pid? integer
 ---@param options? { standard?: boolean, minimized?: boolean }
 local function appear(bundleId, title, id, event, pid, options)
   event = event or "windowCreated"
   options = options or {}
-  local standard = options.standard ~= false
-  local minimized = options.minimized ~= nil and options.minimized or event == "windowMinimized"
   local app = {
     bundleID = function()
       return bundleId
@@ -198,52 +201,18 @@ local function appear(bundleId, title, id, event, pid, options)
   local state = {
     id = id,
     pid = pid or 7,
-    standard = standard,
+    standard = options.standard ~= false,
     title = title,
-    minimized = minimized,
+    minimized = options.minimized or event == "windowMinimized",
   }
-  local created
-  if event == "windowFocused" then
-    created = {}
-    for _, method in ipairs({
-      "id",
-      "title",
-      "subrole",
-      "isStandard",
-      "isMinimized",
-      "isFullScreen",
-      "frame",
-      "role",
-      "application",
-    }) do
-      created[method] = function()
-        error("synchronous Accessibility read on focus: " .. method)
-      end
-    end
-  else
-    created = {
-      application = function()
-        return app
-      end,
-      title = function()
-        return title
-      end,
-      isStandard = function()
-        return standard
-      end,
-      isMinimized = function()
-        return event == "windowMinimized"
-      end,
-    }
-  end
   for _, filter in ipairs(filters) do
     local callback = filter.callbacks[event]
-    local allowed = not filter.predicate
-      or event == "windowDestroyed"
-      or event == "windowFocused"
-      or filter.predicate(created, app, state)
-    if not filter.deleted and callback and allowed then
-      callback(created, "App", event, id, state)
+    if
+      not filter.deleted
+      and callback
+      and (not filter.predicate or filter.predicate(forbiddenWindow, app, state))
+    then
+      callback(forbiddenWindow, "App", event, id, state)
     end
   end
 end
@@ -433,6 +402,7 @@ check(
     openOrFocusWindow(work)
     assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
     assert(calls[1] == "focus 7 10 minimized")
+
     -- Stale minimized=true on windowTitleChanged must not overwrite focus()'s minimized=false.
     appear("net.imput.helium", "Renamed - Helium - Work", 10, "windowTitleChanged", 7, {
       minimized = true,
@@ -444,56 +414,48 @@ check(
     openOrFocusWindow(work)
     assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
     assert(calls[3] == "focus 7 10")
-  end
-)
-check(
-  "windowFocused and launch predicates read cached state without synchronous AX calls",
-  function()
-    apps = helium()
-    rows = {
-      row(11, "Plan - Helium - Work", { space = 2 }),
-      row(12, "Save - Helium - Work", { subrole = "AXDialog", space = 2 }),
-    }
-    -- Pre-existing window not yet in `known` (e.g. tracked before window_profiles loaded).
-    appear("net.imput.helium", "Plan - Helium - Work", 11, "windowFocused")
-    -- Non-standard window is ignored on focus without touching `window`.
-    appear("net.imput.helium", "Save - Helium - Work", 12, "windowFocused", 7, { standard = false })
-    openOrFocusWindow(work)
-    assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
-    assert(calls[1] == "focus 7 11")
-    -- Becoming non-standard evicts a previously cached entry from `known`.
-    appear("net.imput.helium", "Plan - Helium - Work", 11, "windowFocused", 7, { standard = false })
-    rows[1].subrole = "AXDialog"
-    openOrFocusWindow(work)
-    assert(#scans == 1)
 
-    -- Launch filter predicate also uses cached app/state instead of reading `window`.
-    openOrFocusWindow(personal)
-    local launchFilter = filters[#filters]
-    assert(launchFilter and launchFilter.predicate)
-    local forbidden = {}
-    for _, method in ipairs({ "title", "application", "isStandard", "isMinimized", "id" }) do
-      forbidden[method] = function()
-        error("synchronous Accessibility read in launch predicate: " .. method)
-      end
-    end
-    local app = {
-      bundleID = function()
-        return "net.imput.helium"
-      end,
-      pid = function()
-        return 7
-      end,
-    }
-    assert(launchFilter.predicate(forbidden, app, {
-      id = 13,
-      pid = 7,
-      standard = true,
-      title = "Home - Helium - Personal",
-      minimized = false,
-    }) == true)
+    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowMinimized")
+    apps = helium(nil, nil, 8)
+    rows = { row(10, "Fresh - Helium - Work", { pid = 8, space = 2 }) }
+    appear("net.imput.helium", "Fresh - Helium - Work", 10, "windowTitleChanged", 8)
+    openOrFocusWindow(work)
+    assert(#scans == 0 and calls[4] == "focus 8 10")
   end
 )
+check("non-standard events keep cached entries and focus order updates recency", function()
+  apps = helium()
+  rows = {
+    row(11, "Plan - Helium - Work", { space = 2 }),
+    row(12, "Save - Helium - Work", { subrole = "AXDialog", space = 2 }),
+    row(13, "Notes - Helium - Work", { space = 2 }),
+  }
+
+  local nonStandard = { standard = false }
+  appear("net.imput.helium", "Plan - Helium - Work", 11, "windowFocused")
+  appear("net.imput.helium", "Save - Helium - Work", 12, "windowFocused", 7, nonStandard)
+  openOrFocusWindow(work)
+  assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0 and calls[1] == "focus 7 11")
+
+  appear("net.imput.helium", "Tab - Helium - Work", 11, "windowTitleChanged", 7, nonStandard)
+  appear("net.imput.helium", "Tab - Helium - Work", 11, "windowFocused", 7, nonStandard)
+  rows[1].subrole = "AXUnknown"
+  openOrFocusWindow(work)
+  assert(#scans == 0 and #tasks == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
+  assert(calls[2] == "focus 7 11")
+
+  appear("net.imput.helium", "Notes - Helium - Work", 13, "windowCreated")
+  appear("net.imput.helium", "Notes - Helium - Work", 13, "windowFocused")
+  openOrFocusWindow(work)
+  assert(#scans == 0 and calls[3] == "focus 7 13")
+
+  apps[2] = helium(nil, nil, 8)[1]
+  appear("net.imput.helium", "Save - Helium - Work", 13, "windowCreated", 7, nonStandard)
+  appear("net.imput.helium", "Save - Helium - Work", 11, "windowFocused", 8, nonStandard)
+  rows[3].subrole = "AXUnknown"
+  openOrFocusWindow(work)
+  assert(#scans == 1 and #tasks == 1)
+end)
 check("cache invalidates on windowDestroyed or missing Space", function()
   apps = helium()
   rows = { row(1, "Plan - Helium - Work"), row(2, "Mail - Helium - Work") }

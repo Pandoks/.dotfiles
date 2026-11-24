@@ -8,8 +8,7 @@ The observer suite rejects all timer use and checks initialization, shared
 subscriptions, cached window state (`statesOf` and event `state`), zero synchronous
 Accessibility reads on `windowFocused` for tracked standard windows (with one subrole
 refresh for non-standard windows and coherent cross-filter updates on subrole changes),
-cached IDs after destruction,
-background focus, stale callbacks,
+cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
 tracking failures with popups, re-attaching a failed app only when it launches or activates,
 Space snapshot failures that keep tracked windows, and shutdown. It also checks that quit
@@ -26,8 +25,8 @@ allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that moves the
 opposite edge at the screen's edge, mouse resizes that move the dragged edges' splits on
 release, balance, a column mode that keeps equal widths as windows open and close, zoom,
-float, cached-title Picture-in-Picture checks without reading `window:title()`, and staying
-off `windowFocused`. The window manager suite checks
+float, cached-title Picture-in-Picture checks on title changes without reading `window:title()`,
+and staying off `windowFocused`. The window manager suite checks
 direct Space switches through `lib.dock`, rapid back-to-back switches without wait locks,
 deferred-load superseding and shutdown cancellation, fast failures, and reuse of one
 `native.displaySpaces` read when focusing a window on another Space.
@@ -54,7 +53,7 @@ change default handlers.
 
 The window profiles suite (`window_profiles_test.lua`) checks that a profile's window on another
 Space or minimized is restored rather than relaunched, that launches ignore repeat presses until
-their window appears, which is then focused, that `windowFocused` and launch predicates use
+their window appears, which is then focused, that tracker events and launch matching use
 cached window state without synchronous Accessibility reads, and that failed launches and missing
 browser profiles report without launching. Hidden apps, Space switches, cold launches, and Chromium's
 `<page> - <browser> - <profile>` titles were checked manually with Helium, Ghostty, and Slack on
@@ -153,9 +152,8 @@ The Space-focus suite also checks numbered/Ctrl-arrow shortcuts, Space arrival
 before or after the `window_manager.space` reply, arrival timeouts, superseded requests,
 direct Space notifications, late PiP focus, zero synchronous Accessibility reads to the
 focused app on `windowFocused` (including PiP redirects without Screen Recording), per-Space
-window identity,
-empty desktop fallback, explicit mouse intent, superseded replies, shutdown, and idle snapshot
-activity.
+window identity, empty desktop fallback, explicit mouse intent, superseded replies, shutdown,
+and idle snapshot activity.
 Finished jobs release their timers.
 It also checks PiP activation redirects, display boundaries, repeated presses during
 a pending switch, and Mission Control key passthrough and focus suppression. Its window
@@ -215,9 +213,8 @@ Focus restoration reads the Space synchronously in-process: `hs.window.list(true
 WindowServer's front-to-back on-screen windows, limited to those centered in the Space
 display's `fullFrame()`, plus the focused window (probed through `native.focusedWindow`;
 read with `hs.window.focusedWindow()` only when no app is frontmost) and
-`lib.window_filter.statesOf` for tracked window state (IDs, cached titles, and minimized state).
-Candidates are tracked layer-0
-windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
+`lib.window_filter.statesOf` for tracked window IDs and cached titles. Candidates are tracked
+layer-0 windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
 This never waits behind a busy app; it measured about 2-3 ms. A Space whose display
 cannot be found fails once with a popup.
 Without `true`, the list keeps only the windows behind the first one titled "Dock", from any

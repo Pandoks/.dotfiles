@@ -60,11 +60,14 @@ tracker:subscribe({
   filter.windowUnminimized,
   filter.windowFocused,
 }, function(_, _, event, id, state)
-  if not state.standard then
+  local entry = known[id]
+  if
+    not state.standard
+    and (event == filter.windowCreated or not entry or entry.pid ~= state.pid)
+  then
     known[id] = nil
     return
   end
-  local entry = known[id]
   local minimized = state.minimized
   if event == filter.windowTitleChanged and entry and entry.pid == state.pid then
     minimized = entry.minimized
@@ -127,7 +130,7 @@ local function launch(profile, matcher)
   end
   -- `open` returns before the window exists, so the key waits for the window
   local windows = filter.new(function(_, app, state)
-    return app ~= nil and app:bundleID() == profile.bundleId and matcher(state.title)
+    return app:bundleID() == profile.bundleId and matcher(state.title)
   end)
   local function settle()
     local pending = launching[launchKey]
