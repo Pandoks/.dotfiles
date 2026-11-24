@@ -76,12 +76,12 @@ local function overlap()
   for id = 1000, 1099 do
     many[#many + 1] = { id = id, pid = 123 }
   end
-  cancel = previews.capture(many, function()
+  local cancelFirst = previews.capture(many, function()
     error("superseded batch called back")
   end)
   fixture.waitStarted(4)
-  cancel()
-  cancel()
+  cancelFirst()
+  cancelFirst()
   local images = 0
   cancel = previews.capture(windows, function(id, image, err)
     assert(not err)
@@ -91,8 +91,8 @@ local function overlap()
       return
     end
     local peak, starts, captured = fixture.stats()
-    assert(images == 7 and peak == 4 and starts == 11 and captured == 11)
-    print("PASS replacing 100 queued captures keeps the global four-worker limit")
+    assert(cancel and cancelFirst and images == 7 and peak == 4 and starts == 11 and captured == 11)
+    print("PASS cancelling twice and replacing 100 queued captures keeps the four-worker limit")
     empty()
   end)
   fixture.resume()

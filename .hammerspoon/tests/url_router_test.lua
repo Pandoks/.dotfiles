@@ -10,7 +10,6 @@ local function browser(options)
   local settings = options or {}
   local state = {
     logs = {},
-    prints = {},
     ports = {},
     tasks = {},
     reads = 0,
@@ -20,9 +19,6 @@ local function browser(options)
   }
   local generation = 0
   local environment = setmetatable({
-    print = function(message)
-      state.prints[#state.prints + 1] = message
-    end,
     io = {
       open = function(path)
         local contents
@@ -226,14 +222,11 @@ local function browser(options)
               state.canceled = (state.canceled or 0) + 1
             end
           end,
-          process = function(pid, path, stopped)
+          process = function(_, path)
             assert(path == "/usr/libexec/swcd")
-            if settings.deadProcess then
-              return false
-            elseif settings.processFailure then
+            if settings.processFailure then
               return nil, "watch failed"
             end
-            state.watched, state.stopped = pid, stopped
             return function()
               state.processCanceled = (state.processCanceled or 0) + 1
             end
