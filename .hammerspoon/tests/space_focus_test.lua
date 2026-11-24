@@ -56,7 +56,7 @@ local function harness(options)
   local desktop = {
     now = 0,
     space = 101,
-    focused = 1,
+    focused = options.focused == nil and 1 or options.focused,
     timers = {},
     writes = {},
     clicks = {},
@@ -67,7 +67,6 @@ local function harness(options)
     busy = false,
     managerBusy = false,
     busyChecks = {},
-    standardReads = 0,
     missionControlReads = 0,
     screenReads = 0,
     recent = {},
@@ -147,6 +146,9 @@ local function harness(options)
   }) do
     desktop:add(row)
   end
+  for id, subrole in pairs(options.subroles or {}) do
+    desktop:row(id).subrole = subrole
+  end
   local function timer(delay, callback, repeatTimer)
     local scheduled = {
       at = desktop.now + delay,
@@ -200,16 +202,6 @@ local function harness(options)
       return nil
     end
     local methods = {
-      isStandard = function()
-        desktop.standardReads = desktop.standardReads + 1
-        return true
-      end,
-      isMinimized = function()
-        return row.minimized == true
-      end,
-      title = function()
-        return row.title
-      end,
       id = function()
         return row.id
       end,
@@ -218,9 +210,6 @@ local function harness(options)
       end,
       application = function()
         return {
-          name = function()
-            return row.app
-          end,
           pid = function()
             return row.pid
           end,
@@ -249,6 +238,20 @@ local function harness(options)
       end,
     }
   end
+  local function stateOf(row)
+    return {
+      id = row.id,
+      pid = row.pid,
+      standard = (row.subrole or "AXStandardWindow") == "AXStandardWindow",
+      title = row.title or "",
+      minimized = row.minimized == true,
+    }
+  end
+  local forbiddenFocusWindow = setmetatable({}, {
+    __index = function(_, name)
+      error("synchronous Accessibility read on focus: " .. tostring(name))
+    end,
+  })
   function desktop:focus(id)
     local row = self:row(id)
     -- Focusing a window on another Space switches to it before notifications arrive.
@@ -261,7 +264,11 @@ local function harness(options)
       self.spaceCallback()
     end
     if self.focusCallback then
-      self.focusCallback(window(id), row and row.app, 1, id)
+      local state = row and stateOf(row) or nil
+      local target = row and forbiddenFocusWindow or nil
+      if not row or not self.predicate or self.predicate(target, self:app(row.pid), state) then
+        self.focusCallback(target, row and row.app, 1, id, state)
+      end
     end
   end
   function desktop:activate(id, pid)
@@ -460,13 +467,16 @@ local function harness(options)
     end)
   end
   local filter = {
-    new = object,
+    new = function(predicate)
+      desktop.predicate = predicate
+      return object()
+    end,
     windowFocused = 1,
-    windowsOf = function(pid)
-      local windows, ids = {}, {}
+    statesOf = function(pid)
+      local states, ids = {}, {}
       for _, row in ipairs(desktop.rows) do
         if row.pid == pid and not row.untracked then
-          windows[row.id] = window(row.id)
+          states[row.id] = stateOf(row)
           ids[#ids + 1] = row.id
         end
       end
@@ -474,7 +484,7 @@ local function harness(options)
       table.sort(ids, function(a, b)
         return a > b
       end)
-      return setmetatable(windows, {
+      return setmetatable(states, {
         __pairs = function(tracked)
           local i = 0
           return function()
@@ -1870,12 +1880,14 @@ test("non-PiP activations and other app events keep existing behaviour", functio
 end)
 
 test("PiP focus shortly after activating a real window is redirected", function()
-  local desktop = pip()
+  local desktop = pip({ noTitles = true })
   desktop:activate(61)
   desktop:advance(0.015)
   assertEqual(desktop:countFocus(), 0)
+  desktop.accessibilityReads = {}
   desktop:focus(50)
   assertEqual(desktop:countFocus(), 1)
+  assertEqual(next(desktop.accessibilityReads), nil)
   desktop:advance(0.3)
   assertEqual(desktop:countFocus(), 1)
   assertEqual(desktop.focused, 60)
@@ -2056,7 +2068,7 @@ test("screen frame cache reuses finds and invalidates on screen watcher", functi
 end)
 
 test(
-  "scoped isBusy skips AX reads, records focusedTarget, and windowFocused skips isStandard",
+  "scoped isBusy skips AX reads, records focusedTarget, and windowFocused skips synchronous Accessibility reads",
   function()
     local desktop = harness()
     desktop.focusedTarget = { space = 202, pid = 103, id = 3 }
@@ -2083,10 +2095,40 @@ test(
     desktop:advance(0.3)
     assertEqual(desktop.focused, 3)
 
-    -- Non-busy windowFocused skips redundant window:isStandard() call.
-    local standardsBefore = desktop.standardReads
+    desktop.accessibilityReads = {}
     desktop:focus(2)
-    assertEqual(desktop.standardReads, standardsBefore)
+    assertEqual(next(desktop.accessibilityReads), nil)
+
+    desktop:add({
+      id = 7,
+      pid = 107,
+      app = "Dialog",
+      title = "Save",
+      subrole = "AXUnknown",
+      space = 101,
+    })
+    desktop.space = 101
+    desktop:focus(7)
+    desktop:arrive(101, true)
+    desktop:advance(0.3)
+    assertEqual(desktop.focused, 1)
+
+    for _, case in ipairs({
+      { expected = 3 },
+      { subroles = { [3] = "AXUnknown" }, expected = 2 },
+      { focused = false, expected = 2 },
+    }) do
+      local seeded = harness({
+        space = 202,
+        focused = case.focused == nil and 3 or case.focused,
+        subroles = case.subroles,
+      })
+      seeded.module.switchSpace(1)
+      seeded:advance(0.3)
+      seeded.module.switchSpace(2)
+      seeded:advance(0.3)
+      assertEqual(seeded.focused, case.expected)
+    end
   end
 )
 

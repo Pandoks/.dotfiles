@@ -59,41 +59,24 @@ tracker:subscribe({
   filter.windowMinimized,
   filter.windowUnminimized,
   filter.windowFocused,
-}, function(window, _, event, id)
+}, function(_, _, event, id, state)
   local entry = known[id]
-  if entry then
+  if entry and event ~= filter.windowCreated then
     entry.observed = true
-    if event == filter.windowFocused then
-      recent = recent + 1
-      entry.recent = recent
-      entry.minimized = false
-      return
-    elseif event == filter.windowMinimized or event == filter.windowUnminimized then
-      entry.minimized = event == filter.windowMinimized
-      return
-    elseif event == filter.windowTitleChanged then
-      entry.title = window:title() or ""
-      return
+    if event == filter.windowTitleChanged then
+      entry.title = state.title
+    else
+      entry.minimized = state.minimized
     end
-  end
-  if not window:isStandard() then
+  elseif not state.standard then
     known[id] = nil
     return
+  else
+    entry = cache(state.pid, id, state.title, state.minimized, true)
   end
-  local app = window:application()
-  if not app then
-    return
-  end
-  local minimized = event == filter.windowMinimized
-    or (
-      event ~= filter.windowUnminimized
-      and event ~= filter.windowFocused
-      and window:isMinimized() == true
-    )
-  local stored = cache(app:pid(), id, window:title() or "", minimized, true)
   if event == filter.windowFocused then
     recent = recent + 1
-    stored.recent = recent
+    entry.recent = recent
   end
 end)
 tracker:subscribe({ filter.windowDestroyed }, function(_, _, _, id)
@@ -147,9 +130,8 @@ local function launch(profile, matcher)
     return
   end
   -- `open` returns before the window exists, so the key waits for the window
-  local windows = filter.new(function(window)
-    local app = window:application()
-    return app ~= nil and app:bundleID() == profile.bundleId and matcher(window:title() or "")
+  local windows = filter.new(function(_, app, state)
+    return app:bundleID() == profile.bundleId and matcher(state.title)
   end)
   local function settle()
     local pending = launching[launchKey]
@@ -160,12 +142,14 @@ local function launch(profile, matcher)
     end
     return pending
   end
-  windows:subscribe({ filter.windowCreated, filter.windowTitleChanged }, function(window, _, _, id)
-    local app = window:application()
-    if settle() and app then
-      focus(profile.bundleId, app:pid(), id)
+  windows:subscribe(
+    { filter.windowCreated, filter.windowTitleChanged },
+    function(_, _, _, id, state)
+      if settle() then
+        focus(profile.bundleId, state.pid, id)
+      end
     end
-  end)
+  )
   launching[launchKey] = {
     windows = windows,
     deadline = hs.timer.doAfter(10, function()

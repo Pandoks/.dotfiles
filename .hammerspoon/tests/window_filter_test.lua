@@ -171,6 +171,8 @@ local function setup(options)
         return record.parent
       elseif name == "AXModal" then
         return record.modal
+      elseif name == "AXMinimized" then
+        return record.minimized
       elseif name == "AXMinimizeButton" and record.minimizable ~= nil then
         return {
           attributeValue = function(_, attribute)
@@ -327,8 +329,20 @@ local function setup(options)
   logger = assert(loadfile(root .. "/logger.lua", "t", environment))()
   model.module = assert(loadfile(root .. "/window_filter.lua", "t", environment))()
   model.filter = model.module.new()
+  local windowEvents = {
+    AXTitleChanged = true,
+    AXWindowMiniaturized = true,
+    AXWindowDeminiaturized = true,
+    AXWindowMoved = true,
+  }
   function model:emit(target, event, observer)
     observer = observer or self.observers[#self.observers]
+    if
+      windowEvents[event]
+      and not (observer.registered[target] and observer.registered[target][event])
+    then
+      return
+    end
     observer.handler(observer, target, event)
   end
   return model
@@ -538,38 +552,70 @@ test("cached window lookup respects process identity and filter membership", fun
   assert(model.filter:getWindow(100, 42) == nil)
 end)
 
-test("windowsOf lists tracked windows without predicates or Accessibility reads", function()
+test("statesOf lists tracked window state without predicates or Accessibility reads", function()
   local options = {}
   local model = setup(options)
   local second = model:window(200)
+  second.title, second.minimized = nil, true
   model:emit(second, "AXWindowCreated")
+  assert(
+    model.module.statesOf(42)[100].minimized == false
+      and model.module.statesOf(42)[200].title == ""
+      and model.module.statesOf(42)[200].standard == true
+      and model.module.statesOf(42)[200].minimized == true
+  )
+
+  local seen, forbidPredicate = {}, false
+  model.filter.predicate = function(_, _, state)
+    assert(not forbidPredicate, "predicate evaluated")
+    seen[#seen + 1] = string.format("%d %s %s", state.id, state.title, tostring(state.minimized))
+    return true
+  end
+  model:emit(model.first, "AXWindowMiniaturized")
+  second.title = "Updated"
+  model:emit(second, "AXTitleChanged")
+  second.title = nil
+  model:emit(second, "AXTitleChanged")
+  model:emit(second, "AXWindowDeminiaturized")
+  assert(table.concat(seen, ";") == "100 ordinary true;200 Updated true;200  true;200  false")
+
   options.unsupported = "AXUIElementDestroyed"
   local failed = model:window(300)
   model:emit(failed, "AXWindowCreated")
   assert(#model.logs == 1 and #model.alerts == 1)
-  model.filter.predicate = function()
-    error("predicate evaluated")
+
+  forbidPredicate = true
+  local function forbidRead()
+    error("Accessibility read")
   end
   for _, record in ipairs({ model.first, second, failed }) do
-    record.attributeValue = function()
-      error("Accessibility read")
-    end
+    record.attributeValue = forbidRead
+    record.window.id, record.window.title, record.window.subrole =
+      forbidRead, forbidRead, forbidRead
   end
   local reads, conversions = model.reads + model.attributeReads, model.conversions
-  local windows, count = model.module.windowsOf(42), 0
-  for _ in pairs(windows) do
+  local states, count = model.module.statesOf(42), 0
+  for _ in pairs(states) do
     count = count + 1
   end
-  assert(count == 2 and windows[100] == model.first.window and windows[200] == second.window)
-  assert(next(model.module.windowsOf(43)) == nil)
+  assert(count == 2 and states[100].id == 100 and states[100].title == "ordinary")
+  assert(states[100].standard == true and states[100].minimized == true and states[100].pid == 42)
+  assert(
+    states[200].title == ""
+      and states[200].minimized == false
+      and states[200].standard == true
+      and states[200].pid == 42
+  )
+  assert(next(model.module.statesOf(43)) == nil)
   assert(model.reads + model.attributeReads == reads and model.conversions == conversions)
   assert(#model.logs == 1)
+
   local broken = model:window(400)
   broken.attributeValue = function()
     error("Accessibility read")
   end
   model:emit(broken, "AXWindowCreated")
-  assert(#model.logs == 2 and next(model.module.windowsOf(42)) == nil)
+  assert(#model.logs == 2 and next(model.module.statesOf(42)) == nil)
 end)
 
 test(
@@ -640,9 +686,30 @@ end)
 test("unsupported window notification stops registration and reports once", function()
   local model = setup({ unsupported = "AXUIElementDestroyed" })
   local registrations = model.registrations
-  assert(#model.logs == 1 and #model.alerts == 1 and #model.filter:getWindows() == 0)
+  assert(
+    #model.logs == 1
+      and #model.alerts == 1
+      and #model.filter:getWindows() == 0
+      and model.module.applicationOf(100) == nil
+  )
   model:emit(model.first, "AXWindowCreated")
   assert(model.registrations == registrations and #model.logs == 1)
+
+  local failing = setup()
+  local broken = failing:window(200)
+  broken.window.title = function()
+    error("title unavailable")
+  end
+  failing:emit(broken, "AXWindowCreated")
+  failing:emit(broken, "AXWindowCreated")
+  assert(
+    #failing.logs == 1
+      and #failing.alerts == 1
+      and failing.module.statesOf(42)[200] == nil
+      and failing.module.applicationOf(200) == nil
+  )
+  failing.filter:subscribe(failing.module.windowMoved, function() end)
+  assert(next(failing.observers[1].registered[broken]) == nil)
 end)
 
 test("a published window failing a later subscription is destroyed once", function()
@@ -656,7 +723,7 @@ test("a published window failing a later subscription is destroyed once", functi
   options.unsupported = "AXWindowMoved"
   model.filter:subscribe(model.module.windowMoved, function() end)
   assert(destroyed == 1 and #model.filter:getWindows() == 0)
-  assert(#model.logs == 1 and #model.alerts == 1)
+  assert(#model.logs == 1 and #model.alerts == 1 and model.module.statesOf(42)[100] == nil)
   model:emit(model.first, "AXUIElementDestroyed")
   model.appCallback("Browser", 3, model.app)
   assert(destroyed == 1)
@@ -869,14 +936,37 @@ end)
 
 test("failed predicates stop without repeated errors", function()
   local model = setup()
-  local calls = 0
+  local calls, focused = 0, 0
+  model.filter:subscribe(model.module.windowFocused, function()
+    focused = focused + 1
+  end)
   model.filter.predicate = function()
     calls = calls + 1
     error("predicate failed")
   end
   model.filter:getWindows()
-  model.filter:getWindows()
-  assert(calls == 1 and #model.logs == 1 and #model.alerts == 1)
+  model:emit(model.first, "AXFocusedWindowChanged")
+  assert(calls == 1 and focused == 0 and #model.logs == 1 and #model.alerts == 1)
+
+  local broken = setup({ unknown = true })
+  local delivered = 0
+  broken.first.window.subrole = function()
+    broken.subroleReads = broken.subroleReads + 1
+    error("subrole unavailable")
+  end
+  broken.filter:subscribe(broken.module.windowFocused, function()
+    delivered = delivered + 1
+  end)
+  broken:emit(broken.first, "AXFocusedWindowChanged")
+  assert(delivered == 0 and #broken.logs == 1 and #broken.alerts == 1)
+  local reads = broken.subroleReads
+  assert(
+    broken.logs[1]:find("Window filter:", 1, true)
+      and #broken.filter:getWindows() == 0
+      and broken.subroleReads == reads
+      and #broken.logs == 1
+  )
+  assert(#broken.module.new():getWindows() == 0 and #broken.logs == 2 and #broken.alerts == 2)
 end)
 
 test("deleting the final filter stops observers and late callbacks", function()
@@ -887,7 +977,7 @@ test("deleting the final filter stops observers and late callbacks", function()
   assert(#model.filter:getWindows() == 0 and #model.logs == 0)
 end)
 
-test("multiple active filters share one subrole read per emitted event", function()
+test("multiple active filters share one subrole read per non-focus event", function()
   local model = setup()
   local p1, p2, p3 = 0, 0, 0
   local c1, c2, c3 = 0, 0, 0
@@ -933,12 +1023,12 @@ test("multiple active filters share one subrole read per emitted event", functio
       end,
     },
   }) do
-    entry[1]:subscribe({ model.module.windowFocused, model.module.windowTitleChanged }, entry[2])
+    entry[1]:subscribe({ model.module.windowMoved, model.module.windowTitleChanged }, entry[2])
     entry[1]:subscribe(model.module.windowDestroyed, entry[3])
   end
   p1, p2, p3 = 0, 0, 0
   local reads = model.subroleReads
-  model:emit(model.first, "AXFocusedWindowChanged")
+  model:emit(model.first, "AXWindowMoved")
   assert(model.subroleReads == reads + 1)
   assert(c1 == 1 and c2 == 1 and c3 == 1 and p1 == 1 and p2 == 1 and p3 == 1)
   model.first.subrole = "AXDialog"
@@ -949,13 +1039,97 @@ test("multiple active filters share one subrole read per emitted event", functio
   f2.predicate = function()
     error("f2 predicate failed")
   end
-  model:emit(model.first, "AXFocusedWindowChanged")
+  model:emit(model.first, "AXWindowMoved")
   assert(model.subroleReads == reads + 3)
-  assert(c1 == 2 and c2 == 1 and c3 == 2 and #model.logs == 1)
+  assert(c1 == 2 and c2 == 1 and c3 == 2 and p1 == 2 and p3 == 2 and #model.logs == 1)
   model.first.destroyed = true
   model:emit(model.first, "AXUIElementDestroyed")
   assert(model.subroleReads == reads + 3 and d1 == 1 and d2 == 0 and d3 == 1)
 end)
+
+test(
+  "windowFocused on tracked standard windows makes no synchronous Accessibility calls",
+  function()
+    local model = setup({ unknown = true })
+    local second = model:window(200, "Initial")
+    second.minimized = true
+    local allSeen, lateSeen = {}, {}
+    model.filter:subscribe(model.module.windowFocused, function(_, app, _, id, state)
+      allSeen[#allSeen + 1] = string.format(
+        "%s %d %s %s %s %d",
+        app,
+        id,
+        state.title,
+        tostring(state.minimized),
+        tostring(state.standard),
+        state.pid
+      )
+    end)
+    local createReads = model.subroleReads
+    model:emit(second, "AXWindowCreated")
+    assert(model.subroleReads == createReads + 1)
+    second.title = "Renamed"
+    model:emit(second, "AXTitleChanged")
+
+    local function forbid(name)
+      return function()
+        error("synchronous Accessibility read on focus: " .. name)
+      end
+    end
+    local noWindowRead = {
+      __index = function(_, name)
+        error("synchronous Accessibility read on focus: window." .. tostring(name))
+      end,
+    }
+    model.app.focusedWindow = forbid("app.focusedWindow")
+    model.element.attributeValue = forbid("app.attributeValue")
+    model.element.attributeNames = forbid("app.attributeNames")
+    for _, record in ipairs({ model.first, second }) do
+      record.attributeValue = forbid("element.attributeValue")
+      record.asHSWindow = forbid("element.asHSWindow")
+      record.window.id, record.window.title = nil, nil
+      if record ~= model.first then
+        record.window.subrole = nil
+      end
+      setmetatable(record.window, noWindowRead)
+    end
+
+    local late = model.module.new(function(_, _, state)
+      return state.standard
+    end)
+    late:subscribe(model.module.windowFocused, function(_, _, _, id)
+      lateSeen[#lateSeen + 1] = id
+    end)
+
+    local subroleBefore = model.subroleReads
+    local proxy = setmetatable({}, {
+      __eq = function(left, right)
+        return rawequal(left, second) or rawequal(right, second)
+      end,
+    })
+    model:emit(proxy, "AXFocusedWindowChanged")
+    local pendingBefore = #model.pending
+    model.appCallback("Browser", 2, model.app)
+    assert(#model.pending == pendingBefore + 1)
+    model.pending[#model.pending].done(200)
+
+    model:emit(model.first, "AXFocusedWindowChanged")
+    assert(model.subroleReads == subroleBefore + 1)
+    model.first.standard = true
+    model:emit(model.first, "AXFocusedWindowChanged")
+    assert(model.subroleReads == subroleBefore + 2)
+    model.first.window.subrole = nil
+    model:emit(model.first, "AXFocusedWindowChanged")
+
+    assert(#model.logs == 0 and #model.alerts == 0 and #allSeen == 5)
+    assert(allSeen[1] == "Browser 200 Renamed false true 42")
+    assert(allSeen[2] == "Browser 200 Renamed false true 42")
+    assert(allSeen[3] == "Browser 100 ordinary false false 42")
+    assert(allSeen[4] == "Browser 100 ordinary false true 42")
+    assert(allSeen[5] == "Browser 100 ordinary false true 42")
+    assert(table.concat(lateSeen, ",") == "200,200,100,100")
+  end
+)
 
 test("Space changes skip snapshots when on-screen layer-0 windows are already tracked", function()
   local model = setup()
@@ -1022,6 +1196,9 @@ test("indexed window lookup stays consistent across track, destroy, retire, and 
   assert(model.filter:getWindow(100, 42) == nil)
   model.filter = model.module.new()
   assert(model.filter:getWindow(100, 42) == model.first.window)
+  model.first.title = "After stop"
+  model:emit(model.first, "AXTitleChanged")
+  assert(model.module.statesOf(42)[100].title == "After stop")
 end)
 
 test("activation uses async focusedWindow and drops stale callbacks", function()
