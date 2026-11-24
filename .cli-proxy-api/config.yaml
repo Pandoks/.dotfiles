@@ -175,7 +175,7 @@ routing:
   session-affinity-rebind-on: "quota"
 
   # When true, unprefixed model requests only use credentials without a prefix (except when prefix == model name).
-  force-model-prefix: false
+  force-model-prefix: true
 
   retry:
     # Number of additional credential retry rounds after the first round exhausts
@@ -468,11 +468,18 @@ upstream:
 
 # BEGIN API KEY EXAMPLES
 
-# api-keys:
+# Fill the keys in on the host; never commit them.
+api-keys:
 #
 #   # Gemini API keys
 #
-#   gemini:
+  gemini:
+    - name: ultra-accounts
+      prefix: "api"
+      # The built-in gemini catalog does not list gemini-4-neon.
+      models:
+        - name: "gemini-4-neon"
+      keys: []
 #     - name: gemini-1
 #       priority: 0 # larger values take precedence when selecting credentials
 #       prefix: "test" # optional: require calls like "test/gemini-3-pro-preview" to target this credential
@@ -646,7 +653,16 @@ upstream:
 #
 #   # Claude API keys
 #
-#   claude:
+  claude:
+    - name: max-accounts
+      prefix: "api"
+      # A spend- or usage-limit 400 is otherwise returned to the client instead of trying the next key.
+      request-scoped-errors:
+        - status: 400
+          match-regexr:
+            - "(?i)credit balance|spend limit|usage limit"
+          action: "continue-and-cooldown"
+      keys: []
 #     - name: claude-1
 #       keys:
 #         - api-key: "sk-atSM..." # use the official claude API key, no need to set the base url

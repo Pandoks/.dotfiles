@@ -171,7 +171,6 @@ The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], [ARTEX], and
 sudo pacman -Syu  # Arch Linux only
 mise -E hub bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
-sudo tailscale serve --service=svc:cliproxyapi-api --https=443 http://127.0.0.1:8318
 sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 sudo tailscale serve --service=svc:artex --https=443 http://127.0.0.1:8787
 sudo tailscale serve --service=svc:protonmail-bridge --tcp=1143 tcp://127.0.0.1:1143
@@ -182,7 +181,9 @@ sudo tailscale serve --service=svc:protonmail-bridge --tcp=1025 tcp://127.0.0.1:
 (never commit it), restart `dev.mise.cli-proxy-api`, then add accounts at
 `https://cliproxyapi.<tailnet>.ts.net/management.html` with **WebSockets** on
 for Codex accounts. In Claude Code, run `/login` once and don't set
-`ANTHROPIC_AUTH_TOKEN`.
+`ANTHROPIC_AUTH_TOKEN`. Console and AI Studio keys go under `api-keys` in the
+same file (never commit them); only `api/<model>` requests use them, and
+unprefixed models use only the accounts.
 
 **Beszel:** login is off. At `https://beszel.<tailnet>.ts.net`, create the
 user `hub@beszel.local` (any password) and a permanent universal token. On each
