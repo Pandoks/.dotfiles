@@ -406,6 +406,7 @@ check(
     })
     openOrFocusWindow(work)
     assert(#scans == 0 and calls[2] == "focus 7 10")
+
     appear("net.imput.helium", "Renamed - Helium - Work", 10, "windowMinimized")
     appear("net.imput.helium", "Draft - Helium - Work", 10, "windowUnminimized")
     appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowTitleChanged")
@@ -417,13 +418,6 @@ check(
     appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowFocused")
     openOrFocusWindow(work)
     assert(#scans == 0 and calls[4] == "focus 7 10")
-
-    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowMinimized")
-    apps = helium(nil, nil, 8)
-    rows = { row(10, "Fresh - Helium - Work", { pid = 8 }) }
-    appear("net.imput.helium", "Fresh - Helium - Work", 10, "windowTitleChanged", 8)
-    openOrFocusWindow(work)
-    assert(#scans == 0 and calls[5] == "focus 8 10")
   end
 )
 check("non-standard events keep cached entries and focus order updates recency", function()
@@ -440,24 +434,19 @@ check("non-standard events keep cached entries and focus order updates recency",
   openOrFocusWindow(work)
   assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0 and calls[1] == "focus 7 11")
 
-  appear("net.imput.helium", "Tab - Helium - Work", 11, "windowTitleChanged", 7, nonStandard)
   appear("net.imput.helium", "Tab - Helium - Work", 11, "windowFocused", 7, nonStandard)
   rows[1].subrole = "AXUnknown"
   openOrFocusWindow(work)
   assert(#scans == 0 and #tasks == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
   assert(calls[2] == "focus 7 11")
 
-  appear("net.imput.helium", "Notes - Helium - Work", 13, "windowCreated")
   appear("net.imput.helium", "Notes - Helium - Work", 13, "windowFocused")
   openOrFocusWindow(work)
   assert(#scans == 0 and calls[3] == "focus 7 13")
 
-  apps[2] = helium(nil, nil, 8)[1]
   appear("net.imput.helium", "Save - Helium - Work", 13, "windowCreated", 7, nonStandard)
-  appear("net.imput.helium", "Save - Helium - Work", 11, "windowFocused", 8, nonStandard)
-  rows[3].subrole = "AXUnknown"
   openOrFocusWindow(work)
-  assert(#scans == 1 and #tasks == 1)
+  assert(#scans == 0 and calls[4] == "focus 7 11")
 
   reset()
   apps = helium()

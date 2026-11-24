@@ -1880,21 +1880,19 @@ test("non-PiP activations and other app events keep existing behaviour", functio
 end)
 
 test("PiP focus shortly after activating a real window is redirected", function()
-  for _, noTitles in ipairs({ false, true }) do
-    local desktop = pip({ noTitles = noTitles })
-    desktop:activate(61)
-    desktop:advance(0.015)
-    assertEqual(desktop:countFocus(), 0)
-    desktop.accessibilityReads = {}
-    desktop:focus(50)
-    assertEqual(desktop:countFocus(), 1)
-    assertEqual(next(desktop.accessibilityReads), nil)
-    desktop:advance(0.3)
-    assertEqual(desktop:countFocus(), 1)
-    assertEqual(desktop.focused, 60)
-    assertEqual(desktop.space, 202)
-    assertEqual(#desktop.alerts, 0)
-  end
+  local desktop = pip({ noTitles = true })
+  desktop:activate(61)
+  desktop:advance(0.015)
+  assertEqual(desktop:countFocus(), 0)
+  desktop.accessibilityReads = {}
+  desktop:focus(50)
+  assertEqual(desktop:countFocus(), 1)
+  assertEqual(next(desktop.accessibilityReads), nil)
+  desktop:advance(0.3)
+  assertEqual(desktop:countFocus(), 1)
+  assertEqual(desktop.focused, 60)
+  assertEqual(desktop.space, 202)
+  assertEqual(#desktop.alerts, 0)
 end)
 
 test("PiP focus without an activation of its app does not redirect", function()

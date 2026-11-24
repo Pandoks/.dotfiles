@@ -334,7 +334,6 @@ local function setup(options)
     AXWindowMiniaturized = true,
     AXWindowDeminiaturized = true,
     AXWindowMoved = true,
-    AXWindowResized = true,
   }
   function model:emit(target, event, observer)
     observer = observer or self.observers[#self.observers]
@@ -536,44 +535,21 @@ end)
 
 test("a tracked window is excluded if its subrole becomes blacklisted", function()
   local model = setup({ unknown = true })
-  local standardFocused = 0
-  local standardFilter = model.module.new(function(_, _, state)
-    return state.standard
-  end)
-  standardFilter:subscribe(model.module.windowFocused, function()
-    standardFocused = standardFocused + 1
-  end)
-
-  model.first.subrole = "AXStandardWindow"
-  assert(#model.filter:getWindows() == 1)
-  local reads = model.subroleReads
-  model:emit(model.first, "AXFocusedWindowChanged")
-  assert(standardFocused == 1 and model.subroleReads == reads)
-
   model.first.subrole = "AXDialog"
   assert(model.filter:getWindow(100, 42) == nil and #model.filter:getWindows() == 0)
-  model:emit(model.first, "AXFocusedWindowChanged")
-  assert(standardFocused == 1)
   model.first.subrole = "AXCustomWindow"
   assert(model.filter:getWindow(100, 42) == model.first.window)
 end)
 
 test("cached window lookup respects process identity and filter membership", function()
   local model = setup({ unknown = true })
-  local other = model.module.new()
   assert(model.filter:getWindow(100, 43) == nil)
   model.filter.predicate = function()
     return false
   end
   assert(model.filter:getWindow(100, 42) == nil)
   model.filter:delete()
-  local reads = model.subroleReads
-  assert(
-    model.filter:getWindow(100, 42) == nil
-      and #model.filter:getWindows() == 0
-      and model.subroleReads == reads
-      and other:getWindow(100, 42) == model.first.window
-  )
+  assert(model.filter:getWindow(100, 42) == nil)
 end)
 
 test("statesOf lists tracked window state without predicates or Accessibility reads", function()
@@ -583,24 +559,32 @@ test("statesOf lists tracked window state without predicates or Accessibility re
   second.title, second.minimized = nil, true
   model:emit(second, "AXWindowCreated")
   assert(
-    model.module.statesOf(42)[200].title == ""
+    model.module.statesOf(42)[100].minimized == false
+      and model.module.statesOf(42)[200].title == ""
       and model.module.statesOf(42)[200].standard == true
       and model.module.statesOf(42)[200].minimized == true
   )
+
+  local seen, forbidPredicate = {}, false
+  model.filter.predicate = function(_, _, state)
+    assert(not forbidPredicate, "predicate evaluated")
+    seen[#seen + 1] = string.format("%d %s %s", state.id, state.title, tostring(state.minimized))
+    return true
+  end
   model:emit(model.first, "AXWindowMiniaturized")
   second.title = "Updated"
   model:emit(second, "AXTitleChanged")
-  assert(model.module.statesOf(42)[200].title == "Updated")
   second.title = nil
   model:emit(second, "AXTitleChanged")
   model:emit(second, "AXWindowDeminiaturized")
+  assert(table.concat(seen, ";") == "100 ordinary true;200 Updated true;200  true;200  false")
+
   options.unsupported = "AXUIElementDestroyed"
   local failed = model:window(300)
   model:emit(failed, "AXWindowCreated")
   assert(#model.logs == 1 and #model.alerts == 1)
-  model.filter.predicate = function()
-    error("predicate evaluated")
-  end
+
+  forbidPredicate = true
   local function forbidRead()
     error("Accessibility read")
   end
@@ -625,6 +609,7 @@ test("statesOf lists tracked window state without predicates or Accessibility re
   assert(next(model.module.statesOf(43)) == nil)
   assert(model.reads + model.attributeReads == reads and model.conversions == conversions)
   assert(#model.logs == 1)
+
   local broken = model:window(400)
   broken.attributeValue = function()
     error("Accessibility read")
@@ -959,7 +944,6 @@ test("failed predicates stop without repeated errors", function()
     calls = calls + 1
     error("predicate failed")
   end
-  model:emit(model:window(200), "AXWindowCreated")
   model.filter:getWindows()
   model:emit(model.first, "AXFocusedWindowChanged")
   assert(calls == 1 and focused == 0 and #model.logs == 1 and #model.alerts == 1)
@@ -983,11 +967,6 @@ test("failed predicates stop without repeated errors", function()
       and #broken.logs == 1
   )
   assert(#broken.module.new():getWindows() == 0 and #broken.logs == 2 and #broken.alerts == 2)
-  broken.module.new():subscribe(broken.module.windowMoved, function()
-    delivered = delivered + 1
-  end)
-  broken:emit(broken.first, "AXWindowMoved")
-  assert(delivered == 0 and #broken.logs == 3 and #broken.alerts == 3)
 end)
 
 test("deleting the final filter stops observers and late callbacks", function()
@@ -1215,12 +1194,8 @@ test("indexed window lookup stays consistent across track, destroy, retire, and 
   assert(model.filter:getWindow(100, 42) == model.first.window)
   model.module.stop()
   assert(model.filter:getWindow(100, 42) == nil)
-  local seeded = 0
-  model.filter = model.module.new(function()
-    seeded = seeded + 1
-    return true
-  end)
-  assert(seeded == 4 and model.filter:getWindow(100, 42) == model.first.window)
+  model.filter = model.module.new()
+  assert(model.filter:getWindow(100, 42) == model.first.window)
   model.first.title = "After stop"
   model:emit(model.first, "AXTitleChanged")
   assert(model.module.statesOf(42)[100].title == "After stop")

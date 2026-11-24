@@ -61,25 +61,22 @@ tracker:subscribe({
   filter.windowFocused,
 }, function(_, _, event, id, state)
   local entry = known[id]
-  if
-    not state.standard
-    and (event == filter.windowCreated or not entry or entry.pid ~= state.pid)
-  then
+  if entry and event ~= filter.windowCreated then
+    entry.observed = true
+    if event == filter.windowTitleChanged then
+      entry.title = state.title
+    else
+      entry.minimized = state.minimized
+    end
+  elseif not state.standard then
     known[id] = nil
     return
+  else
+    entry = cache(state.pid, id, state.title, state.minimized, true)
   end
-  local title, minimized = state.title, state.minimized
-  if entry and entry.pid == state.pid then
-    if event == filter.windowTitleChanged then
-      minimized = entry.minimized
-    elseif event ~= filter.windowCreated then
-      title = entry.title
-    end
-  end
-  local stored = cache(state.pid, id, title, minimized, true)
   if event == filter.windowFocused then
     recent = recent + 1
-    stored.recent = recent
+    entry.recent = recent
   end
 end)
 tracker:subscribe({ filter.windowDestroyed }, function(_, _, _, id)

@@ -677,7 +677,7 @@ local function recordManaged(space)
   end
 end
 
-local function observe(list, state)
+local function observe(state, list)
   if stopped then
     return
   end
@@ -759,7 +759,7 @@ module.appWatcher = hs.application.watcher
         break
       end
     end
-    observe(list)
+    observe(nil, list)
     leavePiP(window and window:id(), pid, list)
   end)
   :start() --[[@as hs.application.watcher]]
@@ -784,7 +784,7 @@ module.windows = filter.new(function(_, _, state)
   return state.standard
 end)
 module.windows:subscribe(filter.windowFocused, function(_, _, _, _, state)
-  observe(nil, state)
+  observe(state)
 end)
 module.watcher = hs.spaces.watcher
   .new(function()
@@ -816,7 +816,7 @@ if hs.screen.watcher then
 end
 local focused = hs.window.focusedWindow()
 local focusedApplication = focused and focused:application()
-observe(nil, focusedApplication and filter.statesOf(focusedApplication:pid())[focused:id()])
+observe(focusedApplication and filter.statesOf(focusedApplication:pid())[focused:id()])
 
 function module.status()
   return {

@@ -166,12 +166,22 @@ local function harness(options)
     end,
   })
   function desktop:setWindowFocus(id)
+    local focused
     for _, window in ipairs(self.windows) do
       window["has-focus"] = window.id == id
+      if window.id == id then
+        focused = window
+      end
     end
     local callback = options.focusEvents ~= false and self.menu.windows.subscriptions.windowFocused
     if callback then
-      callback(forbidden, nil, "windowFocused", id)
+      callback(forbidden, focused and focused.app or nil, "windowFocused", id, {
+        id = id,
+        pid = focused and focused.pid or 0,
+        standard = not focused or focused.subrole == "AXStandardWindow",
+        title = focused and focused.title or "",
+        minimized = focused and focused["is-minimized"] or false,
+      })
     end
   end
   function desktop:rows(pids)

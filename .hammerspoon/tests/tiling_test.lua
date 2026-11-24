@@ -53,7 +53,6 @@ local function fakeDesktop(windowSpecs)
       frame = 0,
       spaceDisplay = 0,
       windowFrame = 0,
-      windowTitle = 0,
       appName = 0,
       appHidden = 0,
       doAfter = 0,
@@ -86,7 +85,6 @@ local function fakeDesktop(windowSpecs)
         return app
       end,
       title = function()
-        desktop.counts.windowTitle = desktop.counts.windowTitle + 1
         return spec.title or ""
       end,
       isStandard = function()
@@ -313,13 +311,18 @@ local function fakeDesktop(windowSpecs)
   }, { __index = _G })
   desktop.tiling = assert(loadfile(root .. "/tiling.lua", "t", environment))()
   desktop.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Beta)" })
+  local forbidden = setmetatable({}, {
+    __index = function(_, key)
+      error("synchronous Accessibility read: " .. tostring(key))
+    end,
+  })
   function desktop:event(name, id)
     local callback = self.subscribers[name]
     if callback then
-      local window, app, state
+      local app, state
       for _, entry in ipairs(self.windows) do
         if entry.spec.id == id then
-          window, app = entry.window, entry.spec.app
+          app = entry.spec.app
           state = {
             id = id,
             pid = entry.spec.pid or id * 10,
@@ -330,7 +333,7 @@ local function fakeDesktop(windowSpecs)
           break
         end
       end
-      callback(window, app, name, id, state)
+      callback(forbidden, app, name, id, state)
     end
   end
   function desktop:drag(id, frame)
@@ -622,8 +625,7 @@ test("non-PiP title changes skip sync, while Picture-in-Picture toggles still sy
   })
   desktop.focusedId = 4
   desktop.tiling.float()
-  local getWindows, spaces, titles =
-    desktop.counts.getWindows, desktop.counts.spaces, desktop.counts.windowTitle
+  local getWindows, spaces = desktop.counts.getWindows, desktop.counts.spaces
   assertEqual(desktop.subscribers.focused, nil, "tiling does not subscribe to focus events")
 
   desktop:windowSpec(1).title = "vim"
@@ -634,7 +636,6 @@ test("non-PiP title changes skip sync, while Picture-in-Picture toggles still sy
   desktop:event("title", 3)
   assertEqual(desktop.counts.getWindows, getWindows, "non-PiP title updates skip getWindows")
   assertEqual(desktop.counts.spaces, spaces, "non-PiP title updates skip spaces query")
-  assertEqual(desktop.counts.windowTitle, titles, "non-PiP title updates read cached state")
 
   desktop:windowSpec(2).title = "Picture-in-Picture"
   desktop:event("title", 2)

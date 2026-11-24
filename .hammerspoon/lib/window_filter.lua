@@ -640,9 +640,7 @@ function module.new(predicate)
   ensureWindowSpaceWatcher()
   for _, app in pairs(apps) do
     for _, record in ipairs(app.windows) do
-      if record.allowed[filter] == nil then
-        matches(filter, record, app, true)
-      end
+      matches(filter, record, app, true)
     end
   end
   return filter
