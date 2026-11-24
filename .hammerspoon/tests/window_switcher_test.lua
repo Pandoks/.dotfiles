@@ -748,13 +748,13 @@ local function harness(options)
     self:advance(0)
     return result
   end
-  function desktop:preview(index, id, err)
-    self.captures[index].done(id, not err and {
+  function desktop:preview(index, id)
+    self.captures[index].done(id, {
       batch = index,
       size = function()
         return { w = 230, h = 130 }
       end,
-    } or nil, err)
+    })
   end
   function desktop:complete(index, missing, err)
     local capture = self.captures[index]

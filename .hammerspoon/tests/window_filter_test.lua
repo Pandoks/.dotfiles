@@ -418,7 +418,7 @@ test("background documents are tracked without querying their focused window", f
   assert(#model.logs == 0 and #model.alerts == 0)
 end)
 
-test("main document windows on inactive Spaces are seeded without foreground focus", function()
+test("AXUnknown main windows on inactive Spaces are seeded without foreground focus", function()
   local model = setup({ background = true, mainOnly = true, unknown = true })
   assert(#model.filter:getWindows() == 1 and model.filter:getWindows()[1] == model.first.window)
   assert(
