@@ -606,12 +606,12 @@ tiling.windows:subscribe({
   filter.windowHidden,
   filter.windowUnhidden,
   filter.windowTitleChanged,
-}, function(window, _, event, id)
+}, function(_, _, event, id, state)
   if event == filter.windowDestroyed then
     floating[id] = nil
     pips[id] = nil
   elseif event == filter.windowTitleChanged then
-    local pip = isPiP(window:title())
+    local pip = isPiP(state.title)
     local was = pips[id]
     pips[id] = pip or nil
     if (pip and not tiled[id]) or (not pip and not was) then

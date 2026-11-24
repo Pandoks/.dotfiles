@@ -28,22 +28,6 @@ local function collection()
     reload()
   end)
 end
-local function cancellation()
-  fixture.prepare(true)
-  cancel = previews.capture(windows, function()
-    error("cancelled capture called back")
-  end)
-  fixture.waitStarted(4)
-  cancel()
-  cancel()
-  fixture.resume()
-  fixture.idle(function()
-    local _, _, captures = fixture.stats()
-    assert(captures == 4)
-    print("PASS cancellation skips queued captures and suppresses callbacks")
-    collection()
-  end)
-end
 local function errors()
   fixture.prepare(false)
   local valid, failures, completed = 0, {}, 0
@@ -73,7 +57,7 @@ local function errors()
     local _, starts = fixture.stats()
     assert(starts == 4)
     print("PASS failures, placeholder images, and reused window IDs never corrupt previews")
-    cancellation()
+    collection()
   end)
 end
 local function empty()
@@ -92,11 +76,12 @@ local function overlap()
   for id = 1000, 1099 do
     many[#many + 1] = { id = id, pid = 123 }
   end
-  local old = previews.capture(many, function()
+  local cancelFirst = previews.capture(many, function()
     error("superseded batch called back")
   end)
   fixture.waitStarted(4)
-  old()
+  cancelFirst()
+  cancelFirst()
   local images = 0
   cancel = previews.capture(windows, function(id, image, err)
     assert(not err)
@@ -106,8 +91,8 @@ local function overlap()
       return
     end
     local peak, starts, captured = fixture.stats()
-    assert(images == 7 and peak == 4 and starts == 11 and captured == 11)
-    print("PASS replacing 100 queued captures keeps the global four-worker limit")
+    assert(cancel and cancelFirst and images == 7 and peak == 4 and starts == 11 and captured == 11)
+    print("PASS cancelling twice and replacing 100 queued captures keeps the four-worker limit")
     empty()
   end)
   fixture.resume()
@@ -152,9 +137,9 @@ local function dimensions()
 end
 local function progressive()
   fixture.prepare(true, 1)
-  local first, images = true, 0
+  local first, images, returned = true, 0, false
   cancel = previews.capture(windows, function(id, image, err)
-    assert(not err)
+    assert(returned and not err)
     if id then
       assert(image.w == 8 and image.h == 8)
       images = images + 1
@@ -171,6 +156,7 @@ local function progressive()
     print("PASS completed previews arrive while a slower capture is still blocked")
     dimensions()
   end)
+  returned = true
   fixture.waitStarted(4)
 end
 local function independent()
@@ -209,20 +195,4 @@ for _, window in ipairs({
   end))
 end
 print("PASS malformed requests fail before starting work")
-fixture.prepare(true)
-local returned, images = false, 0
-cancel = previews.capture(windows, function(id, image, err)
-  assert(returned and not err)
-  if id then
-    assert(image.w == 8 and image.h == 8)
-    images = images + 1
-    return
-  end
-  local peak, starts, captures = fixture.stats()
-  assert(images == 7 and peak == 4 and starts == 7 and captures == 7)
-  print("PASS four concurrent workers deliver progressive results and one final completion")
-  independent()
-end)
-returned = true
-fixture.waitStarted(4)
-fixture.resume()
+independent()

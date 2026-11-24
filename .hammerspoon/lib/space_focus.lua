@@ -22,14 +22,14 @@ end
 
 -- Without Screen Recording, `hs.window.list(true)` omits titles.
 ---@param info table `hs.window.list(true)` entry
----@param windows? table<integer, hs.window>
+---@param states? table<integer, WindowState>
 ---@return string
-local function titleOf(info, windows)
+local function titleOf(info, states)
   if info.kCGWindowName then
     return info.kCGWindowName
   end
-  local window = (windows or filter.windowsOf(info.kCGWindowOwnerPID))[info.kCGWindowNumber]
-  return window and window:title() or ""
+  local state = (states or filter.statesOf(info.kCGWindowOwnerPID))[info.kCGWindowNumber]
+  return state and state.title or ""
 end
 
 local function eligible(row)
@@ -96,7 +96,7 @@ local function snapshot(frame, list, needFocused, knownFocusedID)
     local inside = x >= frame.x and x < frame.x + frame.w and y >= frame.y and y < frame.y + frame.h
     if layer >= 0 and layer < 20 and (inside or id == focusedID) then
       if inside then
-        tracked[pid] = tracked[pid] or filter.windowsOf(pid)
+        tracked[pid] = tracked[pid] or filter.statesOf(pid)
       end
       local row = {
         id = id,
@@ -628,14 +628,14 @@ local function leavePiP(id, pid, list)
   then
     return
   end
-  local windows, ids, candidates = filter.windowsOf(pid), {}, {}
-  for other in pairs(windows) do
+  local states, ids, candidates = filter.statesOf(pid), {}, {}
+  for other in pairs(states) do
     ids[#ids + 1] = other
   end
   table.sort(ids)
   for _, other in ipairs(ids) do
-    local window = windows[other]
-    if other ~= id and not isPiP(window:title()) and not window:isMinimized() then
+    local state = states[other]
+    if other ~= id and not isPiP(state.title) and not state.minimized then
       candidates[#candidates + 1] = { id = other, pid = pid }
     end
   end
@@ -677,7 +677,7 @@ local function recordManaged(space)
   end
 end
 
-local function observe(window, list, standard, name)
+local function observe(state, list)
   if stopped then
     return
   end
@@ -689,49 +689,30 @@ local function observe(window, list, standard, name)
     arrive(space, true, list)
     return
   end
+  local windowID = state and state.id
+  local pip = state ~= nil and isPiP(state.title)
   if not guard and windowManager.isBusy(space) then
     local target = windowManager.focusedTarget()
-    local focusedId = window and window:id()
-    if
-      not focusedId
-      or not target
-      or target.id == focusedId
-      or isPiP(window and window:title())
-    then
+    if not windowID or not target or target.id == windowID or pip then
       recordManaged(space)
       return
     end
   end
   local changed = space ~= lastSpace
   lastSpace = space
-  local title, app, windowID
-  if window then
-    title = window:title()
-    windowID = window:id()
-    if isPiP(title) then
-      lastFocused = nil
-    elseif standard or window:isStandard() then
-      local ownerName = name
-      if ownerName == nil then
-        app = window:application()
-        ownerName = app and app:name()
-      end
-      if ownerName ~= "Hammerspoon" then
-        app = app or window:application()
-        if app then
-          local entry = { id = windowID, pid = app:pid() }
-          recent[space] = entry
-          lastFocused = entry
-        end
-      end
-    end
+  if pip then
+    lastFocused = nil
+  elseif state and state.standard then
+    local entry = { id = windowID, pid = state.pid }
+    recent[space] = entry
+    lastFocused = entry
   end
   -- Another display's Space can take focus just after the event that moved it.
   if guard and (guard.space == space or guard.away) then
     check(guard, list, nil, windowID)
   end
   local now = hs.timer.secondsSinceEpoch()
-  if window and isPiP(title) and retake(list, now, space) then
+  if pip and retake(list, now, space) then
     return
   elseif
     changed
@@ -744,9 +725,8 @@ local function observe(window, list, standard, name)
     transitionSpace, transitionDeadline = space, now + 0.8
     protect(space, false, recent[space], list, true)
   end
-  if window and activation and isPiP(title) then
-    app = app or window:application()
-    leavePiP(windowID, app and app:pid(), list)
+  if pip and activation then
+    leavePiP(windowID, state.pid, list)
   end
 end
 
@@ -800,11 +780,11 @@ module.input = hs.eventtap
     return not user and dropped
   end)
   :start() --[[@as hs.eventtap]]
-module.windows = filter.new(function(window)
-  return window:isStandard()
+module.windows = filter.new(function(_, _, state)
+  return state.standard
 end)
-module.windows:subscribe(filter.windowFocused, function(window, name)
-  observe(window, nil, true, name)
+module.windows:subscribe(filter.windowFocused, function(_, _, _, _, state)
+  observe(state)
 end)
 module.watcher = hs.spaces.watcher
   .new(function()
@@ -834,7 +814,9 @@ if hs.screen.watcher then
     end)
     :start() --[[@as hs.screen.watcher]]
 end
-observe(hs.window.focusedWindow())
+local focused = hs.window.focusedWindow()
+local focusedApplication = focused and focused:application()
+observe(focusedApplication and filter.statesOf(focusedApplication:pid())[focused:id()])
 
 function module.status()
   return {

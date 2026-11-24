@@ -163,17 +163,6 @@ local function harness(options)
   return desktop
 end
 
-test("direct Space switch updates Space immediately through dock.switch without timers", function()
-  local desktop = harness()
-  desktop:space(4)
-  assertEqual(#desktop.switches, 1)
-  assertEqual(desktop.switches[1], 400)
-  assertEqual(desktop.current, 400)
-  assertEqual(desktop.calls.timers, 0, "no deadline timers")
-  assertEqual(desktop.results[4], "ok")
-  assertEqual(desktop.windowManager.isBusy(), false)
-end)
-
 test("rapid back-to-back switches execute immediately in order with zero wait lock", function()
   local desktop = harness()
   for _, index in ipairs({ 2, 3, 4, 1 }) do
@@ -181,6 +170,7 @@ test("rapid back-to-back switches execute immediately in order with zero wait lo
     assertEqual(desktop.windowManager.isBusy(), false, "idle after each switch")
   end
   assertEqual(table.concat(desktop.switches, ","), "200,300,400,100")
+  assertEqual(desktop.calls.timers, 0, "no deadline timers")
   assertEqual(desktop.current, 100)
   for _, index in ipairs({ 2, 3, 4, 1 }) do
     assertEqual(desktop.results[index], "ok", "switch " .. index)

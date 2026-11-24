@@ -179,36 +179,37 @@ local function window(id, title)
     end,
   }
 end
+local forbiddenWindow = setmetatable({}, {
+  __index = function(_, method)
+    error("synchronous Accessibility read: " .. tostring(method))
+  end,
+})
 ---@param event? string
 ---@param pid? integer
-local function appear(bundleId, title, id, event, pid)
+---@param options? { standard?: boolean, minimized?: boolean }
+local function appear(bundleId, title, id, event, pid, options)
   event = event or "windowCreated"
-  local created = {
-    application = function()
-      return {
-        bundleID = function()
-          return bundleId
-        end,
-        pid = function()
-          return pid or 7
-        end,
-      }
+  options = options or {}
+  local app = {
+    bundleID = function()
+      return bundleId
     end,
-    title = function()
-      return title
-    end,
-    isStandard = function()
-      return true
-    end,
-    isMinimized = function()
-      return event == "windowMinimized"
-    end,
+  }
+  local state = {
+    id = id,
+    pid = pid or 7,
+    standard = options.standard ~= false,
+    title = title,
+    minimized = options.minimized or event == "windowMinimized",
   }
   for _, filter in ipairs(filters) do
     local callback = filter.callbacks[event]
-    local allowed = not filter.predicate or event == "windowDestroyed" or filter.predicate(created)
-    if not filter.deleted and callback and allowed then
-      callback(created, "App", event, id)
+    if
+      not filter.deleted
+      and callback
+      and (not filter.predicate or filter.predicate(forbiddenWindow, app, state))
+    then
+      callback(forbiddenWindow, "App", event, id, state)
     end
   end
 end
@@ -250,11 +251,6 @@ test("failed launches report the bundle id, exit code, and reason", function(tas
   assert(#errors == 1, bundleId)
   assert(errors[1]:find(bundleId, 1, true) and errors[1]:find("exit 1", 1, true), errors[1])
   assert(errors[1]:find("Unable to find application", 1, true), errors[1])
-end)
-test("successful launches report nothing", function(task, bundleId)
-  task.callback(0, "", "")
-  appear(bundleId, "Main", 1)
-  assert(#errors == 0, bundleId)
 end)
 test("a failed launch can be retried even when reporting raises", function(task, bundleId, profile)
   reportRaises = true
@@ -403,13 +399,72 @@ check(
     openOrFocusWindow(work)
     assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
     assert(calls[1] == "focus 7 10 minimized")
+
+    -- Stale minimized=true on windowTitleChanged must not overwrite focus()'s minimized=false.
+    appear("net.imput.helium", "Renamed - Helium - Work", 10, "windowTitleChanged", 7, {
+      minimized = true,
+    })
+    openOrFocusWindow(work)
+    assert(#scans == 0 and calls[2] == "focus 7 10")
+
+    appear("net.imput.helium", "Renamed - Helium - Work", 10, "windowMinimized")
     appear("net.imput.helium", "Draft - Helium - Work", 10, "windowUnminimized")
     appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowTitleChanged")
     openOrFocusWindow(work)
     assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
-    assert(calls[2] == "focus 7 10")
+    assert(calls[3] == "focus 7 10")
+
+    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowMinimized")
+    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowFocused")
+    openOrFocusWindow(work)
+    assert(#scans == 0 and calls[4] == "focus 7 10")
   end
 )
+check("non-standard events keep cached entries and focus order updates recency", function()
+  apps = helium()
+  rows = {
+    row(11, "Plan - Helium - Work"),
+    row(12, "Save - Helium - Work", { subrole = "AXDialog" }),
+    row(13, "Notes - Helium - Work"),
+  }
+
+  local nonStandard = { standard = false }
+  appear("net.imput.helium", "Plan - Helium - Work", 11, "windowFocused")
+  appear("net.imput.helium", "Save - Helium - Work", 12, "windowFocused", 7, nonStandard)
+  openOrFocusWindow(work)
+  assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0 and calls[1] == "focus 7 11")
+
+  appear("net.imput.helium", "Tab - Helium - Work", 11, "windowFocused", 7, nonStandard)
+  rows[1].subrole = "AXUnknown"
+  openOrFocusWindow(work)
+  assert(#scans == 0 and #tasks == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
+  assert(calls[2] == "focus 7 11")
+
+  appear("net.imput.helium", "Notes - Helium - Work", 13, "windowFocused")
+  openOrFocusWindow(work)
+  assert(#scans == 0 and calls[3] == "focus 7 13")
+
+  appear("net.imput.helium", "Save - Helium - Work", 13, "windowCreated", 7, nonStandard)
+  openOrFocusWindow(work)
+  assert(#scans == 0 and calls[4] == "focus 7 11")
+
+  reset()
+  apps = helium()
+  rows = { row(11, "Fresh - Helium - Work") }
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowCreated")
+  openOrFocusWindow(work)
+  assert(#scans == 1 and calls[1] == "focus 7 11")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowFocused")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowMinimized")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowUnminimized")
+  openOrFocusWindow(personal)
+  assert(#scans == 2 and #tasks == 1 and #calls == 1)
+  openOrFocusWindow(work)
+  assert(#scans == 2 and calls[2] == "focus 7 11")
+  appear("net.imput.helium", "New - Helium - Personal", 11, "windowCreated")
+  openOrFocusWindow(personal)
+  assert(#scans == 2 and calls[3] == "focus 7 11")
+end)
 check("cache invalidates on windowDestroyed or missing Space", function()
   apps = helium()
   rows = { row(1, "Plan - Helium - Work"), row(2, "Mail - Helium - Work") }

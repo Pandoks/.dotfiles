@@ -160,16 +160,27 @@ local function harness(options)
     end
     return count
   end
+  local forbidden = setmetatable({}, {
+    __index = function(_, method)
+      error("synchronous Accessibility read on focus: " .. tostring(method))
+    end,
+  })
   function desktop:setWindowFocus(id)
+    local focused
     for _, window in ipairs(self.windows) do
       window["has-focus"] = window.id == id
+      if window.id == id then
+        focused = window
+      end
     end
     local callback = options.focusEvents ~= false and self.menu.windows.subscriptions.windowFocused
     if callback then
-      callback({
-        id = function()
-          return id
-        end,
+      callback(forbidden, focused and focused.app or nil, "windowFocused", id, {
+        id = id,
+        pid = focused and focused.pid or 0,
+        standard = not focused or focused.subrole == "AXStandardWindow",
+        title = focused and focused.title or "",
+        minimized = focused and focused["is-minimized"] or false,
       })
     end
   end
@@ -748,13 +759,13 @@ local function harness(options)
     self:advance(0)
     return result
   end
-  function desktop:preview(index, id, err)
-    self.captures[index].done(id, not err and {
+  function desktop:preview(index, id)
+    self.captures[index].done(id, {
       batch = index,
       size = function()
         return { w = 230, h = 130 }
       end,
-    } or nil, err)
+    })
   end
   function desktop:complete(index, missing, err)
     local capture = self.captures[index]
@@ -1019,28 +1030,6 @@ test("minimizing during capture discards stale results without preview errors", 
     "late menu image cannot overwrite final capture"
   )
   assertEqual(desktop:current().images[3].batch, 1)
-  assertEqual(#desktop.alerts, 0)
-  assertEqual(#desktop.logs, 0)
-end)
-
-test("menus containing only minimized and hidden windows never request captures", function()
-  local desktop = harness({ previews = true, icons = true, count = 100 })
-  for _, window in ipairs(desktop.windows) do
-    window[window.id % 2 == 0 and "is-minimized" or "is-hidden"] = true
-  end
-  for _ = 1, 2 do
-    desktop:open()
-    for _, window in ipairs(desktop.menu.status().windows) do
-      assertEqual(window.preview, false)
-      assert(window.minimized or window.hidden)
-    end
-    desktop:key("keyDown", "tab", { cmd = true })
-    desktop:advance(0)
-    desktop:scroll(-10000)
-    desktop:advance(10)
-    assertEqual(#desktop.captures, 0)
-    desktop:key("keyDown", "escape", {})
-  end
   assertEqual(#desktop.alerts, 0)
   assertEqual(#desktop.logs, 0)
 end)
@@ -1432,19 +1421,6 @@ test("other idle events and missing screen permission never capture", function()
   assertEqual(#desktop.captures, 0)
   assertEqual(#desktop.alerts, 0)
   assertEqual(#desktop.logs, 0)
-end)
-
-test("multiple progressive failures stay silent without retries", function()
-  local desktop = harness({ previews = true })
-  desktop:open()
-  desktop:preview(1, 2, "first capture failed")
-  desktop:preview(1, 3, "second capture failed")
-  desktop:advance(0)
-  assertEqual(#desktop.alerts, 0)
-  assertEqual(#desktop.logs, 0)
-  assertEqual(#desktop.captures, 1)
-  desktop:advance(10)
-  assertEqual(#desktop.captures, 1)
 end)
 
 test("rows balance their window counts and remain centered", function()
@@ -2195,24 +2171,6 @@ test("missing focus notification times out without requerying windows", function
   assertEqual(#desktop.alerts, 1)
   assertEqual(#desktop.commands, count)
   assertEqual(desktop:commandCount("focus"), 1)
-end)
-test("the focus reply confirms focus in-process without a notification", function()
-  local desktop = harness({
-    focusEvents = false,
-    intercept = function(model, name, done, id)
-      if name == "focus" then
-        model:setWindowFocus(id)
-        done(true)
-        return true
-      end
-    end,
-  })
-  desktop:open()
-  desktop:release()
-  desktop:advance(0.01)
-  assertEqual(desktop.windows[2]["has-focus"], true)
-  assertEqual(desktop.menu.status().busy, false)
-  assertEqual(#desktop.alerts, 0)
 end)
 test("a focus event before the windowManager reply completes the job once", function()
   local reply

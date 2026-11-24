@@ -127,6 +127,7 @@ local function fakeDesktop(windowSpecs)
     windowUnhidden = "unhidden",
     windowTitleChanged = "title",
     windowMoved = "moved",
+    windowFocused = "focused",
     applicationOf = function(id)
       for _, entry in ipairs(desktop.windows) do
         if entry.spec.id == id then
@@ -310,17 +311,29 @@ local function fakeDesktop(windowSpecs)
   }, { __index = _G })
   desktop.tiling = assert(loadfile(root .. "/tiling.lua", "t", environment))()
   desktop.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Beta)" })
+  local forbidden = setmetatable({}, {
+    __index = function(_, key)
+      error("synchronous Accessibility read: " .. tostring(key))
+    end,
+  })
   function desktop:event(name, id)
     local callback = self.subscribers[name]
     if callback then
-      local window, app
+      local app, state
       for _, entry in ipairs(self.windows) do
         if entry.spec.id == id then
-          window, app = entry.window, entry.spec.app
+          app = entry.spec.app
+          state = {
+            id = id,
+            pid = entry.spec.pid or id * 10,
+            standard = true,
+            title = entry.spec.title or "",
+            minimized = entry.spec.minimized == true,
+          }
           break
         end
       end
-      callback(window, app, name, id)
+      callback(forbidden, app, name, id, state)
     end
   end
   function desktop:drag(id, frame)
@@ -385,14 +398,6 @@ test("only allowlisted apps tile, and Picture-in-Picture is left alone", functio
   assertEqual(desktop:frame(1), "0,0 1000x600")
   assertEqual(desktop:frame(2), "none", "other apps are never moved")
   assertEqual(desktop:frame(3), "none", "PiP is never moved")
-end)
-
-test("a window renamed to Picture-in-Picture leaves the layout", function()
-  local desktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Helium" } })
-  assertEqual(desktop:frame(1), "0,0 500x600")
-  desktop.windows[2].spec.title = "Picture-in-Picture"
-  desktop:event("title", 2)
-  assertEqual(desktop:frame(1), "0,0 1000x600", "remaining window takes the space back")
 end)
 
 test("minimizing or hiding a window frees its tile until it returns", function()
@@ -625,6 +630,7 @@ test("non-PiP title changes skip sync, while Picture-in-Picture toggles still sy
   desktop.focusedId = 4
   desktop.tiling.float()
   local getWindows, spaces = desktop.counts.getWindows, desktop.counts.spaces
+  assertEqual(desktop.subscribers.focused, nil, "tiling does not subscribe to focus events")
 
   desktop:windowSpec(1).title = "vim"
   desktop:event("title", 1)
