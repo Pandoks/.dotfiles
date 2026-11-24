@@ -428,7 +428,8 @@ static int focus(lua_State *state) {
       }
       AXUIElementRef target = copyWindow(pid, windowID);
       if (!target) {
-        deliver(callback, canary, @"window unavailable");
+        deliver(callback, canary,
+          atomic_load(&focusGeneration) != token ? @"superseded" : @"window unavailable");
         return;
       }
       if (atomic_load(&focusGeneration) != token || (expectedSpace && !spaceIsActive(expectedSpace))) {
@@ -439,8 +440,9 @@ static int focus(lua_State *state) {
       AXError raised = AXUIElementPerformAction(target, kAXRaiseAction);
       CFRelease(target);
       if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
-      deliver(callback, canary,
-        raised == kAXErrorSuccess ? nil : [NSString stringWithFormat:@"raise failed (%d)", raised]);
+      deliver(callback, canary, raised == kAXErrorSuccess ? nil
+        : atomic_load(&focusGeneration) != token ? @"superseded"
+        : [NSString stringWithFormat:@"raise failed (%d)", raised]);
     });
   });
   return 0;
@@ -469,6 +471,7 @@ static int focusedWindow(lua_State *state) {
   int callback = [skin luaRef:refTable];
   LSGCCanary canary = [skin createGCCanary];
   uint64_t token = nextFocusedGeneration(pid);
+  uint64_t focusToken = atomic_load(&focusGeneration);
   dispatch_async(queueFor(focusedQueues, "window_manager.focused", pid), ^{
     CGWindowID windowID = 0;
     NSString *failure = nil;
@@ -487,7 +490,8 @@ static int focusedWindow(lua_State *state) {
         }
         if (value) CFRelease(value);
       } else if (status != kAXErrorNoValue && status != kAXErrorAttributeUnsupported) {
-        failure = [NSString stringWithFormat:@"focused window failed (%d)", status];
+        failure = currentFocusedGeneration(pid) != token || atomic_load(&focusGeneration) != focusToken
+          ? @"cancelled" : [NSString stringWithFormat:@"focused window failed (%d)", status];
       }
     }
     dispatch_async(dispatch_get_main_queue(), ^{

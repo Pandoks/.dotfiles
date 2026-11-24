@@ -33,10 +33,15 @@ A minimized window on another Space is restored only once that Space shows; rest
 macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
-The Dock suite (`dock_test.lua`) checks persistent message-port caching, invalidation recovery,
-error replies, queued injection, and shutdown.
-Neither touches the real window server; the native Dock helper, focus, and Accessibility calls in
-`lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` were checked live on macOS 27.0.1.
+The Dock suite (`dock_test.lua`) checks persistent message-port caching, follow-takeover probes on
+connect (with bounded timeout, decline reporting once until the reason changes through
+`lib.logger`, and keeping the port open without reinjecting when a probe goes unanswered while
+Space switching keeps working), invalidation recovery, error replies, queued injection, and
+shutdown.
+Neither touches the real window server; the native Dock helper (including its notification-1415
+follow handler), focus, and Accessibility calls in
+`lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` require live checks
+on macOS 27.0.1.
 
 The URL router suites cover Lua rules, profiles, and selector readiness
 (`url_router_test.lua`); native selector publication and watchers
@@ -182,7 +187,7 @@ focused window only when that list shows a PiP it owns. The target is the app's
 tracked, unminimized non-PiP window with the latest switcher recency (seeded at load from
 the WindowServer's front-to-back on-screen order; lowest window ID for windows on other
 Spaces, minimized, or hidden at load), read from `lib.window_filter` without a window-list
-query. A failed focus command logs with a popup and is not retried. Space jobs and their transitions
+query. A failed focus command logs with a popup unless superseded, and is not retried. Space jobs and their transitions
 take priority.
 
 `window_manager.space` switches Spaces directly through `lib.dock` (using a cached
@@ -259,7 +264,7 @@ once more when its launch-complete event arrives.
 
 Command failures are logged when their callbacks return. Log output goes to the
 Hammerspoon console and, through lib.logger, ~/Library/Logs/Hammerspoon/config.log.
-Failed focus, resize, and app activation/unhide actions log, alert, and
+Failed focus (unless superseded), resize, and app activation/unhide actions log, alert, and
 stop without trying another method. Cmd-Tab requests unhide once through Accessibility
 and waits for the matching application's unhidden notification before restoring or
 focusing the selected window. Immediate completion proceeds directly. Request errors,
@@ -312,6 +317,10 @@ For a live check after reloading Hammerspoon:
     appear without changing the selection. Close a window while the menu is open;
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
+13. Rapidly switch between two windows of the same app on different Spaces; confirm the
+    display stays on the second Space and `log show --predicate 'process == "Dock"'` logs
+    `ignored follow ... reason=left`. Then click a link that opens an existing browser window on
+    another Space; confirm it switches immediately without animation and logs `performed follow`.
 
 The logger, window profiles and toast Lua regressions also run with `tests/run.sh`. The toast
 suite covers placement, stacking, repeats, click dismissal, wrapping, themes, light and dark,

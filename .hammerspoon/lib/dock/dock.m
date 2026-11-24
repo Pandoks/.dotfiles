@@ -5,7 +5,9 @@
 #import <malloc/malloc.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <pthread.h>
 #import <ptrauth.h>
+#import <time.h>
 
 extern int SLSMainConnectionID(void);
 extern void SLSMoveWindowsToManagedSpace(int connection, CFArrayRef windows, uint64_t space);
@@ -90,7 +92,7 @@ static void recordRange(task_t __unused task, void *context, unsigned __unused t
 }
 
 static NSString *discover(void) {
-  if (!weakInit || !weakLoadStrong || !weakDestroy) return @"Swift weak runtime unavailable";
+  if (!weakInit || !weakAssign || !weakLoadStrong || !weakDestroy) return @"Swift weak runtime unavailable";
   clearRefs();
   Class spacesClass = NSClassFromString(@"Spaces");
   Class displayClass = NSClassFromString(@"_TtC8DockCore13DisplaySpaces");
@@ -173,14 +175,13 @@ static id findDisplaySpaces(uint32_t displayID, uint64_t currentSpace) {
   return fallback;
 }
 
-static CFDataRef switchSpace(uint64_t space) {
+static CFDataRef switchSpace(uint64_t space, uint64_t *previous) {
   int connection = SLSMainConnectionID();
   NSString *uuid = displayUUID(connection, space);
   if (!uuid) return reply([NSString stringWithFormat:@"Space %llu has no display", space]);
   uint64_t current = SLSManagedDisplayGetCurrentSpace(connection, (__bridge CFStringRef)uuid);
   if (current == space) return NULL;
 
-  if (!weakAssign) return reply(@"swift_unknownObjectWeakAssign unavailable");
   id dockSpaces = loadWeak(&dockSpacesRef);
   if (!dockSpaces) {
     NSString *error = discover();
@@ -232,6 +233,7 @@ static CFDataRef switchSpace(uint64_t space) {
   if (((BOOL (*)(id, SEL))objc_msgSend)(target, sel_registerName("userSpace"))) {
     weakAssign((void *)((char *)(__bridge void *)entry + ivar_getOffset(lastUserIvar)), target);
   }
+  *previous = current;
   return NULL;
 }
 
@@ -246,17 +248,114 @@ static CFDataRef moveWindow(unsigned long long window, unsigned long long space)
   return NULL;
 }
 
-// "<window> <space>" or "switch <space>" in; nothing out on success, else the error.
+static NSString *portName;
+static NSString *followError;
+static NSMutableDictionary<NSNumber *, NSNumber *> *leftTimes;
+
+// "<window> <space>", "switch <space>", or "follow" in; nothing out on success, else the error.
 static CFDataRef handle(__unused CFMessagePortRef port, __unused SInt32 message, CFDataRef data, __unused void *info) {
-  NSString *request = [[NSString alloc] initWithData:(__bridge NSData *)data encoding:NSUTF8StringEncoding];
-  unsigned long long window, space;
-  if (sscanf(request.UTF8String, "switch %llu", &space) == 1) {
-    return switchSpace(space);
+  @try {
+    if (!data) return reply(@"malformed request");
+    NSString *request = [[NSString alloc] initWithData:(__bridge NSData *)data encoding:NSUTF8StringEncoding];
+    if (!request) return reply(@"malformed request");
+    if ([request isEqualToString:@"follow"]) return reply(followError);
+
+    unsigned long long window, space;
+    if (sscanf(request.UTF8String, "switch %llu", &space) == 1) {
+      uint64_t previous = 0;
+      CFDataRef error = switchSpace(space, &previous);
+      if (previous) leftTimes[@(previous)] = @(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+      return error;
+    }
+
+    if (sscanf(request.UTF8String, "%llu %llu", &window, &space) == 2) {
+      return moveWindow(window, space);
+    }
+    return reply([NSString stringWithFormat:@"malformed request %@", request]);
+  } @catch (NSException *exception) {
+    return reply(exception.reason ?: @"exception");
   }
-  if (sscanf(request.UTF8String, "%llu %llu", &window, &space) == 2) {
-    return moveWindow(window, space);
+}
+
+static void followSpace(uint64_t space) {
+  @try {
+    // Stale follows were observed 25-280 ms after our switch; WindowServer waits 100 ms before asking Dock.
+    NSNumber *left = leftTimes[@(space)];
+    if (left && clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - left.unsignedLongLongValue <= NSEC_PER_SEC) {
+      NSLog(@"%@: ignored follow space=%llu reason=left", portName, space);
+      return;
+    }
+
+    // Relies on switchSpace's checks; Dock's Mission Control, gesture, and kiosk guards are not mirrored.
+    uint64_t previous = 0;
+    CFDataRef failure = switchSpace(space, &previous);
+    if (failure) {
+      NSString *message = [[NSString alloc] initWithData:(__bridge_transfer NSData *)failure
+                                                encoding:NSUTF8StringEncoding];
+      NSLog(@"%@: ignored follow space=%llu reason=%@", portName, space, message);
+    } else if (!previous) {
+      NSLog(@"%@: ignored follow space=%llu reason=already-current", portName, space);
+    } else {
+      NSLog(@"%@: performed follow space=%llu", portName, space);
+    }
+  } @catch (NSException *exception) {
+    NSLog(@"%@: follow handler exception: %@", portName, exception);
   }
-  return reply([NSString stringWithFormat:@"malformed request %@", request]);
+}
+
+static NSString *installFollow(void) {
+  @try {
+    Boolean exists = false;
+    if (!CFPreferencesGetAppBooleanValue(CFSTR("workspaces-auto-swoosh"), CFSTR("com.apple.dock"), &exists) &&
+        exists) {
+      return @"workspaces-auto-swoosh is disabled";
+    }
+    void (*setFollow)(void (^)(CFDictionaryRef)) =
+      dlsym(RTLD_DEFAULT, "SLSSetWindowDidOrderInOnNonCurrentManagedSpacesOnlyNotificationBlock");
+    if (!setFollow) return @"SkyLight follow notification symbol unavailable";
+
+    NSString *error = discover();
+    if (error) return error;
+    id spaces = loadWeak(&dockSpacesRef);
+    if (![spaces respondsToSelector:sel_registerName("anySwitchingOccurring")] ||
+        ![spaces respondsToSelector:sel_registerName("spacesForDisplay:")] ||
+        ![spaces respondsToSelector:sel_registerName("displayForSPID:")]) {
+      return @"Dock Spaces selectors unavailable";
+    }
+    Class spaceClass = NSClassFromString(@"ManagedSpace");
+    if (![spaceClass instancesRespondToSelector:sel_registerName("spid")] ||
+        ![spaceClass instancesRespondToSelector:sel_registerName("userSpace")]) {
+      return @"Dock ManagedSpace selectors unavailable";
+    }
+
+    setFollow(^(CFDictionaryRef info) {
+      @try {
+        if (!info || CFGetTypeID(info) != CFDictionaryGetTypeID()) return;
+        NSDictionary *dictionary = (__bridge NSDictionary *)info;
+        id list = dictionary[@"Spaces Info"];
+        if (![list isKindOfClass:[NSArray class]] || [(NSArray *)list count] == 0) return;
+        id first = ((NSArray *)list)[0];
+        if (![first isKindOfClass:[NSDictionary class]]) return;
+        id managed = ((NSDictionary *)first)[@"ManagedSpaceID"];
+        if (!managed || CFGetTypeID((__bridge CFTypeRef)managed) != CFNumberGetTypeID()) return;
+        uint64_t space = [(NSNumber *)managed unsignedLongLongValue];
+        if (space == 0) return;
+
+        if (pthread_main_np()) {
+          followSpace(space);
+        } else {
+          dispatch_async(dispatch_get_main_queue(), ^{
+            followSpace(space);
+          });
+        }
+      } @catch (NSException *exception) {
+        NSLog(@"%@: follow handler exception: %@", portName, exception);
+      }
+    });
+    return nil;
+  } @catch (NSException *exception) {
+    return exception.reason ?: @"exception";
+  }
 }
 
 // The port is named after this file, so each build answers on its own port.
@@ -267,18 +366,18 @@ __attribute__((constructor)) static void load(void) {
   weakDestroy = dlsym(RTLD_DEFAULT, "swift_unknownObjectWeakDestroy");
   Dl_info image;
   dladdr((const void *)load, &image);
-  NSString *name = [@"org.hammerspoon." stringByAppendingString:@(image.dli_fname).lastPathComponent];
+  portName = [@"org.hammerspoon." stringByAppendingString:@(image.dli_fname).lastPathComponent];
+  leftTimes = [NSMutableDictionary dictionary];
   dispatch_async(dispatch_get_main_queue(), ^{
-    CFMessagePortRef port = CFMessagePortCreateLocal(NULL, (__bridge CFStringRef)name, handle, NULL, NULL);
+    CFMessagePortRef port = CFMessagePortCreateLocal(NULL, (__bridge CFStringRef)portName, handle, NULL, NULL);
     if (!port) {
-      NSLog(@"%@: could not create message port", name);
+      NSLog(@"%@: could not create message port", portName);
       return;
     }
     CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(NULL, port, 0);
     CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
     CFRelease(source);
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if (!loadWeak(&dockSpacesRef)) discover();
-    });
+    followError = installFollow();
+    if (followError) NSLog(@"%@: follow handler not installed: %@", portName, followError);
   });
 }

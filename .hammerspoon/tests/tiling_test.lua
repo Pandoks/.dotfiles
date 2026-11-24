@@ -181,8 +181,8 @@ local function fakeDesktop(windowSpecs)
         end
         return spacesById
       end,
-      focus = function(pid, id)
-        desktop.focusRequests[#desktop.focusRequests + 1] = { pid = pid, id = id }
+      focus = function(pid, id, done)
+        desktop.focusRequests[#desktop.focusRequests + 1] = { pid = pid, id = id, done = done }
       end,
       cancelFocus = unused("native.cancelFocus"),
       focusedWindow = unused("native.focusedWindow"),
@@ -429,9 +429,14 @@ test("focus moves to the neighbor in a direction", function()
   desktop.tiling.focus("east")
   assertEqual(desktop.focusRequests[1].id, 2)
   assertEqual(desktop.focusRequests[1].pid, 20)
+  desktop.focusRequests[1].done(true)
+  desktop.focusRequests[1].done(false, "superseded")
+  assertEqual(#desktop.logs, 0, "ok and superseded focus do not log")
+  desktop.focusRequests[1].done(false, "raise failed (-25204)")
+  assertEqual(desktop.logs[1], "Tiling: focus failed: raise failed (-25204)")
   desktop.tiling.focus("north")
   assertEqual(#desktop.focusRequests, 1, "no window above")
-  assertEqual(desktop.logs[1], "Tiling: no window to the north")
+  assertEqual(desktop.logs[2], "Tiling: no window to the north")
 end)
 
 test("swap exchanges tiles; warp splits the neighbor on the side moved toward", function()

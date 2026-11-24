@@ -449,7 +449,10 @@ local function harness(options)
       local row = desktop:row(id)
       if options.focusError or not row or row.pid ~= pid then
         if done then
-          done(false, "window unavailable")
+          done(
+            false,
+            type(options.focusError) == "string" and options.focusError or "window unavailable"
+          )
         end
         return
       end
@@ -1856,7 +1859,7 @@ test("PiP activation without another eligible app window does nothing", function
   end
 end)
 
-test("a failed PiP redirect logs and alerts once without retrying", function()
+test("a failed PiP redirect logs and alerts once without retrying, unless superseded", function()
   local desktop = pip({ focusError = true })
   desktop:activate(50)
   desktop:advance(2)
@@ -1865,6 +1868,13 @@ test("a failed PiP redirect logs and alerts once without retrying", function()
   assertEqual(#desktop.logs, 1)
   assertEqual(#desktop.alerts, 1)
   assert(desktop.logs[1]:find("window unavailable", 1, true))
+
+  local superseded = pip({ focusError = "superseded" })
+  superseded:activate(50)
+  superseded:advance(2)
+  assertEqual(superseded:countFocus(), 1)
+  assertEqual(#superseded.logs, 0)
+  assertEqual(#superseded.alerts, 0)
 end)
 
 test("non-PiP activations and other app events keep existing behaviour", function()

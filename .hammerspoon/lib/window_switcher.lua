@@ -580,7 +580,7 @@ focus = function(window, fresh)
         return
       end
       if not focused then
-        finish(job, failure)
+        finish(job, failure ~= "superseded" and failure or nil)
         return
       end
       job.confirmFocus()
