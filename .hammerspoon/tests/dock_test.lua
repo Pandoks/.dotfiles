@@ -155,9 +155,6 @@ test("warm move and switch reuse one cached port across repeated calls", functio
   end)
   state.dock.switch(30, function(ok, err)
     results[#results + 1] = { ok, err }
-  end, 77)
-  state.dock.switch(31, function(ok, err)
-    results[#results + 1] = { ok, err }
   end)
   state.dock.move(40, 50, function(ok, err)
     results[#results + 1] = { ok, err }
@@ -165,12 +162,11 @@ test("warm move and switch reuse one cached port across repeated calls", functio
 
   assertEqual(state.opens, 1, "reuses cached port")
   assertEqual(state.deletes, 0, "never deletes valid cached port")
-  assertEqual(#state.sends, 5)
+  assertEqual(#state.sends, 4)
   assertEqual(state.sends[2].payload, "10 20")
-  assertEqual(state.sends[3].payload, "switch 30 77")
-  assertEqual(state.sends[4].payload, "switch 31 0")
-  assertEqual(state.sends[5].payload, "40 50")
-  for i = 1, 4 do
+  assertEqual(state.sends[3].payload, "switch 30")
+  assertEqual(state.sends[4].payload, "40 50")
+  for i = 1, 3 do
     assertEqual(results[i][1], true)
     assertEqual(results[i][2], nil)
   end
@@ -185,7 +181,7 @@ test("invalidated cached port deletes stale handle and reconnects on next call",
   local ok, err
   state.dock.switch(4, function(status, msg)
     ok, err = status, msg
-  end, 12)
+  end)
 
   assertEqual(ok, true)
   assertEqual(err, nil)
@@ -196,7 +192,7 @@ test("invalidated cached port deletes stale handle and reconnects on next call",
   assertEqual(#state.sends, 3)
   assertEqual(state.sends[1].payload, "follow")
   assertEqual(state.sends[2].payload, "follow")
-  assertEqual(state.sends[3].payload, "switch 4 12")
+  assertEqual(state.sends[3].payload, "switch 4")
 end)
 
 test("send failure deletes stale handle and fails fast without reinjecting", function()
@@ -214,7 +210,7 @@ test("send failure deletes stale handle and fails fast without reinjecting", fun
   assertEqual(state.deletes, 1)
   assertEqual(state.injects, 0, "does not reinject on warm send failure")
   assertEqual(#state.sends, 2)
-  assertEqual(state.sends[2].payload, "switch 5 0")
+  assertEqual(state.sends[2].payload, "switch 5")
 
   -- If Dock restarted and the port is gone, the next call injects once cleanly.
   state.loaded = false
@@ -222,14 +218,14 @@ test("send failure deletes stale handle and fails fast without reinjecting", fun
   local ok2, err2
   state.dock.switch(6, function(status, msg)
     ok2, err2 = status, msg
-  end, 19)
+  end)
   assertEqual(state.injects, 1)
   state:completeInject(true)
   assertEqual(ok2, true)
   assertEqual(err2, nil)
   assertEqual(#state.sends, 4)
   assertEqual(state.sends[3].payload, "follow")
-  assertEqual(state.sends[4].payload, "switch 6 19")
+  assertEqual(state.sends[4].payload, "switch 6")
 end)
 
 test("queued switches supersede older pending switches and honor cancellation", function()
@@ -283,7 +279,7 @@ test("cold load queues multiple callers behind one inject and stop cleans up", f
   local results = {}
   state.dock.switch(4, function(ok, err)
     results[1] = { ok, err }
-  end, 15)
+  end)
   state.dock.move(7, 4, function(ok, err)
     results[2] = { ok, err }
   end)
@@ -292,7 +288,7 @@ test("cold load queues multiple callers behind one inject and stop cleans up", f
   assertEqual(results[1][1], true)
   assertEqual(results[2][1], true)
   assertEqual(state.sends[1].payload, "follow")
-  assertEqual(state.sends[2].payload, "switch 4 15")
+  assertEqual(state.sends[2].payload, "switch 4")
   assertEqual(state.sends[3].payload, "7 4")
 
   state.handles[1].valid = false
@@ -305,18 +301,23 @@ test("cold load queues multiple callers behind one inject and stop cleans up", f
 end)
 
 test(
-  "helper declining follow reports once via logger while Space switching keeps working",
+  "helper declining follow reports once per reason via logger while Space switching keeps working",
   function()
     local followReply = "workspaces-auto-swoosh is disabled"
     local state = harness({
       onSend = function(_, payload)
-        if payload == "follow" then
-          return true, followReply
-        end
-        return true, ""
+        return true, payload == "follow" and followReply or ""
       end,
     })
-    assertEqual(state.sends[1].timeout, 0.5, "follow handshake uses 0.5 s timeout")
+    local function assertSwitch(space)
+      local ok, failure
+      state.dock.switch(space, function(status, message)
+        ok, failure = status, message
+      end)
+      assertEqual(ok, true, "Space switching still succeeds")
+      assertEqual(failure, nil)
+    end
+
     assertEqual(#state.errors, 1, "reports follow decline once on connect")
     assertEqual(
       state.errors[1],
@@ -324,101 +325,69 @@ test(
     )
     assertEqual(state.deletes, 0, "keeps port open when follow is declined")
 
-    local ok, err
-    state.dock.switch(8, function(status, msg)
-      ok, err = status, msg
-    end, 21)
-    assertEqual(ok, true, "Space switching still succeeds")
-    assertEqual(err, nil)
+    assertSwitch(8)
     assertEqual(#state.errors, 1, "does not repeat follow error on switches")
 
-    -- Reconnecting to a helper with the same decline does not spam the user again.
     state.handles[1].valid = false
-    state.dock.switch(9, function(status, msg)
-      ok, err = status, msg
-    end)
-    assertEqual(ok, true)
-    assertEqual(err, nil)
+    assertSwitch(9)
     assertEqual(#state.errors, 1, "does not repeat identical decline on reconnect")
 
-    -- Reconnecting with a distinct decline reason reports the new reason once.
     followReply = "Dock Spaces selectors unavailable"
     state.handles[2].valid = false
-    state.dock.switch(10, function(status, msg)
-      ok, err = status, msg
-    end)
-    assertEqual(ok, true)
-    assertEqual(err, nil)
+    assertSwitch(10)
     assertEqual(#state.errors, 2, "reports distinct decline reason on reconnect")
     assertEqual(
       state.errors[2],
       "Dock helper did not take over Space follow: Dock Spaces selectors unavailable"
     )
 
-    -- Recovering on a later reconnect clears the previous decline so a future decline reports again.
     followReply = ""
     state.handles[3].valid = false
-    state.dock.switch(11, function(status, msg)
-      ok, err = status, msg
-    end)
-    assertEqual(ok, true)
-    assertEqual(err, nil)
+    assertSwitch(11)
     assertEqual(#state.errors, 2, "recovery logs no error")
 
     followReply = "Dock Spaces selectors unavailable"
     state.handles[4].valid = false
-    state.dock.switch(12, function(status, msg)
-      ok, err = status, msg
-    end)
-    assertEqual(ok, true)
-    assertEqual(err, nil)
+    assertSwitch(12)
     assertEqual(#state.errors, 3, "reports decline again after a healthy reconnect")
     assertEqual(
       state.errors[3],
       "Dock helper did not take over Space follow: Dock Spaces selectors unavailable"
     )
-
-    -- Cold load also reports once when the injected helper declines, and queued switches still work.
-    local cold = harness({
-      loaded = false,
-      onSend = function(_, payload)
-        if payload == "follow" then
-          return true, "SkyLight follow notification symbol unavailable"
-        end
-        return true, ""
-      end,
-    })
-    assertEqual(#cold.errors, 0, "no error before helper loads")
-    local coldOk, coldErr
-    cold.dock.switch(11, function(status, msg)
-      coldOk, coldErr = status, msg
-    end, 33)
-    cold:completeInject(true)
-    assertEqual(#cold.errors, 1, "reports decline once after inject")
-    assertEqual(
-      cold.errors[1],
-      "Dock helper did not take over Space follow: SkyLight follow notification symbol unavailable"
-    )
-    assertEqual(coldOk, true, "queued switch succeeds after follow decline")
-    assertEqual(coldErr, nil)
-    assertEqual(cold.sends[2].payload, "switch 11 33")
-
-    -- Transport failure on the follow handshake drops the dead port and injects once.
-    local deadOnce = true
-    local dead = harness({
-      onSend = function(_, payload)
-        if payload == "follow" and deadOnce then
-          deadOnce = false
-          return false, "port became invalid"
-        end
-        return true, ""
-      end,
-    })
-    assertEqual(dead.deletes, 1, "drops dead port after failed follow handshake")
-    assertEqual(dead.injects, 1, "injects after dead follow handshake at load")
-    dead:completeInject(true)
-    assertEqual(#dead.errors, 0)
   end
 )
+
+test("unanswered follow probe keeps the port open without reinjecting", function()
+  local failAll = false
+  local state = harness({
+    onSend = function(_, payload)
+      if failAll or payload == "follow" then
+        return false, "receive timed out"
+      end
+      return true, ""
+    end,
+  })
+  assertEqual(state.deletes, 0, "keeps port open after unanswered follow probe")
+  assertEqual(state.injects, 0, "does not reinject after unanswered follow probe")
+  assertEqual(#state.errors, 0, "does not report decline on unanswered follow probe")
+
+  local ok, failure
+  state.dock.switch(8, function(status, message)
+    ok, failure = status, message
+  end)
+  assertEqual(ok, true, "switch succeeds on the opened port")
+  assertEqual(failure, nil)
+  assertEqual(state.opens, 1)
+
+  failAll = true
+  state.handles[1].valid = false
+  state.dock.switch(9, function(status, message)
+    ok, failure = status, message
+  end)
+  assertEqual(ok, false, "stalled switch still fails fast")
+  assertEqual(failure, "receive timed out")
+  assertEqual(state.injects, 0, "stalled probe on reconnect does not reinject")
+  assertEqual(#state.errors, 0)
+end)
 
 print("RESULT " .. passed .. " passed, 0 failed")

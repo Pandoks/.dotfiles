@@ -28,15 +28,7 @@ local utils = require("lib.utils")
 ---@field displaySpaces fun(): DisplaySpaces?, string?
 ---@field watchWindowSpaces fun(callback?: WindowSpaceCallback): boolean, string?
 
-local raw = utils.native("window_manager") --[[@as WindowManagerNative]]
----@type integer?
-local focused
-
-local native = setmetatable({}, { __index = raw }) --[[@as WindowManagerNative]]
-function native.focus(pid, id, done, space)
-  focused = id
-  raw.focus(pid, id, done, space)
-end
+local native = utils.native("window_manager") --[[@as WindowManagerNative]]
 
 ---@class WindowManager
 local windowManager = { native = native }
@@ -71,9 +63,7 @@ end
 ---@param index number Mission Control index
 ---@param done? WindowManagerDone
 ---@param layout? DisplaySpaces
----@param leaving? integer
----@param reset? boolean
-local function jumpTo(index, done, layout, leaving, reset)
+local function jumpTo(index, done, layout)
   done = done or function() end
   if not layout then
     local err
@@ -103,9 +93,6 @@ local function jumpTo(index, done, layout, leaving, reset)
     return
   end
   native.cancelFocus()
-  if reset then
-    focused = nil
-  end
   local job = { done = done }
   switching = job
   job.cancel = dock.switch(target.id, function(ok, err)
@@ -113,14 +100,14 @@ local function jumpTo(index, done, layout, leaving, reset)
       switching = nil
       job.done(ok, err)
     end
-  end, leaving)
+  end)
 end
 
 ---@param index number Mission Control index
 ---@param done? WindowManagerDone
 function windowManager.space(index, done)
   clearSettled()
-  jumpTo(index, done, nil, focused, true)
+  jumpTo(index, done)
 end
 
 ---@param id integer
@@ -194,7 +181,6 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
       complete(false, failure)
     end
   end
-  local leaving = focused ~= id and focused or nil
   local layout, err = native.displaySpaces()
   if not layout then
     complete(false, err)
@@ -212,7 +198,7 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
     show()
     return
   end
-  jumpTo(entry.index, arrive, layout, leaving)
+  jumpTo(entry.index, arrive, layout)
 end
 
 ---@param space? integer
@@ -277,7 +263,6 @@ native.windows(function() end)
 
 function windowManager.stop()
   focusing = nil
-  focused = nil
   clearSettled()
   if watchingSpaces then
     watchingSpaces = false

@@ -26,21 +26,18 @@ opposite edge at the screen's edge, mouse resizes that move the dragged edges' s
 release, balance, a column mode that keeps equal widths as windows open and close, zoom,
 float, cached-title Picture-in-Picture checks on title changes without reading `window:title()`,
 and staying off `windowFocused`. The window manager suite checks
-direct Space switches through `lib.dock`, leaving-window tracking at the `native.focus` boundary
-for explicit switches (cross-Space focuses, direct `windowManager.native.focus` callers, minimized
-restores, and `windowManager.space`, reporting each left window at most once per focus and omitting
-it when none or refocusing the same window),
-rapid back-to-back switches without wait locks,
+direct Space switches through `lib.dock`, rapid back-to-back switches without wait locks,
 deferred-load superseding and shutdown cancellation, fast failures, and reuse of one
 `native.displaySpaces` read when focusing a window on another Space.
 A minimized window on another Space is restored only once that Space shows; restored earlier,
 macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
-The Dock suite (`dock_test.lua`) checks persistent message-port caching, `switch <space> <leaving>`
-payloads, follow-takeover status checks (with bounded timeout, single-shot per-reason decline
-reporting, and re-reporting after recovery through `lib.logger` while Space switching keeps
-working), invalidation recovery, error replies, queued injection, and shutdown.
+The Dock suite (`dock_test.lua`) checks persistent message-port caching, follow-takeover probes on
+connect (with bounded timeout, single-shot per-reason decline reporting and recovery through
+`lib.logger`, and keeping the port open without reinjecting when a probe goes unanswered while
+Space switching keeps working), invalidation recovery, error replies, queued injection, and
+shutdown.
 Neither touches the real window server; the native Dock helper (including its notification-1415
 follow handler), focus, and Accessibility calls in
 `lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` require live checks
@@ -190,7 +187,7 @@ focused window only when that list shows a PiP it owns. The target is the app's
 tracked, unminimized non-PiP window with the latest switcher recency (seeded at load from
 the WindowServer's front-to-back on-screen order; lowest window ID for windows on other
 Spaces, minimized, or hidden at load), read from `lib.window_filter` without a window-list
-query. A failed focus command logs with a popup and is not retried. Space jobs and their transitions
+query. A failed focus command logs with a popup and is not retried unless superseded. Space jobs and their transitions
 take priority.
 
 `window_manager.space` switches Spaces directly through `lib.dock` (using a cached
@@ -267,7 +264,7 @@ once more when its launch-complete event arrives.
 
 Command failures are logged when their callbacks return. Log output goes to the
 Hammerspoon console and, through lib.logger, ~/Library/Logs/Hammerspoon/config.log.
-Failed focus, resize, and app activation/unhide actions log, alert, and
+Failed focus (unless superseded), resize, and app activation/unhide actions log, alert, and
 stop without trying another method. Cmd-Tab requests unhide once through Accessibility
 and waits for the matching application's unhidden notification before restoring or
 focusing the selected window. Immediate completion proceeds directly. Request errors,
@@ -322,9 +319,8 @@ For a live check after reloading Hammerspoon:
     the menu stays closed.
 13. Rapidly switch between two windows of the same app on different Spaces; confirm the
     display stays on the second Space and `log show --predicate 'process == "Dock"'` logs
-    `ignored follow ... reason=leaving` or `reason=recent-switch`. Then click a link that
-    opens an existing browser window on another Space; confirm it switches immediately
-    without animation and logs `performed follow`.
+    `ignored follow ... reason=left`. Then click a link that opens an existing browser window on
+    another Space; confirm it switches immediately without animation and logs `performed follow`.
 
 The logger, window profiles and toast Lua regressions also run with `tests/run.sh`. The toast
 suite covers placement, stacking, repeats, click dismissal, wrapping, themes, light and dark,

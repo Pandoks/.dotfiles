@@ -440,7 +440,6 @@ static int focus(lua_State *state) {
       AXError raised = AXUIElementPerformAction(target, kAXRaiseAction);
       CFRelease(target);
       if (raised == kAXErrorInvalidUIElement) forget(pid, windowID);
-      // A failure the owner has moved on from is not theirs to see.
       deliver(callback, canary, raised == kAXErrorSuccess ? nil
         : atomic_load(&focusGeneration) != token ? @"superseded"
         : [NSString stringWithFormat:@"raise failed (%d)", raised]);

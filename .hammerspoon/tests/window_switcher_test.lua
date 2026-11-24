@@ -1793,46 +1793,35 @@ test("cycle start failures alert even when print raises", function()
     assertEqual(desktop.raisedPrints, 1, failure)
   end
 end)
-test("a focus failure alerts and frees the switcher even when print raises", function()
-  local desktop = harness({
-    intercept = function(model, name, done, id)
-      if name == "focus" and id == 2 then
-        model.hs.timer.doAfter(0.5, function()
-          done(false, "focus rejected")
-        end)
-        return true
-      end
-    end,
-  })
-  desktop:open()
-  desktop:release()
-  desktop:open()
-  desktop:select(3)
-  desktop:release()
-  desktop.printRaises = true
-  pcall(desktop.advance, desktop, 1)
-  assertEqual(#desktop.alerts, 1)
-  assertEqual(desktop.raisedPrints, 1)
-  assertEqual(desktop.windows[3]["has-focus"], true, "queued selection")
-  assertEqual(desktop.menu.isBusy(), false)
-
-  local overtaken = harness({
-    intercept = function(model, name, done, id)
-      if name == "focus" and id == 2 then
-        model.hs.timer.doAfter(0.5, function()
-          done(false, "superseded")
-        end)
-        return true
-      end
-    end,
-  })
-  overtaken:open()
-  overtaken:release()
-  overtaken:advance(4)
-  assertEqual(#overtaken.alerts, 0, "a superseded switch is silent")
-  assertEqual(#overtaken.logs, 0)
-  assertEqual(overtaken.menu.isBusy(), false)
-end)
+test(
+  "a focus failure alerts and frees the switcher even when print raises, unless superseded",
+  function()
+    for _, failure in ipairs({ "focus rejected", "superseded" }) do
+      local desktop = harness({
+        intercept = function(model, name, done, id)
+          if name == "focus" and id == 2 then
+            model.hs.timer.doAfter(0.5, function()
+              done(false, failure)
+            end)
+            return true
+          end
+        end,
+      })
+      desktop:open()
+      desktop:release()
+      desktop:open()
+      desktop:select(3)
+      desktop:release()
+      desktop.printRaises = true
+      pcall(desktop.advance, desktop, 4)
+      local reported = failure == "superseded" and 0 or 1
+      assertEqual(#desktop.alerts, reported, failure)
+      assertEqual(desktop.raisedPrints, reported, failure)
+      assertEqual(desktop.windows[3]["has-focus"], true, "queued selection")
+      assertEqual(desktop.menu.isBusy(), false)
+    end
+  end
+)
 test("closed or reused window is rejected before focus", function()
   local desktop = harness()
   desktop:open()
