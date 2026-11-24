@@ -378,7 +378,7 @@ function tiling.focus(direction)
   end
   local leaf = tiled[target].leaf
   windowManager.native.focus(leaf.pid, leaf.id, function(ok, failure)
-    if not ok then
+    if not ok and failure ~= "superseded" then
       logger.error("Tiling: focus failed: " .. failure)
     end
   end)

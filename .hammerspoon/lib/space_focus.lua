@@ -661,7 +661,7 @@ local function leavePiP(id, pid, list)
   local target = menu and menu.mostRecent(candidates) or candidates[1]
   if target then
     windowManager.native.focus(target.pid, target.id, function(ok, err)
-      if not ok then
+      if not ok and err ~= "superseded" then
         logger.error("Space focus: PiP redirect: " .. err)
       end
     end)

@@ -1794,6 +1794,23 @@ test("a focus failure alerts and frees the switcher even when print raises", fun
   assertEqual(desktop.raisedPrints, 1)
   assertEqual(desktop.windows[3]["has-focus"], true, "queued selection")
   assertEqual(desktop.menu.isBusy(), false)
+
+  local overtaken = harness({
+    intercept = function(model, name, done, id)
+      if name == "focus" and id == 2 then
+        model.hs.timer.doAfter(0.5, function()
+          done(false, "superseded")
+        end)
+        return true
+      end
+    end,
+  })
+  overtaken:open()
+  overtaken:release()
+  overtaken:advance(4)
+  assertEqual(#overtaken.alerts, 0, "a superseded switch is silent")
+  assertEqual(#overtaken.logs, 0)
+  assertEqual(overtaken.menu.isBusy(), false)
 end)
 test("closed or reused window is rejected before focus", function()
   local desktop = harness()
