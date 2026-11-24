@@ -90,6 +90,7 @@ local function harness(options)
     unhides = 0,
     raisedPrints = 0,
     focusedReads = 0,
+    syncReads = 0,
   }
   for i = 1, options.count or 9 do
     desktop.windows[i] = {
@@ -196,7 +197,51 @@ local function harness(options)
     end
     return rows
   end
-  local windowManager = { native = options.native }
+  local native, windowManager = {}, {}
+  -- Match production's exports; the switcher must not reach the unused ones.
+  for _, name in ipairs({
+    "focus",
+    "cancelFocus",
+    "frame",
+    "minimize",
+    "windows",
+    "spaces",
+    "displaySpaces",
+    "watchWindowSpaces",
+  }) do
+    native[name] = function()
+      error("unexpected native." .. name)
+    end
+  end
+  for _, name in ipairs({
+    "space",
+    "spaceOf",
+    "isBusy",
+    "focusedTarget",
+    "frame",
+    "watchWindowSpaces",
+    "stop",
+  }) do
+    windowManager[name] = function()
+      error("unexpected windowManager." .. name)
+    end
+  end
+  function native.focusedWindow(pid, done)
+    desktop.focusedReads = desktop.focusedReads + 1
+    timer(options.replyDelay or 0.001, function()
+      for _, window in ipairs(desktop.windows) do
+        if window.pid == pid and window["has-focus"] then
+          done(window.id)
+          return
+        end
+      end
+      done(nil)
+    end)
+  end
+  for name, value in pairs(options.native or {}) do
+    native[name] = value
+  end
+  windowManager.native = native
   local function call(name, id, done, reply)
     desktop.commands[#desktop.commands + 1] = id and name .. " " .. id or name
     timer(options.replyDelay or 0.001, function()
@@ -520,7 +565,7 @@ local function harness(options)
         return copy(options.order or {})
       end,
       focusedWindow = function()
-        desktop.focusedReads = desktop.focusedReads + 1
+        desktop.syncReads = desktop.syncReads + 1
         for _, row in ipairs(desktop.windows) do
           if row["has-focus"] then
             return desktop:window(row)
@@ -2612,7 +2657,7 @@ test("eventtap skips getFlags on normal typing and non-Cmd modifier changes", fu
   assertEqual(desktop.menu.status().visible, false)
 end)
 
-test("requery passes targeted pid when supported and one argument on unpatched native", function()
+test("requery passes the targeted pid", function()
   local desktop = harness()
   desktop:open()
   assertEqual(#desktop.queries, 1)
@@ -2625,25 +2670,6 @@ test("requery passes targeted pid when supported and one argument on unpatched n
   assertEqual(#desktop.queries[2].pids, 1)
   assertEqual(desktop.queries[2].pids[1], 102)
   assertEqual(desktop.windows[2]["has-focus"], true)
-
-  local patched = harness({ native = { displaySpaces = function() end } })
-  patched:open()
-  patched:release()
-  patched:advance(0.1)
-  assertEqual(#patched.queries, 2)
-  assertEqual(patched.queries[2].argc, 2)
-  assertEqual(#patched.queries[2].pids, 1)
-  assertEqual(patched.queries[2].pids[1], 102)
-  assertEqual(patched.windows[2]["has-focus"], true)
-
-  local unpatched = harness({ native = {} })
-  unpatched:open()
-  unpatched:release()
-  unpatched:advance(0.1)
-  assertEqual(#unpatched.queries, 2)
-  assertEqual(unpatched.queries[2].argc, 1)
-  assertEqual(unpatched.queries[2].pids, nil)
-  assertEqual(unpatched.windows[2]["has-focus"], true)
 end)
 
 test(
@@ -2719,7 +2745,7 @@ test(
 )
 
 test(
-  "confirmFocus skips hs.window.focusedWindow on event confirmation and uses native focusedWindow",
+  "confirmFocus skips focusedWindow on event confirmation and uses native focusedWindow",
   function()
     local confirmedDesktop = harness()
     confirmedDesktop:open()
@@ -2727,12 +2753,18 @@ test(
     confirmedDesktop:advance(0.002)
     assertEqual(confirmedDesktop.menu.status().busy, true)
     local readsBeforeConfirm = confirmedDesktop.focusedReads
+    local syncBeforeConfirm = confirmedDesktop.syncReads
     confirmedDesktop:advance(0.05)
     assertEqual(confirmedDesktop.menu.status().busy, false)
     assertEqual(
       confirmedDesktop.focusedReads,
       readsBeforeConfirm,
       "windowFocused event confirms without polling focusedWindow"
+    )
+    assertEqual(
+      confirmedDesktop.syncReads,
+      syncBeforeConfirm,
+      "nor reading hs.window.focusedWindow"
     )
 
     local asyncPending = {}
@@ -2747,11 +2779,11 @@ test(
     asyncDesktop:key("keyDown", "tab", { cmd = true })
     asyncDesktop:advance(0.01)
     asyncDesktop:key("flagsChanged", "cmd", {})
-    asyncDesktop.focusedReads = 0
+    asyncDesktop.syncReads = 0
     asyncDesktop:advance(0.01)
     assertEqual(#asyncPending, 1)
     assertEqual(asyncPending[1].pid, 102)
-    assertEqual(asyncDesktop.focusedReads, 0, "native.focusedWindow avoids hs.window.focusedWindow")
+    assertEqual(asyncDesktop.syncReads, 0, "native.focusedWindow avoids hs.window.focusedWindow")
     assertEqual(asyncDesktop.menu.status().busy, true)
     asyncPending[1].done(2)
     assertEqual(asyncDesktop.menu.status().busy, false)

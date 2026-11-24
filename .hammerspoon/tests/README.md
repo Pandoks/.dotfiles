@@ -27,7 +27,8 @@ for explicit switches (cross-Space focuses, direct `windowManager.native.focus` 
 restores, and `windowManager.space`, reporting each left window at most once per focus and omitting
 it when none or refocusing the same window),
 rapid back-to-back switches without wait locks,
-deferred-load superseding and shutdown cancellation, fast failures, and `native.displaySpaces` caching.
+deferred-load superseding and shutdown cancellation, fast failures, and reuse of one
+`native.displaySpaces` read when focusing a window on another Space.
 A minimized window on another Space is restored only once that Space shows; restored earlier,
 macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
@@ -162,7 +163,7 @@ PiP redirects, and the shown Dock (layer 20) is not cover.
 
 Ctrl-Left/Right use `window_manager.space` outside Mission Control and stop at the current display's
 first/last Space. Numbered shortcuts use global Mission Control indices. Shortcuts take
-each Space's display from the same `utils.spaces()` read; only native Space changes
+each Space's display from the same `native.displaySpaces()` read; only native Space changes
 call `hs.spaces.spaceDisplay`. The mouse-intent tap starts once at load and stops only
 with `stop()`. Keep
 macOS Keyboard Shortcuts > Mission Control > Move left/right a space enabled with
@@ -186,7 +187,7 @@ query. A failed focus command logs with a popup and is not retried. Space jobs a
 take priority.
 
 `window_manager.space` switches Spaces directly through `lib.dock` (using a cached
-remote `CFMessagePort` with a private reply mode) without swipe serialization, replying
+remote `CFMessagePort` with a private reply mode), replying
 immediately once warm (or superseding pending switches while the Dock helper loads).
 Focus can report the new Space just after the display does, so the reply, Space
 notification, or app/window focus event that first sees the target Space starts focus
@@ -210,7 +211,8 @@ other state checks, so a Space change during those checks cannot focus an old wi
 
 Focus restoration reads the Space synchronously in-process: `hs.window.list(true)` for the
 WindowServer's front-to-back on-screen windows, limited to those centered in the Space
-display's `fullFrame()`, plus `hs.window.focusedWindow()` and
+display's `fullFrame()`, plus the focused window (probed through `native.focusedWindow`;
+read with `hs.window.focusedWindow()` only when no app is frontmost) and
 `lib.window_filter.windowsOf` for tracked windows. Candidates are tracked layer-0
 windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
 This never waits behind a busy app; it measured about 2-3 ms. A Space whose display
@@ -268,8 +270,8 @@ hidden-state check as a failed request.
 Cmd-Tab lists windows with `window_manager.windows`, taking app names, focus, and hidden state
 from `hs.application` and `hs.window`. It focuses the exact window with `window_manager.focus`,
 which first shows the window's Space through `window_manager.space` when another Space is on
-screen. `hs.window.focusedWindow()` confirms focus on the reply or the window-focused
-event, whichever comes first, without another window query.
+screen. `native.focusedWindow` confirms focus on the reply, or the window-focused event
+does, whichever comes first, without another window query.
 The 200 ms menu delay only controls preview visibility; a quick Cmd-Tab release does
 not wait for it.
 Once Cmd is released, keys are no longer intercepted while the window list is pending, so

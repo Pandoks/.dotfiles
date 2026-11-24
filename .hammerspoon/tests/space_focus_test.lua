@@ -326,15 +326,54 @@ local function harness(options)
       end,
     }
   end
-  local windowManager, pending = { native = {} }, nil
-  if not options.noManagerBusy then
-    function windowManager.isBusy(space, pid)
-      desktop.busyChecks[#desktop.busyChecks + 1] = { space = space, pid = pid }
-      if type(desktop.managerBusy) == "function" then
-        return desktop.managerBusy(space, pid)
-      end
-      return desktop.managerBusy or pending ~= nil
+  local function unused()
+    error("unexpected window_manager call")
+  end
+  local pending
+  local windowManager = {
+    native = {
+      frame = unused,
+      minimize = unused,
+      windows = unused,
+      spaces = unused,
+      watchWindowSpaces = unused,
+    },
+    spaceOf = unused,
+    focus = unused,
+    frame = unused,
+    windows = unused,
+    watchWindowSpaces = unused,
+    stop = unused,
+  }
+  desktop.probes, desktop.cancels, desktop.focusSpaces = {}, 0, {}
+  function windowManager.native.displaySpaces()
+    local list, active, bySpace = {}, {}, {}
+    for index, space in ipairs(spaces) do
+      list[index] = { id = space.ManagedSpaceID, display = space.display }
+      active[space.display] = desktop:current(space.display)
+      bySpace[space.ManagedSpaceID] = { index = index, display = space.display }
     end
+    return { spaces = list, active = active, bySpace = bySpace }
+  end
+  function windowManager.native.cancelFocus()
+    desktop.cancels = desktop.cancels + 1
+  end
+  -- Replies on a later run-loop turn with the app's focused window, unless held.
+  function windowManager.native.focusedWindow(pid, done)
+    desktop.probes[#desktop.probes + 1] = { pid = pid, done = done }
+    if not desktop.holdProbes then
+      timer(0, function()
+        local row = desktop:row(desktop.focused)
+        done(row and row.pid == pid and row.id or nil)
+      end)
+    end
+  end
+  function windowManager.isBusy(space, pid)
+    desktop.busyChecks[#desktop.busyChecks + 1] = { space = space, pid = pid }
+    if type(desktop.managerBusy) == "function" then
+      return desktop.managerBusy(space, pid)
+    end
+    return desktop.managerBusy or pending ~= nil
   end
   function windowManager.focusedTarget()
     return desktop.focusedTarget
@@ -396,8 +435,9 @@ local function harness(options)
       end
     end)
   end
-  function windowManager.native.focus(pid, id, done)
+  function windowManager.native.focus(pid, id, done, space)
     desktop.writes[#desktop.writes + 1] = { "focus", id, pid }
+    desktop.focusSpaces[#desktop.focusSpaces + 1] = space
     timer(0.004, function()
       local row = desktop:row(id)
       if options.focusError or not row or row.pid ~= pid then
@@ -452,8 +492,14 @@ local function harness(options)
     application = {
       -- The desktop (no focused window) belongs to Finder.
       frontmostApplication = function()
+        if desktop.noFront then
+          return nil
+        end
         local row = desktop:row(desktop.focused)
         return {
+          pid = function()
+            return row and row.pid or 800
+          end,
           bundleID = function()
             return row and row.app or "com.apple.finder"
           end,
@@ -486,19 +532,6 @@ local function harness(options)
       spaceDisplay = function(id)
         desktop.displayReads = desktop.displayReads + 1
         return display(id)
-      end,
-      data_managedDisplaySpaces = function()
-        local out, seen = {}, {}
-        for _, space in ipairs(spaces) do
-          if not seen[space.display] then
-            seen[space.display] = true
-            out[#out + 1] = {
-              ["Display Identifier"] = space.display,
-              ["Current Space"] = { ManagedSpaceID = desktop:current(space.display) or -1 },
-            }
-          end
-        end
-        return out
       end,
       watcher = {
         new = function(callback)
@@ -740,13 +773,8 @@ local function harness(options)
             return desktop.missionControl or false
           end,
         }
-      else
-        return {
-          spaces = function()
-            return spaces
-          end,
-        }
       end
+      error("unexpected require " .. name)
     end,
   }, { __index = _G })
   desktop.module = assert(loadfile(root .. "/space_focus.lua", "t", environment))()
@@ -1992,14 +2020,6 @@ test("windowManager.isBusy suppresses competing protect during external Space ju
   assertEqual(desktop.space, 202)
   assertEqual(desktop.focused, 2)
   assertEqual(desktop:countFocus(), 1)
-  -- Works standalone when windowManager.isBusy is absent.
-  local standalone = harness({ noManagerBusy = true })
-  standalone.module.switchSpace(2)
-  standalone:advance(0.3)
-  assertEqual(standalone.focused, 2)
-  standalone:arrive(101, true)
-  standalone:advance(0.3)
-  assertEqual(standalone.focused, 1)
 end)
 
 test("app activation reuses one window list and skips layer-0 AX title reads", function()
@@ -2127,734 +2147,124 @@ test(
 test(
   "fast path skips synchronous focusedWindow calls, forwards space, cancels on supersede, and still protects PiP",
   function()
-    local syncFocusedReads = 0
-    local asyncProbes = {}
-    local cancelFocusCalls = 0
-    local focusSpaces = {}
-    local frontPidValue = 101
-    local spaces = {
-      { ManagedSpaceID = 101, display = "display" },
-      { ManagedSpaceID = 202, display = "display" },
-      { ManagedSpaceID = 303, display = "display" },
-    }
-    local currentSpace = 101
-    local focusedId = 1
-    local rows = {
-      {
-        id = 50,
-        pid = 500,
-        app = "Browser",
-        title = "Picture in Picture",
-        space = 0,
-        layer = 3,
-        frame = { x = 400, y = 350, w = 180, h = 180 },
-      },
-      {
-        id = 1,
-        pid = 101,
-        app = "Editor",
-        title = "Source",
-        space = 101,
-        frame = { x = 20, y = 20, w = 300, h = 200 },
-      },
-      {
-        id = 2,
-        pid = 102,
-        app = "Terminal",
-        title = "Shell",
-        space = 202,
-        frame = { x = 20, y = 20, w = 300, h = 200 },
-      },
-      {
-        id = 3,
-        pid = 500,
-        app = "Browser",
-        title = "Docs",
-        space = 303,
-        frame = { x = 20, y = 20, w = 300, h = 200 },
-      },
-    }
-    local function rowById(id)
-      for _, row in ipairs(rows) do
-        if row.id == id then
-          return row
-        end
-      end
-    end
-    local function makeWindow(row)
-      return row
-          and {
-            id = function()
-              return row.id
-            end,
-            title = function()
-              return row.title
-            end,
-            isStandard = function()
-              return true
-            end,
-            isMinimized = function()
-              return false
-            end,
-            application = function()
-              return {
-                name = function()
-                  return row.app
-                end,
-                pid = function()
-                  return row.pid
-                end,
-              }
-            end,
-          }
-        or nil
-    end
-
-    local timers, now = {}, 0
-    local spaceCallback, focusCallback
-    local function advance(dt)
-      local untilTime = now + dt
-      while true do
-        local nextTimer
-        for _, timer in ipairs(timers) do
-          if
-            timer.active
-            and timer.at <= untilTime
-            and (not nextTimer or timer.at < nextTimer.at)
-          then
-            nextTimer = timer
-          end
-        end
-        if not nextTimer then
-          break
-        end
-        now = nextTimer.at
-        nextTimer.active = false
-        nextTimer.callback()
-      end
-      now = untilTime
-    end
-
-    local windowManager = {
-      native = {
-        displaySpaces = function()
-          local list = {}
-          for i, s in ipairs(spaces) do
-            list[i] = { id = s.ManagedSpaceID, display = s.display }
-          end
-          return { spaces = list, active = { display = currentSpace } }
-        end,
-        cancelFocus = function()
-          cancelFocusCalls = cancelFocusCalls + 1
-        end,
-        focusedWindow = function(pid, done)
-          asyncProbes[#asyncProbes + 1] = { pid = pid, done = done }
-        end,
-        focus = function(pid, id, done, space)
-          focusSpaces[#focusSpaces + 1] = { pid = pid, id = id, space = space }
-          timers[#timers + 1] = {
-            at = now + 0.002,
-            active = true,
-            callback = function()
-              focusedId = id
-              frontPidValue = pid
-              if done then
-                done(true)
-              end
-            end,
-          }
-        end,
-      },
-      isBusy = function()
-        return false
-      end,
-      space = function(index, done)
-        currentSpace = spaces[index].ManagedSpaceID
-        if spaceCallback then
-          spaceCallback()
-        end
-        done(true)
-      end,
-    }
-    local filter = {
-      windowFocused = 1,
-      new = function()
-        return {
-          subscribe = function(self, _, callback)
-            focusCallback = callback
-            return self
-          end,
-          delete = function() end,
-        }
-      end,
-      windowsOf = function(pid)
-        local map = {}
-        for _, row in ipairs(rows) do
-          if row.pid == pid then
-            map[row.id] = makeWindow(row)
-          end
-        end
-        return map
-      end,
-    }
-    local env = setmetatable({
-      hs = {
-        application = {
-          frontmostApplication = function()
-            local row = rowById(focusedId)
-            return {
-              pid = function()
-                return frontPidValue
-              end,
-              bundleID = function()
-                return row and row.app or "com.apple.finder"
-              end,
-            }
-          end,
-          watcher = {
-            activated = 1,
-            new = function()
-              return {
-                start = function(self)
-                  return self
-                end,
-                stop = function() end,
-              }
-            end,
-          },
-        },
-        timer = {
-          doAfter = function(delay, callback)
-            local t = { at = now + delay, active = true, callback = callback }
-            timers[#timers + 1] = t
-            return {
-              stop = function()
-                t.active = false
-              end,
-            }
-          end,
-          secondsSinceEpoch = function()
-            return now
-          end,
-        },
-        spaces = {
-          focusedSpace = function()
-            return currentSpace
-          end,
-          spaceDisplay = function()
-            return "display"
-          end,
-          watcher = {
-            new = function(callback)
-              spaceCallback = callback
-              return {
-                start = function(self)
-                  return self
-                end,
-                stop = function() end,
-              }
-            end,
-          },
-        },
-        screen = {
-          find = function()
-            return {
-              frame = function()
-                return { x = 0, y = 0, w = 1000, h = 800 }
-              end,
-              fullFrame = function()
-                return { x = 0, y = 0, w = 1000, h = 800 }
-              end,
-            }
-          end,
-          watcher = {
-            new = function()
-              return {
-                start = function(self)
-                  return self
-                end,
-                stop = function() end,
-              }
-            end,
-          },
-        },
-        mouse = {
-          absolutePosition = function()
-            return { x = 0, y = 0 }
-          end,
-        },
-        geometry = {
-          new = function()
-            return {
-              inside = function()
-                return false
-              end,
-            }
-          end,
-        },
-        window = {
-          focusedWindow = function()
-            syncFocusedReads = syncFocusedReads + 1
-            return makeWindow(rowById(focusedId))
-          end,
-          list = function()
-            local list = {}
-            for _, row in ipairs(rows) do
-              if row.space == 0 or row.space == currentSpace then
-                list[#list + 1] = {
-                  kCGWindowNumber = row.id,
-                  kCGWindowOwnerPID = row.pid,
-                  kCGWindowOwnerName = row.app,
-                  kCGWindowName = row.title,
-                  kCGWindowLayer = row.layer or 0,
-                  kCGWindowBounds = {
-                    X = row.frame.x,
-                    Y = row.frame.y,
-                    Width = row.frame.w,
-                    Height = row.frame.h,
-                  },
-                }
-              end
-            end
-            return list
-          end,
-        },
-        keycodes = { map = { left = 123, right = 124 } },
-        eventtap = {
-          event = {
-            types = { leftMouseDown = 1, leftMouseUp = 2, rightMouseDown = 3 },
-            properties = { eventSourceUserData = 1 },
-          },
-          new = function()
-            return {
-              start = function(self)
-                return self
-              end,
-              stop = function() end,
-              isEnabled = function()
-                return true
-              end,
-            }
-          end,
-        },
-      },
-      print = function() end,
-      package = { loaded = {} },
-      require = function(name)
-        if name == "lib.window_filter" then
-          return filter
-        elseif name == "lib.window_manager" then
-          return windowManager
-        elseif name == "lib.logger" then
-          return { error = function() end }
-        elseif name == "lib.mission_control" then
-          return {
-            isActive = function()
-              return false
-            end,
-          }
-        elseif name == "lib.dock" then
-          return { move = function() end }
-        elseif name == "lib.utils" then
-          return {
-            spaces = function()
-              error("unexpected utils.spaces() call when native.displaySpaces exists")
-            end,
-          }
-        end
-        error("unexpected require " .. name)
-      end,
-    }, { __index = _G })
-
-    local module = assert(loadfile(root .. "/space_focus.lua", "t", env))()
-    syncFocusedReads = 0
+    local desktop = harness()
+    desktop.holdProbes = true
+    desktop.accessibilityReads = {}
 
     -- Rapid switchSpace(3) -> superseded by switchSpace(2).
-    module.switchSpace(3)
-    assertEqual(syncFocusedReads, 0, "switchSpace(3) avoids synchronous focusedWindow")
-    module.switchSpace(2)
-    assertEqual(cancelFocusCalls, 1, "superseding switch calls cancelFocus")
-    advance(0.01)
-    assertEqual(#focusSpaces, 1)
-    assertEqual(focusSpaces[1].id, 2)
-    assertEqual(focusSpaces[1].space, 202)
-    assertEqual(#asyncProbes, 1, "uses async focusedWindow probe on focus confirmation")
-    assertEqual(asyncProbes[1].pid, 102)
-    asyncProbes[1].done(2)
-    assertEqual(module.status().busy, false)
-    assertEqual(module.status().last.ok, true)
-    assertEqual(syncFocusedReads, 0, "zero sync focusedWindow reads during rapid Space switch")
+    desktop.module.switchSpace(3)
+    assertEqual(desktop.accessibilityReads.focused, nil)
+    desktop.module.switchSpace(2)
+    assertEqual(desktop.cancels, 1)
+    desktop:advance(0.01)
+    assertEqual(desktop:countFocus(), 1)
+    assertEqual(desktop:countFocus(2), 1)
+    assertEqual(desktop.focusSpaces[1], 202)
+    -- Focus confirmation uses an async probe of the target app.
+    assertEqual(#desktop.probes, 1)
+    assertEqual(desktop.probes[1].pid, 102)
+    desktop.focused = 2
+    desktop.probes[1].done(2)
+    assertEqual(desktop.module.status().busy, false)
+    assertEqual(desktop.module.status().last.ok, true)
+    desktop:advance(0.3)
+    assertEqual(desktop.accessibilityReads.focused, nil)
 
-    -- External swipe onto Space 101 (frontPid 101 has no PiP): zero sync or async focusedWindow reads.
-    currentSpace, focusedId, frontPidValue = 101, 1, 101
-    spaceCallback()
-    assertEqual(#asyncProbes, 1)
-    assertEqual(syncFocusedReads, 0)
-    assertEqual(module.status().busy, false)
+    -- External swipe onto Space 101 (frontmost app has no PiP): no focusedWindow reads at all.
+    desktop.space, desktop.focused = 101, 1
+    desktop.spaceCallback()
+    assertEqual(#desktop.probes, 1)
+    assertEqual(desktop.accessibilityReads.focused, nil)
+    assertEqual(desktop.module.status().busy, false)
 
-    -- External swipe onto Space 303 when frontPid 500 owns on-screen PiP 50: async probe detects PiP and redirects to window 3.
-    advance(1.0)
-    currentSpace, focusedId, frontPidValue = 303, 50, 500
-    spaceCallback()
-    assertEqual(#asyncProbes, 2, "probes frontmost PiP app asynchronously")
-    assertEqual(asyncProbes[2].pid, 500)
-    assertEqual(syncFocusedReads, 0)
-    asyncProbes[2].done(50)
-    advance(0.01)
-    assertEqual(focusSpaces[2].id, 3)
-    assertEqual(focusSpaces[2].space, 303)
-    focusCallback(makeWindow(rowById(3)), "Browser", 1, 3)
-    assertEqual(module.status().busy, false)
-    assertEqual(focusedId, 3)
-    assertEqual(syncFocusedReads, 0, "zero sync focusedWindow reads throughout PiP redirect")
+    -- External swipe onto Space 303 when the frontmost app owns on-screen PiP 50: async probe detects it and focuses window 4.
+    desktop:add({ id = 4, pid = 500, app = "Browser", title = "Docs", space = 303 })
+    desktop:advance(1)
+    desktop.space, desktop.focused = 303, 50
+    desktop.spaceCallback()
+    assertEqual(#desktop.probes, 2)
+    assertEqual(desktop.probes[2].pid, 500)
+    desktop.probes[2].done(50)
+    desktop:advance(0.01)
+    assertEqual(desktop:countFocus(4), 1)
+    assertEqual(desktop.focusSpaces[2], 303)
+    desktop:advance(0.3)
+    assertEqual(desktop.module.status().busy, false)
+    assertEqual(desktop.module.status().last.ok, true)
+    assertEqual(desktop.focused, 4)
+    assertEqual(desktop.accessibilityReads.focused, nil)
   end
 )
 
 test(
   "async probe rechecks menu state and refreshes list; user focus during settled is preserved",
   function()
-    local currentSpace, focusedId, frontPidValue = 101, 1, 101
-    local mcActive, busy, target = false, false, nil
-    local rows = {
-      {
-        id = 1,
-        pid = 101,
-        app = "Code",
-        title = "Editor",
-        space = 101,
-        frame = { x = 0, y = 0, w = 500, h = 500 },
-      },
-      {
-        id = 2,
-        pid = 102,
-        app = "Notes",
-        title = "Doc",
-        space = 101,
-        frame = { x = 500, y = 0, w = 500, h = 500 },
-      },
-      {
-        id = 50,
-        pid = 500,
-        app = "Browser",
-        title = "Picture in Picture",
-        space = 0,
-        layer = 3,
-        frame = { x = 800, y = 400, w = 200, h = 150 },
-      },
-    }
-    local function rowById(id)
-      for _, row in ipairs(rows) do
-        if row.id == id then
-          return row
-        end
-      end
-    end
-    local function makeWindow(row)
-      if not row then
-        return nil
-      end
-      return {
-        id = function()
-          return row.id
-        end,
-        title = function()
-          return row.title
-        end,
-        isStandard = function()
-          return (row.layer or 0) == 0
-        end,
-        application = function()
-          return {
-            pid = function()
-              return row.pid
-            end,
-            name = function()
-              return row.app
-            end,
-          }
-        end,
-      }
-    end
-    local now, timers, asyncProbes, clicks = 10, {}, {}, 0
-    local spaceCallback, focusCallback
-    local screen = {
-      getUUID = function()
-        return "main"
-      end,
-      frame = function()
-        return { x = 0, y = 0, w = 1000, h = 800 }
-      end,
-      fullFrame = function()
-        return { x = 0, y = 0, w = 1000, h = 800 }
-      end,
-    }
-    local env = setmetatable({
-      hs = {
-        timer = {
-          secondsSinceEpoch = function()
-            return now
-          end,
-          doAfter = function(delay, fn)
-            local timer = { at = now + delay, fn = fn, active = true }
-            function timer:stop()
-              self.active = false
-            end
-            timers[#timers + 1] = timer
-            return timer
-          end,
-        },
-        spaces = {
-          focusedSpace = function()
-            return currentSpace
-          end,
-          spaceDisplay = function()
-            return "main"
-          end,
-          watcher = {
-            new = function(fn)
-              spaceCallback = fn
-              return {
-                start = function(self)
-                  return self
-                end,
-                stop = function() end,
-              }
-            end,
-          },
-        },
-        screen = {
-          find = function()
-            return screen
-          end,
-          allScreens = function()
-            return { screen }
-          end,
-          watcher = {
-            new = function()
-              return {
-                start = function(self)
-                  return self
-                end,
-                stop = function() end,
-              }
-            end,
-          },
-        },
-        application = {
-          frontmostApplication = function()
-            return {
-              pid = function()
-                return frontPidValue
-              end,
-              bundleID = function()
-                return "com.example.browser"
-              end,
-            }
-          end,
-          watcher = {
-            activated = 1,
-            new = function()
-              return {
-                start = function(self)
-                  return self
-                end,
-                stop = function() end,
-              }
-            end,
-          },
-        },
-        window = {
-          focusedWindow = function()
-            return makeWindow(rowById(focusedId))
-          end,
-          list = function()
-            local list = {}
-            for _, row in ipairs(rows) do
-              if row.space == 0 or row.space == currentSpace then
-                list[#list + 1] = {
-                  kCGWindowNumber = row.id,
-                  kCGWindowOwnerPID = row.pid,
-                  kCGWindowOwnerName = row.app,
-                  kCGWindowName = row.title,
-                  kCGWindowLayer = row.layer or 0,
-                  kCGWindowBounds = {
-                    X = row.frame.x,
-                    Y = row.frame.y,
-                    Width = row.frame.w,
-                    Height = row.frame.h,
-                  },
-                }
-              end
-            end
-            return list
-          end,
-        },
-        keycodes = { map = { left = 123, right = 124 } },
-        eventtap = {
-          event = {
-            types = { leftMouseDown = 1, leftMouseUp = 2, rightMouseDown = 3 },
-            properties = { eventSourceUserData = 1 },
-            newMouseEvent = function()
-              return {
-                setProperty = function() end,
-                post = function()
-                  clicks = clicks + 1
-                end,
-              }
-            end,
-          },
-          new = function()
-            return {
-              start = function(self)
-                return self
-              end,
-              stop = function() end,
-              isEnabled = function()
-                return true
-              end,
-            }
-          end,
-        },
-      },
-      print = function() end,
-      package = { loaded = {} },
-      require = function(name)
-        if name == "lib.window_filter" then
-          return {
-            windowFocused = "windowFocused",
-            new = function()
-              return {
-                subscribe = function(_, _, fn)
-                  focusCallback = fn
-                end,
-                delete = function() end,
-              }
-            end,
-            windowsOf = function(pid)
-              local out = {}
-              for _, row in ipairs(rows) do
-                if row.pid == pid and (row.layer or 0) == 0 then
-                  out[row.id] = makeWindow(row)
-                end
-              end
-              return out
-            end,
-          }
-        elseif name == "lib.window_manager" then
-          return {
-            native = {
-              displaySpaces = function()
-                return {
-                  spaces = {
-                    { id = 101, display = "main" },
-                    { id = 202, display = "main" },
-                  },
-                  active = { main = currentSpace },
-                  bySpace = {
-                    [101] = { index = 1, display = "main" },
-                    [202] = { index = 2, display = "main" },
-                  },
-                }
-              end,
-              focusedWindow = function(pid, done)
-                asyncProbes[#asyncProbes + 1] = { pid = pid, done = done }
-              end,
-              focus = function(pid, id, done)
-                frontPidValue, focusedId = pid, id
-                done(true)
-              end,
-              cancelFocus = function() end,
-            },
-            space = function(index, done)
-              currentSpace = index == 1 and 101 or 202
-              done(true)
-            end,
-            isBusy = function()
-              return busy
-            end,
-            focusedTarget = function()
-              return target
-            end,
-          }
-        elseif name == "lib.logger" then
-          return { error = function() end }
-        elseif name == "lib.mission_control" then
-          return {
-            isActive = function()
-              return mcActive
-            end,
-          }
-        elseif name == "lib.dock" then
-          return { move = function() end }
-        elseif name == "lib.utils" then
-          return { spaces = function() end }
-        end
-        error("unexpected require " .. name)
-      end,
-    }, { __index = _G })
-
-    local module = assert(loadfile(root .. "/space_focus.lua", "t", env))()
-    local function flushTimers()
-      while true do
-        local ran = false
-        for _, timer in ipairs(timers) do
-          if timer.active and timer.at <= now + 0.05 then
-            timer.active = false
-            timer.fn()
-            ran = true
-          end
-        end
-        if not ran then
-          break
-        end
-      end
-    end
+    local desktop = harness()
+    desktop.holdProbes = true
+    desktop:row(2).space, desktop:row(3).space = 101, 303
 
     -- 1. User focuses window 2 during windowManager's settled interval for window 1: preserved in recent[101].
-    busy, target = true, { space = 101, pid = 101, id = 1 }
-    focusCallback(makeWindow(rowById(2)), "Notes", "windowFocused", 2)
-    busy, target = false, nil
-    -- Switch to Space 202 (empty) and back to Space 101: restores window 2, not stale target 1.
-    now = now + 1
-    currentSpace, focusedId, frontPidValue = 202, 50, 500
-    module.switchSpace(1)
-    flushTimers()
-    assertEqual(focusedId, 2, "user focus during settled interval is preserved")
-    if #asyncProbes > 0 then
-      asyncProbes[#asyncProbes].done(2)
-    end
-    assertEqual(module.status().busy, false)
+    desktop.managerBusy, desktop.focusedTarget = true, { space = 101, pid = 101, id = 1 }
+    desktop:focus(2)
+    desktop.managerBusy, desktop.focusedTarget = false, nil
+    -- Switch back to Space 101 from empty Space 202: restores window 2, not stale target 1.
+    desktop.space, desktop.focused = 202, 50
+    desktop.module.switchSpace(1)
+    desktop:advance(0.3)
+    assertEqual(desktop.focused, 2)
+    assertEqual(desktop:countFocus(1), 0)
+    assertEqual(desktop.module.status().busy, false)
 
-    -- 2. Mission Control opens while async probe is in flight: resumed check supersedes instead of acting.
-    now = now + 1
-    local beforeMc = #asyncProbes
-    currentSpace, focusedId, frontPidValue = 202, 50, 500
-    spaceCallback()
-    assertEqual(#asyncProbes, beforeMc + 1)
-    mcActive = true
-    asyncProbes[#asyncProbes].done(50)
-    flushTimers()
-    assertEqual(module.status().last.error, "superseded")
-    mcActive = false
+    -- 2. Mission Control opens while the async probe is in flight: resumed check supersedes instead of acting.
+    desktop:advance(1)
+    local probes, writes = #desktop.probes, #desktop.writes
+    desktop.space, desktop.focused = 202, 50
+    desktop.spaceCallback()
+    assertEqual(#desktop.probes, probes + 1)
+    desktop.missionControl = true
+    desktop.probes[#desktop.probes].done(50)
+    desktop:advance(0.3)
+    assertEqual(desktop.module.status().last.error, "superseded")
+    assertEqual(#desktop.writes, writes)
+    desktop.missionControl = false
 
-    -- 3. New window appears on initially empty Space while async probe is in flight: refreshed list avoids desktop click.
-    now = now + 1
-    local beforeEmpty = #asyncProbes
-    currentSpace, focusedId, frontPidValue = 101, 1, 101
-    module.switchSpace(2)
-    assertEqual(#asyncProbes, beforeEmpty + 1)
-    rows[#rows + 1] = {
-      id = 3,
-      pid = 103,
-      app = "App",
-      title = "New",
-      space = 202,
-      frame = { x = 0, y = 0, w = 500, h = 500 },
-    }
-    asyncProbes[#asyncProbes].done(50)
-    flushTimers()
-    assertEqual(clicks, 0, "refreshed list sees newly arrived window instead of clicking desktop")
+    -- 3. New window appears on the empty Space while the async probe is in flight: refreshed list avoids the desktop click.
+    desktop:advance(1)
+    probes = #desktop.probes
+    desktop.space, desktop.focused = 101, 1
+    desktop.module.switchSpace(2)
+    desktop:advance(0.01)
+    assertEqual(#desktop.probes, probes + 1)
+    desktop:add({ id = 4, pid = 104, app = "App", title = "New", space = 202 })
+    desktop.probes[#desktop.probes].done(50)
+    desktop:advance(0.3)
+    assertEqual(#desktop.clicks, 0)
+    assertEqual(desktop:countFocus(4), 1)
+    assertEqual(desktop.focused, 4)
   end
 )
+
+test("without a frontmost app, focus is read synchronously or remembered, not probed", function()
+  -- External Space change onto PiP.
+  local desktop = harness()
+  desktop.noFront = true
+  desktop:arrive(202, true)
+  desktop:advance(0.3)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop.module.status().last.ok, true)
+  -- Only the focus confirmation is probed.
+  assertEqual(#desktop.probes, 1)
+  -- A same-Space shortcut trusts the remembered window without a read.
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop.module.status().last.ok, true)
+  -- Empty Space.
+  desktop.module.switchSpace(3)
+  desktop:advance(0.3)
+  assertEqual(#desktop.clicks, 1)
+  assertEqual(desktop.focused, nil)
+  assertEqual(#desktop.probes, 1)
+end)
 
 print("RESULT " .. passed .. " passed, 0 failed")
