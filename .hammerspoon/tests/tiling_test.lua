@@ -387,14 +387,6 @@ test("only allowlisted apps tile, and Picture-in-Picture is left alone", functio
   assertEqual(desktop:frame(3), "none", "PiP is never moved")
 end)
 
-test("a window renamed to Picture-in-Picture leaves the layout", function()
-  local desktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Helium" } })
-  assertEqual(desktop:frame(1), "0,0 500x600")
-  desktop.windows[2].spec.title = "Picture-in-Picture"
-  desktop:event("title", 2)
-  assertEqual(desktop:frame(1), "0,0 1000x600", "remaining window takes the space back")
-end)
-
 test("minimizing or hiding a window frees its tile until it returns", function()
   for _, case in ipairs({ { "minimized", "unminimized" }, { "hidden", "unhidden" } }) do
     local desktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })

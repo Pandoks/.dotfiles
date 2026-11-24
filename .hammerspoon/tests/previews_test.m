@@ -112,7 +112,7 @@ static int reloaded(lua_State *state) {
   assert(lua_isnil(state, 1) && lua_isnil(state, 2) && lua_isnil(state, 3));
   assert(atomic_load(&oldCallbacks) == 0);
   puts("PASS reload discards old callbacks and keeps pending native code mapped");
-  puts("12 native preview tests passed");
+  puts("10 native preview tests passed");
   exit(0);
 }
 
