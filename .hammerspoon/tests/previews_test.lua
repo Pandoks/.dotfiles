@@ -80,9 +80,8 @@ local function overlap()
     error("superseded batch called back")
   end)
   fixture.waitStarted(4)
-  for _ = 1, 2 do
-    cancelFirst()
-  end
+  cancelFirst()
+  cancelFirst()
   local images = 0
   cancel = previews.capture(windows, function(id, image, err)
     assert(not err)
