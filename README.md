@@ -211,13 +211,18 @@ Clients use `protonmail-bridge.<tailnet>.ts.net` (IMAP 1143, SMTP 1025,
 STARTTLS) with the `info` credentials and accept Bridge's self-signed cert.
 
 **MCPHub:** get the first-boot `admin` password from `sudo docker logs hub-mcphub-1`,
-sign in at `https://mcphub.<tailnet>.ts.net`, and disable **Bearer Auth** under
-**Settings → Routing** (and optionally enable **Skip Auth**) since Tailscale
+sign in at `https://mcphub.<tailnet>.ts.net`, and turn off **Enable Bearer
+Authentication** under **Settings → Bearer authentication keys** (and optionally
+enable **Skip Authentication** under **Settings → Routing**) since Tailscale
 already restricts access to the tailnet. Add upstream MCP servers in the UI —
 DCR servers (Notion, Linear, Figma, Cloudflare) authenticate in one click;
 providers needing manual OAuth apps (Slack, Google Workspace) use the callback
-URL `https://mcphub.<tailnet>.ts.net/oauth/callback`. Antigravity, Codex, and
-Claude Code are pre-wired to `https://mcphub.<tailnet>.ts.net/mcp`.
+URL `https://mcphub.<tailnet>.ts.net/oauth/callback`. Antigravity and Codex are
+pre-wired to `https://mcphub.<tailnet>.ts.net/mcp`; for Claude Code, run:
+
+```sh
+claude mcp add --transport http --scope user mcphub https://mcphub.<tailnet>.ts.net/mcp
+```
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [ARTEX]: https://github.com/jiwoochris/artex-global
