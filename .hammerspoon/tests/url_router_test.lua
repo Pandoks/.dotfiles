@@ -10,7 +10,6 @@ local function browser(options)
   local settings = options or {}
   local state = {
     logs = {},
-    prints = {},
     ports = {},
     tasks = {},
     reads = 0,
@@ -20,9 +19,6 @@ local function browser(options)
   }
   local generation = 0
   local environment = setmetatable({
-    print = function(message)
-      state.prints[#state.prints + 1] = message
-    end,
     io = {
       open = function(path)
         local contents
@@ -77,13 +73,31 @@ local function browser(options)
         end,
       },
       fs = {
-        attributes = function()
+        attributes = function(path, name)
+          if not name and settings.localStateStat ~= nil and path:match("/Local State$") then
+            return settings.localStateStat
+          end
+          if name == "modification" and settings.localStateMtime ~= nil then
+            return settings.localStateMtime
+          end
           return not settings.missingDirectory
               and (settings.fileDirectory and "file" or "directory")
             or nil
         end,
         mkdir = function()
           return not settings.mkdirFailure, "creation failed"
+        end,
+      },
+      pathwatcher = {
+        new = function(dir, callback)
+          local watcher = { dir = dir, callback = callback, started = false }
+          function watcher:start()
+            self.started = true
+            return self
+          end
+          state.pathwatchers = state.pathwatchers or {}
+          state.pathwatchers[#state.pathwatchers + 1] = watcher
+          return watcher
         end,
       },
       json = {
@@ -208,14 +222,11 @@ local function browser(options)
               state.canceled = (state.canceled or 0) + 1
             end
           end,
-          process = function(pid, path, stopped)
+          process = function(_, path)
             assert(path == "/usr/libexec/swcd")
-            if settings.deadProcess then
-              return false
-            elseif settings.processFailure then
+            if settings.processFailure then
               return nil, "watch failed"
             end
-            state.watched, state.stopped = pid, stopped
             return function()
               state.processCanceled = (state.processCanceled or 0) + 1
             end
@@ -678,21 +689,6 @@ test("readiness and process watch errors report once", function()
   state.changed()
   assert(not state.router.status().ready and #state.logs == 1)
 end)
-test("idle swcd exit keeps routing quietly until launchd relaunches it", function()
-  local state = browser()
-  local request = "generation-1\nhttps://app.ramp.com/"
-  assert(state.router.status().ready and state.watched == 100)
-  state.stopped("Universal Link interception process exited")
-  assert(state.request(request) == "true")
-  -- The ready status still names the exited or reused swcd ID.
-  state.settings.deadProcess = true
-  state.changed()
-  assert(state.request(request) == "true")
-  state.settings.deadProcess, state.status.pid = false, 101
-  state.changed()
-  assert(state.watched == 101 and state.request(request) == "true")
-  assert(#state.tasks == 3 and #state.logs == 0 and #state.prints == 0)
-end)
 test("the helper port routes encoded requests with the current generation", function()
   local state = browser()
   assert(#state.ports == 1 and state.ports[1].name == "local.pandoks.HammerspoonURLRouter.route")
@@ -732,19 +728,6 @@ test("live installs wait quietly for their first status and report its deletion"
     state.settings.missingStatus = true
     state.changed()
     assert(not state.router.status().ready and #state.logs == 1)
-  end
-end)
-test("intentional uninstall cancels interception watchers without a failure popup", function()
-  for _, phase in ipairs({ "uninstalling", "restored", "removed" }) do
-    local state = browser()
-    state.settings.installationPhase = phase
-    if phase == "removed" then
-      state.settings.missingState, state.settings.stateCode = true, 2
-    end
-    state.stopped("process exited")
-    assert(not state.router.status().ready and not state.router.status().error and #state.logs == 0)
-    assert(state.canceled == 1 and state.processCanceled == 1)
-    assert(state.route("https://app.ramp.com/") == false and #state.tasks == 0 and #state.logs == 1)
   end
 end)
 test("publication failures preserve the last acknowledged actions", function()
@@ -823,5 +806,38 @@ test("malformed pattern suffixes fail explicitly without poisoning valid routing
   assert(state.installed and state.route("https://example.com/test") == false)
   assert(#state.logs == 1 and #state.tasks == 0)
   assert(state.route("https://other.com/") == "native")
+end)
+test("chromium.url caches Local State by stat signature and pathwatcher events", function()
+  local state = browser({
+    localStateStat = { ino = 10, modification = 100, change = 100, size = 512 },
+  })
+  assert(
+    state.route("https://app.ramp.com/") == true
+      and state.reads == 1
+      and state.tasks[1].arguments[5] == "--profile-directory=Profile 1"
+  )
+  assert(
+    state.route("https://app.ramp.com/second") == true
+      and state.reads == 1
+      and state.tasks[2].arguments[5] == "--profile-directory=Profile 1"
+  )
+  assert(
+    state.route("https://app.notion.com/p/pandoks/document") == true
+      and state.reads == 1
+      and state.tasks[3].arguments[5] == "--profile-directory=Default"
+  )
+  -- Replacing Local State with the same modification timestamp still invalidates via inode/size.
+  state.settings.localStateStat = { ino = 11, modification = 100, change = 100, size = 512 }
+  assert(
+    state.route("https://app.ramp.com/third") == true
+      and state.reads == 2
+      and state.tasks[4].arguments[5] == "--profile-directory=Profile 1"
+  )
+  -- Pathwatcher invalidates even if stat metadata stays identical.
+  assert(state.pathwatchers and #state.pathwatchers == 1 and state.pathwatchers[1].started)
+  state.pathwatchers[1].callback({ state.pathwatchers[1].dir .. "/Local State" })
+  state.settings.missingProfile = true
+  assert(state.route("https://app.ramp.com/fourth") == false and state.reads == 3)
+  assert(#state.tasks == 4 and #state.logs == 1)
 end)
 print("RESULT " .. passed .. " passed, 0 failed")

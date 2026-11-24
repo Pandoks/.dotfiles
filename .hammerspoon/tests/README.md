@@ -5,13 +5,16 @@ runtime bundled with Hammerspoon and require the Xcode Command Line Tools.
 Set `HAMMERSPOON_APP` if Hammerspoon is installed outside `/Applications`.
 
 The observer suite rejects all timer use and checks initialization, shared
-subscriptions, cached IDs after destruction, background focus, stale callbacks,
+subscriptions, cached window state (`statesOf` and event `state`), zero synchronous
+Accessibility reads on `windowFocused` for tracked standard windows (with one subrole
+refresh for non-standard windows), cached IDs after destruction, background focus, stale callbacks,
 registration failures, silent accessory/nonstandard-window exclusion, logged
 tracking failures with popups, re-attaching a failed app only when it launches or activates,
 Space snapshot failures that keep tracked windows, and shutdown. It also checks that quit
 apps release their observers, and that a Space change re-scans apps with windows in front
 of a window titled "Dock". The switcher suite checks that explicit action failures
-still log and show popups, and that pressing Cmd while Secure Keyboard Entry is on names the
+still log and show popups, that `windowFocused` uses the event ID without reading `window`,
+and that pressing Cmd while Secure Keyboard Entry is on names the
 app holding it, or reports why it couldn't. macOS hides Tab from event taps then, so Cmd-Tab
 can't open; this was checked live on macOS 27.0.1.
 
@@ -21,15 +24,24 @@ allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that moves the
 opposite edge at the screen's edge, mouse resizes that move the dragged edges' splits on
 release, balance, a column mode that keeps equal widths as windows open and close, zoom,
-and float. The window manager suite checks
-that a Space jump posts all its swipes at once and reports once on arrival, that a press
-during a jump continues from that jump's target, and that finished jumps release their timers.
+float, cached-title Picture-in-Picture checks on title changes without reading `window:title()`,
+and staying off `windowFocused`. The window manager suite checks
+direct Space switches through `lib.dock`, rapid back-to-back switches without wait locks,
+deferred-load superseding and shutdown cancellation, fast failures, and reuse of one
+`native.displaySpaces` read when focusing a window on another Space.
 A minimized window on another Space is restored only once that Space shows; restored earlier,
 macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
-Neither touches the real window server; the native gesture, focus, and Accessibility calls in
-`lib/window_manager/window_manager.m` were checked manually on macOS 27.0.1.
+The Dock suite (`dock_test.lua`) checks persistent message-port caching, follow-takeover probes on
+connect (with bounded timeout, decline reporting once until the reason changes through
+`lib.logger`, and keeping the port open without reinjecting when a probe goes unanswered while
+Space switching keeps working), invalidation recovery, error replies, queued injection, and
+shutdown.
+Neither touches the real window server; the native Dock helper (including its notification-1415
+follow handler), focus, and Accessibility calls in
+`lib/dock/dock.m`, `lib/port/port.m`, and `lib/window_manager/window_manager.m` require live checks
+on macOS 27.0.1.
 
 The URL router suites cover Lua rules, profiles, and selector readiness
 (`url_router_test.lua`); native selector publication and watchers
@@ -45,8 +57,9 @@ change default handlers.
 
 The window profiles suite (`window_profiles_test.lua`) checks that a profile's window on another
 Space or minimized is restored rather than relaunched, that launches ignore repeat presses until
-their window appears, which is then focused, and that failed launches and missing browser profiles
-report without launching. Hidden apps, Space switches, cold launches, and Chromium's
+their window appears, which is then focused, that tracker events and launch matching use
+cached window state without synchronous Accessibility reads, and that failed launches and missing
+browser profiles report without launching. Hidden apps, Space switches, cold launches, and Chromium's
 `<page> - <browser> - <profile>` titles were checked manually with Helium, Ghostty, and Slack on
 macOS 27.0.1 and 27.2. Launches run in the foreground: Ghostty 1.3.1 makes no window until active.
 
@@ -141,8 +154,10 @@ virtual monitors or moving real windows.
 
 The Space-focus suite also checks numbered/Ctrl-arrow shortcuts, Space arrival
 before or after the `window_manager.space` reply, arrival timeouts, superseded requests,
-direct Space notifications, late PiP focus, per-Space window identity, empty desktop fallback,
-explicit mouse intent, superseded replies, shutdown, and idle snapshot activity.
+direct Space notifications, late PiP focus, zero synchronous Accessibility reads to the
+focused app on `windowFocused` (including PiP redirects without Screen Recording), per-Space
+window identity, empty desktop fallback, explicit mouse intent, superseded replies, shutdown,
+and idle snapshot activity.
 Finished jobs release their timers.
 It also checks PiP activation redirects, display boundaries, repeated presses during
 a pending switch, and Mission Control key passthrough and focus suppression. Its window
@@ -152,7 +167,7 @@ PiP redirects, and the shown Dock (layer 20) is not cover.
 
 Ctrl-Left/Right use `window_manager.space` outside Mission Control and stop at the current display's
 first/last Space. Numbered shortcuts use global Mission Control indices. Shortcuts take
-each Space's display from the same `utils.spaces()` read; only native Space changes
+each Space's display from the same `native.displaySpaces()` read; only native Space changes
 call `hs.spaces.spaceDisplay`. The mouse-intent tap starts once at load and stops only
 with `stop()`. Keep
 macOS Keyboard Shortcuts > Mission Control > Move left/right a space enabled with
@@ -172,23 +187,23 @@ focused window only when that list shows a PiP it owns. The target is the app's
 tracked, unminimized non-PiP window with the latest switcher recency (seeded at load from
 the WindowServer's front-to-back on-screen order; lowest window ID for windows on other
 Spaces, minimized, or hidden at load), read from `lib.window_filter` without a window-list
-query. A failed focus command logs with a popup and is not retried. Space jobs and their transitions
+query. A failed focus command logs with a popup unless superseded, and is not retried. Space jobs and their transitions
 take priority.
 
-`window_manager.space` posts one synthetic swipe per Space at once, so the display goes
-straight to the target without showing the Spaces between, and replies once
-the display shows the target, or at once when it already does. Focus can report the
-new Space just after the display does, so the reply, Space notification, or app/window
-focus event that first sees the target Space starts focus restoration. Failed replies
-stop immediately; a Space that never arrives times out after 1.5 s. Each failure logs
-once with a popup.
+`window_manager.space` switches Spaces directly through `lib.dock` (using a cached
+remote `CFMessagePort` with a private reply mode), replying
+immediately once warm (or superseding pending switches while the Dock helper loads).
+Focus can report the new Space just after the display does, so the reply, Space
+notification, or app/window focus event that first sees the target Space starts focus
+restoration. Failed replies stop immediately; a Space that never arrives times out after
+1.5 s. Each failure logs once with a popup.
 Space shortcuts keep one current job for the switch and focus restoration.
 A new shortcut cancels the old job's timers and ignores its replies, then calls
 `window_manager.space` immediately without waiting for the previous Space or focus reply;
 `window_manager.space` reports the older request as superseded.
 Only the current job can continue after a reply. Focus and desktop-click actions
 yield to the next run-loop turn so a newer shortcut can cancel them before dispatch.
-A swipe already posted or a running native call cannot be recalled.
+A running native call cannot be recalled.
 There is no Space-command queue or retry.
 Mission Control state is read from the Dock's `mc` element on each check, because macOS 27
 no longer posts the Dock's overview notifications; a relaunched Dock is picked up on the next
@@ -200,9 +215,10 @@ other state checks, so a Space change during those checks cannot focus an old wi
 
 Focus restoration reads the Space synchronously in-process: `hs.window.list(true)` for the
 WindowServer's front-to-back on-screen windows, limited to those centered in the Space
-display's `fullFrame()`, plus `hs.window.focusedWindow()` and
-`lib.window_filter.windowsOf` for tracked windows. Candidates are tracked layer-0
-windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
+display's `fullFrame()`, plus the focused window (probed through `native.focusedWindow`;
+read with `hs.window.focusedWindow()` only when no app is frontmost) and
+`lib.window_filter.statesOf` for tracked window IDs and cached titles. Candidates are tracked
+layer-0 windows; any layer 0-19 window, including a layer-3 PiP, blocks the desktop-click point.
 This never waits behind a busy app; it measured about 2-3 ms. A Space whose display
 cannot be found fails once with a popup.
 Without `true`, the list keeps only the windows behind the first one titled "Dock", from any
@@ -221,8 +237,8 @@ has already changed focus. Window subscriptions use `lib.window_filter`, a share
 Accessibility observer per application, rather than `hs.window.filter`. Missing IDs,
 observer errors, and unsupported notifications stop tracking the affected process or element and log
 the operation that failed. Space notifications first detach exited apps via `isRunning()`,
-even before their termination callbacks arrive, then re-scan only apps with on-screen
-windows; they never list running applications.
+even before their termination callbacks arrive, then re-scan only apps with untracked on-screen
+layer-0 windows; they never list running applications.
 Top-level, nonmodal `AXDialog` windows with an enabled minimize button are tracked
 as normal switcher windows, including Maps while minimized. Dialogs without that
 capability, system dialogs, floating panels, and child windows remain excluded.
@@ -248,7 +264,7 @@ once more when its launch-complete event arrives.
 
 Command failures are logged when their callbacks return. Log output goes to the
 Hammerspoon console and, through lib.logger, ~/Library/Logs/Hammerspoon/config.log.
-Failed focus, resize, and app activation/unhide actions log, alert, and
+Failed focus (unless superseded), resize, and app activation/unhide actions log, alert, and
 stop without trying another method. Cmd-Tab requests unhide once through Accessibility
 and waits for the matching application's unhidden notification before restoring or
 focusing the selected window. Immediate completion proceeds directly. Request errors,
@@ -258,8 +274,8 @@ hidden-state check as a failed request.
 Cmd-Tab lists windows with `window_manager.windows`, taking app names, focus, and hidden state
 from `hs.application` and `hs.window`. It focuses the exact window with `window_manager.focus`,
 which first shows the window's Space through `window_manager.space` when another Space is on
-screen. `hs.window.focusedWindow()` confirms focus on the reply or the window-focused
-event, whichever comes first, without another window query.
+screen. `native.focusedWindow` confirms focus on the reply, or the window-focused event
+does, whichever comes first, without another window query.
 The 200 ms menu delay only controls preview visibility; a quick Cmd-Tab release does
 not wait for it.
 Once Cmd is released, keys are no longer intercepted while the window list is pending, so
@@ -301,6 +317,10 @@ For a live check after reloading Hammerspoon:
     appear without changing the selection. Close a window while the menu is open;
     its card should disappear. Release Cmd before a preview finishes and confirm
     the menu stays closed.
+13. Rapidly switch between two windows of the same app on different Spaces; confirm the
+    display stays on the second Space and `log show --predicate 'process == "Dock"'` logs
+    `ignored follow ... reason=left`. Then click a link that opens an existing browser window on
+    another Space; confirm it switches immediately without animation and logs `performed follow`.
 
 The logger, window profiles and toast Lua regressions also run with `tests/run.sh`. The toast
 suite covers placement, stacking, repeats, click dismissal, wrapping, themes, light and dark,

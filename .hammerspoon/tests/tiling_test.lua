@@ -41,19 +41,36 @@ local function fakeDesktop(windowSpecs)
     focusedId = nil,
     logs = {},
     focusRequests = {},
+    frameRequests = {},
+    windowSpaceListeners = {},
+    doAfterTimers = {},
+    failFrame = false,
     windows = {},
     mouseButtons = {},
-    runSpaceCheck = function() end,
+    counts = {
+      getWindows = 0,
+      spaces = 0,
+      frame = 0,
+      spaceDisplay = 0,
+      windowFrame = 0,
+      appName = 0,
+      appHidden = 0,
+      doAfter = 0,
+    },
+    screenWatcher = function() end,
+    spaceWatcher = function() end,
   }
   local function fakeWindow(spec)
     local app = {
       name = function()
+        desktop.counts.appName = desktop.counts.appName + 1
         return spec.app
       end,
       pid = function()
-        return spec.id * 10
+        return spec.pid or spec.id * 10
       end,
       isHidden = function()
+        desktop.counts.appHidden = desktop.counts.appHidden + 1
         return spec.hidden == true
       end,
     }
@@ -62,6 +79,9 @@ local function fakeDesktop(windowSpecs)
         return spec.id
       end,
       application = function()
+        if spec.transientNilApp then
+          return nil
+        end
         return app
       end,
       title = function()
@@ -77,9 +97,11 @@ local function fakeDesktop(windowSpecs)
         return spec.fullscreen == true
       end,
       frame = function()
+        desktop.counts.windowFrame = desktop.counts.windowFrame + 1
         return desktop.frames[spec.id]
       end,
-    }
+    },
+      app
   end
   function desktop:windowSpec(id)
     for _, entry in ipairs(self.windows) do
@@ -90,7 +112,8 @@ local function fakeDesktop(windowSpecs)
     return {}
   end
   function desktop:add(spec)
-    self.windows[#self.windows + 1] = { spec = spec, window = fakeWindow(spec) }
+    local window, app = fakeWindow(spec)
+    self.windows[#self.windows + 1] = { spec = spec, window = window, app = app }
   end
   for _, spec in ipairs(windowSpecs) do
     desktop:add(spec)
@@ -104,6 +127,14 @@ local function fakeDesktop(windowSpecs)
     windowUnhidden = "unhidden",
     windowTitleChanged = "title",
     windowMoved = "moved",
+    windowFocused = "focused",
+    applicationOf = function(id)
+      for _, entry in ipairs(desktop.windows) do
+        if entry.spec.id == id then
+          return entry.app
+        end
+      end
+    end,
     new = function(predicate)
       return {
         subscribe = function(_, events, callback)
@@ -112,9 +143,10 @@ local function fakeDesktop(windowSpecs)
           end
         end,
         getWindows = function()
+          desktop.counts.getWindows = desktop.counts.getWindows + 1
           local matching = {}
           for _, entry in ipairs(desktop.windows) do
-            if predicate(entry.window) then
+            if predicate(entry.window, entry.app) then
               matching[#matching + 1] = entry.window
             end
           end
@@ -124,37 +156,72 @@ local function fakeDesktop(windowSpecs)
       }
     end,
   }
+  local function unused(name)
+    return function()
+      error(name .. " must not be called")
+    end
+  end
+  local function place(_, id, x, y, width, height, done)
+    desktop.counts.frame = desktop.counts.frame + 1
+    desktop.frameRequests[#desktop.frameRequests + 1] = id
+    if desktop.failFrame then
+      done(false, "failed")
+      return
+    end
+    desktop.frames[id] = rect(x, y, width, height)
+    done(true)
+  end
   local windowManager = {
     native = {
       spaces = function(ids)
+        desktop.counts.spaces = desktop.counts.spaces + 1
         local spacesById = {}
         for _, id in ipairs(ids) do
           spacesById[id] = desktop:windowSpec(id).space or 1
         end
         return spacesById
       end,
-      focus = function(pid, id)
-        desktop.focusRequests[#desktop.focusRequests + 1] = { pid = pid, id = id }
+      focus = function(pid, id, done)
+        desktop.focusRequests[#desktop.focusRequests + 1] = { pid = pid, id = id, done = done }
       end,
+      cancelFocus = unused("native.cancelFocus"),
+      focusedWindow = unused("native.focusedWindow"),
+      frame = place,
+      minimize = unused("native.minimize"),
+      windows = unused("native.windows"),
+      displaySpaces = unused("native.displaySpaces"),
+      watchWindowSpaces = unused("native.watchWindowSpaces"),
     },
-    frame = function(_, id, x, y, width, height, done)
-      desktop.frames[id] = rect(x, y, width, height)
-      done(true)
+    space = unused("windowManager.space"),
+    focus = unused("windowManager.focus"),
+    isBusy = unused("windowManager.isBusy"),
+    focusedTarget = unused("windowManager.focusedTarget"),
+    windows = unused("windowManager.windows"),
+    stop = unused("windowManager.stop"),
+    watchWindowSpaces = function(callback)
+      desktop.windowSpaceListeners[callback] = true
+      return function()
+        desktop.windowSpaceListeners[callback] = nil
+      end
     end,
+    frame = place,
     spaceOf = function(id)
       return desktop:windowSpec(id).space or 1
     end,
   }
-  local watcher = {
-    new = function()
-      return {
-        start = function(self)
-          return self
-        end,
-        stop = function() end,
-      }
-    end,
-  }
+  local function watcherFor(key)
+    return {
+      new = function(callback)
+        desktop[key] = callback
+        return {
+          start = function(self)
+            return self
+          end,
+          stop = function() end,
+        }
+      end,
+    }
+  end
   local environment = setmetatable({
     print = function() end,
     hs = {
@@ -170,11 +237,11 @@ local function fakeDesktop(windowSpecs)
           return left
             and {
               frame = function()
-                return rect(left, 0, 1000, 600)
+                return rect(left, 0, desktop.width or 1000, 600)
               end,
             }
         end,
-        watcher = watcher,
+        watcher = watcherFor("screenWatcher"),
       },
       mouse = {
         getButtons = function()
@@ -182,16 +249,15 @@ local function fakeDesktop(windowSpecs)
         end,
       },
       timer = {
-        delayed = {
-          new = function(_, callback)
-            return {
-              start = function()
-                desktop.runSpaceCheck = callback
-              end,
-              stop = function() end,
-            }
-          end,
-        },
+        doAfter = function(_, callback)
+          desktop.counts.doAfter = desktop.counts.doAfter + 1
+          local timer = { callback = callback, active = true }
+          function timer:stop()
+            self.active = false
+          end
+          desktop.doAfterTimers[#desktop.doAfterTimers + 1] = timer
+          return timer
+        end,
       },
       eventtap = {
         event = { types = { leftMouseUp = "up" } },
@@ -207,6 +273,7 @@ local function fakeDesktop(windowSpecs)
       },
       spaces = {
         spaceDisplay = function(space)
+          desktop.counts.spaceDisplay = desktop.counts.spaceDisplay + 1
           return ({ [1] = "display", [2] = "other", [4] = "display" })[space]
         end,
         activeSpaces = function()
@@ -215,7 +282,7 @@ local function fakeDesktop(windowSpecs)
         focusedSpace = function()
           return 1
         end,
-        watcher = watcher,
+        watcher = watcherFor("spaceWatcher"),
       },
       window = {
         focusedWindow = function()
@@ -244,10 +311,29 @@ local function fakeDesktop(windowSpecs)
   }, { __index = _G })
   desktop.tiling = assert(loadfile(root .. "/tiling.lua", "t", environment))()
   desktop.tiling.manage({ "Helium", "Ghostty", "Slack", "Notion Calendar", "T3 Code (Beta)" })
+  local forbidden = setmetatable({}, {
+    __index = function(_, key)
+      error("synchronous Accessibility read: " .. tostring(key))
+    end,
+  })
   function desktop:event(name, id)
     local callback = self.subscribers[name]
     if callback then
-      callback(nil, nil, name, id)
+      local app, state
+      for _, entry in ipairs(self.windows) do
+        if entry.spec.id == id then
+          app = entry.spec.app
+          state = {
+            id = id,
+            pid = entry.spec.pid or id * 10,
+            standard = true,
+            title = entry.spec.title or "",
+            minimized = entry.spec.minimized == true,
+          }
+          break
+        end
+      end
+      callback(forbidden, app, name, id, state)
     end
   end
   function desktop:drag(id, frame)
@@ -269,6 +355,23 @@ local function fakeDesktop(windowSpecs)
   function desktop:frame(id)
     local frame = self.frames[id]
     return frame and string.format("%d,%d %dx%d", frame.x, frame.y, frame.w, frame.h) or "none"
+  end
+  function desktop:emitWindowSpace(id, space, added, pid)
+    local snapshot = {}
+    for listener in pairs(self.windowSpaceListeners) do
+      snapshot[#snapshot + 1] = listener
+    end
+    for _, listener in ipairs(snapshot) do
+      listener(id, space, added, pid)
+    end
+  end
+  function desktop:flushSpaceSync()
+    for _, timer in ipairs(self.doAfterTimers) do
+      if timer.active then
+        timer.active = false
+        timer.callback()
+      end
+    end
   end
   return desktop
 end
@@ -295,14 +398,6 @@ test("only allowlisted apps tile, and Picture-in-Picture is left alone", functio
   assertEqual(desktop:frame(1), "0,0 1000x600")
   assertEqual(desktop:frame(2), "none", "other apps are never moved")
   assertEqual(desktop:frame(3), "none", "PiP is never moved")
-end)
-
-test("a window renamed to Picture-in-Picture leaves the layout", function()
-  local desktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Helium" } })
-  assertEqual(desktop:frame(1), "0,0 500x600")
-  desktop.windows[2].spec.title = "Picture-in-Picture"
-  desktop:event("title", 2)
-  assertEqual(desktop:frame(1), "0,0 1000x600", "remaining window takes the space back")
 end)
 
 test("minimizing or hiding a window frees its tile until it returns", function()
@@ -334,9 +429,14 @@ test("focus moves to the neighbor in a direction", function()
   desktop.tiling.focus("east")
   assertEqual(desktop.focusRequests[1].id, 2)
   assertEqual(desktop.focusRequests[1].pid, 20)
+  desktop.focusRequests[1].done(true)
+  desktop.focusRequests[1].done(false, "superseded")
+  assertEqual(#desktop.logs, 0, "ok and superseded focus do not log")
+  desktop.focusRequests[1].done(false, "raise failed (-25204)")
+  assertEqual(desktop.logs[1], "Tiling: focus failed: raise failed (-25204)")
   desktop.tiling.focus("north")
   assertEqual(#desktop.focusRequests, 1, "no window above")
-  assertEqual(desktop.logs[1], "Tiling: no window to the north")
+  assertEqual(desktop.logs[2], "Tiling: no window to the north")
 end)
 
 test("swap exchanges tiles; warp splits the neighbor on the side moved toward", function()
@@ -490,11 +590,11 @@ test("a window moved to another Space on the same display retiles both once rele
   desktop:windowSpec(1).space = 4
   desktop.releaseMouse()
   desktop.mouseButtons = { true }
-  desktop.runSpaceCheck()
+  desktop:emitWindowSpace(1, 4, true, 10)
+  desktop:flushSpaceSync()
   assertEqual(desktop:frame(2), "500,0 500x600", "a new drag waits for its own release")
   desktop.mouseButtons = {}
   desktop.releaseMouse()
-  desktop.runSpaceCheck()
   assertEqual(desktop:frame(2), "0,0 1000x600", "the window left behind takes the Space")
   assertEqual(desktop:frame(1), "0,0 1000x600", "the moved window fills its new Space")
 end)
@@ -520,5 +620,275 @@ test("focus reaches a zoomed window on the other display", function()
   desktop.tiling.focus("east")
   assertEqual(desktop.focusRequests[1].id, 3, "the zoomed window is the one showing")
 end)
+
+test("non-PiP title changes skip sync, while Picture-in-Picture toggles still sync", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty", title = "zsh" },
+    { id = 2, app = "Helium", title = "Docs" },
+    { id = 3, app = "Helium", title = "Picture in Picture" },
+    { id = 4, app = "Slack", title = "General" },
+  })
+  desktop.focusedId = 4
+  desktop.tiling.float()
+  local getWindows, spaces = desktop.counts.getWindows, desktop.counts.spaces
+  assertEqual(desktop.subscribers.focused, nil, "tiling does not subscribe to focus events")
+
+  desktop:windowSpec(1).title = "vim"
+  desktop:event("title", 1)
+  desktop:windowSpec(4).title = "Random"
+  desktop:event("title", 4)
+  desktop:windowSpec(3).title = "PiP"
+  desktop:event("title", 3)
+  assertEqual(desktop.counts.getWindows, getWindows, "non-PiP title updates skip getWindows")
+  assertEqual(desktop.counts.spaces, spaces, "non-PiP title updates skip spaces query")
+
+  desktop:windowSpec(2).title = "Picture-in-Picture"
+  desktop:event("title", 2)
+  assertEqual(desktop.counts.getWindows, getWindows + 1, "entering PiP syncs")
+  assertEqual(desktop.counts.spaces, spaces + 1)
+  assertEqual(desktop:frame(1), "0,0 1000x600")
+
+  desktop:windowSpec(2).title = "Docs"
+  desktop:event("title", 2)
+  assertEqual(desktop.counts.getWindows, getWindows + 2, "leaving PiP syncs")
+  assertEqual(desktop.counts.spaces, spaces + 2)
+  assertEqual(desktop:frame(1), "0,0 500x600")
+  assertEqual(desktop:frame(2), "500,0 500x600")
+
+  desktop:windowSpec(3).title = "Browser"
+  desktop:event("title", 3)
+  assertEqual(desktop.counts.getWindows, getWindows + 3, "initial PiP leaving PiP syncs")
+  assertEqual(desktop.counts.spaces, spaces + 3)
+  assertEqual(desktop:frame(3), "500,300 500x300")
+end)
+
+test(
+  "apply skips unchanged sibling frames while snapping back moved windows and retrying failures",
+  function()
+    local desktop = fakeDesktop({
+      { id = 1, app = "Ghostty" },
+      { id = 2, app = "Slack" },
+      { id = 3, app = "Helium" },
+      { id = 4, app = "Ghostty" },
+    })
+    desktop.focusedId = 1
+    desktop.frameRequests = {}
+    desktop.tiling.swap("east")
+    assertEqual(#desktop.frameRequests, 2, "swap only frames the 2 swapped windows")
+    local swapped = { [desktop.frameRequests[1]] = true, [desktop.frameRequests[2]] = true }
+    assertEqual(swapped[1] and swapped[2], true, "swapped IDs are 1 and 2")
+
+    local resizeDesktop = fakeDesktop({
+      { id = 1, app = "Ghostty" },
+      { id = 2, app = "Slack" },
+      { id = 3, app = "Helium" },
+    })
+    resizeDesktop.focusedId = 2
+    resizeDesktop.frameRequests = {}
+    resizeDesktop.tiling.resize("bottom", 50)
+    assertEqual(#resizeDesktop.frameRequests, 2, "resize only frames the 2 changed windows")
+    local resized =
+      { [resizeDesktop.frameRequests[1]] = true, [resizeDesktop.frameRequests[2]] = true }
+    assertEqual(resized[2] and resized[3], true, "resized IDs are 2 and 3")
+
+    resizeDesktop.frameRequests = {}
+    resizeDesktop:drag(1, rect(100, 100, 300, 300))
+    assertEqual(resizeDesktop:frame(1), "0,0 500x600", "moved window snaps back")
+    assertEqual(#resizeDesktop.frameRequests, 1, "only snapped-back window is framed")
+    assertEqual(resizeDesktop.frameRequests[1], 1)
+
+    resizeDesktop.mouseButtons = { true }
+    resizeDesktop:drag(1, rect(100, 100, 300, 300))
+    resizeDesktop.mouseButtons = {}
+    resizeDesktop.frameRequests = {}
+    resizeDesktop.releaseMouse()
+    assertEqual(resizeDesktop:frame(1), "0,0 500x600", "dragged window snaps back on release")
+    assertEqual(#resizeDesktop.frameRequests, 1, "release only reframes dragged window")
+    assertEqual(resizeDesktop.frameRequests[1], 1)
+
+    local failDesktop = fakeDesktop({ { id = 1, app = "Ghostty" }, { id = 2, app = "Slack" } })
+    failDesktop.focusedId = 2
+    failDesktop.failFrame = true
+    failDesktop.tiling.resize("left", -100)
+    assertEqual(#failDesktop.logs, 2, "failed frame updates log errors")
+    failDesktop.failFrame = false
+    failDesktop.frameRequests = {}
+    failDesktop.tiling.resize("left", 0)
+    assertEqual(
+      #failDesktop.frameRequests,
+      2,
+      "failed frames are cleared and retried on next apply"
+    )
+  end
+)
+
+test("area caches spaceDisplay calls until screen or Space watchers fire", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty" },
+    { id = 2, app = "Slack" },
+    { id = 3, app = "Helium", space = 3 },
+    { id = 4, app = "Slack", space = 2 },
+  })
+  local before = desktop.counts.spaceDisplay
+  desktop.focusedId = 1
+  desktop.tiling.focus("east")
+  desktop.tiling.swap("east")
+  desktop.tiling.resize("left", -50)
+  desktop.tiling.balance()
+  desktop:add({ id = 5, app = "Ghostty", space = 3 })
+  desktop:event("created", 5)
+  assertEqual(
+    desktop.counts.spaceDisplay,
+    before,
+    "cached hits and misses make no new spaceDisplay calls"
+  )
+
+  local framesBefore = desktop.counts.frame
+  desktop.screenWatcher()
+  assertEqual(desktop.counts.spaceDisplay > before, true, "screenWatcher invalidates area cache")
+  assertEqual(
+    desktop.counts.frame > framesBefore,
+    true,
+    "screenWatcher clears applied cache and reapplies"
+  )
+
+  local afterScreen = desktop.counts.spaceDisplay
+  desktop.tiling.balance()
+  assertEqual(desktop.counts.spaceDisplay, afterScreen, "cached again after screenWatcher")
+
+  desktop.spaceWatcher()
+  assertEqual(
+    desktop.counts.spaceDisplay > afterScreen,
+    true,
+    "spaceWatcher invalidates area cache"
+  )
+end)
+
+test("focus skips window:frame for tiled windows and falls back otherwise", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty" },
+    { id = 2, app = "Slack" },
+    { id = 3, app = "Helium" },
+  })
+  desktop.focusedId = 3
+  desktop.tiling.float()
+  desktop.frames[3] = rect(0, 0, 200, 600)
+
+  local before = desktop.counts.windowFrame
+  desktop.focusedId = 1
+  desktop.tiling.focus("east")
+  assertEqual(desktop.counts.windowFrame, before, "tiled window uses cached layout frame")
+  assertEqual(desktop.focusRequests[1].id, 2)
+
+  desktop.focusedId = 3
+  desktop.tiling.focus("east")
+  assertEqual(desktop.counts.windowFrame, before + 1, "unmanaged window falls back to window:frame")
+  assertEqual(desktop.focusRequests[2].id, 2)
+end)
+
+test("sync memoizes per-PID app queries", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty", pid = 999 },
+    { id = 2, app = "Ghostty", pid = 999 },
+    { id = 3, app = "Ghostty", pid = 999 },
+  })
+  desktop.counts.appHidden = 0
+  desktop.counts.appName = 0
+  desktop:add({ id = 4, app = "Ghostty", pid = 999 })
+  desktop:event("created", 4)
+  assertEqual(desktop.counts.appHidden, 1, "app:isHidden memoized per PID during sync")
+  assertEqual(desktop.counts.appName, 5, "app:name called once in manageable plus predicate calls")
+end)
+
+test("spaceWatcher skips AX window scan unless a tiled window moved Spaces or displays", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty", space = 1 },
+    { id = 2, app = "Slack", space = 4 },
+  })
+  local getWindows, spaces = desktop.counts.getWindows, desktop.counts.spaces
+  desktop.spaceWatcher()
+  assertEqual(desktop.counts.getWindows, getWindows, "unchanged layout skips getWindows")
+  assertEqual(desktop.counts.spaces, spaces + 1, "checks current spaces via SkyLight")
+
+  -- Window moving to another Space still triggers full sync().
+  desktop:windowSpec(1).space = 4
+  desktop.spaceWatcher()
+  assertEqual(desktop.counts.getWindows, getWindows + 1, "moved tiled window triggers sync")
+  assertEqual(desktop:frame(1), "500,0 500x600")
+  assertEqual(desktop:frame(2), "0,0 500x600")
+
+  -- Display frame changes for a tiled Space reapply without re-scanning all windows.
+  local framesBefore = desktop.counts.frame
+  desktop.counts.getWindows = 0
+  desktop.width = 1200
+  desktop.spaceWatcher()
+  assertEqual(desktop.counts.getWindows, 0, "resized display skips getWindows")
+  assertEqual(desktop.counts.frame > framesBefore, true, "resized display reapplies frames")
+  assertEqual(desktop:frame(2), "0,0 600x600")
+  assertEqual(desktop:frame(1), "600,0 600x600")
+end)
+
+test("watchWindowSpaces coalesces Space moves and cleans up on stop", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty", space = 1 },
+    { id = 2, app = "Slack", space = 1 },
+  })
+  local getWindows, spaces = desktop.counts.getWindows, desktop.counts.spaces
+  -- Unmanaged window or redundant event is ignored / no-op after space verification.
+  desktop:emitWindowSpace(999, 4, true, 99)
+  desktop:emitWindowSpace(1, 1, true, 10)
+  assertEqual(desktop.counts.doAfter, 0, "matching space addition skips scheduleSpaceSync")
+
+  -- Noisy removal event where SkyLight still shows the old space skips full sync.
+  desktop:emitWindowSpace(1, 1, false, 10)
+  assertEqual(desktop.counts.doAfter, 1)
+  desktop:flushSpaceSync()
+  assertEqual(desktop.counts.spaces, spaces + 1)
+  assertEqual(desktop.counts.getWindows, getWindows, "unchanged Space skips getWindows")
+
+  -- Moving window 1 from Space 1 to Space 4 emits both 1325 and 1326 and coalesces into 1 sync.
+  desktop:windowSpec(1).space = 4
+  desktop:emitWindowSpace(1, 4, true, 10)
+  desktop:emitWindowSpace(1, 1, false, 10)
+  assertEqual(desktop.counts.doAfter, 2, "coalesces multiple events into one doAfter(0)")
+  desktop:flushSpaceSync()
+  assertEqual(desktop.counts.getWindows, getWindows + 1, "runs single sync on move")
+  assertEqual(desktop:frame(2), "0,0 1000x600", "remaining window takes Space 1 immediately")
+  assertEqual(desktop:frame(1), "0,0 1000x600", "moved window fills Space 4 immediately")
+
+  local listenerCount = 0
+  for _ in pairs(desktop.windowSpaceListeners) do
+    listenerCount = listenerCount + 1
+  end
+  assertEqual(listenerCount, 1)
+  desktop.tiling.stop()
+  listenerCount = 0
+  for _ in pairs(desktop.windowSpaceListeners) do
+    listenerCount = listenerCount + 1
+  end
+  assertEqual(listenerCount, 0, "stop() unregisters watchWindowSpaces")
+end)
+
+test(
+  "keeps window tiled and resizes it when window:application() transiently returns nil",
+  function()
+    local desktop = fakeDesktop({
+      { id = 1, app = "Helium", space = 1 },
+      { id = 2, app = "Ghostty", space = 1 },
+    })
+    assertEqual(desktop:frame(1), "0,0 500x600")
+    assertEqual(desktop:frame(2), "500,0 500x600")
+
+    -- Simulate Ghostty quitting while window:application() transiently fails for Helium.
+    desktop:windowSpec(1).transientNilApp = true
+    table.remove(desktop.windows, 2)
+    desktop:event("destroyed", 2)
+    assertEqual(desktop:frame(1), "0,0 1000x600", "Helium stays tiled and expands to full screen")
+
+    -- Moving Helium still snaps back without needing to toggle float twice.
+    desktop:drag(1, rect(100, 100, 400, 400))
+    assertEqual(desktop:frame(1), "0,0 1000x600", "Helium remains managed and snaps back on move")
+  end
+)
 
 print("RESULT " .. passed .. " passed, 0 failed")

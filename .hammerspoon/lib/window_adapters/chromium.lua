@@ -3,22 +3,89 @@ local chromium = {}
 
 ---@alias ChromiumProfile { bundleID: string, profile: string } `profile` is the display name
 
+---@type table<string, { signature: string, profiles: table<string, string> }>
+local states = {}
+---@type table<string, hs.pathwatcher>
+local watchers = {}
+
+---@param path string
+---@return string?
+local function signature(path)
+  local attributes = hs.fs and hs.fs.attributes
+  if not attributes then
+    return nil
+  end
+  local info = attributes(path)
+  if type(info) == "table" then
+    return string.format(
+      "%s:%s:%s:%s",
+      tostring(info.ino),
+      tostring(info.modification),
+      tostring(info.change),
+      tostring(info.size)
+    )
+  end
+  local mtime = attributes(path, "modification")
+  return type(mtime) == "number" and tostring(mtime) or nil
+end
+
+---@param path string
+local function watch(path)
+  if watchers[path] or not (hs.pathwatcher and hs.pathwatcher.new) then
+    return
+  end
+  local dir = path:match("^(.+)/[^/]+$")
+  if not dir then
+    return
+  end
+  local watcher = hs.pathwatcher.new(dir, function(paths)
+    for _, changed in ipairs(paths or {}) do
+      if changed == path or changed:match("/Local State$") then
+        states[path] = nil
+        return
+      end
+    end
+  end)
+  if watcher then
+    watcher:start()
+    watchers[path] = watcher
+  end
+end
+
 ---@param profile ChromiumProfile
 ---@return string? directory
 local function directory(profile)
-  local path = os.getenv("HOME") .. "/Library/Application Support/" .. profile.bundleID
-  local file = io.open(path .. "/Local State", "r")
+  local path = os.getenv("HOME")
+    .. "/Library/Application Support/"
+    .. profile.bundleID
+    .. "/Local State"
+  local stamp = signature(path)
+  local entry = stamp and states[path] or nil
+  if entry and entry.signature == stamp then
+    return entry.profiles[profile.profile]
+  end
+  local file = io.open(path, "r")
   if not file then
+    states[path] = nil
     return nil
   end
   local decoded, state = pcall(hs.json.decode, file:read("a"))
   file:close()
-  local cache = decoded and state and state.profile and state.profile.info_cache or {}
+  local profiles = {}
+  local cache = decoded and type(state) == "table" and state.profile and state.profile.info_cache
+    or {}
   for name, info in pairs(cache) do
-    if info.name == profile.profile then
-      return name
+    if type(info) == "table" and type(info.name) == "string" then
+      profiles[info.name] = name
     end
   end
+  if decoded and stamp then
+    states[path] = { signature = stamp, profiles = profiles }
+    watch(path)
+  elseif not decoded then
+    states[path] = nil
+  end
+  return profiles[profile.profile]
 end
 
 ---@param profile ChromiumProfile

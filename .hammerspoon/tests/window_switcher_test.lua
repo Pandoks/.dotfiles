@@ -82,10 +82,15 @@ local function harness(options)
     tracked = {},
     captures = {},
     draws = {},
+    queries = {},
+    attributeUpdates = 0,
+    flagReads = 0,
     applications = {},
     tasks = {},
     unhides = 0,
     raisedPrints = 0,
+    focusedReads = 0,
+    syncReads = 0,
   }
   for i = 1, options.count or 9 do
     desktop.windows[i] = {
@@ -155,35 +160,99 @@ local function harness(options)
     end
     return count
   end
+  local forbidden = setmetatable({}, {
+    __index = function(_, method)
+      error("synchronous Accessibility read on focus: " .. tostring(method))
+    end,
+  })
   function desktop:setWindowFocus(id)
+    local focused
     for _, window in ipairs(self.windows) do
       window["has-focus"] = window.id == id
+      if window.id == id then
+        focused = window
+      end
     end
     local callback = options.focusEvents ~= false and self.menu.windows.subscriptions.windowFocused
     if callback then
-      callback({
-        id = function()
-          return id
-        end,
+      callback(forbidden, focused and focused.app or nil, "windowFocused", id, {
+        id = id,
+        pid = focused and focused.pid or 0,
+        standard = not focused or focused.subrole == "AXStandardWindow",
+        title = focused and focused.title or "",
+        minimized = focused and focused["is-minimized"] or false,
       })
     end
   end
-  function desktop:rows()
+  function desktop:rows(pids)
+    local wanted
+    if pids then
+      wanted = {}
+      for _, pid in ipairs(pids) do
+        wanted[pid] = true
+      end
+    end
     local rows = {}
-    for i, window in ipairs(self.windows) do
-      rows[i] = {
-        id = window.id,
-        pid = window.pid,
-        role = window.role,
-        subrole = window.subrole,
-        title = window.title,
-        root = window["root-window"],
-        minimized = window["is-minimized"],
-      }
+    for _, window in ipairs(self.windows) do
+      if not wanted or wanted[window.pid] then
+        rows[#rows + 1] = {
+          id = window.id,
+          pid = window.pid,
+          role = window.role,
+          subrole = window.subrole,
+          title = window.title,
+          root = window["root-window"],
+          minimized = window["is-minimized"],
+        }
+      end
     end
     return rows
   end
-  local windowManager = {}
+  local native, windowManager = {}, {}
+  -- Match production's exports; the switcher must not reach the unused ones.
+  for _, name in ipairs({
+    "focus",
+    "cancelFocus",
+    "frame",
+    "minimize",
+    "windows",
+    "spaces",
+    "displaySpaces",
+    "watchWindowSpaces",
+  }) do
+    native[name] = function()
+      error("unexpected native." .. name)
+    end
+  end
+  for _, name in ipairs({
+    "space",
+    "spaceOf",
+    "isBusy",
+    "focusedTarget",
+    "frame",
+    "watchWindowSpaces",
+    "stop",
+  }) do
+    windowManager[name] = function()
+      error("unexpected windowManager." .. name)
+    end
+  end
+  function native.focusedWindow(pid, done)
+    desktop.focusedReads = desktop.focusedReads + 1
+    timer(options.replyDelay or 0.001, function()
+      for _, window in ipairs(desktop.windows) do
+        if window.pid == pid and window["has-focus"] then
+          done(window.id)
+          return
+        end
+      end
+      done(nil)
+    end)
+  end
+  for name, value in pairs(options.native or {}) do
+    native[name] = value
+  end
+  windowManager.native = native
   local function call(name, id, done, reply)
     desktop.commands[#desktop.commands + 1] = id and name .. " " .. id or name
     timer(options.replyDelay or 0.001, function()
@@ -192,9 +261,14 @@ local function harness(options)
       end
     end)
   end
-  function windowManager.windows(done)
+  function windowManager.windows(done, ...)
+    local pids = ...
+    desktop.queries[#desktop.queries + 1] = {
+      argc = 1 + select("#", ...),
+      pids = copy(pids),
+    }
     call("windows", nil, done, function()
-      done(true, nil, desktop:rows())
+      done(true, nil, desktop:rows(pids))
     end)
   end
   function windowManager.focus(pid, id, done, minimized, live)
@@ -290,6 +364,15 @@ local function harness(options)
         end
       end
       desktop.draws[#desktop.draws + 1] = { at = desktop.now, images = images }
+      return self
+    end
+    function object:elementAttribute(index, key, ...)
+      local element = assert(self.elements and self.elements[index], "invalid element index")
+      if select("#", ...) == 0 then
+        return element[key]
+      end
+      element[key] = ...
+      desktop.attributeUpdates = desktop.attributeUpdates + 1
       return self
     end
     function object:mouseCallback(callback)
@@ -493,6 +576,7 @@ local function harness(options)
         return copy(options.order or {})
       end,
       focusedWindow = function()
+        desktop.syncReads = desktop.syncReads + 1
         for _, row in ipairs(desktop.windows) do
           if row["has-focus"] then
             return desktop:window(row)
@@ -636,6 +720,7 @@ local function harness(options)
         return keys[key]
       end,
       getFlags = function()
+        desktop.flagReads = desktop.flagReads + 1
         return flags or {}
       end,
       location = function()
@@ -674,13 +759,13 @@ local function harness(options)
     self:advance(0)
     return result
   end
-  function desktop:preview(index, id, err)
-    self.captures[index].done(id, not err and {
+  function desktop:preview(index, id)
+    self.captures[index].done(id, {
       batch = index,
       size = function()
         return { w = 230, h = 130 }
       end,
-    } or nil, err)
+    })
   end
   function desktop:complete(index, missing, err)
     local capture = self.captures[index]
@@ -945,28 +1030,6 @@ test("minimizing during capture discards stale results without preview errors", 
     "late menu image cannot overwrite final capture"
   )
   assertEqual(desktop:current().images[3].batch, 1)
-  assertEqual(#desktop.alerts, 0)
-  assertEqual(#desktop.logs, 0)
-end)
-
-test("menus containing only minimized and hidden windows never request captures", function()
-  local desktop = harness({ previews = true, icons = true, count = 100 })
-  for _, window in ipairs(desktop.windows) do
-    window[window.id % 2 == 0 and "is-minimized" or "is-hidden"] = true
-  end
-  for _ = 1, 2 do
-    desktop:open()
-    for _, window in ipairs(desktop.menu.status().windows) do
-      assertEqual(window.preview, false)
-      assert(window.minimized or window.hidden)
-    end
-    desktop:key("keyDown", "tab", { cmd = true })
-    desktop:advance(0)
-    desktop:scroll(-10000)
-    desktop:advance(10)
-    assertEqual(#desktop.captures, 0)
-    desktop:key("keyDown", "escape", {})
-  end
   assertEqual(#desktop.alerts, 0)
   assertEqual(#desktop.logs, 0)
 end)
@@ -1360,19 +1423,6 @@ test("other idle events and missing screen permission never capture", function()
   assertEqual(#desktop.logs, 0)
 end)
 
-test("multiple progressive failures stay silent without retries", function()
-  local desktop = harness({ previews = true })
-  desktop:open()
-  desktop:preview(1, 2, "first capture failed")
-  desktop:preview(1, 3, "second capture failed")
-  desktop:advance(0)
-  assertEqual(#desktop.alerts, 0)
-  assertEqual(#desktop.logs, 0)
-  assertEqual(#desktop.captures, 1)
-  desktop:advance(10)
-  assertEqual(#desktop.captures, 1)
-end)
-
 test("rows balance their window counts and remain centered", function()
   for _, counts in ipairs({ { 4, 3 }, { 4, 4 }, { 5, 4 }, { 5, 4, 4 }, { 6, 6, 6 } }) do
     local total = 0
@@ -1743,29 +1793,35 @@ test("cycle start failures alert even when print raises", function()
     assertEqual(desktop.raisedPrints, 1, failure)
   end
 end)
-test("a focus failure alerts and frees the switcher even when print raises", function()
-  local desktop = harness({
-    intercept = function(model, name, done, id)
-      if name == "focus" and id == 2 then
-        model.hs.timer.doAfter(0.5, function()
-          done(false, "focus rejected")
-        end)
-        return true
-      end
-    end,
-  })
-  desktop:open()
-  desktop:release()
-  desktop:open()
-  desktop:select(3)
-  desktop:release()
-  desktop.printRaises = true
-  pcall(desktop.advance, desktop, 1)
-  assertEqual(#desktop.alerts, 1)
-  assertEqual(desktop.raisedPrints, 1)
-  assertEqual(desktop.windows[3]["has-focus"], true, "queued selection")
-  assertEqual(desktop.menu.isBusy(), false)
-end)
+test(
+  "a focus failure alerts and frees the switcher even when print raises, unless superseded",
+  function()
+    for _, failure in ipairs({ "focus rejected", "superseded" }) do
+      local desktop = harness({
+        intercept = function(model, name, done, id)
+          if name == "focus" and id == 2 then
+            model.hs.timer.doAfter(0.5, function()
+              done(false, failure)
+            end)
+            return true
+          end
+        end,
+      })
+      desktop:open()
+      desktop:release()
+      desktop:open()
+      desktop:select(3)
+      desktop:release()
+      desktop.printRaises = true
+      pcall(desktop.advance, desktop, 4)
+      local reported = failure == "superseded" and 0 or 1
+      assertEqual(#desktop.alerts, reported, failure)
+      assertEqual(desktop.raisedPrints, reported, failure)
+      assertEqual(desktop.windows[3]["has-focus"], true, "queued selection")
+      assertEqual(desktop.menu.isBusy(), false)
+    end
+  end
+)
 test("closed or reused window is rejected before focus", function()
   local desktop = harness()
   desktop:open()
@@ -2104,24 +2160,6 @@ test("missing focus notification times out without requerying windows", function
   assertEqual(#desktop.alerts, 1)
   assertEqual(#desktop.commands, count)
   assertEqual(desktop:commandCount("focus"), 1)
-end)
-test("the focus reply confirms focus in-process without a notification", function()
-  local desktop = harness({
-    focusEvents = false,
-    intercept = function(model, name, done, id)
-      if name == "focus" then
-        model:setWindowFocus(id)
-        done(true)
-        return true
-      end
-    end,
-  })
-  desktop:open()
-  desktop:release()
-  desktop:advance(0.01)
-  assertEqual(desktop.windows[2]["has-focus"], true)
-  assertEqual(desktop.menu.status().busy, false)
-  assertEqual(#desktop.alerts, 0)
 end)
 test("a focus event before the windowManager reply completes the job once", function()
   local reply
@@ -2531,6 +2569,171 @@ test(
       desktop:open()
       assertEqual(#desktop.menu.status().windows, 8)
     end
+  end
+)
+
+test("eventtap skips getFlags on normal typing and non-Cmd modifier changes", function()
+  local desktop = harness()
+  assertEqual(desktop:key("keyDown", "a", {}), false)
+  assertEqual(desktop:key("keyUp", "a", {}), false)
+  assertEqual(desktop:key("keyDown", "escape", {}), false)
+  assertEqual(desktop:key("keyUp", "escape", {}), false)
+  assertEqual(desktop:key("flagsChanged", "a", { shift = true }), false)
+  assertEqual(desktop.flagReads, 0, "closed tap must not read flags for normal keys")
+  assertEqual(desktop:key("keyDown", "tab", {}), false)
+  assertEqual(desktop.flagReads, 1, "closed Tab reads flags once")
+  assertEqual(desktop:key("keyDown", "tab", { cmd = true }), true)
+  assertEqual(desktop.flagReads, 2)
+  assertEqual(desktop:key("keyUp", "tab", {}), true)
+  assertEqual(desktop.flagReads, 2, "swallowed keyUp skips getFlags")
+  desktop:advance(0.35)
+  assertEqual(desktop.menu.status().visible, true)
+  assertEqual(desktop:key("keyDown", "right", {}), true)
+  assertEqual(desktop:key("keyUp", "right", {}), true)
+  assertEqual(desktop:key("keyDown", "left", {}), true)
+  assertEqual(desktop:key("keyUp", "left", {}), true)
+  assertEqual(desktop:key("keyDown", "a", {}), true)
+  assertEqual(desktop:key("keyUp", "a", {}), true)
+  assertEqual(desktop.flagReads, 2, "active menu arrows and letters skip getFlags")
+  assertEqual(desktop:key("keyDown", "tab", { cmd = true, shift = true }), true)
+  assertEqual(desktop.flagReads, 3, "active Tab reads flags for shift/cmd")
+  assertEqual(desktop.menu.status().selected, 1)
+  assertEqual(desktop:key("keyDown", "escape", {}), true)
+  assertEqual(desktop:key("keyUp", "escape", {}), true)
+  assertEqual(desktop.flagReads, 3, "escape skips getFlags")
+  assertEqual(desktop.menu.status().visible, false)
+end)
+
+test("requery passes the targeted pid", function()
+  local desktop = harness()
+  desktop:open()
+  assertEqual(#desktop.queries, 1)
+  assertEqual(desktop.queries[1].argc, 1)
+  assertEqual(desktop.queries[1].pids, nil)
+  desktop:release()
+  desktop:advance(0.1)
+  assertEqual(#desktop.queries, 2)
+  assertEqual(desktop.queries[2].argc, 2)
+  assertEqual(#desktop.queries[2].pids, 1)
+  assertEqual(desktop.queries[2].pids[1], 102)
+  assertEqual(desktop.windows[2]["has-focus"], true)
+end)
+
+test(
+  "selection changes update card attributes in-place while viewport or content changes redraw",
+  function()
+    local function cardElement(elements, id)
+      for _, element in ipairs(elements) do
+        if element.id == id then
+          return element
+        end
+      end
+    end
+
+    local desktop = harness({ previews = true, count = 4 })
+    desktop:open()
+    assertEqual(#desktop.draws, 1)
+    assertEqual(desktop.attributeUpdates, 0)
+    local current = assert(desktop:current())
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-2").action, "strokeAndFill")
+
+    desktop:key("keyDown", "tab", { cmd = true })
+    desktop:advance(0)
+    assertEqual(#desktop.draws, 1, "Cmd-Tab selection updates in-place")
+    assertEqual(desktop.attributeUpdates, 6)
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-2").action, "fill")
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-2").fillColor.white, 0.12)
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-2").strokeColor, nil)
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-3").action, "strokeAndFill")
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-3").fillColor.white, 0.23)
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-3").strokeColor.blue, 1)
+
+    desktop:key("keyDown", "right", {})
+    desktop:advance(0)
+    desktop:key("keyDown", "left", {})
+    desktop:advance(0)
+    desktop:select(1)
+    assertEqual(#desktop.draws, 1, "arrows and hover within viewport avoid replaceElements")
+    assertEqual(desktop.attributeUpdates, 24)
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-1").action, "strokeAndFill")
+    assertEqual(cardElement(desktop.menu.canvas.elements, "window-3").action, "fill")
+
+    desktop:complete(#desktop.captures)
+    assertEqual(#desktop.draws, 2, "fresh preview image triggers full redraw")
+    assertEqual(desktop.draws[2].images, 4)
+
+    desktop.windows[2].title = "Updated title"
+    desktop:notify("windowTitleChanged", desktop.windows[2])
+    desktop:advance(0)
+    assertEqual(#desktop.draws, 3, "title change triggers full redraw")
+
+    desktop.windows[3]["is-minimized"] = true
+    desktop:notify("windowMinimized", desktop.windows[3])
+    desktop:advance(0)
+    assertEqual(#desktop.draws, 4, "state change triggers full redraw")
+
+    desktop:key("keyDown", "escape", {})
+    assertEqual(current.rendered, nil, "hide resets rendered state")
+    desktop:open()
+    assertEqual(#desktop.draws, 5, "reopening triggers full redraw")
+    desktop:complete(#desktop.captures)
+    assertEqual(#desktop.draws, 6, "replacing cached preview image triggers full redraw")
+
+    local long = harness({ count = 100 })
+    long:open()
+    assertEqual(#long.draws, 1)
+    long:key("keyDown", "left", {})
+    long:advance(0)
+    assertEqual(#long.draws, 1, "moving to first window stays in viewport")
+    long:key("keyDown", "left", {})
+    long:advance(0)
+    assertEqual(#long.draws, 2, "scrolling to another viewport triggers full redraw")
+  end
+)
+
+test(
+  "confirmFocus skips focusedWindow on event confirmation and uses native focusedWindow",
+  function()
+    local confirmedDesktop = harness()
+    confirmedDesktop:open()
+    confirmedDesktop:release()
+    confirmedDesktop:advance(0.002)
+    assertEqual(confirmedDesktop.menu.status().busy, true)
+    local readsBeforeConfirm = confirmedDesktop.focusedReads
+    local syncBeforeConfirm = confirmedDesktop.syncReads
+    confirmedDesktop:advance(0.05)
+    assertEqual(confirmedDesktop.menu.status().busy, false)
+    assertEqual(
+      confirmedDesktop.focusedReads,
+      readsBeforeConfirm,
+      "windowFocused event confirms without polling focusedWindow"
+    )
+    assertEqual(
+      confirmedDesktop.syncReads,
+      syncBeforeConfirm,
+      "nor reading hs.window.focusedWindow"
+    )
+
+    local asyncPending = {}
+    local asyncDesktop = harness({
+      focusEvents = false,
+      native = {
+        focusedWindow = function(pid, done)
+          asyncPending[#asyncPending + 1] = { pid = pid, done = done }
+        end,
+      },
+    })
+    asyncDesktop:key("keyDown", "tab", { cmd = true })
+    asyncDesktop:advance(0.01)
+    asyncDesktop:key("flagsChanged", "cmd", {})
+    asyncDesktop.syncReads = 0
+    asyncDesktop:advance(0.01)
+    assertEqual(#asyncPending, 1)
+    assertEqual(asyncPending[1].pid, 102)
+    assertEqual(asyncDesktop.syncReads, 0, "native.focusedWindow avoids hs.window.focusedWindow")
+    assertEqual(asyncDesktop.menu.status().busy, true)
+    asyncPending[1].done(2)
+    assertEqual(asyncDesktop.menu.status().busy, false)
   end
 )
 

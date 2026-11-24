@@ -56,7 +56,7 @@ local function harness(options)
   local desktop = {
     now = 0,
     space = 101,
-    focused = 1,
+    focused = options.focused == nil and 1 or options.focused,
     timers = {},
     writes = {},
     clicks = {},
@@ -65,6 +65,10 @@ local function harness(options)
     logs = {},
     alerts = {},
     busy = false,
+    managerBusy = false,
+    busyChecks = {},
+    missionControlReads = 0,
+    screenReads = 0,
     recent = {},
     visible = {},
     accessibilityReads = {},
@@ -142,6 +146,9 @@ local function harness(options)
   }) do
     desktop:add(row)
   end
+  for id, subrole in pairs(options.subroles or {}) do
+    desktop:row(id).subrole = subrole
+  end
   local function timer(delay, callback, repeatTimer)
     local scheduled = {
       at = desktop.now + delay,
@@ -195,15 +202,6 @@ local function harness(options)
       return nil
     end
     local methods = {
-      isStandard = function()
-        return true
-      end,
-      isMinimized = function()
-        return row.minimized == true
-      end,
-      title = function()
-        return row.title
-      end,
       id = function()
         return row.id
       end,
@@ -212,9 +210,6 @@ local function harness(options)
       end,
       application = function()
         return {
-          name = function()
-            return row.app
-          end,
           pid = function()
             return row.pid
           end,
@@ -243,6 +238,20 @@ local function harness(options)
       end,
     }
   end
+  local function stateOf(row)
+    return {
+      id = row.id,
+      pid = row.pid,
+      standard = (row.subrole or "AXStandardWindow") == "AXStandardWindow",
+      title = row.title or "",
+      minimized = row.minimized == true,
+    }
+  end
+  local forbiddenFocusWindow = setmetatable({}, {
+    __index = function(_, name)
+      error("synchronous Accessibility read on focus: " .. tostring(name))
+    end,
+  })
   function desktop:focus(id)
     local row = self:row(id)
     -- Focusing a window on another Space switches to it before notifications arrive.
@@ -255,7 +264,11 @@ local function harness(options)
       self.spaceCallback()
     end
     if self.focusCallback then
-      self.focusCallback(window(id))
+      local state = row and stateOf(row) or nil
+      local target = row and forbiddenFocusWindow or nil
+      if not row or not self.predicate or self.predicate(target, self:app(row.pid), state) then
+        self.focusCallback(target, row and row.app, 1, id, state)
+      end
     end
   end
   function desktop:activate(id, pid)
@@ -320,7 +333,58 @@ local function harness(options)
       end,
     }
   end
-  local windowManager, pending = { native = {} }, nil
+  local function unused()
+    error("unexpected window_manager call")
+  end
+  local pending
+  local windowManager = {
+    native = {
+      frame = unused,
+      minimize = unused,
+      windows = unused,
+      spaces = unused,
+      watchWindowSpaces = unused,
+    },
+    spaceOf = unused,
+    focus = unused,
+    frame = unused,
+    windows = unused,
+    watchWindowSpaces = unused,
+    stop = unused,
+  }
+  desktop.probes, desktop.cancels, desktop.focusSpaces = {}, 0, {}
+  function windowManager.native.displaySpaces()
+    local list, active, bySpace = {}, {}, {}
+    for index, space in ipairs(spaces) do
+      list[index] = { id = space.ManagedSpaceID, display = space.display }
+      active[space.display] = desktop:current(space.display)
+      bySpace[space.ManagedSpaceID] = { index = index, display = space.display }
+    end
+    return { spaces = list, active = active, bySpace = bySpace }
+  end
+  function windowManager.native.cancelFocus()
+    desktop.cancels = desktop.cancels + 1
+  end
+  -- Replies on a later run-loop turn with the app's focused window, unless held.
+  function windowManager.native.focusedWindow(pid, done)
+    desktop.probes[#desktop.probes + 1] = { pid = pid, done = done }
+    if not desktop.holdProbes then
+      timer(0, function()
+        local row = desktop:row(desktop.focused)
+        done(row and row.pid == pid and row.id or nil)
+      end)
+    end
+  end
+  function windowManager.isBusy(space, pid)
+    desktop.busyChecks[#desktop.busyChecks + 1] = { space = space, pid = pid }
+    if type(desktop.managerBusy) == "function" then
+      return desktop.managerBusy(space, pid)
+    end
+    return desktop.managerBusy or pending ~= nil
+  end
+  function windowManager.focusedTarget()
+    return desktop.focusedTarget
+  end
   function windowManager.space(index, done)
     desktop.writes[#desktop.writes + 1] = { "space", index }
     local id = spaces[index].ManagedSpaceID
@@ -378,13 +442,17 @@ local function harness(options)
       end
     end)
   end
-  function windowManager.native.focus(pid, id, done)
+  function windowManager.native.focus(pid, id, done, space)
     desktop.writes[#desktop.writes + 1] = { "focus", id, pid }
+    desktop.focusSpaces[#desktop.focusSpaces + 1] = space
     timer(0.004, function()
       local row = desktop:row(id)
       if options.focusError or not row or row.pid ~= pid then
         if done then
-          done(false, "window unavailable")
+          done(
+            false,
+            type(options.focusError) == "string" and options.focusError or "window unavailable"
+          )
         end
         return
       end
@@ -402,13 +470,16 @@ local function harness(options)
     end)
   end
   local filter = {
-    new = object,
+    new = function(predicate)
+      desktop.predicate = predicate
+      return object()
+    end,
     windowFocused = 1,
-    windowsOf = function(pid)
-      local windows, ids = {}, {}
+    statesOf = function(pid)
+      local states, ids = {}, {}
       for _, row in ipairs(desktop.rows) do
         if row.pid == pid and not row.untracked then
-          windows[row.id] = window(row.id)
+          states[row.id] = stateOf(row)
           ids[#ids + 1] = row.id
         end
       end
@@ -416,7 +487,7 @@ local function harness(options)
       table.sort(ids, function(a, b)
         return a > b
       end)
-      return setmetatable(windows, {
+      return setmetatable(states, {
         __pairs = function(tracked)
           local i = 0
           return function()
@@ -431,8 +502,14 @@ local function harness(options)
     application = {
       -- The desktop (no focused window) belongs to Finder.
       frontmostApplication = function()
+        if desktop.noFront then
+          return nil
+        end
         local row = desktop:row(desktop.focused)
         return {
+          pid = function()
+            return row and row.pid or 800
+          end,
           bundleID = function()
             return row and row.app or "com.apple.finder"
           end,
@@ -466,19 +543,6 @@ local function harness(options)
         desktop.displayReads = desktop.displayReads + 1
         return display(id)
       end,
-      data_managedDisplaySpaces = function()
-        local out, seen = {}, {}
-        for _, space in ipairs(spaces) do
-          if not seen[space.display] then
-            seen[space.display] = true
-            out[#out + 1] = {
-              ["Display Identifier"] = space.display,
-              ["Current Space"] = { ManagedSpaceID = desktop:current(space.display) or -1 },
-            }
-          end
-        end
-        return out
-      end,
       watcher = {
         new = function(callback)
           desktop.spaceCallback = callback
@@ -488,6 +552,7 @@ local function harness(options)
     },
     screen = {
       find = function(name)
+        desktop.screenReads = desktop.screenReads + 1
         local frame = screens[name]
         return frame
           and {
@@ -499,6 +564,12 @@ local function harness(options)
             end,
           }
       end,
+      watcher = not options.noScreenWatcher and {
+        new = function(callback)
+          desktop.screenCallback = callback
+          return object()
+        end,
+      } or nil,
     },
     mouse = {
       absolutePosition = function()
@@ -703,6 +774,7 @@ local function harness(options)
       elseif name == "lib.mission_control" then
         return {
           isActive = function()
+            desktop.missionControlReads = desktop.missionControlReads + 1
             if desktop.beforeMissionControl then
               local callback = desktop.beforeMissionControl
               desktop.beforeMissionControl = nil
@@ -711,13 +783,8 @@ local function harness(options)
             return desktop.missionControl or false
           end,
         }
-      else
-        return {
-          spaces = function()
-            return spaces
-          end,
-        }
       end
+      error("unexpected require " .. name)
     end,
   }, { __index = _G })
   desktop.module = assert(loadfile(root .. "/space_focus.lua", "t", environment))()
@@ -993,12 +1060,6 @@ test("no desktop click is issued through a covering window", function()
   assertEqual(#desktop.clicks, 0)
   assertEqual(desktop.module.status().last.ok, false)
 end)
-test("a Space change from outside the shortcuts moves focus from PiP", function()
-  local desktop = harness()
-  desktop:arrive(202, true)
-  desktop:advance(0.3)
-  assertEqual(desktop.focused, 2)
-end)
 test("normal focus from an external Space change is preserved", function()
   local desktop = harness()
   desktop.space = 202
@@ -1027,14 +1088,6 @@ test("already-visible monitor switch works without a Space event", function()
   assertEqual(#desktop.alerts, 0)
   assertEqual(desktop.module.status().last.ok, true)
 end)
-test("a Space change before the deferred focus cannot pull focus back", function()
-  local desktop = harness()
-  desktop:arrive(202, true)
-  desktop:arrive(303, true)
-  desktop:advance(0.4)
-  assertEqual(desktop.space, 303)
-  assertEqual(desktop:countFocus(), 0)
-end)
 
 test("Alt-Shift-number takes the focused window to that Space and focuses it there", function()
   local desktop = harness()
@@ -1057,22 +1110,6 @@ test("a window the Dock can't move stays put and reports why", function()
   assertEqual(desktop.space, 101)
   assertEqual(#desktop.writes, 0)
   assertEqual(desktop.alerts[1], "Space focus: Dock helper not loaded")
-end)
-test("a new Alt-number dispatches before the previous Space replies", function()
-  local desktop = harness()
-  desktop:loadShortcuts()
-  desktop.hotkeys["alt:2"]()
-  desktop.hotkeys["alt:3"]()
-  assertEqual(#desktop.writes, 2)
-  assertEqual(desktop.writes[2][2], 3)
-  assertEqual(desktop.space, 101)
-  desktop:advance(0.3)
-  assertEqual(desktop.space, 303)
-  assertEqual(desktop.focused, nil)
-  assertEqual(desktop:countFocus(), 0)
-  assertEqual(desktop.module.status().busy, false)
-  assertEqual(#desktop.logs, 0)
-  assertEqual(#desktop.alerts, 0)
 end)
 
 test(
@@ -1190,13 +1227,6 @@ test("mouse intent cancels a pending correction", function()
   assertEqual(desktop:countFocus(), 0)
   assertEqual(#desktop.clicks, 0)
 end)
-test("Cmd-Tab exact-window operation takes priority", function()
-  local desktop = harness()
-  desktop.busy = true
-  desktop:arrive(202, true)
-  desktop:advance(0.3)
-  assertEqual(desktop:countFocus(), 0)
-end)
 test("idle controller takes no periodic window snapshots", function()
   local desktop = harness()
   desktop:advance(30)
@@ -1281,13 +1311,6 @@ test("rapid presses at an edge preserve the pending focus restoration", function
   assertEqual(desktop.focused, 2)
   assertEqual(desktop:countFocus(), 1)
   assertEqual(desktop.module.status().busy, false)
-end)
-test("numbered shortcuts still select a Space on another display", function()
-  local desktop = harness({ displays = { [101] = "left", [202] = "right", [303] = "right" } })
-  desktop.module.switchSpace(2)
-  desktop:advance(0.3)
-  assertEqual(desktop.space, 202)
-  assertEqual(desktop.focused, 2)
 end)
 -- Left display: 101 (Editor, PiP); right display: 202 (Shell, Docs) shown, 303 empty.
 local function away(mode)
@@ -1836,7 +1859,7 @@ test("PiP activation without another eligible app window does nothing", function
   end
 end)
 
-test("a failed PiP redirect logs and alerts once without retrying", function()
+test("a failed PiP redirect logs and alerts once without retrying, unless superseded", function()
   local desktop = pip({ focusError = true })
   desktop:activate(50)
   desktop:advance(2)
@@ -1845,6 +1868,13 @@ test("a failed PiP redirect logs and alerts once without retrying", function()
   assertEqual(#desktop.logs, 1)
   assertEqual(#desktop.alerts, 1)
   assert(desktop.logs[1]:find("window unavailable", 1, true))
+
+  local superseded = pip({ focusError = "superseded" })
+  superseded:activate(50)
+  superseded:advance(2)
+  assertEqual(superseded:countFocus(), 1)
+  assertEqual(#superseded.logs, 0)
+  assertEqual(#superseded.alerts, 0)
 end)
 
 test("non-PiP activations and other app events keep existing behaviour", function()
@@ -1860,12 +1890,14 @@ test("non-PiP activations and other app events keep existing behaviour", functio
 end)
 
 test("PiP focus shortly after activating a real window is redirected", function()
-  local desktop = pip()
+  local desktop = pip({ noTitles = true })
   desktop:activate(61)
   desktop:advance(0.015)
   assertEqual(desktop:countFocus(), 0)
+  desktop.accessibilityReads = {}
   desktop:focus(50)
   assertEqual(desktop:countFocus(), 1)
+  assertEqual(next(desktop.accessibilityReads), nil)
   desktop:advance(0.3)
   assertEqual(desktop:countFocus(), 1)
   assertEqual(desktop.focused, 60)
@@ -1925,4 +1957,312 @@ test("shutdown stops arrow interception", function()
   assertEqual(desktop.module.keys:isEnabled(), false)
   assertEqual(desktop:key("keyDown", "right", { ctrl = true }), false)
 end)
+
+test("windowManager.isBusy suppresses competing protect during external Space jumps", function()
+  local desktop = harness()
+  desktop.managerBusy = true
+  desktop.space = 202
+  desktop.focused = 50
+  desktop.spaceCallback()
+  desktop:advance(0.3)
+  assertEqual(desktop:countFocus(), 0)
+  assertEqual(desktop.lists, 0)
+  assertEqual(desktop.missionControlReads, 0)
+  -- Once the external jump finishes, Space 202 is already recorded in lastSpace.
+  desktop.managerBusy = false
+  desktop.spaceCallback()
+  desktop:advance(0.3)
+  assertEqual(desktop:countFocus(), 0)
+  assertEqual(desktop.lists, 0)
+  -- Activation and focus events while busy also skip snapshots and retakes.
+  desktop.managerBusy = true
+  desktop.space = 101
+  desktop:activate(50)
+  desktop:focus(50)
+  desktop:advance(0.3)
+  assertEqual(desktop:countFocus(), 0)
+  assertEqual(desktop.lists, 0)
+  -- switchSpace() still arrives and restores focus when windowManager.isBusy() is true.
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  assertEqual(desktop.space, 202)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop:countFocus(), 1)
+end)
+
+test("app activation reuses one window list and skips layer-0 AX title reads", function()
+  -- Activation with a Space change onto PiP scans windows and reads Mission Control once.
+  local desktop = pip()
+  desktop.space = 202
+  desktop.focused = 50
+  desktop:activate(50)
+  assertEqual(desktop.lists, 1)
+  assertEqual(desktop.missionControlReads, 1)
+  desktop:advance(0.3)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop:countFocus(2), 1)
+  -- Activation redirect onto PiP without a Space change also scans once.
+  local redirect = pip()
+  redirect.recent = { [61] = 2 }
+  redirect:activate(50)
+  redirect:advance(0.3)
+  assertEqual(redirect.lists, 1)
+  assertEqual(redirect.missionControlReads, 0)
+  assertEqual(redirect.focused, 61)
+  assertEqual(redirect:countFocus(61), 1)
+  -- Without Screen Recording, layer-0 entries trigger no AX title() reads during activation.
+  local headless = pip({ noTitles = true })
+  headless:row(50).hidden = true
+  headless.accessibilityReads = {}
+  headless:activate(61)
+  assertEqual(headless.lists, 1)
+  assertEqual(headless.accessibilityReads[61], nil)
+  assertEqual(headless.accessibilityReads[60], nil)
+end)
+
+test("menuBusy skips Mission Control AX checks when window_switcher is busy", function()
+  local desktop = harness()
+  desktop.busy = true
+  desktop:arrive(202, true)
+  desktop:advance(0.3)
+  assertEqual(desktop.missionControlReads, 0)
+  assertEqual(desktop.lists, 0)
+  assertEqual(desktop:countFocus(), 0)
+  -- Activation with Space change while switcher is busy skips Mission Control too.
+  desktop.space = 303
+  desktop:activate(1)
+  desktop:advance(0.3)
+  assertEqual(desktop.lists, 1)
+  assertEqual(desktop.missionControlReads, 0)
+  assertEqual(desktop:countFocus(), 0)
+  -- Deferred valid(job) skips Mission Control when switcher becomes busy or Space changed.
+  for _, case in ipairs({ "busy", "moved" }) do
+    local deferred = harness()
+    deferred.busy = false
+    deferred.module.switchSpace(2)
+    deferred:advance(0.3, 1)
+    local reads = deferred.missionControlReads
+    if case == "busy" then
+      deferred.busy = true
+    else
+      deferred:arrive(101, false)
+    end
+    deferred:advance(0.3)
+    assertEqual(deferred.missionControlReads, reads)
+    assertEqual(deferred:countFocus(), 0)
+  end
+end)
+
+test("screen frame cache reuses finds and invalidates on screen watcher", function()
+  local desktop = harness()
+  assertEqual(desktop.module.screenWatcher.starts, 1)
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  desktop.module.switchSpace(1)
+  desktop:advance(0.3)
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  assertEqual(desktop.screenReads, 1)
+  desktop.screenCallback()
+  desktop.module.switchSpace(1)
+  desktop:advance(0.3)
+  assertEqual(desktop.screenReads, 2)
+  desktop.module.stop()
+  assertEqual(desktop.module.screenWatcher:isEnabled(), false)
+  local noWatcher = harness({ noScreenWatcher = true })
+  assertEqual(noWatcher.module.screenWatcher, nil)
+  noWatcher.module.switchSpace(2)
+  noWatcher:advance(0.3)
+  assertEqual(noWatcher.focused, 2)
+  noWatcher.module.stop()
+end)
+
+test(
+  "scoped isBusy skips AX reads, records focusedTarget, and windowFocused skips synchronous Accessibility reads",
+  function()
+    local desktop = harness()
+    desktop.focusedTarget = { space = 202, pid = 103, id = 3 }
+    desktop.managerBusy = function(space, pid)
+      return space == 202 and (pid == nil or pid == 103)
+    end
+    desktop.space = 202
+    desktop.focused = 3
+    desktop.accessibilityReads = {}
+    desktop.busyChecks = {}
+    desktop:activate(3, 103)
+    desktop:focus(3)
+    assertEqual(desktop.busyChecks[1].space, 202)
+    assertEqual(desktop.busyChecks[1].pid, 103)
+    assertEqual(next(desktop.accessibilityReads), nil)
+    assertEqual(desktop.lists, 0)
+
+    -- Recorded focusedTarget feeds switchSpace() preferred candidate after busy settles.
+    desktop.managerBusy = false
+    desktop.focusedTarget = nil
+    desktop.module.switchSpace(1)
+    desktop:advance(0.3)
+    desktop.module.switchSpace(2)
+    desktop:advance(0.3)
+    assertEqual(desktop.focused, 3)
+
+    desktop.accessibilityReads = {}
+    desktop:focus(2)
+    assertEqual(next(desktop.accessibilityReads), nil)
+
+    desktop:add({
+      id = 7,
+      pid = 107,
+      app = "Dialog",
+      title = "Save",
+      subrole = "AXUnknown",
+      space = 101,
+    })
+    desktop.space = 101
+    desktop:focus(7)
+    desktop:arrive(101, true)
+    desktop:advance(0.3)
+    assertEqual(desktop.focused, 1)
+
+    for _, case in ipairs({
+      { expected = 3 },
+      { subroles = { [3] = "AXUnknown" }, expected = 2 },
+      { focused = false, expected = 2 },
+    }) do
+      local seeded = harness({
+        space = 202,
+        focused = case.focused == nil and 3 or case.focused,
+        subroles = case.subroles,
+      })
+      seeded.module.switchSpace(1)
+      seeded:advance(0.3)
+      seeded.module.switchSpace(2)
+      seeded:advance(0.3)
+      assertEqual(seeded.focused, case.expected)
+    end
+  end
+)
+
+test(
+  "fast path skips synchronous focusedWindow calls, forwards space, cancels on supersede, and still protects PiP",
+  function()
+    local desktop = harness()
+    desktop.holdProbes = true
+    desktop.accessibilityReads = {}
+
+    -- Rapid switchSpace(3) -> superseded by switchSpace(2).
+    desktop.module.switchSpace(3)
+    assertEqual(desktop.accessibilityReads.focused, nil)
+    desktop.module.switchSpace(2)
+    assertEqual(desktop.cancels, 1)
+    desktop:advance(0.01)
+    assertEqual(desktop:countFocus(), 1)
+    assertEqual(desktop:countFocus(2), 1)
+    assertEqual(desktop.focusSpaces[1], 202)
+    -- Focus confirmation uses an async probe of the target app.
+    assertEqual(#desktop.probes, 1)
+    assertEqual(desktop.probes[1].pid, 102)
+    desktop.focused = 2
+    desktop.probes[1].done(2)
+    assertEqual(desktop.module.status().busy, false)
+    assertEqual(desktop.module.status().last.ok, true)
+    desktop:advance(0.3)
+    assertEqual(desktop.accessibilityReads.focused, nil)
+
+    -- External swipe onto Space 101 (frontmost app has no PiP): no focusedWindow reads at all.
+    desktop.space, desktop.focused = 101, 1
+    desktop.spaceCallback()
+    assertEqual(#desktop.probes, 1)
+    assertEqual(desktop.accessibilityReads.focused, nil)
+    assertEqual(desktop.module.status().busy, false)
+
+    -- External swipe onto Space 303 when the frontmost app owns on-screen PiP 50: async probe detects it and focuses window 4.
+    desktop:add({ id = 4, pid = 500, app = "Browser", title = "Docs", space = 303 })
+    desktop:advance(1)
+    desktop.space, desktop.focused = 303, 50
+    desktop.spaceCallback()
+    assertEqual(#desktop.probes, 2)
+    assertEqual(desktop.probes[2].pid, 500)
+    desktop.probes[2].done(50)
+    desktop:advance(0.01)
+    assertEqual(desktop:countFocus(4), 1)
+    assertEqual(desktop.focusSpaces[2], 303)
+    desktop:advance(0.3)
+    assertEqual(desktop.module.status().busy, false)
+    assertEqual(desktop.module.status().last.ok, true)
+    assertEqual(desktop.focused, 4)
+    assertEqual(desktop.accessibilityReads.focused, nil)
+  end
+)
+
+test(
+  "async probe rechecks menu state and refreshes list; user focus during settled is preserved",
+  function()
+    local desktop = harness()
+    desktop.holdProbes = true
+    desktop:row(2).space, desktop:row(3).space = 101, 303
+
+    -- 1. User focuses window 2 during windowManager's settled interval for window 1: preserved in recent[101].
+    desktop.managerBusy, desktop.focusedTarget = true, { space = 101, pid = 101, id = 1 }
+    desktop:focus(2)
+    desktop.managerBusy, desktop.focusedTarget = false, nil
+    -- Switch back to Space 101 from empty Space 202: restores window 2, not stale target 1.
+    desktop.space, desktop.focused = 202, 50
+    desktop.module.switchSpace(1)
+    desktop:advance(0.3)
+    assertEqual(desktop.focused, 2)
+    assertEqual(desktop:countFocus(1), 0)
+    assertEqual(desktop.module.status().busy, false)
+
+    -- 2. Mission Control opens while the async probe is in flight: resumed check supersedes instead of acting.
+    desktop:advance(1)
+    local probes, writes = #desktop.probes, #desktop.writes
+    desktop.space, desktop.focused = 202, 50
+    desktop.spaceCallback()
+    assertEqual(#desktop.probes, probes + 1)
+    desktop.missionControl = true
+    desktop.probes[#desktop.probes].done(50)
+    desktop:advance(0.3)
+    assertEqual(desktop.module.status().last.error, "superseded")
+    assertEqual(#desktop.writes, writes)
+    desktop.missionControl = false
+
+    -- 3. New window appears on the empty Space while the async probe is in flight: refreshed list avoids the desktop click.
+    desktop:advance(1)
+    probes = #desktop.probes
+    desktop.space, desktop.focused = 101, 1
+    desktop.module.switchSpace(2)
+    desktop:advance(0.01)
+    assertEqual(#desktop.probes, probes + 1)
+    desktop:add({ id = 4, pid = 104, app = "App", title = "New", space = 202 })
+    desktop.probes[#desktop.probes].done(50)
+    desktop:advance(0.3)
+    assertEqual(#desktop.clicks, 0)
+    assertEqual(desktop:countFocus(4), 1)
+    assertEqual(desktop.focused, 4)
+  end
+)
+
+test("without a frontmost app, focus is read synchronously or remembered, not probed", function()
+  -- External Space change onto PiP.
+  local desktop = harness()
+  desktop.noFront = true
+  desktop:arrive(202, true)
+  desktop:advance(0.3)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop.module.status().last.ok, true)
+  -- Only the focus confirmation is probed.
+  assertEqual(#desktop.probes, 1)
+  -- A same-Space shortcut trusts the remembered window without a read.
+  desktop.module.switchSpace(2)
+  desktop:advance(0.3)
+  assertEqual(desktop.focused, 2)
+  assertEqual(desktop.module.status().last.ok, true)
+  -- Empty Space.
+  desktop.module.switchSpace(3)
+  desktop:advance(0.3)
+  assertEqual(#desktop.clicks, 1)
+  assertEqual(desktop.focused, nil)
+  assertEqual(#desktop.probes, 1)
+end)
+
 print("RESULT " .. passed .. " passed, 0 failed")

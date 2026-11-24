@@ -27,10 +27,14 @@ local tiling = {}
 local trees = {} ---@type table<integer, TileNode>
 local tiled = {} ---@type table<integer, TileWindow>
 local floating = {} ---@type table<integer, boolean>
+local pips = {} ---@type table<integer, boolean>
 local columns = {} ---@type table<integer, boolean> Spaces tiled as columns
+local areas = {} ---@type table<integer, hs.geometry|false>
+local applied = {} ---@type table<integer, { x: number, y: number, w: number, h: number }>
 local moving = {} ---@type table<integer, integer> in-flight frame updates
 local stopped = false
 local resyncOnRelease = false
+local unplaced = false
 
 local function isPiP(title)
   title = (title or ""):lower():gsub("[^%a]", "")
@@ -40,9 +44,15 @@ end
 ---@param space integer
 ---@return hs.geometry?
 local function area(space)
+  local cached = areas[space]
+  if cached ~= nil then
+    return cached or nil
+  end
   local display = hs.spaces.spaceDisplay(space)
   local screen = display and hs.screen.find(display)
-  return screen and screen:frame()
+  local frame = screen and screen:frame()
+  areas[space] = frame or false
+  return frame or nil
 end
 
 ---@param node TileNode
@@ -84,13 +94,26 @@ end
 local function apply(space)
   for leaf, frame in pairs(frames(space)) do
     local id = leaf.id
-    moving[id] = (moving[id] or 0) + 1
-    windowManager.frame(leaf.pid, id, frame.x, frame.y, frame.w, frame.h, function(ok, err)
-      moving[id] = moving[id] > 1 and moving[id] - 1 or nil
-      if not ok and tiled[id] then
-        logger.error(string.format("Tiling: window %d: %s", id, err))
-      end
-    end)
+    local last = applied[id]
+    if
+      not last
+      or last.x ~= frame.x
+      or last.y ~= frame.y
+      or last.w ~= frame.w
+      or last.h ~= frame.h
+    then
+      applied[id] = { x = frame.x, y = frame.y, w = frame.w, h = frame.h }
+      moving[id] = (moving[id] or 0) + 1
+      windowManager.frame(leaf.pid, id, frame.x, frame.y, frame.w, frame.h, function(ok, err)
+        moving[id] = moving[id] > 1 and moving[id] - 1 or nil
+        if not ok then
+          applied[id] = nil
+          if tiled[id] then
+            logger.error(string.format("Tiling: window %d: %s", id, err))
+          end
+        end
+      end)
+    end
   end
 end
 
@@ -163,6 +186,7 @@ local function remove(id)
     return
   end
   tiled[id] = nil
+  applied[id] = nil
   local leaf, parent = entry.leaf, entry.leaf.parent
   if not parent then
     trees[entry.space] = nil
@@ -175,16 +199,32 @@ local function remove(id)
 end
 
 ---@param window hs.window
-local function manageable(window)
-  local app = window:application()
-  return app ~= nil
-    and apps[app:name()] == true
-    and not app:isHidden()
-    and window:isStandard()
-    and not window:isMinimized()
-    and not window:isFullScreen()
-    and not isPiP(window:title())
-    and not floating[window:id()]
+---@param allowed? table<integer, boolean>
+---@return integer? id, integer? pid
+local function manageable(window, allowed)
+  local id = window:id() --[[@as integer?]]
+  local app = (id and filter.applicationOf(id)) or window:application()
+  if not id or not app then
+    return nil
+  end
+  local pid = app:pid() --[[@as integer]]
+  local ok = allowed and allowed[pid]
+  if ok == nil then
+    local name = app:name()
+    ok = name ~= nil and apps[name] == true and not app:isHidden()
+    if allowed then
+      allowed[pid] = ok
+    end
+  end
+  if not ok or not window:isStandard() or window:isMinimized() or window:isFullScreen() then
+    return nil
+  end
+  local pip = isPiP(window:title())
+  pips[id] = pip or nil
+  if pip or floating[id] then
+    return nil
+  end
+  return id, pid
 end
 
 ---@param mouseReleased? boolean
@@ -198,17 +238,18 @@ local function sync(mouseReleased)
     return
   end
   resyncOnRelease = false
-  local changedSpaces, stillManaged, ids, windows = {}, {}, {}, {}
+  unplaced = false
+  local changedSpaces, stillManaged, ids, pids, allowed = {}, {}, {}, {}, {}
   for _, window in ipairs(tiling.windows:getWindows()) do
-    if manageable(window) then
-      ids[#ids + 1] = window:id()
-      windows[#windows + 1] = window
+    local id, pid = manageable(window, allowed)
+    if id and pid then
+      ids[#ids + 1] = id
+      pids[#pids + 1] = pid
     end
   end
   -- Most recent first; insertion order sets the layout.
-  local spaces = windowManager.native.spaces(ids)
-  for index, window in ipairs(windows) do
-    local id = ids[index]
+  local spaces = #ids > 0 and windowManager.native.spaces(ids) or {}
+  for index, id in ipairs(ids) do
     local space = spaces[id]
     local entry = tiled[id]
     if space and area(space) then
@@ -218,9 +259,11 @@ local function sync(mouseReleased)
         remove(id)
       end
       if not tiled[id] then
-        insert(space, id, assert(window:application()):pid())
+        insert(space, id, pids[index])
         changedSpaces[space] = true
       end
+    else
+      unplaced = true
     end
   end
   for id, entry in pairs(tiled) do
@@ -326,14 +369,16 @@ function tiling.focus(direction)
       end
     end
   end
-  local target = neighbor(window:frame(), direction, candidates)
+  local entry = tiled[id]
+  local from = entry and focusedSpace and frames(focusedSpace)[entry.leaf] or window:frame()
+  local target = neighbor(from, direction, candidates)
   if not target then
     logger.error("Tiling: no window to the " .. direction)
     return
   end
   local leaf = tiled[target].leaf
   windowManager.native.focus(leaf.pid, leaf.id, function(ok, failure)
-    if not ok then
+    if not ok and failure ~= "superseded" then
       logger.error("Tiling: focus failed: " .. failure)
     end
   end)
@@ -549,8 +594,8 @@ function tiling.float()
   sync()
 end
 
-tiling.windows = filter.new(function(window)
-  local app = window:application()
+tiling.windows = filter.new(function(window, app)
+  app = app or window:application()
   return app ~= nil and apps[app:name()] == true
 end)
 tiling.windows:subscribe({
@@ -561,9 +606,17 @@ tiling.windows:subscribe({
   filter.windowHidden,
   filter.windowUnhidden,
   filter.windowTitleChanged,
-}, function(_, _, event, id)
+}, function(_, _, event, id, state)
   if event == filter.windowDestroyed then
     floating[id] = nil
+    pips[id] = nil
+  elseif event == filter.windowTitleChanged then
+    local pip = isPiP(state.title)
+    local was = pips[id]
+    pips[id] = pip or nil
+    if (pip and not tiled[id]) or (not pip and not was) then
+      return
+    end
   end
   sync()
 end)
@@ -585,24 +638,59 @@ tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   if not tile or window:frame():equals(tile) then
     return
   end
+  applied[id] = nil
   if hs.mouse.getButtons()[1] then
     dragged[id] = window
   else
     apply(entry.space)
   end
 end)
--- A Mission Control drop changes a window's Space ~0.6 s after the release, with no window event.
-tiling.spaceCheckAfterDrop = hs.timer.delayed.new(1, function()
-  local ids = {}
-  for id in pairs(tiled) do
-    ids[#ids + 1] = id
+local pendingSpaceSync ---@type hs.timer?
+local changedSpaceIds = {} ---@type table<integer, boolean>
+local stopWindowSpaceWatcher ---@type (fun())?
+
+---@param id integer
+local function scheduleSpaceSync(id)
+  if stopped then
+    return
   end
-  local spaces = windowManager.native.spaces(ids)
-  for id, entry in pairs(tiled) do
-    if spaces[id] and spaces[id] ~= entry.space then
-      sync()
+  changedSpaceIds[id] = true
+  if pendingSpaceSync then
+    return
+  end
+  pendingSpaceSync = hs.timer.doAfter(0, function()
+    pendingSpaceSync = nil
+    local ids = {}
+    for changedId in pairs(changedSpaceIds) do
+      if tiled[changedId] then
+        ids[#ids + 1] = changedId
+      end
+    end
+    changedSpaceIds = {}
+    if #ids == 0 then
       return
     end
+    local spaces = windowManager.native.spaces(ids)
+    for _, changedId in ipairs(ids) do
+      local entry = tiled[changedId]
+      if entry and (not spaces[changedId] or spaces[changedId] ~= entry.space) then
+        sync()
+        return
+      end
+    end
+  end)
+end
+
+stopWindowSpaceWatcher = windowManager.watchWindowSpaces(function(id, space, added)
+  if stopped then
+    return
+  end
+  local entry = tiled[id]
+  if not entry then
+    return
+  end
+  if (added and space ~= entry.space) or (not added and space == entry.space) then
+    scheduleSpaceSync(id)
   end
 end)
 tiling.mouseReleaseTap = hs.eventtap
@@ -613,6 +701,7 @@ tiling.mouseReleaseTap = hs.eventtap
     end
     local spaces = {}
     for id, window in pairs(dragged) do
+      applied[id] = nil
       local entry = tiled[id]
       local tile = entry and not entry.leaf.zoom and bounds(entry.leaf, entry.space)
       if tile then
@@ -636,18 +725,56 @@ tiling.mouseReleaseTap = hs.eventtap
     for space in pairs(spaces) do
       apply(space)
     end
-    tiling.spaceCheckAfterDrop:start()
     return false
   end)
   :start() --[[@as hs.eventtap]]
 tiling.spaceWatcher = hs.spaces.watcher
   .new(function()
+    if stopped then
+      return
+    end
     -- It passes the Space, not `mouseReleased`.
-    sync()
+    local previous = areas
+    areas = {}
+    local ids = {}
+    for id in pairs(tiled) do
+      ids[#ids + 1] = id
+    end
+    local changed = unplaced
+    if not changed and #ids > 0 then
+      local spaces = windowManager.native.spaces(ids)
+      for _, id in ipairs(ids) do
+        if spaces[id] and spaces[id] ~= tiled[id].space then
+          changed = true
+          break
+        end
+      end
+    end
+    local resized = {}
+    if not changed then
+      for space in pairs(trees) do
+        local old, current = previous[space], area(space)
+        if not current then
+          changed = true
+          break
+        elseif not old or not old:equals(current) then
+          resized[#resized + 1] = space
+        end
+      end
+    end
+    if changed then
+      sync()
+    else
+      for _, space in ipairs(resized) do
+        apply(space)
+      end
+    end
   end)
   :start() --[[@as hs.spaces.watcher]]
 tiling.screenWatcher = hs.screen.watcher
   .new(function()
+    areas = {}
+    applied = {}
     for space in pairs(trees) do
       apply(space)
     end
@@ -675,8 +802,20 @@ end
 
 function tiling.stop()
   stopped = true
+  changedSpaceIds = {}
+  areas = {}
+  applied = {}
+  pips = {}
+  unplaced = false
+  if pendingSpaceSync then
+    pendingSpaceSync:stop()
+    pendingSpaceSync = nil
+  end
+  if stopWindowSpaceWatcher then
+    stopWindowSpaceWatcher()
+    stopWindowSpaceWatcher = nil
+  end
   tiling.mouseReleaseTap:stop()
-  tiling.spaceCheckAfterDrop:stop()
   tiling.spaceWatcher:stop()
   tiling.screenWatcher:stop()
   tiling.windows:delete()

@@ -10,7 +10,9 @@ local function test(name, callback)
   print("PASS " .. name)
 end
 
+local native = assert(package.loadlib(scratch .. "/stream.so", "luaopen_stream"))()
 local stream = {
+  analyze = native.analyze,
   listen = function(_, callback)
     receive = callback
     return function()

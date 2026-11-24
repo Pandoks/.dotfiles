@@ -1,11 +1,21 @@
 #import <Foundation/Foundation.h>
+@import Accelerate;
 #import <LuaSkin/LuaSkin.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <math.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+enum {
+  fftLog2 = 10,
+  fftSize = 1 << fftLog2,
+  fftHalf = fftSize / 2,
+  fftBytes = fftSize * 2,
+};
 
 static LSRefTable references = LUA_NOREF;
 static const char *metatableName = "stream.listener";
@@ -190,8 +200,104 @@ static int serve(lua_State *state) {
   return 1;
 }
 
+static double loudness(double energy) {
+  double rms = sqrt(energy / (double)fftSize) + 1e-9;
+  double value = (20.0 * log10(rms) + 50.0) / 40.0;
+  if (value < 0.0) return 0.0;
+  if (value > 1.0) return 1.0;
+  return value;
+}
+
+static double windowEnergy(const char *bytes, float *samples) {
+  int16_t raw[fftSize];
+  memcpy(raw, bytes, fftBytes);
+  vDSP_vflt16(raw, 1, samples, 1, fftSize);
+  float sum = 0.0f;
+  vDSP_svesq(samples, 1, &sum, fftSize);
+  return (double)sum / (32768.0 * 32768.0);
+}
+
+static lua_Integer checkBin(lua_State *state, lua_Integer slot) {
+  lua_rawgeti(state, 2, slot);
+  int valid = 0;
+  int kind = lua_type(state, -1);
+  lua_Integer edge = kind == LUA_TNUMBER ? lua_tointegerx(state, -1, &valid) : 0;
+  lua_pop(state, 1);
+  luaL_argcheck(state, valid && edge >= 0 && edge <= fftHalf, 2, "invalid bin edge");
+  return edge;
+}
+
+static int analyze(lua_State *state) {
+  luaL_checktype(state, 1, LUA_TSTRING);
+  luaL_checktype(state, 2, LUA_TTABLE);
+  size_t length = 0;
+  const char *pcm = lua_tolstring(state, 1, &length);
+  luaL_argcheck(state, length >= fftBytes, 1, "expected at least 2048 bytes of PCM");
+  size_t count = lua_rawlen(state, 2);
+  luaL_argcheck(state, count > 0 && count <= INT_MAX, 2, "expected at least one frequency band");
+  lua_Integer previous = checkBin(state, 0);
+
+  static dispatch_once_t fftOnce;
+  static FFTSetup fftSetup;
+  static float hann[fftSize];
+  dispatch_once(&fftOnce, ^{
+    fftSetup = vDSP_create_fftsetup(fftLog2, kFFTRadix2);
+    for (size_t sample = 0; sample < fftSize; sample++) {
+      hann[sample] = (float)((0.5 - 0.5 * cos(2.0 * M_PI * (double)sample / (double)(fftSize - 1))) / 32768.0);
+    }
+  });
+  if (!fftSetup) return luaL_error(state, "could not create FFT setup");
+
+  float samples[fftSize];
+  double energy = windowEnergy(pcm + length - fftBytes, samples);
+  double level = loudness(energy);
+  double peak = level;
+
+  vDSP_vmul(samples, 1, hann, 1, samples, 1, fftSize);
+  float real[fftHalf], imag[fftHalf];
+  for (size_t pair = 0; pair < fftHalf; pair++) {
+    real[pair] = samples[2 * pair];
+    imag[pair] = samples[2 * pair + 1];
+  }
+  DSPSplitComplex split = { real, imag };
+  vDSP_fft_zrip(fftSetup, &split, 1, fftLog2, kFFTDirection_Forward);
+
+  float magnitudes[fftHalf + 1];
+  float dc = fabsf(split.realp[0]) * 0.5f;
+  float nyquist = fabsf(split.imagp[0]) * 0.5f;
+  vDSP_zvabs(&split, 1, magnitudes, 1, fftHalf);
+  float half = 0.5f;
+  vDSP_vsmul(magnitudes + 1, 1, &half, magnitudes + 1, 1, fftHalf - 1);
+  magnitudes[0] = dc;
+  magnitudes[fftHalf] = nyquist;
+
+  for (size_t last = length - fftBytes; last >= fftBytes; last -= fftBytes) {
+    double older = loudness(windowEnergy(pcm + last - fftBytes, samples));
+    if (older > peak) peak = older;
+  }
+
+  lua_pushnumber(state, level);
+  lua_pushnumber(state, energy);
+  lua_pushnumber(state, peak);
+  lua_createtable(state, (int)count, 0);
+  for (size_t band = 1; band <= count; band++) {
+    lua_Integer edge = checkBin(state, (lua_Integer)band);
+    lua_Integer low = previous;
+    lua_Integer high = edge > low ? edge : low + 1;
+    double sum = 0.0;
+    for (lua_Integer bin = low; bin < high; bin++) {
+      sum += (double)magnitudes[bin];
+    }
+    lua_pushnumber(state, sqrt(sum / (double)(high - low)));
+    lua_rawseti(state, -2, (lua_Integer)band);
+    previous = edge;
+  }
+  return 4;
+}
+
 static const luaL_Reg functions[] = {
   { "listen", serve },
+  { "analyze", analyze },
   { NULL, NULL },
 };
 

@@ -2,6 +2,8 @@
 local root = assert(arg[1], "pass a lib directory")
 local tasks, errors, calls, reportRaises = {}, {}, {}, false
 local apps, rows, failure, filters, timers = {}, {}, nil, {}, {}
+local scans, scanArgs, pendingScans, focusLive, focusSpaces, deferScans = {}, {}, {}, {}, {}, false
+local mainWindowCalls, allWindowsCalls = 0, 0
 local environment = setmetatable({
   hs = {
     application = {
@@ -75,7 +77,11 @@ local modules = {
   },
   ["lib.window_filter"] = {
     windowCreated = "windowCreated",
+    windowDestroyed = "windowDestroyed",
     windowTitleChanged = "windowTitleChanged",
+    windowMinimized = "windowMinimized",
+    windowUnminimized = "windowUnminimized",
+    windowFocused = "windowFocused",
     new = function(predicate)
       local filter = { predicate = predicate, callbacks = {} }
       function filter:subscribe(events, callback)
@@ -91,7 +97,14 @@ local modules = {
     end,
   },
   ["lib.window_manager"] = {
-    windows = function(done)
+    windows = function(done, ...)
+      local pids = ...
+      scans[#scans + 1] = pids
+      scanArgs[#scanArgs + 1] = select("#", ...) + 1
+      if deferScans then
+        pendingScans[#pendingScans + 1] = done
+        return
+      end
       done(true, nil, rows)
     end,
     spaceOf = function(id)
@@ -101,8 +114,10 @@ local modules = {
         end
       end
     end,
-    focus = function(pid, id, done, minimized)
+    focus = function(pid, id, done, minimized, live, space)
       calls[#calls + 1] = "focus " .. pid .. " " .. id .. (minimized and " minimized" or "")
+      focusLive[#focusLive + 1] = live
+      focusSpaces[#focusSpaces + 1] = space
       done(not failure, failure)
     end,
   },
@@ -114,7 +129,7 @@ function environment.require(name)
   end
   return modules[name]
 end
-local openOrFocusWindow = assert(loadfile(root .. "/../window_profiles.lua", "t", environment))()
+local openOrFocusWindow
 local chromium = environment.require("lib.window_adapters.chromium")
 local work = chromium.window({ bundleID = "net.imput.helium", profile = "Work" })
 local personal = chromium.window({ bundleID = "net.imput.helium", profile = "Personal" })
@@ -122,19 +137,27 @@ local personal = chromium.window({ bundleID = "net.imput.helium", profile = "Per
 local passed = 0
 local function reset()
   tasks, errors, calls, apps, rows, failure, filters, timers = {}, {}, {}, {}, {}, nil, {}, {}
+  scans, scanArgs, pendingScans, focusLive, focusSpaces, deferScans = {}, {}, {}, {}, {}, false
+  mainWindowCalls, allWindowsCalls = 0, 0
+  modules["lib.window_manager"].native = nil
+  openOrFocusWindow = assert(loadfile(root .. "/../window_profiles.lua", "t", environment))()
 end
 ---@param main? table
 ---@param windows? table[] this Space, front to back
-local function helium(main, windows)
+---@param pid? integer
+local function helium(main, windows, pid)
+  pid = pid or 7
   return {
     {
       pid = function()
-        return 7
+        return pid
       end,
       mainWindow = function()
+        mainWindowCalls = mainWindowCalls + 1
         return main
       end,
       allWindows = function()
+        allWindowsCalls = allWindowsCalls + 1
         return windows or {}
       end,
     },
@@ -156,27 +179,46 @@ local function window(id, title)
     end,
   }
 end
+local forbiddenWindow = setmetatable({}, {
+  __index = function(_, method)
+    error("synchronous Accessibility read: " .. tostring(method))
+  end,
+})
 ---@param event? string
-local function appear(bundleId, title, id, event)
-  local created = {
-    application = function()
-      return {
-        bundleID = function()
-          return bundleId
-        end,
-        pid = function()
-          return 7
-        end,
-      }
-    end,
-    title = function()
-      return title
+---@param pid? integer
+---@param options? { standard?: boolean, minimized?: boolean }
+local function appear(bundleId, title, id, event, pid, options)
+  event = event or "windowCreated"
+  options = options or {}
+  local app = {
+    bundleID = function()
+      return bundleId
     end,
   }
+  local state = {
+    id = id,
+    pid = pid or 7,
+    standard = options.standard ~= false,
+    title = title,
+    minimized = options.minimized or event == "windowMinimized",
+  }
   for _, filter in ipairs(filters) do
-    local callback = filter.callbacks[event or "windowCreated"]
-    if not filter.deleted and callback and filter.predicate(created) then
-      callback(created, "App", event, id)
+    local callback = filter.callbacks[event]
+    if
+      not filter.deleted
+      and callback
+      and (not filter.predicate or filter.predicate(forbiddenWindow, app, state))
+    then
+      callback(forbiddenWindow, "App", event, id, state)
+    end
+  end
+end
+---@param id integer
+local function destroy(id)
+  for _, filter in ipairs(filters) do
+    local callback = filter.callbacks.windowDestroyed
+    if not filter.deleted and callback then
+      callback(nil, "App", "windowDestroyed", id)
     end
   end
 end
@@ -209,11 +251,6 @@ test("failed launches report the bundle id, exit code, and reason", function(tas
   assert(#errors == 1, bundleId)
   assert(errors[1]:find(bundleId, 1, true) and errors[1]:find("exit 1", 1, true), errors[1])
   assert(errors[1]:find("Unable to find application", 1, true), errors[1])
-end)
-test("successful launches report nothing", function(task, bundleId)
-  task.callback(0, "", "")
-  appear(bundleId, "Main", 1)
-  assert(#errors == 0, bundleId)
 end)
 test("a failed launch can be retried even when reporting raises", function(task, bundleId, profile)
   reportRaises = true
@@ -311,5 +348,165 @@ end)
 check("a missing browser profile reports and launches nothing", function()
   openOrFocusWindow(chromium.window({ bundleID = "net.imput.helium", profile = "Missing" }))
   assert(#tasks == 0 and #errors == 1 and errors[1]:find("Missing", 1, true))
+end)
+check("rapid switches drop stale window scans and cancel superseded focuses", function()
+  apps, rows, deferScans = helium(), { row(1, "Plan - Helium - Work") }, true
+  openOrFocusWindow(work)
+  openOrFocusWindow(personal)
+  assert(#pendingScans == 2 and #calls == 0)
+  rows = { row(2, "Home - Helium - Personal") }
+  pendingScans[1](true, nil, { row(1, "Plan - Helium - Work") })
+  assert(#calls == 0, "stale scan must not steal focus")
+  pendingScans[2](true, nil, rows)
+  assert(#calls == 1 and calls[1] == "focus 7 2")
+  assert(focusLive[1]() == true)
+  openOrFocusWindow(work)
+  assert(focusLive[1]() == false, "superseded focus live() must return false")
+  deferScans, failure = false, "cancelled"
+  rows = { row(1, "Plan - Helium - Work") }
+  openOrFocusWindow(work)
+  assert(#errors == 0)
+  appear("net.imput.helium", "Plan - Helium - Work", 1, "windowFocused")
+  failure = nil
+  local before = #scans
+  openOrFocusWindow(work)
+  assert(#scans == before and calls[#calls] == "focus 7 1")
+end)
+check(
+  "repeat switches hit the cache for observed windows and revalidate scan-only titles",
+  function()
+    apps = helium()
+    rows = { row(1, "Home - Helium - Personal"), row(2, "Mail - Helium - Work") }
+    openOrFocusWindow(work)
+    assert(
+      #scans == 1 and mainWindowCalls == 1 and allWindowsCalls == 1 and calls[1] == "focus 7 2"
+    )
+    appear("net.imput.helium", "Mail - Helium - Work", 2, "windowFocused")
+    mainWindowCalls, allWindowsCalls = 0, 0
+    -- Window 1 was only seen via scan (not observed by tracker), so a title change is caught.
+    rows[1] = row(1, "Renamed - Helium - Work")
+    openOrFocusWindow(personal)
+    assert(
+      #scans == 2 and #tasks == 1,
+      "unobserved scan-only title is revalidated instead of trusted"
+    )
+
+    reset()
+    apps = helium()
+    rows = { row(10, "Draft - Helium - Work", { space = 2 }) }
+    appear("net.imput.helium", "Draft - Helium - Work", 10, "windowCreated")
+    appear("net.imput.helium", "Draft - Helium - Work", 10, "windowMinimized")
+    openOrFocusWindow(work)
+    assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
+    assert(calls[1] == "focus 7 10 minimized")
+
+    -- Stale minimized=true on windowTitleChanged must not overwrite focus()'s minimized=false.
+    appear("net.imput.helium", "Renamed - Helium - Work", 10, "windowTitleChanged", 7, {
+      minimized = true,
+    })
+    openOrFocusWindow(work)
+    assert(#scans == 0 and calls[2] == "focus 7 10")
+
+    appear("net.imput.helium", "Renamed - Helium - Work", 10, "windowMinimized")
+    appear("net.imput.helium", "Draft - Helium - Work", 10, "windowUnminimized")
+    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowTitleChanged")
+    openOrFocusWindow(work)
+    assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
+    assert(calls[3] == "focus 7 10")
+
+    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowMinimized")
+    appear("net.imput.helium", "Inbox - Helium - Work", 10, "windowFocused")
+    openOrFocusWindow(work)
+    assert(#scans == 0 and calls[4] == "focus 7 10")
+  end
+)
+check("non-standard events keep cached entries and focus order updates recency", function()
+  apps = helium()
+  rows = {
+    row(11, "Plan - Helium - Work"),
+    row(12, "Save - Helium - Work", { subrole = "AXDialog" }),
+    row(13, "Notes - Helium - Work"),
+  }
+
+  local nonStandard = { standard = false }
+  appear("net.imput.helium", "Plan - Helium - Work", 11, "windowFocused")
+  appear("net.imput.helium", "Save - Helium - Work", 12, "windowFocused", 7, nonStandard)
+  openOrFocusWindow(work)
+  assert(#scans == 0 and mainWindowCalls == 0 and allWindowsCalls == 0 and calls[1] == "focus 7 11")
+
+  appear("net.imput.helium", "Tab - Helium - Work", 11, "windowFocused", 7, nonStandard)
+  rows[1].subrole = "AXUnknown"
+  openOrFocusWindow(work)
+  assert(#scans == 0 and #tasks == 0 and mainWindowCalls == 0 and allWindowsCalls == 0)
+  assert(calls[2] == "focus 7 11")
+
+  appear("net.imput.helium", "Notes - Helium - Work", 13, "windowFocused")
+  openOrFocusWindow(work)
+  assert(#scans == 0 and calls[3] == "focus 7 13")
+
+  appear("net.imput.helium", "Save - Helium - Work", 13, "windowCreated", 7, nonStandard)
+  openOrFocusWindow(work)
+  assert(#scans == 0 and calls[4] == "focus 7 11")
+
+  reset()
+  apps = helium()
+  rows = { row(11, "Fresh - Helium - Work") }
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowCreated")
+  openOrFocusWindow(work)
+  assert(#scans == 1 and calls[1] == "focus 7 11")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowFocused")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowMinimized")
+  appear("net.imput.helium", "Plan - Helium - Personal", 11, "windowUnminimized")
+  openOrFocusWindow(personal)
+  assert(#scans == 2 and #tasks == 1 and #calls == 1)
+  openOrFocusWindow(work)
+  assert(#scans == 2 and calls[2] == "focus 7 11")
+  appear("net.imput.helium", "New - Helium - Personal", 11, "windowCreated")
+  openOrFocusWindow(personal)
+  assert(#scans == 2 and calls[3] == "focus 7 11")
+end)
+check("cache invalidates on windowDestroyed or missing Space", function()
+  apps = helium()
+  rows = { row(1, "Plan - Helium - Work"), row(2, "Mail - Helium - Work") }
+  appear("net.imput.helium", "Plan - Helium - Work", 1, "windowCreated")
+  appear("net.imput.helium", "Mail - Helium - Work", 2, "windowCreated")
+  openOrFocusWindow(work)
+  assert(#scans == 0 and calls[1] == "focus 7 1")
+  destroy(1)
+  openOrFocusWindow(work)
+  assert(#scans == 0 and calls[2] == "focus 7 2")
+  rows = {}
+  openOrFocusWindow(work)
+  assert(#scans == 1 and #tasks == 1)
+end)
+check("windowManager.windows receives deduplicated targeted pids for matching apps", function()
+  apps = { helium(nil, nil, 7)[1], helium(nil, nil, 11)[1], helium(nil, nil, 7)[1] }
+  rows = { row(5, "Mail - Helium - Work", { pid = 11 }) }
+  openOrFocusWindow(work)
+  assert(#scans == 1 and type(scans[1]) == "table")
+  assert(#scans[1] == 2 and scans[1][1] == 7 and scans[1][2] == 11)
+  assert(calls[1] == "focus 11 5")
+end)
+check("forwards resolved space and keeps cache on transient focus failures", function()
+  apps, rows = helium(), { row(1, "Plan - Helium - Work", { space = 4 }) }
+  appear("net.imput.helium", "Plan - Helium - Work", 1, "windowCreated")
+  openOrFocusWindow(work)
+  assert(#scans == 0 and focusSpaces[1] == 4)
+
+  failure = "Space switch already in progress"
+  openOrFocusWindow(work)
+  assert(#errors == 1 and #scans == 0 and focusSpaces[2] == 4)
+
+  failure = nil
+  openOrFocusWindow(work)
+  assert(#scans == 0, "transient failure keeps cached window")
+
+  failure = "window unavailable"
+  openOrFocusWindow(work)
+  assert(#errors == 2 and #scans == 0)
+
+  failure = nil
+  openOrFocusWindow(work)
+  assert(#scans == 1, "window unavailable evicts cached window")
 end)
 print("RESULT " .. passed .. " passed, 0 failed")

@@ -43,10 +43,13 @@ static CGImageRef thumbnail(CGImageRef image) {
   double scale = fmin(1, fmin(460.0 / (double)width, 260.0 / (double)height));
   width = (size_t)fmax(1, round((double)width * scale));
   height = (size_t)fmax(1, round((double)height * scale));
-  CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  static CGColorSpaceRef colorSpace;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  });
   CGContextRef context = CGBitmapContextCreate(NULL, width, height, 8,
     (width * 4 + 63) & ~(size_t)63, colorSpace, (CGBitmapInfo)kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-  CGColorSpaceRelease(colorSpace);
   if (!context) return NULL;
   CGContextSetInterpolationQuality(context, kCGInterpolationMedium);
   CGContextDrawImage(context, CGRectMake(0, 0, (CGFloat)width, (CGFloat)height), image);

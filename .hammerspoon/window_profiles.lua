@@ -2,8 +2,20 @@ local filter = require("lib.window_filter")
 local logger = require("lib.logger")
 local windowManager = require("lib.window_manager")
 
+---@class KnownWindow
+---@field pid integer
+---@field id integer
+---@field title string
+---@field minimized boolean
+---@field recent integer
+---@field observed boolean
+
 ---@type table<string, { windows: WindowFilter, deadline: hs.timer }>
 local launching = {}
+---@type table<integer, KnownWindow>
+local known = {}
+local recent = 0
+local serial = 0
 
 ---@alias WindowMatcher string|(fun(title: string): boolean)
 
@@ -12,18 +24,94 @@ local launching = {}
 ---@field match? WindowMatcher omit = any window
 ---@field args? string[]|fun(): string[]? launch args; nil cancels the launch
 
+---@param pid integer
+---@param id integer
+---@param title string
+---@param minimized boolean
+---@param observed? boolean
+---@return KnownWindow
+local function cache(pid, id, title, minimized, observed)
+  local entry = known[id]
+  if entry and entry.pid == pid then
+    entry.title = title
+    entry.minimized = minimized
+    if observed then
+      entry.observed = true
+    end
+    return entry
+  end
+  entry = {
+    pid = pid,
+    id = id,
+    title = title,
+    minimized = minimized,
+    recent = 0,
+    observed = observed == true,
+  }
+  known[id] = entry
+  return entry
+end
+
+local tracker = filter.new()
+tracker:subscribe({
+  filter.windowCreated,
+  filter.windowTitleChanged,
+  filter.windowMinimized,
+  filter.windowUnminimized,
+  filter.windowFocused,
+}, function(_, _, event, id, state)
+  local entry = known[id]
+  if entry and event ~= filter.windowCreated then
+    entry.observed = true
+    if event == filter.windowTitleChanged then
+      entry.title = state.title
+    else
+      entry.minimized = state.minimized
+    end
+  elseif not state.standard then
+    known[id] = nil
+    return
+  else
+    entry = cache(state.pid, id, state.title, state.minimized, true)
+  end
+  if event == filter.windowFocused then
+    recent = recent + 1
+    entry.recent = recent
+  end
+end)
+tracker:subscribe({ filter.windowDestroyed }, function(_, _, _, id)
+  known[id] = nil
+end)
+
 ---@param bundleId string
 ---@param pid integer
 ---@param id integer
 ---@param minimized? boolean
-local function focus(bundleId, pid, id, minimized)
+---@param token? integer
+---@param space? integer
+local function focus(bundleId, pid, id, minimized, token, space)
+  local live = token and function()
+    return token == serial
+  end or nil
   windowManager.focus(pid, id, function(focused, reason)
     if focused then
+      local entry = known[id]
+      if entry and entry.pid == pid then
+        entry.minimized = false
+      end
       print("Focused window", bundleId, id)
-    elseif reason ~= "superseded" and reason ~= "stopped" then
+    elseif reason ~= "superseded" and reason ~= "stopped" and reason ~= "cancelled" then
+      local entry = known[id]
+      if
+        entry
+        and entry.pid == pid
+        and (reason == "window unavailable" or reason == "process unavailable")
+      then
+        known[id] = nil
+      end
       logger.error(string.format("Could not focus %s: %s", bundleId, reason))
     end
-  end, minimized)
+  end, minimized, live, space)
 end
 
 ---@param profile WindowProfile
@@ -42,9 +130,8 @@ local function launch(profile, matcher)
     return
   end
   -- `open` returns before the window exists, so the key waits for the window
-  local windows = filter.new(function(window)
-    local app = window:application()
-    return app ~= nil and app:bundleID() == profile.bundleId and matcher(window:title() or "")
+  local windows = filter.new(function(_, app, state)
+    return app:bundleID() == profile.bundleId and matcher(state.title)
   end)
   local function settle()
     local pending = launching[launchKey]
@@ -55,12 +142,14 @@ local function launch(profile, matcher)
     end
     return pending
   end
-  windows:subscribe({ filter.windowCreated, filter.windowTitleChanged }, function(window, _, _, id)
-    local app = window:application()
-    if settle() and app then
-      focus(profile.bundleId, app:pid(), id)
+  windows:subscribe(
+    { filter.windowCreated, filter.windowTitleChanged },
+    function(_, _, _, id, state)
+      if settle() then
+        focus(profile.bundleId, state.pid, id)
+      end
     end
-  end)
+  )
   launching[launchKey] = {
     windows = windows,
     deadline = hs.timer.doAfter(10, function()
@@ -94,6 +183,8 @@ end
 
 ---@param profile WindowProfile
 local function openOrFocusWindow(profile)
+  serial = serial + 1
+  local token = serial
   local matcher = profile.match
   if type(matcher) ~= "function" then
     local title = matcher
@@ -104,68 +195,122 @@ local function openOrFocusWindow(profile)
   end
 
   local apps = hs.application.applicationsForBundleID(profile.bundleId)
-  local currentSpace = hs.spaces.focusedSpace()
-
-  ---@param window? hs.window
-  ---@return integer? id
-  local function shown(window)
-    if not window then
-      return
-    end
-    local id = window:id()
-    if
-      id
-      and window:isStandard()
-      and not window:isMinimized()
-      and matcher(window:title() or "")
-      and (hs.spaces.windowSpaces(id) or {})[1] == currentSpace
-    then
-      return id
-    end
-  end
-
-  -- This Space front to back, main windows first: much faster than a window server scan
-  ---@type table<integer, boolean>
-  local pids = {}
-  for _, app in ipairs(apps) do
-    pids[app:pid()] = true
-    local id = shown(app:mainWindow())
-    if id then
-      focus(profile.bundleId, app:pid(), id)
-      return
-    end
-  end
-  for _, app in ipairs(apps) do
-    for _, window in ipairs(app:allWindows()) do
-      local id = shown(window)
-      if id then
-        focus(profile.bundleId, app:pid(), id)
-        return
-      end
-    end
-  end
   if #apps == 0 then
     launch(profile, matcher)
     return
   end
 
-  -- Every Space: this one (hidden apps), then others, then minimized
-  windowManager.windows(function(ok, err, rows)
+  local currentSpace = hs.spaces.focusedSpace()
+  ---@type table<integer, boolean>, integer[]
+  local owners, pids = {}, {}
+  for _, app in ipairs(apps) do
+    local pid = app:pid()
+    if not owners[pid] then
+      owners[pid] = true
+      pids[#pids + 1] = pid
+    end
+  end
+
+  -- Cached windows first: zero AX IPC for tracker-observed entries (or untitled profiles)
+  ---@type KnownWindow?, integer?, integer?
+  local cached, bestCached, bestSpace
+  for id, entry in pairs(known) do
+    if owners[entry.pid] and (profile.match == nil or entry.observed) and matcher(entry.title) then
+      local space = windowManager.spaceOf(id)
+      if not space then
+        known[id] = nil
+      else
+        local rank = entry.minimized and 3 or space == currentSpace and 1 or 2
+        if
+          not cached
+          or not bestCached
+          or rank < bestCached
+          or (
+            rank == bestCached
+            and (entry.recent > cached.recent or (entry.recent == cached.recent and id < cached.id))
+          )
+        then
+          cached, bestCached, bestSpace = entry, rank, space
+        end
+      end
+    end
+  end
+  if cached then
+    recent = recent + 1
+    cached.recent = recent
+    focus(profile.bundleId, cached.pid, cached.id, cached.minimized, token, bestSpace)
+    return
+  end
+
+  ---@param app hs.application
+  ---@param window? hs.window
+  ---@return KnownWindow?
+  local function shown(app, window)
+    if not window then
+      return
+    end
+    local id = window:id()
+    if not id or not window:isStandard() then
+      return
+    end
+    local title = window:title() or ""
+    local minimized = window:isMinimized() == true
+    local entry = cache(app:pid(), id, title, minimized)
+    if
+      not minimized
+      and matcher(title)
+      and (hs.spaces.windowSpaces(id) or {})[1] == currentSpace
+    then
+      return entry
+    end
+  end
+
+  -- This Space front to back, main windows first: much faster than a window server scan
+  for _, app in ipairs(apps) do
+    local entry = shown(app, app:mainWindow())
+    if entry then
+      recent = recent + 1
+      entry.recent = recent
+      focus(profile.bundleId, entry.pid, entry.id, false, token, currentSpace)
+      return
+    end
+  end
+  for _, app in ipairs(apps) do
+    for _, window in ipairs(app:allWindows()) do
+      local entry = shown(app, window)
+      if entry then
+        recent = recent + 1
+        entry.recent = recent
+        focus(profile.bundleId, entry.pid, entry.id, false, token, currentSpace)
+        return
+      end
+    end
+  end
+
+  -- Every Space: targeted PID scan, preferring this Space, then others, then minimized
+  local list = windowManager.windows --[[@as fun(done: fun(ok: boolean, err?: string, rows: table[]), pids?: integer[])]]
+  ---@param ok boolean
+  ---@param err? string
+  ---@param rows table[]
+  local function scanned(ok, err, rows)
+    if token ~= serial then
+      return
+    end
     if not ok then
       logger.error("Could not list windows: " .. tostring(err))
       return
     end
-    local target, best
+    ---@type KnownWindow?, integer?, integer?
+    local target, best, bestSpace
     for _, row in ipairs(rows) do
-      if
-        pids[row.pid]
-        and row.root
-        and row.subrole == "AXStandardWindow"
-        and matcher(row.title)
-      then
-        local rank = row.minimized and 3 or windowManager.spaceOf(row.id) == currentSpace and 1 or 2
-        if not best or rank < best then
-          target, best = row, rank
+      if owners[row.pid] and row.root and row.subrole == "AXStandardWindow" then
+        local entry = cache(row.pid, row.id, row.title or "", row.minimized == true)
+        if matcher(entry.title) then
+          local space = windowManager.spaceOf(row.id)
+          local rank = entry.minimized and 3 or space == currentSpace and 1 or 2
+          if not target or not best or rank < best then
+            target, best, bestSpace = entry, rank, space
+          end
         end
       end
     end
@@ -173,8 +318,11 @@ local function openOrFocusWindow(profile)
       launch(profile, matcher)
       return
     end
-    focus(profile.bundleId, target.pid, target.id, target.minimized)
-  end)
+    recent = recent + 1
+    target.recent = recent
+    focus(profile.bundleId, target.pid, target.id, target.minimized, token, bestSpace)
+  end
+  list(scanned, pids)
 end
 
 return openOrFocusWindow
