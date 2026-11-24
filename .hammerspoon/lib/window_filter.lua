@@ -1,4 +1,5 @@
 local logger = require("lib.logger")
+local windowManager = require("lib.window_manager")
 local module = {}
 module.blacklist = { AXDialog = true, AXSystemDialog = true, AXFloatingWindow = true }
 
@@ -335,19 +336,6 @@ local function changed(app, element, event)
   end
 end
 
----@param pid integer
----@param done fun(id?: integer, err?: string)
----@return boolean
-local function focusedWindowAsync(pid, done)
-  local manager = package.loaded["lib.window_manager"] --[[@as { native?: { focusedWindow?: fun(pid: integer, done: fun(id?: integer, err?: string)) } }?]]
-  local native = manager and manager.native
-  if native and native.focusedWindow then
-    native.focusedWindow(pid, done)
-    return true
-  end
-  return false
-end
-
 ---@param app WindowObserver
 local function focused(app)
   if not frontmost(app) then
@@ -355,49 +343,37 @@ local function focused(app)
   end
   focusSerial = focusSerial + 1
   local serial, pid = focusSerial, app.app:pid()
-  if
-    focusedWindowAsync(pid, function(id, err)
-      if serial ~= focusSerial or apps[pid] ~= app or app.failed or not frontmost(app) then
-        return
-      end
-      if err == "cancelled" then
-        return
-      elseif err then
-        failure(app, "focused window: " .. tostring(err))
-        return
-      elseif not id then
-        return
-      end
-      local record = app.byId[id]
-      if record and not record.failed then
-        changed(app, record.element, "AXFocusedWindowChanged")
-        return
-      end
-      local ok, failureMessage = pcall(function()
-        local window = app.app:focusedWindow()
-        if window then
-          local element = hs.axuielement.windowElement(window) --[[@as hs.axuielement?]]
-          if not element then
-            error("focused window Accessibility unavailable", 0)
-          end
-          changed(app, element, "AXFocusedWindowChanged")
+  windowManager.native.focusedWindow(pid, function(id, err)
+    if serial ~= focusSerial or apps[pid] ~= app or app.failed or not frontmost(app) then
+      return
+    end
+    if err == "cancelled" then
+      return
+    elseif err then
+      failure(app, "focused window: " .. tostring(err))
+      return
+    elseif not id then
+      return
+    end
+    local record = app.byId[id]
+    if record and not record.failed then
+      changed(app, record.element, "AXFocusedWindowChanged")
+      return
+    end
+    local ok, failureMessage = pcall(function()
+      local window = app.app:focusedWindow()
+      if window then
+        local element = hs.axuielement.windowElement(window) --[[@as hs.axuielement?]]
+        if not element then
+          error("focused window Accessibility unavailable", 0)
         end
-      end)
-      if not ok then
-        failure(app, "focused window: " .. tostring(failureMessage))
+        changed(app, element, "AXFocusedWindowChanged")
       end
     end)
-  then
-    return
-  end
-  local window = app.app:focusedWindow()
-  if window then
-    local element = hs.axuielement.windowElement(window) --[[@as hs.axuielement?]]
-    if not element then
-      error("focused window Accessibility unavailable", 0)
+    if not ok then
+      failure(app, "focused window: " .. tostring(failureMessage))
     end
-    changed(app, element, "AXFocusedWindowChanged")
-  end
+  end)
 end
 
 ---@param application hs.application
@@ -471,11 +447,10 @@ detach = function(pid)
 end
 
 local function ensureWindowSpaceWatcher()
-  local manager = package.loaded["lib.window_manager"] --[[@as { watchWindowSpaces?: (fun(callback: fun(id: integer, space: integer, added: boolean, pid?: integer)): fun()), native?: { displaySpaces?: fun(): { active?: table<string, integer> }? } }?]]
-  if not (manager and manager.watchWindowSpaces) or stopWindowSpaceWatcher then
+  if stopWindowSpaceWatcher then
     return
   end
-  stopWindowSpaceWatcher = manager.watchWindowSpaces(function(id, space, added, pid)
+  stopWindowSpaceWatcher = windowManager.watchWindowSpaces(function(id, space, added, pid)
     if not added or not pid then
       return
     end
@@ -483,11 +458,8 @@ local function ensureWindowSpaceWatcher()
     if not app or not app.observer or app.failed or app.byId[id] or app.ignored[id] then
       return
     end
-    local layout = manager.native
-      and manager.native.displaySpaces
-      and manager.native.displaySpaces()
-    local active = layout and layout.active
-      or (hs.spaces and hs.spaces.activeSpaces and hs.spaces.activeSpaces())
+    local layout = windowManager.native.displaySpaces()
+    local active = layout and layout.active or hs.spaces.activeSpaces()
     if active then
       local shown = false
       for _, activeSpace in pairs(active) do
@@ -511,7 +483,7 @@ local function ensureWindowSpaceWatcher()
   end)
 end
 
----@param predicate? fun(window: hs.window): boolean?
+---@param predicate? fun(window: hs.window, app?: hs.application): boolean?
 ---@return WindowFilter
 function module.new(predicate)
   local filter = setmetatable({ predicate = predicate, callbacks = {} }, Filter)

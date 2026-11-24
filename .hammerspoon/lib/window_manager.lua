@@ -18,16 +18,15 @@ local utils = require("lib.utils")
 ---@field bySpace table<integer, DisplaySpaceEntry>
 
 ---@class WindowManagerNative
----@field move fun(right: boolean, count: integer, x: number, y: number): boolean, string?
 ---@field focus fun(pid: integer, id: integer, done?: WindowManagerDone, space?: integer)
----@field cancelFocus? fun()
----@field focusedWindow? fun(pid: integer, done: fun(id?: integer, err?: string))
+---@field cancelFocus fun()
+---@field focusedWindow fun(pid: integer, done: fun(id?: integer, err?: string))
 ---@field frame fun(pid: integer, id: integer, x: number, y: number, w: number, h: number, done?: WindowManagerDone)
 ---@field minimize fun(pid: integer, id: integer, minimized: boolean, done?: WindowManagerDone)
 ---@field windows fun(done: fun(ok: boolean, err?: string, rows: table[]), pids?: integer[]|table<integer, boolean>)
 ---@field spaces fun(ids: integer[]): table<integer, integer>
----@field displaySpaces? fun(): DisplaySpaces?, string?
----@field watchWindowSpaces? fun(callback?: WindowSpaceCallback): boolean, string?
+---@field displaySpaces fun(): DisplaySpaces?, string?
+---@field watchWindowSpaces fun(callback?: WindowSpaceCallback): boolean, string?
 
 local native = utils.native("window_manager") --[[@as WindowManagerNative]]
 
@@ -66,8 +65,7 @@ end
 ---@param layout? DisplaySpaces
 local function jumpTo(index, done, layout)
   done = done or function() end
-  local targetID, display, current
-  if not layout and native.displaySpaces then
+  if not layout then
     local err
     layout, err = native.displaySpaces()
     if not layout then
@@ -75,56 +73,29 @@ local function jumpTo(index, done, layout)
       return
     end
   end
-  if layout then
-    local target = layout.spaces[index]
-    if not target then
-      done(false, "Space " .. index .. " does not exist")
-      return
-    end
-    targetID, display = target.id, target.display
-    current = layout.active[display]
-  else
-    local spaces, err = utils.spaces()
-    if not spaces then
-      done(false, err)
-      return
-    end
-    local target = spaces[index]
-    if not target then
-      done(false, "Space " .. index .. " does not exist")
-      return
-    end
-    targetID, display = target.ManagedSpaceID, target.display
-    local active
-    active, err = hs.spaces.activeSpaces()
-    if not active then
-      done(false, err)
-      return
-    end
-    current = active[display]
+  local target = layout.spaces[index]
+  if not target then
+    done(false, "Space " .. index .. " does not exist")
+    return
   end
-  local screen = hs.screen.find(display)
-  if not screen or not current then
+  local current = layout.active[target.display]
+  if not hs.screen.find(target.display) or not current then
     done(false, "display unavailable")
     return
   end
 
   if switching then
-    if native.cancelFocus then
-      native.cancelFocus()
-    end
+    native.cancelFocus()
     cancel("superseded")
   end
-  if current == targetID then
+  if current == target.id then
     done(true)
     return
   end
-  if native.cancelFocus then
-    native.cancelFocus()
-  end
+  native.cancelFocus()
   local job = { done = done }
   switching = job
-  job.cancel = dock.switch(targetID, function(ok, err)
+  job.cancel = dock.switch(target.id, function(ok, err)
     if switching == job then
       switching = nil
       job.done(ok, err)
@@ -175,9 +146,7 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
   end
   local function cancelled()
     if live and not live() then
-      if native.cancelFocus then
-        native.cancelFocus()
-      end
+      native.cancelFocus()
       complete(false, "cancelled")
       return true
     end
@@ -212,47 +181,24 @@ function windowManager.focus(pid, id, done, minimized, live, knownSpace)
       complete(false, failure)
     end
   end
-  if native.displaySpaces then
-    local layout, err = native.displaySpaces()
-    if not layout then
-      complete(false, err)
-      return
-    end
-    local entry = layout.bySpace[space]
-    if not entry then
-      complete(false, "display unavailable for Space " .. space)
-      return
-    end
-    if layout.active[entry.display] == space then
-      if switching then
-        cancel("superseded")
-      end
-      show()
-      return
-    end
-    jumpTo(entry.index, arrive, layout)
+  local layout, err = native.displaySpaces()
+  if not layout then
+    complete(false, err)
     return
   end
-  local display = hs.spaces.spaceDisplay(space)
-  local active, err = hs.spaces.activeSpaces()
-  if not display or not active then
-    complete(false, display and err or "display unavailable for Space " .. space)
+  local entry = layout.bySpace[space]
+  if not entry then
+    complete(false, "display unavailable for Space " .. space)
     return
   end
-  if active[display] == space then
+  if layout.active[entry.display] == space then
     if switching then
       cancel("superseded")
     end
     show()
     return
   end
-  for index, row in ipairs(utils.spaces() or {}) do
-    if row.ManagedSpaceID == space then
-      jumpTo(index, arrive)
-      return
-    end
-  end
-  complete(false, "window Space unavailable")
+  jumpTo(entry.index, arrive, layout)
 end
 
 ---@param space? integer
@@ -284,9 +230,6 @@ local spaceListeners, watchingSpaces = {}, false
 ---@param callback WindowSpaceCallback
 ---@return fun() stop
 function windowManager.watchWindowSpaces(callback)
-  if not native.watchWindowSpaces then
-    return function() end
-  end
   spaceListeners[callback] = true
   if not watchingSpaces then
     local ok, err = native.watchWindowSpaces(function(id, space, added, pid)
@@ -321,14 +264,12 @@ native.windows(function() end)
 function windowManager.stop()
   focusing = nil
   clearSettled()
-  if watchingSpaces and native.watchWindowSpaces then
+  if watchingSpaces then
     watchingSpaces = false
     spaceListeners = {}
     native.watchWindowSpaces(nil)
   end
-  if native.cancelFocus then
-    native.cancelFocus()
-  end
+  native.cancelFocus()
   cancel("stopped")
 end
 
