@@ -34,7 +34,7 @@ macOS animates there itself.
 It also checks that loading starts one background window search, so the first Cmd-Tab finds
 windows on other Spaces cached.
 The Dock suite (`dock_test.lua`) checks persistent message-port caching, follow-takeover probes on
-connect (with bounded timeout, single-shot per-reason decline reporting and recovery through
+connect (with bounded timeout, decline reporting once until the reason changes through
 `lib.logger`, and keeping the port open without reinjecting when a probe goes unanswered while
 Space switching keeps working), invalidation recovery, error replies, queued injection, and
 shutdown.

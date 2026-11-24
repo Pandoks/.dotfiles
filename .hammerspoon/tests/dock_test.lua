@@ -301,7 +301,7 @@ test("cold load queues multiple callers behind one inject and stop cleans up", f
 end)
 
 test(
-  "helper declining follow reports once per reason via logger while Space switching keeps working",
+  "helper declining follow reports once until the reason changes while Space switching keeps working",
   function()
     local followReply, dropFollow = "workspaces-auto-swoosh is disabled", false
     local state = harness({
@@ -353,6 +353,10 @@ test(
       state.errors[2],
       "Dock helper did not take over Space follow: Dock Spaces selectors unavailable"
     )
+
+    state.handles[#state.handles].valid = false
+    assertSwitch(13)
+    assertEqual(#state.errors, 2, "does not repeat a later decline on reconnect")
 
     followReply = ""
     state.handles[#state.handles].valid = false
