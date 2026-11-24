@@ -44,11 +44,10 @@ local function connect()
 
   local sent, response = remote:send("follow", 0.5)
   if sent then
-    local reason = response ~= "" and response or nil
-    if reason and reason ~= declined then
-      logger.error("Dock helper did not take over Space follow: " .. reason)
+    if response ~= "" and response ~= declined then
+      logger.error("Dock helper did not take over Space follow: " .. response)
     end
-    declined = reason
+    declined = response
   end
   return remote
 end

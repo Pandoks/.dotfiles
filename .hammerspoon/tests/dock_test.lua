@@ -303,9 +303,12 @@ end)
 test(
   "helper declining follow reports once per reason via logger while Space switching keeps working",
   function()
-    local followReply = "workspaces-auto-swoosh is disabled"
+    local followReply, dropFollow = "workspaces-auto-swoosh is disabled", false
     local state = harness({
       onSend = function(_, payload)
+        if dropFollow and payload == "follow" then
+          return false, "receive timed out"
+        end
         return true, payload == "follow" and followReply or ""
       end,
     })
@@ -328,13 +331,23 @@ test(
     assertSwitch(8)
     assertEqual(#state.errors, 1, "does not repeat follow error on switches")
 
-    state.handles[1].valid = false
+    state.handles[#state.handles].valid = false
     assertSwitch(9)
     assertEqual(#state.errors, 1, "does not repeat identical decline on reconnect")
 
-    followReply = "Dock Spaces selectors unavailable"
-    state.handles[2].valid = false
+    dropFollow = true
+    state.handles[#state.handles].valid = false
     assertSwitch(10)
+    assertEqual(#state.errors, 1, "unanswered probe does not log")
+
+    dropFollow = false
+    state.handles[#state.handles].valid = false
+    assertSwitch(11)
+    assertEqual(#state.errors, 1, "unanswered probe does not reset prior decline")
+
+    followReply = "Dock Spaces selectors unavailable"
+    state.handles[#state.handles].valid = false
+    assertSwitch(12)
     assertEqual(#state.errors, 2, "reports distinct decline reason on reconnect")
     assertEqual(
       state.errors[2],
@@ -342,13 +355,13 @@ test(
     )
 
     followReply = ""
-    state.handles[3].valid = false
-    assertSwitch(11)
+    state.handles[#state.handles].valid = false
+    assertSwitch(13)
     assertEqual(#state.errors, 2, "recovery logs no error")
 
     followReply = "Dock Spaces selectors unavailable"
-    state.handles[4].valid = false
-    assertSwitch(12)
+    state.handles[#state.handles].valid = false
+    assertSwitch(14)
     assertEqual(#state.errors, 3, "reports decline again after a healthy reconnect")
     assertEqual(
       state.errors[3],

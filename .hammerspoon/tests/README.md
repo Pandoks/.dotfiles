@@ -187,7 +187,7 @@ focused window only when that list shows a PiP it owns. The target is the app's
 tracked, unminimized non-PiP window with the latest switcher recency (seeded at load from
 the WindowServer's front-to-back on-screen order; lowest window ID for windows on other
 Spaces, minimized, or hidden at load), read from `lib.window_filter` without a window-list
-query. A failed focus command logs with a popup and is not retried unless superseded. Space jobs and their transitions
+query. A failed focus command logs with a popup unless superseded, and is not retried. Space jobs and their transitions
 take priority.
 
 `window_manager.space` switches Spaces directly through `lib.dock` (using a cached

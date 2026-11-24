@@ -92,7 +92,7 @@ static void recordRange(task_t __unused task, void *context, unsigned __unused t
 }
 
 static NSString *discover(void) {
-  if (!weakInit || !weakLoadStrong || !weakDestroy) return @"Swift weak runtime unavailable";
+  if (!weakInit || !weakAssign || !weakLoadStrong || !weakDestroy) return @"Swift weak runtime unavailable";
   clearRefs();
   Class spacesClass = NSClassFromString(@"Spaces");
   Class displayClass = NSClassFromString(@"_TtC8DockCore13DisplaySpaces");
@@ -182,7 +182,6 @@ static CFDataRef switchSpace(uint64_t space, uint64_t *previous) {
   uint64_t current = SLSManagedDisplayGetCurrentSpace(connection, (__bridge CFStringRef)uuid);
   if (current == space) return NULL;
 
-  if (!weakAssign) return reply(@"swift_unknownObjectWeakAssign unavailable");
   id dockSpaces = loadWeak(&dockSpacesRef);
   if (!dockSpaces) {
     NSString *error = discover();
@@ -234,7 +233,7 @@ static CFDataRef switchSpace(uint64_t space, uint64_t *previous) {
   if (((BOOL (*)(id, SEL))objc_msgSend)(target, sel_registerName("userSpace"))) {
     weakAssign((void *)((char *)(__bridge void *)entry + ivar_getOffset(lastUserIvar)), target);
   }
-  if (previous) *previous = current;
+  *previous = current;
   return NULL;
 }
 
@@ -249,17 +248,9 @@ static CFDataRef moveWindow(unsigned long long window, unsigned long long space)
   return NULL;
 }
 
-typedef struct {
-  uint64_t space;
-  uint64_t time;
-} LeftSpace;
-
-// Stale follows were observed 25-280 ms after our switch; WindowServer waits 100 ms before asking Dock.
-static const uint64_t leftDuration = 1ULL * NSEC_PER_SEC;
-
 static NSString *portName;
 static NSString *followError;
-static LeftSpace leftSpaces[8];
+static NSMutableDictionary<NSNumber *, NSNumber *> *leftTimes;
 
 // "<window> <space>", "switch <space>", or "follow" in; nothing out on success, else the error.
 static CFDataRef handle(__unused CFMessagePortRef port, __unused SInt32 message, CFDataRef data, __unused void *info) {
@@ -267,24 +258,13 @@ static CFDataRef handle(__unused CFMessagePortRef port, __unused SInt32 message,
     if (!data) return reply(@"malformed request");
     NSString *request = [[NSString alloc] initWithData:(__bridge NSData *)data encoding:NSUTF8StringEncoding];
     if (!request) return reply(@"malformed request");
-    if ([request isEqualToString:@"follow"]) return followError ? reply(followError) : NULL;
+    if ([request isEqualToString:@"follow"]) return reply(followError);
 
     unsigned long long window, space;
     if (sscanf(request.UTF8String, "switch %llu", &space) == 1) {
       uint64_t previous = 0;
       CFDataRef error = switchSpace(space, &previous);
-      if (!error && previous) {
-        uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
-        size_t slot = 0;
-        for (size_t index = 0; index < sizeof(leftSpaces) / sizeof(leftSpaces[0]); index++) {
-          if (leftSpaces[index].space == previous) {
-            slot = index;
-            break;
-          }
-          if (leftSpaces[index].time < leftSpaces[slot].time) slot = index;
-        }
-        leftSpaces[slot] = (LeftSpace){ previous, now };
-      }
+      if (previous) leftTimes[@(previous)] = @(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
       return error;
     }
 
@@ -299,12 +279,11 @@ static CFDataRef handle(__unused CFMessagePortRef port, __unused SInt32 message,
 
 static void followSpace(uint64_t space) {
   @try {
-    uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
-    for (size_t index = 0; index < sizeof(leftSpaces) / sizeof(leftSpaces[0]); index++) {
-      if (leftSpaces[index].space == space && now - leftSpaces[index].time <= leftDuration) {
-        NSLog(@"%@: ignored follow space=%llu reason=left", portName, space);
-        return;
-      }
+    // Stale follows were observed 25-280 ms after our switch; WindowServer waits 100 ms before asking Dock.
+    NSNumber *left = leftTimes[@(space)];
+    if (left && clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - left.unsignedLongLongValue <= NSEC_PER_SEC) {
+      NSLog(@"%@: ignored follow space=%llu reason=left", portName, space);
+      return;
     }
 
     // Relies on switchSpace's checks; Dock's Mission Control, gesture, and kiosk guards are not mirrored.
@@ -335,7 +314,7 @@ static NSString *installFollow(void) {
       dlsym(RTLD_DEFAULT, "SLSSetWindowDidOrderInOnNonCurrentManagedSpacesOnlyNotificationBlock");
     if (!setFollow) return @"SkyLight follow notification symbol unavailable";
 
-    NSString *error = loadWeak(&dockSpacesRef) && displaySpacesCount ? nil : discover();
+    NSString *error = discover();
     if (error) return error;
     id spaces = loadWeak(&dockSpacesRef);
     if (![spaces respondsToSelector:sel_registerName("anySwitchingOccurring")] ||
@@ -388,6 +367,7 @@ __attribute__((constructor)) static void load(void) {
   Dl_info image;
   dladdr((const void *)load, &image);
   portName = [@"org.hammerspoon." stringByAppendingString:@(image.dli_fname).lastPathComponent];
+  leftTimes = [NSMutableDictionary dictionary];
   dispatch_async(dispatch_get_main_queue(), ^{
     CFMessagePortRef port = CFMessagePortCreateLocal(NULL, (__bridge CFStringRef)portName, handle, NULL, NULL);
     if (!port) {
