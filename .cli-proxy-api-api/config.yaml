@@ -652,7 +652,6 @@ api-keys:
       # The built-in gemini catalog does not list gemini-4-neon.
       models:
         - name: "gemini-4-neon"
-          alias: "gemini-4-neon"
       keys: []
 #     - name: gemini-1
 #       priority: 0 # larger values take precedence when selecting credentials
@@ -844,8 +843,7 @@ api-keys:
 #
   claude:
     - name: max-accounts
-      # The API answers a spent organization with a 400, which the proxy otherwise
-      # treats as a bad request and returns instead of trying the next key.
+      # A spend- or usage-limit 400 is otherwise returned to the client instead of trying the next key.
       request-scoped-errors:
         - status: 400
           match-regexr:
