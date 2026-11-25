@@ -309,20 +309,27 @@ test("lookalikes and embedded Ramp URLs remain native", function()
     assert(#state.tasks == 0 and state.reads == 0)
   end
 end)
-test("only the sieve-data organization's GitHub links launch Work", function()
-  for url, expected in pairs({
-    ["https://github.com/sieve-data/tofu/pull/483"] = true,
-    ["https://github.com/sieve-data/"] = true,
-    ["https://github.com/orgs/sieve-data/projects/1"] = true,
-    ["https://github.com/Pandoks/.dotfiles"] = "native",
+test("GitHub links launch Work for sieve-data and Personal for Pandoks", function()
+  for url, directory in pairs({
+    ["https://github.com/sieve-data/tofu/pull/483"] = "Profile 1",
+    ["https://github.com/sieve-data/"] = "Profile 1",
+    ["https://github.com/orgs/sieve-data/projects/1"] = "Profile 1",
+    ["https://github.com/Pandoks/pandoks.com/pull/330"] = "Default",
+    ["https://github.com/pandoks/.dotfiles"] = "Default",
+    ["https://github.com/Pandoks/sieve-data/"] = "Default",
+    ["https://github.com/Pandoks-fork/.dotfiles"] = "native",
     ["https://github.com/sieve-database/tofu"] = "native",
     ["https://github.com/orgs/Pandoks/projects/1"] = "native",
-    ["https://github.com/Pandoks/sieve-data/"] = "native",
     ["https://example.test/?next=https://github.com/sieve-data/tofu"] = "native",
+    ["https://example.test/?next=https://github.com/Pandoks/.dotfiles"] = "native",
   }) do
     local state = browser()
-    assert(state.route(url) == expected and #state.tasks == (expected == true and 1 or 0))
-    assert(expected == "native" or state.tasks[1].arguments[5] == "--profile-directory=Profile 1")
+    if directory == "native" then
+      assert(state.route(url) == "native" and #state.tasks == 0)
+    else
+      assert(state.route(url) == true and #state.tasks == 1)
+      assert(state.tasks[1].arguments[5] == "--profile-directory=" .. directory)
+    end
   end
 end)
 test("Notion links open in their workspace's browser profile", function()
