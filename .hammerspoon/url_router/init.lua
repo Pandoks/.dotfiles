@@ -15,7 +15,8 @@ return router.install({
   { host = "sieve.atlasgo.cloud", open = work },
   { host = "sieve-data.notion.site", open = work },
   { host = "sievehq.slack.com", open = work },
-  { pattern = "sievedata%.com", open = work }, -- the work account in a sign-in or `authuser` link
+  { pattern = "[=@]sievedata%.com", open = work },
+  { pattern = "%%40sievedata%.com", open = work },
   { pattern = "^https://github%.com/sieve%-data/", open = work },
   { pattern = "^https://github%.com/orgs/sieve%-data/", open = work },
   { pattern = "^https://linear%.app/sieve/", open = work },
