@@ -26,7 +26,7 @@ local apps = {} ---@type table<string, boolean>
 local tiling = {}
 local trees = {} ---@type table<integer, TileNode>
 local tiled = {} ---@type table<integer, TileWindow>
-local overrides = {} ---@type table<integer, boolean> true tiles, false floats
+local overrides = {} ---@type table<integer, "tile"|"float">
 local pips = {} ---@type table<integer, boolean>
 local columns = {} ---@type table<integer, boolean> Spaces tiled as columns
 local areas = {} ---@type table<integer, hs.geometry|false>
@@ -203,7 +203,7 @@ end
 ---@param hiddenByPid? table<integer, boolean>
 ---@return integer? pid
 local function manageable(window, id, hiddenByPid)
-  if overrides[id] == false then
+  if overrides[id] == "float" then
     return nil
   end
   local app = filter.applicationOf(id) or window:application()
@@ -241,21 +241,13 @@ local function sync(mouseReleased)
   end
   resyncOnRelease = false
   unplaced = false
-  local changedSpaces, stillManaged, admitted, ids, pids, hiddenByPid = {}, {}, {}, {}, {}, {}
+  local changedSpaces, stillManaged, ids, pids, hiddenByPid = {}, {}, {}, {}, {}
   for _, window in ipairs(tiling.windows:getWindows()) do
     local id = window:id() --[[@as integer?]]
-    if id then
-      admitted[id] = true
-      local pid = manageable(window, id, hiddenByPid)
-      if pid then
-        ids[#ids + 1] = id
-        pids[#pids + 1] = pid
-      end
-    end
-  end
-  for id in pairs(overrides) do
-    if not admitted[id] then
-      overrides[id] = nil
+    local pid = id and manageable(window, id, hiddenByPid)
+    if id and pid then
+      ids[#ids + 1] = id
+      pids[#pids + 1] = pid
     end
   end
   -- Most recent first; insertion order sets the layout.
@@ -615,18 +607,13 @@ function tiling.float()
     logger.error("Tiling: focused window cannot be tiled")
     return
   end
-  local allowlisted = apps[app:name()] == true
-  local previous = overrides[id]
-  if previous == nil or previous == allowlisted then
-    overrides[id] = not allowlisted
-  else
-    overrides[id] = nil
-  end
+  local override = apps[app:name()] and "float" or "tile"
+  overrides[id] = overrides[id] ~= override and override or nil
   sync()
 end
 
 tiling.windows = filter.new(function(window, app, state)
-  if overrides[state.id] == true then
+  if overrides[state.id] == "tile" then
     return true
   end
   app = app or window:application()
@@ -641,7 +628,7 @@ tiling.windows:subscribe({
   filter.windowUnhidden,
   filter.windowTitleChanged,
 }, function(_, _, event, id, state)
-  if event == filter.windowDestroyed then
+  if event == filter.windowCreated or event == filter.windowDestroyed then
     overrides[id] = nil
     pips[id] = nil
   elseif event == filter.windowTitleChanged then
@@ -833,7 +820,7 @@ function tiling.status()
   end
   for id, override in pairs(overrides) do
     local entry = statusById[id] or {}
-    entry.override = override and "tile" or "float"
+    entry.override = override
     statusById[id] = entry
   end
   return statusById
