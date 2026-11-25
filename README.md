@@ -171,7 +171,6 @@ The `tag:hub` machine hosts five tailnet-only services via
 | Service              | Tailnet endpoint                           | Local target              |
 | -------------------- | ------------------------------------------ | ------------------------- |
 | [CLIProxyAPI]        | `https://cliproxyapi.<tailnet>.ts.net`     | `127.0.0.1:8317`          |
-| [CLIProxyAPI] (API)  | `https://cliproxyapi-api.<tailnet>.ts.net` | `127.0.0.1:8318`          |
 | [Beszel]             | `https://beszel.<tailnet>.ts.net`          | `127.0.0.1:8090`          |
 | [ARTEX]              | `https://artex.<tailnet>.ts.net`           | `127.0.0.1:8787`          |
 | [MCPHub]             | `https://mcphub.<tailnet>.ts.net`          | `127.0.0.1:3000`          |
