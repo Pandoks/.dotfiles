@@ -17,3 +17,6 @@ experimental_bearer_token = "sk-dummy"
 wire_api = "responses"
 requires_openai_auth = true
 supports_websockets = true
+
+[mcp_servers.mcphub]
+url = "https://mcphub.tailb2c81d.ts.net/mcp"
