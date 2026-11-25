@@ -1470,10 +1470,10 @@ plugins:
       store:
         id: paced-affinity
         name: Paced Affinity
-        description: Routes Claude and Codex chats with warm-cache affinity, observed weekly pacing for new Claude chats, and quota-aware placement and failover.
+        description: 'Routes Claude and Codex chats across subscription accounts: keeps chats and their subagents on warm caches, starts new chats where their prompt is cached and allowance is available, and stays off accounts at their limit.'
         author: Pandoks
-        version: 0.1.1
-        release-tag: v0.1.1
+        version: 0.2.3
+        release-tag: v0.2.3
         repository: https://github.com/Pandoks/cpa-plugin-paced-affinity
         homepage: https://github.com/Pandoks/cpa-plugin-paced-affinity
         license: MIT
