@@ -98,10 +98,11 @@ function chromium.url(profile)
       return false
     end
 
+    -- Without the profile, the browser picks the window, as it does for an unrouted link
+    local arguments = { "-n", "-b", profile.bundleID, "--args", url }
     local name = directory(profile)
-    if not name then
-      report("Chromium URL routing failed: missing profile " .. profile.profile)
-      return false
+    if name then
+      table.insert(arguments, 5, "--profile-directory=" .. name)
     end
 
     -- Survives reloads via LaunchServices; `-n`'s new instance hands its arguments to a running one
@@ -109,7 +110,7 @@ function chromium.url(profile)
       if code ~= 0 then
         report("Chromium URL routing failed: " .. message)
       end
-    end, { "-n", "-b", profile.bundleID, "--args", "--profile-directory=" .. name, url })
+    end, arguments)
     if not task or task:start() == false then
       report("Could not start Chromium URL handler")
       return false

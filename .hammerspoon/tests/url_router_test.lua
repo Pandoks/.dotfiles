@@ -571,20 +571,26 @@ test("invalid HTTP URLs fail before any action", function()
   local state = browser()
   assert(state.route(nil) == false and #state.logs == 1)
 end)
-test("missing explicit browser or profile fails without native fallback", function()
-  for _, options in ipairs({ { missingApp = true }, { missingProfile = true } }) do
-    local state = browser(options)
-    assert(state.route("https://app.ramp.com/") == false and #state.logs == 1 and #state.tasks == 0)
-  end
+test("a missing browser fails without native fallback", function()
+  local state = browser({ missingApp = true })
+  assert(state.route("https://app.ramp.com/") == false and #state.logs == 1 and #state.tasks == 0)
+end)
+test("a missing profile opens the link in the browser without one", function()
+  local state = browser({ missingProfile = true })
+  assert(state.route("https://app.ramp.com/") == true and #state.logs == 0 and #state.tasks == 1)
+  assert(
+    table.concat(state.tasks[1].arguments, " ")
+      == "-n -b net.imput.helium --args https://app.ramp.com/"
+  )
 end)
 test("direct Chromium actions retain their default failure reporter", function()
-  local state = browser({ missingProfile = true })
+  local state = browser({ missingApp = true })
   local open = state.environment.require("lib.window_adapters.chromium").url({
     bundleID = "net.imput.helium",
     profile = "Work",
   })
   assert(open("https://example.com/") == false and #state.logs == 1 and #state.tasks == 0)
-  assert(state.logs[1] == "Chromium URL routing failed: missing profile Work")
+  assert(state.logs[1] == "Could not resolve Chromium browser net.imput.helium")
 end)
 test("browser task creation and start failures are not retried", function()
   for _, options in ipairs({ { missingTask = true }, { startFailure = true } }) do
@@ -877,7 +883,7 @@ test("chromium.url caches Local State by stat signature and pathwatcher events",
   assert(state.pathwatchers and #state.pathwatchers == 1 and state.pathwatchers[1].started)
   state.pathwatchers[1].callback({ state.pathwatchers[1].dir .. "/Local State" })
   state.settings.missingProfile = true
-  assert(state.route("https://app.ramp.com/fourth") == false and state.reads == 3)
-  assert(#state.tasks == 4 and #state.logs == 1)
+  assert(state.route("https://app.ramp.com/fourth") == true and state.reads == 3)
+  assert(#state.tasks == 5 and #state.tasks[5].arguments == 5 and #state.logs == 0)
 end)
 print("RESULT " .. passed .. " passed, 0 failed")

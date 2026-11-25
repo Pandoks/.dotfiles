@@ -16,9 +16,10 @@ The helper remains the default HTTP and HTTPS application after activation.
 Unmatched links delivered to it use native Universal Link handling, then Helium
 when macOS reports no eligible native app. Other schemes and file URLs use the
 registered application order, excluding the helper and Hammerspoon. Missing
-Helium, invalid profiles, process errors, and denied native launches fail
-explicitly with a log and popup. There is no second launch attempt after an
-actual dispatch failure.
+Helium, process errors, and denied native launches fail explicitly with a log and
+popup. There is no second launch attempt after an actual dispatch failure. A rule
+naming a profile the browser doesn't have opens its link in the browser without
+one, so shared rules work on a Mac that lacks the profile.
 
 The native hook uses private macOS APIs. Installation is guarded to the tested
 macOS 26.6.2 (25G83), 27.0.1 (26A434) and 27.2.1 (26B131), CSR mask `0x46`, and
