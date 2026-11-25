@@ -309,7 +309,7 @@ test("lookalikes and embedded Ramp URLs remain native", function()
     assert(#state.tasks == 0 and state.reads == 0)
   end
 end)
-test("only the sieve-data organization's GitHub links launch Work", function()
+test("Sieve's links launch Work and lookalikes stay native", function()
   for url, expected in pairs({
     ["https://github.com/sieve-data/tofu/pull/483"] = true,
     ["https://github.com/sieve-data/"] = true,
@@ -319,6 +319,30 @@ test("only the sieve-data organization's GitHub links launch Work", function()
     ["https://github.com/orgs/Pandoks/projects/1"] = "native",
     ["https://github.com/Pandoks/sieve-data/"] = "native",
     ["https://example.test/?next=https://github.com/sieve-data/tofu"] = "native",
+    ["https://sieve.ai/blog"] = true,
+    ["https://app.internal.sieve.ai/"] = true,
+    ["https://notsieve.ai/"] = "native",
+    ["https://sieve.ghost.io/ghost/"] = true,
+    ["https://sieve.atlasgo.cloud/"] = true,
+    ["https://sieve-data.notion.site/Page"] = true,
+    ["https://sievehq.slack.com/archives/C1/p1"] = true,
+    ["https://pandoks.slack.com/archives/C1/p1"] = "native",
+    ["https://meet.google.com/abc-defg-hij?authuser=person%40sievedata.com"] = true,
+    ["https://accounts.google.com/o/oauth2/auth?hd=sievedata.com"] = true,
+    ["https://meet.google.com/abc-defg-hij"] = "native",
+    ["https://linear.app/sieve/issue/SIE-1/title"] = true,
+    ["https://linear.app/pandoks/issue/PAN-1/title"] = "native",
+    ["https://vercel.com/sieve/web"] = true,
+    ["https://vercel.com/pandoks/sieve"] = "native",
+    ["https://console.cloud.google.com/logs/query;tab=x?project=sieve-example"] = true,
+    ["https://console.cloud.google.com/logs/query?pli=1&project=sieve-example"] = true,
+    ["https://console.cloud.google.com/logs/query?project=personal-example"] = "native",
+    ["https://app.rippling.com/dashboard"] = true,
+    ["https://app.ashbyhq.com/interview-briefings/1"] = true,
+    ["https://you.ashbyhq.com/meeting/1/"] = true,
+    ["https://jobs.ashbyhq.com/example"] = "native",
+    ["https://console.runpod.io/pods"] = true,
+    ["https://www.runpod.io/"] = "native",
   }) do
     local state = browser()
     assert(state.route(url) == expected and #state.tasks == (expected == true and 1 or 0))
