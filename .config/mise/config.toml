@@ -88,3 +88,4 @@ login_shell = "/bin/zsh"
 "~/.config/opencode/AGENTS.md" = "../../AGENTS.md"
 
 "~/.gemini/AGENTS.md" = "../../AGENTS.md"
+"~/.gemini/config/mcp_config.json" = "../../.gemini/config/mcp_config.json"

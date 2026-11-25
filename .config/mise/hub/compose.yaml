@@ -38,7 +38,24 @@ services:
       retries: 10
     restart: unless-stopped
 
+  mcphub:
+    image: samanhappy/mcphub:1.2.6
+    environment:
+      INSTALL_BASE_URL: https://mcphub.tailb2c81d.ts.net
+      TRUST_PROXY: "1"
+    ports:
+      - 127.0.0.1:3000:3000
+    volumes:
+      - mcphub-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   artex-pgdata:
   artex-pgsocket:
   artex-data:
+  mcphub-data:
