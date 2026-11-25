@@ -26,7 +26,7 @@ local apps = {} ---@type table<string, boolean>
 local tiling = {}
 local trees = {} ---@type table<integer, TileNode>
 local tiled = {} ---@type table<integer, TileWindow>
-local floating = {} ---@type table<integer, boolean>
+local overrides = {} ---@type table<integer, boolean> true tiles, false floats
 local pips = {} ---@type table<integer, boolean>
 local columns = {} ---@type table<integer, boolean> Spaces tiled as columns
 local areas = {} ---@type table<integer, hs.geometry|false>
@@ -199,29 +199,43 @@ local function remove(id)
 end
 
 ---@param window hs.window
----@param allowed? table<integer, boolean>
+---@param appsByPid? table<integer, { allowlisted?: boolean, hidden: boolean }>
 ---@return integer? id, integer? pid
-local function manageable(window, allowed)
+local function manageable(window, appsByPid)
   local id = window:id() --[[@as integer?]]
   local app = (id and filter.applicationOf(id)) or window:application()
   if not id or not app then
     return nil
   end
+  local override = overrides[id]
+  if override == false then
+    return nil
+  end
   local pid = app:pid() --[[@as integer]]
-  local ok = allowed and allowed[pid]
-  if ok == nil then
-    local name = app:name()
-    ok = name ~= nil and apps[name] == true and not app:isHidden()
-    if allowed then
-      allowed[pid] = ok
+  local cached = appsByPid and appsByPid[pid]
+  if not cached then
+    cached = { hidden = app:isHidden() }
+    if appsByPid then
+      appsByPid[pid] = cached
     end
   end
-  if not ok or not window:isStandard() or window:isMinimized() or window:isFullScreen() then
+  if cached.hidden then
+    return nil
+  end
+  local allowed = override
+  if allowed == nil then
+    if cached.allowlisted == nil then
+      local name = app:name()
+      cached.allowlisted = name ~= nil and apps[name] == true
+    end
+    allowed = cached.allowlisted
+  end
+  if not allowed or not window:isStandard() or window:isMinimized() or window:isFullScreen() then
     return nil
   end
   local pip = isPiP(window:title())
   pips[id] = pip or nil
-  if pip or floating[id] then
+  if pip then
     return nil
   end
   return id, pid
@@ -239,9 +253,9 @@ local function sync(mouseReleased)
   end
   resyncOnRelease = false
   unplaced = false
-  local changedSpaces, stillManaged, ids, pids, allowed = {}, {}, {}, {}, {}
+  local changedSpaces, stillManaged, ids, pids, appsByPid = {}, {}, {}, {}, {}
   for _, window in ipairs(tiling.windows:getWindows()) do
-    local id, pid = manageable(window, allowed)
+    local id, pid = manageable(window, appsByPid)
     if id and pid then
       ids[#ids + 1] = id
       pids[#pids + 1] = pid
@@ -589,12 +603,49 @@ function tiling.float()
     logger.error("Tiling: no focused window")
     return
   end
-  local id = window:id() --[[@as integer]]
-  floating[id] = not floating[id] or nil
+  local id = window:id() --[[@as integer?]]
+  local app = id and filter.applicationOf(id)
+  if not id or not app then
+    logger.error("Tiling: focused window is not tracked")
+    return
+  end
+  if
+    app:isHidden()
+    or not window:isStandard()
+    or window:isMinimized()
+    or window:isFullScreen()
+    or isPiP(window:title())
+  then
+    logger.error("Tiling: focused window cannot be tiled")
+    return
+  end
+  local name = app:name()
+  local defaultTiled = name ~= nil and apps[name] == true
+  local previous = overrides[id]
+  local currentlyTiled = defaultTiled
+  if previous ~= nil then
+    currentlyTiled = previous
+  end
+  local nextTiled = not currentlyTiled
+  if nextTiled == defaultTiled then
+    overrides[id] = nil
+  else
+    overrides[id] = nextTiled
+  end
+  local admitted = tiling.windows:getWindow(id, app:pid() --[[@as integer]])
+  if (nextTiled or defaultTiled) and not admitted then
+    overrides[id] = previous
+    logger.error("Tiling: focused window cannot be tiled")
+    return
+  end
   sync()
 end
 
-tiling.windows = filter.new(function(window, app)
+tiling.windows = filter.new(function(window, app, state)
+  local id = state and state.id or window:id()
+  if id and overrides[id] == true then
+    return true
+  end
   app = app or window:application()
   return app ~= nil and apps[app:name()] == true
 end)
@@ -608,7 +659,7 @@ tiling.windows:subscribe({
   filter.windowTitleChanged,
 }, function(_, _, event, id, state)
   if event == filter.windowDestroyed then
-    floating[id] = nil
+    overrides[id] = nil
     pips[id] = nil
   elseif event == filter.windowTitleChanged then
     local pip = isPiP(state.title)
@@ -795,7 +846,16 @@ end
 function tiling.status()
   local statusById = {}
   for id, entry in pairs(tiled) do
-    statusById[id] = { space = entry.space, zoom = entry.leaf.zoom, floating = floating[id] }
+    statusById[id] = {
+      space = entry.space,
+      zoom = entry.leaf.zoom,
+      override = overrides[id] == true and "tile" or overrides[id] == false and "float" or nil,
+    }
+  end
+  for id, override in pairs(overrides) do
+    if not statusById[id] then
+      statusById[id] = { override = override and "tile" or "float" }
+    end
   end
   return statusById
 end
@@ -806,6 +866,7 @@ function tiling.stop()
   areas = {}
   applied = {}
   pips = {}
+  overrides = {}
   unplaced = false
   if pendingSpaceSync then
     pendingSpaceSync:stop()
