@@ -1407,8 +1407,8 @@ plugins:
   dir: "~/.cli-proxy-api/plugins"
   # Additional plugin store registries. The built-in official registry is always included.
   store-sources:
-    - https://raw.githubusercontent.com/Pandoks/cpa-plugin-paced-affinity/main/registry.json
-    - https://raw.githubusercontent.com/Pandoks/cpa-plugin-deepinfra-autoscale/main/registry.json
+    - "https://raw.githubusercontent.com/Pandoks/cpa-plugin-paced-affinity/main/registry.json"
+    - "https://raw.githubusercontent.com/Pandoks/cpa-plugin-deepinfra-autoscale/main/registry.json"
   # Optional plugin store auth rules. Secrets are read from environment variables.
   # Tokens are not stored in plugin manifests or node status.
   # store-auth:
