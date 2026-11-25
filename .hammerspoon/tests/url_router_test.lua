@@ -309,6 +309,29 @@ test("lookalikes and embedded Ramp URLs remain native", function()
     assert(#state.tasks == 0 and state.reads == 0)
   end
 end)
+test("GitHub links launch Work for sieve-data and Personal for Pandoks", function()
+  for url, directory in pairs({
+    ["https://github.com/sieve-data/tofu/pull/483"] = "Profile 1",
+    ["https://github.com/sieve-data/"] = "Profile 1",
+    ["https://github.com/orgs/sieve-data/projects/1"] = "Profile 1",
+    ["https://github.com/Pandoks/pandoks.com/pull/330"] = "Default",
+    ["https://github.com/pandoks/.dotfiles"] = "Default",
+    ["https://github.com/Pandoks/sieve-data/"] = "Default",
+    ["https://github.com/Pandoks-fork/.dotfiles"] = "native",
+    ["https://github.com/sieve-database/tofu"] = "native",
+    ["https://github.com/orgs/Pandoks/projects/1"] = "native",
+    ["https://example.test/?next=https://github.com/sieve-data/tofu"] = "native",
+    ["https://example.test/?next=https://github.com/Pandoks/.dotfiles"] = "native",
+  }) do
+    local state = browser()
+    if directory == "native" then
+      assert(state.route(url) == "native" and #state.tasks == 0)
+    else
+      assert(state.route(url) == true and #state.tasks == 1)
+      assert(state.tasks[1].arguments[5] == "--profile-directory=" .. directory)
+    end
+  end
+end)
 test("Notion links open in their workspace's browser profile", function()
   for url, directory in pairs({
     ["https://app.notion.com/p/sieve-data/document"] = "Profile 1",

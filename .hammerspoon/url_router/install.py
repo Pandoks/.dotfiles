@@ -63,7 +63,7 @@ def environment():
         raise RuntimeError(f"Tested SIP configuration 0x46 is required (current: {mask.value:#x})")
     version = run(["/usr/bin/sw_vers", "-productVersion"])
     build = run(["/usr/bin/sw_vers", "-buildVersion"])
-    if (version, build) not in (("26.6.2", "25G83"), ("27.0.1", "26A434")):
+    if (version, build) not in (("26.6.2", "25G83"), ("27.0.1", "26A434"), ("27.2.1", "26B131")):
         raise RuntimeError(f"Unsupported macOS {version} ({build}); the private ABI must be verified before installation")
     if "-arm64e_preview_abi" not in run(["/usr/sbin/nvram", "boot-args"]).split():
         raise RuntimeError("The tested -arm64e_preview_abi boot argument is required")
