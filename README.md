@@ -164,8 +164,18 @@ packages in the adjacent `config.linux.toml` and `config.macos.toml` files.
 
 ## Hub
 
-The `tag:hub` machine hosts [CLIProxyAPI], [Beszel], [ARTEX], [MCPHub], and
-[Proton Mail Bridge]:
+The `tag:hub` machine hosts five tailnet-only services via
+[`.config/mise/config.hub.toml`](.config/mise/config.hub.toml) and
+[`.config/mise/hub/compose.yaml`](.config/mise/hub/compose.yaml):
+
+| Service              | Tailnet endpoint                           | Local target              |
+| -------------------- | ------------------------------------------ | ------------------------- |
+| [CLIProxyAPI]        | `https://cliproxyapi.<tailnet>.ts.net`     | `127.0.0.1:8317`          |
+| [CLIProxyAPI] (API)  | `https://cliproxyapi-api.<tailnet>.ts.net` | `127.0.0.1:8318`          |
+| [Beszel]             | `https://beszel.<tailnet>.ts.net`          | `127.0.0.1:8090`          |
+| [ARTEX]              | `https://artex.<tailnet>.ts.net`           | `127.0.0.1:8787`          |
+| [MCPHub]             | `https://mcphub.<tailnet>.ts.net`          | `127.0.0.1:3000`          |
+| [Proton Mail Bridge] | `protonmail-bridge.<tailnet>.ts.net`       | `127.0.0.1:1143`, `:1025` |
 
 ```sh
 sudo pacman -Syu  # Arch Linux only
@@ -179,24 +189,46 @@ sudo tailscale serve --service=svc:protonmail-bridge --tcp=1143 tcp://127.0.0.1:
 sudo tailscale serve --service=svc:protonmail-bridge --tcp=1025 tcp://127.0.0.1:1025
 ```
 
-**CLIProxyAPI:** set `management.secret-key` in `~/.cli-proxy-api/config.yaml`
-(never commit it), restart `dev.mise.cli-proxy-api`, then add accounts at
-`https://cliproxyapi.<tailnet>.ts.net/management.html` with **WebSockets** on
-for Codex accounts. In Claude Code, run `/login` once and don't set
-`ANTHROPIC_AUTH_TOKEN`.
+<details>
+<summary><strong>CLIProxyAPI</strong> — management key &amp; accounts</summary>
 
-**Beszel:** login is off. At `https://beszel.<tailnet>.ts.net`, create the
-user `hub@beszel.local` (any password) and a permanent universal token. On each
-machine, save the hub key (from **Add System**) to `~/.config/beszel/key` and
-the token to `~/.config/beszel/token`, then restart the agent:
+1. Set `management.secret-key` in `~/.cli-proxy-api/config.yaml` (never commit it) and restart `dev.mise.cli-proxy-api`.
+2. Add accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html` with **WebSockets** on for Codex.
+3. In Claude Code, run `/login` once and leave `ANTHROPIC_AUTH_TOKEN` unset.
+
+</details>
+
+<details>
+<summary><strong>Beszel</strong> — hub token &amp; machine agents</summary>
+
+1. At `https://beszel.<tailnet>.ts.net` (login is off), create `hub@beszel.local` (any password) and a permanent universal token.
+2. On each machine, save the hub key (**Add System**) to `~/.config/beszel/key` and the token to `~/.config/beszel/token`, then restart the agent:
 
 ```sh
 systemctl --user restart dev.mise.beszel-agent                # Linux
 launchctl kickstart -k "gui/$(id -u)/dev.mise.beszel-agent"   # macOS
 ```
 
-**Proton Mail Bridge:** the service waits for `pass`. Set it up, then log in
-with the service stopped:
+</details>
+
+<details>
+<summary><strong>MCPHub</strong> — upstream OAuth &amp; client wiring</summary>
+
+1. Grab the first-boot `admin` password from `sudo docker logs hub-mcphub-1` and sign in at `https://mcphub.<tailnet>.ts.net`.
+2. Turn off **Enable Bearer Authentication** under **Settings → Bearer authentication keys** (optionally turn on **Skip Authentication** under **Settings → Routing**).
+3. Add upstream MCP servers — DCR providers (Notion, Linear, Figma, Cloudflare) work in one click; manual OAuth apps (Slack, Google) use callback `https://mcphub.<tailnet>.ts.net/oauth/callback`.
+4. Antigravity and Codex are pre-wired; for Claude Code, run once per machine:
+
+```sh
+claude mcp add --transport http --scope user mcphub https://mcphub.<tailnet>.ts.net/mcp
+```
+
+</details>
+
+<details>
+<summary><strong>Proton Mail Bridge</strong> — pass keychain &amp; mail clients</summary>
+
+1. Initialize `pass` and log in while the service is stopped:
 
 ```sh
 gpg --batch --pinentry-mode loopback --passphrase '' \
@@ -207,22 +239,9 @@ mise -E hub exec -- bridge --cli  # updates autoupdates disable, login, info
 systemctl --user start dev.mise.protonmail-bridge
 ```
 
-Clients use `protonmail-bridge.<tailnet>.ts.net` (IMAP 1143, SMTP 1025,
-STARTTLS) with the `info` credentials and accept Bridge's self-signed cert.
+2. Point clients at `protonmail-bridge.<tailnet>.ts.net` (IMAP `1143`, SMTP `1025`, STARTTLS) with the `info` credentials and accept Bridge's self-signed cert.
 
-**MCPHub:** get the first-boot `admin` password from `sudo docker logs hub-mcphub-1`,
-sign in at `https://mcphub.<tailnet>.ts.net`, and turn off **Enable Bearer
-Authentication** under **Settings → Bearer authentication keys** (and optionally
-enable **Skip Authentication** under **Settings → Routing**) since Tailscale
-already restricts access to the tailnet. Add upstream MCP servers in the UI —
-DCR servers (Notion, Linear, Figma, Cloudflare) authenticate in one click;
-providers needing manual OAuth apps (Slack, Google Workspace) use the callback
-URL `https://mcphub.<tailnet>.ts.net/oauth/callback`. Antigravity and Codex are
-pre-wired to `https://mcphub.<tailnet>.ts.net/mcp`; for Claude Code, run:
-
-```sh
-claude mcp add --transport http --scope user mcphub https://mcphub.<tailnet>.ts.net/mcp
-```
+</details>
 
 [SIP]: https://developer.apple.com/documentation/security/disabling-and-enabling-system-integrity-protection
 [ARTEX]: https://github.com/jiwoochris/artex-global
