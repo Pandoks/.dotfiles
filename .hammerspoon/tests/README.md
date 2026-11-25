@@ -24,7 +24,9 @@ allowlist, Picture-in-Picture (including a later title change) left untouched,
 sibling reclaim on close, directional focus, swap, warp, edge resize that moves the
 opposite edge at the screen's edge, mouse resizes that move the dragged edges' splits on
 release, balance, a column mode that keeps equal widths as windows open and close, zoom,
-float, cached-title Picture-in-Picture checks on title changes without reading `window:title()`,
+float (toggling any tracked window in or out regardless of allowlist, and failing fast when
+untileable), cached-title Picture-in-Picture checks on title changes without reading
+`window:title()`,
 and staying off `windowFocused`. The window manager suite checks
 direct Space switches through `lib.dock`, rapid back-to-back switches without wait locks,
 deferred-load superseding and shutdown cancellation, fast failures, and reuse of one

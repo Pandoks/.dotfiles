@@ -312,48 +312,56 @@ test("lookalikes and embedded Ramp URLs remain native", function()
     assert(#state.tasks == 0 and state.reads == 0)
   end
 end)
-test("Sieve's links launch Work and lookalikes stay native", function()
-  for url, expected in pairs({
-    ["https://github.com/sieve-data/tofu/pull/483"] = true,
-    ["https://github.com/sieve-data/"] = true,
-    ["https://github.com/orgs/sieve-data/projects/1"] = true,
-    ["https://github.com/Pandoks/.dotfiles"] = "native",
+test("links launch Work for Sieve and Personal for Pandoks, and lookalikes stay native", function()
+  for url, directory in pairs({
+    ["https://github.com/sieve-data/tofu/pull/483"] = "Profile 1",
+    ["https://github.com/sieve-data/"] = "Profile 1",
+    ["https://github.com/orgs/sieve-data/projects/1"] = "Profile 1",
+    ["https://github.com/Pandoks/pandoks.com/pull/330"] = "Default",
+    ["https://github.com/pandoks/.dotfiles"] = "Default",
+    ["https://github.com/Pandoks/sieve-data/"] = "Default",
+    ["https://github.com/Pandoks/.dotfiles/commits?author=person@sievedata.com"] = "Default",
+    ["https://github.com/Pandoks-fork/.dotfiles"] = "native",
     ["https://github.com/sieve-database/tofu"] = "native",
     ["https://github.com/orgs/Pandoks/projects/1"] = "native",
-    ["https://github.com/Pandoks/sieve-data/"] = "native",
     ["https://example.test/?next=https://github.com/sieve-data/tofu"] = "native",
-    ["https://sieve.ai/blog"] = true,
-    ["https://sievedata.com/"] = true,
-    ["https://sieve.ghost.io/ghost/"] = true,
-    ["https://sieve.atlasgo.cloud/"] = true,
-    ["https://sieve-data.notion.site/Page"] = true,
-    ["https://sievehq.slack.com/archives/C1/p1"] = true,
+    ["https://example.test/?next=https://github.com/Pandoks/.dotfiles"] = "native",
+    ["https://sieve.ai/blog"] = "Profile 1",
+    ["https://sievedata.com/"] = "Profile 1",
+    ["https://sieve.ghost.io/ghost/"] = "Profile 1",
+    ["https://sieve.atlasgo.cloud/"] = "Profile 1",
+    ["https://sieve-data.notion.site/Page"] = "Profile 1",
+    ["https://sievehq.slack.com/archives/C1/p1"] = "Profile 1",
     ["https://pandoks.slack.com/archives/C1/p1"] = "native",
-    ["https://meet.google.com/abc-defg-hij?authuser=person%40sievedata.com"] = true,
-    ["https://meet.google.com/abc-defg-hij?authuser=person@sievedata.com"] = true,
-    ["https://accounts.google.com/o/oauth2/auth?client_id=1&hd=sievedata.com"] = true,
+    ["https://meet.google.com/abc-defg-hij?authuser=person%40sievedata.com"] = "Profile 1",
+    ["https://meet.google.com/abc-defg-hij?authuser=person@sievedata.com"] = "Profile 1",
+    ["https://accounts.google.com/o/oauth2/auth?client_id=1&hd=sievedata.com"] = "Profile 1",
     ["https://accounts.google.com/o/oauth2/auth?hd=notsievedata.com"] = "native",
     ["https://www.google.com/search?q=sievedata.com"] = "native",
     ["https://example.test/sievedata.com"] = "native",
     ["https://meet.google.com/abc-defg-hij"] = "native",
-    ["https://linear.app/sieve/issue/SIE-1/title"] = true,
+    ["https://linear.app/sieve/issue/SIE-1/title"] = "Profile 1",
     ["https://linear.app/pandoks/issue/PAN-1/title"] = "native",
-    ["https://vercel.com/sieve/web"] = true,
+    ["https://vercel.com/sieve/web"] = "Profile 1",
     ["https://vercel.com/pandoks/sieve/"] = "native",
-    ["https://console.cloud.google.com/logs/query;tab=x?project=sieve-example"] = true,
-    ["https://console.cloud.google.com/logs/query?pli=1&project=sieve-example"] = true,
+    ["https://console.cloud.google.com/logs/query;tab=x?project=sieve-example"] = "Profile 1",
+    ["https://console.cloud.google.com/logs/query?pli=1&project=sieve-example"] = "Profile 1",
     ["https://console.cloud.google.com/logs/query?project=personal-example"] = "native",
-    ["https://app.rippling.com/dashboard"] = true,
+    ["https://app.rippling.com/dashboard"] = "Profile 1",
     ["https://ats.rippling.com/example/jobs"] = "native",
-    ["https://app.ashbyhq.com/interview-briefings/1"] = true,
-    ["https://you.ashbyhq.com/meeting/1/"] = true,
+    ["https://app.ashbyhq.com/interview-briefings/1"] = "Profile 1",
+    ["https://you.ashbyhq.com/meeting/1/"] = "Profile 1",
     ["https://jobs.ashbyhq.com/example"] = "native",
-    ["https://console.runpod.io/pods"] = true,
+    ["https://console.runpod.io/pods"] = "Profile 1",
     ["https://www.runpod.io/"] = "native",
   }) do
     local state = browser()
-    assert(state.route(url) == expected and #state.tasks == (expected == true and 1 or 0))
-    assert(expected == "native" or state.tasks[1].arguments[5] == "--profile-directory=Profile 1")
+    if directory == "native" then
+      assert(state.route(url) == "native" and #state.tasks == 0)
+    else
+      assert(state.route(url) == true and #state.tasks == 1)
+      assert(state.tasks[1].arguments[5] == "--profile-directory=" .. directory)
+    end
   end
 end)
 test("Notion links open in their workspace's browser profile", function()

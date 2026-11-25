@@ -10,6 +10,8 @@ local workspace = notion.workspace({ lookup = true }) -- `lookup` resolves page-
 local notionLinks = router.by(workspace, { ["sieve-data"] = work }, personal)
 
 return router.install({
+  { pattern = "^https://github%.com/[Pp]andoks/", open = personal },
+
   { host = "sieve.ai", open = work },
   { host = "sievedata.com", open = work },
   { host = "sieve.ghost.io", open = work },
