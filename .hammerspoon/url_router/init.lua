@@ -26,7 +26,7 @@ return router.install({
   { pattern = "^https://console%.cloud%.google%.com/[^#]*[?&]project=sieve%-", open = work },
 
   { host = "ramp.com", open = work },
-  { host = "rippling.com", open = work },
+  { host = "app.rippling.com", open = work },
   { host = "app.ashbyhq.com", open = work },
   { host = "you.ashbyhq.com", open = work },
   { host = "console.runpod.io", open = work },

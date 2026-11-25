@@ -68,8 +68,8 @@ local function directory(profile)
   local file, _, code = io.open(path, "r")
   if not file then
     states[path] = nil
-    -- A browser that has never run has no Local State, so no profiles
-    return nil, code ~= 2 and "could not read Local State of " .. profile.bundleID or nil
+    local browserNeverRan = code == 2
+    return nil, not browserNeverRan and "could not read Local State of " .. profile.bundleID or nil
   end
   local decoded, state = pcall(hs.json.decode, file:read("a"))
   file:close()

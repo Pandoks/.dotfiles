@@ -344,6 +344,7 @@ test("Sieve's links launch Work and lookalikes stay native", function()
     ["https://console.cloud.google.com/logs/query?pli=1&project=sieve-example"] = true,
     ["https://console.cloud.google.com/logs/query?project=personal-example"] = "native",
     ["https://app.rippling.com/dashboard"] = true,
+    ["https://ats.rippling.com/example/jobs"] = "native",
     ["https://app.ashbyhq.com/interview-briefings/1"] = true,
     ["https://you.ashbyhq.com/meeting/1/"] = true,
     ["https://jobs.ashbyhq.com/example"] = "native",
