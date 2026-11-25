@@ -41,8 +41,8 @@ static BOOL check(Class class, NSString *name, const char *type, NSError **error
 }
 
 BOOL URLRouterCheckABI(NSError **error) {
-  if (![@[@"25G83", @"26A434"] containsObject:URLRouterBuild()])
-    return failure(error, @"This interception build is validated only for macOS 26.6.2 (25G83) and 27.0.1 (26A434)");
+  if (![@[@"25G83", @"26A434", @"26B131"] containsObject:URLRouterBuild()])
+    return failure(error, @"This interception build is validated only for macOS 26.6.2 (25G83), 27.0.1 (26A434) and 27.2.1 (26B131)");
   if (!dlopen("/System/Library/PrivateFrameworks/SharedWebCredentials.framework/SharedWebCredentials", RTLD_NOW)
       || !dlopen("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/LaunchServices", RTLD_NOW))
     return failure(error, @"Could not load SharedWebCredentials and LaunchServices");
