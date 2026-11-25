@@ -88,7 +88,7 @@ local function fakeDesktop(windowSpecs)
         return spec.title or ""
       end,
       isStandard = function()
-        return spec.standard ~= false and spec.subrole ~= "AXFloatingWindow"
+        return spec.standard ~= false
       end,
       isMinimized = function()
         return spec.minimized == true
@@ -124,7 +124,7 @@ local function fakeDesktop(windowSpecs)
     return {
       id = entry.spec.id,
       pid = entry.spec.pid or entry.spec.id * 10,
-      standard = entry.spec.standard ~= false and entry.spec.subrole ~= "AXFloatingWindow",
+      standard = entry.spec.standard ~= false,
       title = entry.spec.title or "",
       minimized = entry.spec.minimized == true,
     }
@@ -157,9 +157,6 @@ local function fakeDesktop(windowSpecs)
     end,
     new = function(predicate)
       filterPredicate = predicate
-      for _, entry in ipairs(desktop.windows) do
-        matches(entry)
-      end
       return {
         subscribe = function(_, events, callback)
           for _, event in ipairs(type(events) == "table" and events or { events }) do
@@ -176,9 +173,7 @@ local function fakeDesktop(windowSpecs)
           end
           return matching
         end,
-        delete = function()
-          allowedById = {}
-        end,
+        delete = function() end,
       }
     end,
   }
@@ -1112,33 +1107,33 @@ test("float fails fast and changes nothing when the focused window cannot be til
   assertEqual(desktop:frame(1), "0,0 1000x600")
 
   for _, case in ipairs({
-    { label = "no focused window", id = nil, err = "Tiling: no focused window" },
-    { label = "untracked window", id = 2, err = "Tiling: focused window is not tracked" },
-    { label = "nonstandard window", id = 3, err = "Tiling: focused window cannot be tiled" },
+    { label = "no focused window", id = nil, error = "Tiling: no focused window" },
+    { label = "untracked window", id = 2, error = "Tiling: focused window is not tracked" },
+    { label = "nonstandard window", id = 3, error = "Tiling: focused window cannot be tiled" },
     {
       label = "fullscreen non-allowlisted window",
       id = 4,
-      err = "Tiling: focused window cannot be tiled",
+      error = "Tiling: focused window cannot be tiled",
     },
     {
       label = "fullscreen allowlisted window",
       id = 5,
-      err = "Tiling: focused window cannot be tiled",
+      error = "Tiling: focused window cannot be tiled",
     },
-    { label = "allowlisted PiP window", id = 6, err = "Tiling: focused window cannot be tiled" },
+    { label = "allowlisted PiP window", id = 6, error = "Tiling: focused window cannot be tiled" },
     {
       label = "non-allowlisted PiP window",
       id = 7,
-      err = "Tiling: focused window cannot be tiled",
+      error = "Tiling: focused window cannot be tiled",
     },
-    { label = "minimized window", id = 8, err = "Tiling: focused window cannot be tiled" },
+    { label = "minimized window", id = 8, error = "Tiling: focused window cannot be tiled" },
   }) do
     local logsBefore = #desktop.logs
     local framesBefore = desktop.counts.frame
     desktop.focusedId = case.id
     desktop.tiling.float()
     assertEqual(#desktop.logs, logsBefore + 1, case.label .. " logs an error")
-    assertEqual(desktop.logs[#desktop.logs], case.err, case.label .. " logs the expected error")
+    assertEqual(desktop.logs[#desktop.logs], case.error, case.label .. " logs the expected error")
     assertEqual(desktop.counts.frame, framesBefore, case.label .. " moves nothing")
     assertEqual(desktop:frame(1), "0,0 1000x600", case.label .. " leaves tiled layout intact")
   end
