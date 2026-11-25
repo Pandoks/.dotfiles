@@ -11,11 +11,13 @@ local notionLinks = router.by(workspace, { ["sieve-data"] = work }, personal)
 
 return router.install({
   { host = "sieve.ai", open = work },
+  { host = "sievedata.com", open = work },
   { host = "sieve.ghost.io", open = work },
   { host = "sieve.atlasgo.cloud", open = work },
   { host = "sieve-data.notion.site", open = work },
   { host = "sievehq.slack.com", open = work },
-  { pattern = "[=@]sievedata%.com", open = work },
+  { pattern = "[?&]hd=sievedata%.com", open = work },
+  { pattern = "@sievedata%.com", open = work },
   { pattern = "%%40sievedata%.com", open = work },
   { pattern = "^https://github%.com/sieve%-data/", open = work },
   { pattern = "^https://github%.com/orgs/sieve%-data/", open = work },
@@ -23,7 +25,6 @@ return router.install({
   { pattern = "^https://vercel%.com/sieve/", open = work },
   { pattern = "^https://console%.cloud%.google%.com/[^#]*[?&]project=sieve%-", open = work },
 
-  -- Services only ever signed in to with the work account.
   { host = "ramp.com", open = work },
   { host = "rippling.com", open = work },
   { host = "app.ashbyhq.com", open = work },
