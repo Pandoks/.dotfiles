@@ -309,6 +309,20 @@ test("lookalikes and embedded Ramp URLs remain native", function()
     assert(#state.tasks == 0 and state.reads == 0)
   end
 end)
+test("only the sieve-data organization's GitHub links launch Work", function()
+  for url, expected in pairs({
+    ["https://github.com/sieve-data/tofu/pull/483"] = true,
+    ["https://github.com/sieve-data/"] = true,
+    ["https://github.com/Pandoks/.dotfiles"] = "native",
+    ["https://github.com/sieve-database/tofu"] = "native",
+    ["https://github.com/Pandoks/sieve-data/"] = "native",
+    ["https://example.test/?next=https://github.com/sieve-data/tofu"] = "native",
+  }) do
+    local state = browser()
+    assert(state.route(url) == expected and #state.tasks == (expected == true and 1 or 0))
+    assert(expected == "native" or state.tasks[1].arguments[5] == "--profile-directory=Profile 1")
+  end
+end)
 test("Notion links open in their workspace's browser profile", function()
   for url, directory in pairs({
     ["https://app.notion.com/p/sieve-data/document"] = "Profile 1",
