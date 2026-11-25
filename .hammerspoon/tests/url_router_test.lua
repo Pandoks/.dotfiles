@@ -313,8 +313,10 @@ test("only the sieve-data organization's GitHub links launch Work", function()
   for url, expected in pairs({
     ["https://github.com/sieve-data/tofu/pull/483"] = true,
     ["https://github.com/sieve-data/"] = true,
+    ["https://github.com/orgs/sieve-data/projects/1"] = true,
     ["https://github.com/Pandoks/.dotfiles"] = "native",
     ["https://github.com/sieve-database/tofu"] = "native",
+    ["https://github.com/orgs/Pandoks/projects/1"] = "native",
     ["https://github.com/Pandoks/sieve-data/"] = "native",
     ["https://example.test/?next=https://github.com/sieve-data/tofu"] = "native",
   }) do
