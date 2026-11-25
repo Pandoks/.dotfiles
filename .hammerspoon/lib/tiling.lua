@@ -199,38 +199,26 @@ local function remove(id)
 end
 
 ---@param window hs.window
----@param appsByPid? table<integer, { allowlisted?: boolean, hidden: boolean }>
----@return integer? id, integer? pid
-local function manageable(window, appsByPid)
-  local id = window:id() --[[@as integer?]]
-  local app = (id and filter.applicationOf(id)) or window:application()
-  if not id or not app then
+---@param id integer
+---@param hiddenByPid? table<integer, boolean>
+---@return integer? pid
+local function manageable(window, id, hiddenByPid)
+  if overrides[id] == false then
     return nil
   end
-  local override = overrides[id]
-  if override == false then
+  local app = filter.applicationOf(id) or window:application()
+  if not app then
     return nil
   end
   local pid = app:pid() --[[@as integer]]
-  local cached = appsByPid and appsByPid[pid]
-  if not cached then
-    cached = { hidden = app:isHidden() }
-    if appsByPid then
-      appsByPid[pid] = cached
+  local hidden = hiddenByPid and hiddenByPid[pid]
+  if hidden == nil then
+    hidden = app:isHidden()
+    if hiddenByPid then
+      hiddenByPid[pid] = hidden
     end
   end
-  if cached.hidden then
-    return nil
-  end
-  local allowed = override
-  if allowed == nil then
-    if cached.allowlisted == nil then
-      local name = app:name()
-      cached.allowlisted = name ~= nil and apps[name] == true
-    end
-    allowed = cached.allowlisted
-  end
-  if not allowed or not window:isStandard() or window:isMinimized() or window:isFullScreen() then
+  if hidden or not window:isStandard() or window:isMinimized() or window:isFullScreen() then
     return nil
   end
   local pip = isPiP(window:title())
@@ -238,7 +226,7 @@ local function manageable(window, appsByPid)
   if pip then
     return nil
   end
-  return id, pid
+  return pid
 end
 
 ---@param mouseReleased? boolean
@@ -253,12 +241,21 @@ local function sync(mouseReleased)
   end
   resyncOnRelease = false
   unplaced = false
-  local changedSpaces, stillManaged, ids, pids, appsByPid = {}, {}, {}, {}, {}
+  local changedSpaces, stillManaged, admitted, ids, pids, hiddenByPid = {}, {}, {}, {}, {}, {}
   for _, window in ipairs(tiling.windows:getWindows()) do
-    local id, pid = manageable(window, appsByPid)
-    if id and pid then
-      ids[#ids + 1] = id
-      pids[#pids + 1] = pid
+    local id = window:id() --[[@as integer?]]
+    if id then
+      admitted[id] = true
+      local pid = manageable(window, id, hiddenByPid)
+      if pid then
+        ids[#ids + 1] = id
+        pids[#pids + 1] = pid
+      end
+    end
+  end
+  for id in pairs(overrides) do
+    if not admitted[id] then
+      overrides[id] = nil
     end
   end
   -- Most recent first; insertion order sets the layout.
@@ -610,8 +607,7 @@ function tiling.float()
     return
   end
   if
-    app:isHidden()
-    or not window:isStandard()
+    not window:isStandard()
     or window:isMinimized()
     or window:isFullScreen()
     or isPiP(window:title())
@@ -619,31 +615,18 @@ function tiling.float()
     logger.error("Tiling: focused window cannot be tiled")
     return
   end
-  local name = app:name()
-  local defaultTiled = name ~= nil and apps[name] == true
+  local allowlisted = apps[app:name()] == true
   local previous = overrides[id]
-  local currentlyTiled = defaultTiled
-  if previous ~= nil then
-    currentlyTiled = previous
-  end
-  local nextTiled = not currentlyTiled
-  if nextTiled == defaultTiled then
-    overrides[id] = nil
+  if previous == nil or previous == allowlisted then
+    overrides[id] = not allowlisted
   else
-    overrides[id] = nextTiled
-  end
-  local admitted = tiling.windows:getWindow(id, app:pid() --[[@as integer]])
-  if (nextTiled or defaultTiled) and not admitted then
-    overrides[id] = previous
-    logger.error("Tiling: focused window cannot be tiled")
-    return
+    overrides[id] = nil
   end
   sync()
 end
 
 tiling.windows = filter.new(function(window, app, state)
-  local id = state and state.id or window:id()
-  if id and overrides[id] == true then
+  if overrides[state.id] == true then
     return true
   end
   app = app or window:application()
@@ -676,7 +659,7 @@ local dragged = {} ---@type table<integer, hs.window>
 tiling.windows:subscribe(filter.windowMoved, function(window, _, _, id)
   local entry = tiled[id]
   -- Stopped qualifying (e.g. entered fullscreen): leave the tree, don't snap back.
-  if entry and not manageable(window) then
+  if entry and not manageable(window, id) then
     sync()
     return
   end
@@ -846,16 +829,12 @@ end
 function tiling.status()
   local statusById = {}
   for id, entry in pairs(tiled) do
-    statusById[id] = {
-      space = entry.space,
-      zoom = entry.leaf.zoom,
-      override = overrides[id] == true and "tile" or overrides[id] == false and "float" or nil,
-    }
+    statusById[id] = { space = entry.space, zoom = entry.leaf.zoom }
   end
   for id, override in pairs(overrides) do
-    if not statusById[id] then
-      statusById[id] = { override = override and "tile" or "float" }
-    end
+    local entry = statusById[id] or {}
+    entry.override = override and "tile" or "float"
+    statusById[id] = entry
   end
   return statusById
 end

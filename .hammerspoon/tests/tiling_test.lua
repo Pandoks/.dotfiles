@@ -88,7 +88,7 @@ local function fakeDesktop(windowSpecs)
         return spec.title or ""
       end,
       isStandard = function()
-        return spec.standard ~= false
+        return spec.standard ~= false and spec.subrole ~= "AXFloatingWindow"
       end,
       isMinimized = function()
         return spec.minimized == true
@@ -119,26 +119,22 @@ local function fakeDesktop(windowSpecs)
     desktop:add(spec)
   end
   local filterPredicate
-  local filterDeleted = false
   local allowedById = {}
   local function windowState(entry)
     return {
       id = entry.spec.id,
       pid = entry.spec.pid or entry.spec.id * 10,
-      standard = entry.spec.standard ~= false,
+      standard = entry.spec.standard ~= false and entry.spec.subrole ~= "AXFloatingWindow",
       title = entry.spec.title or "",
       minimized = entry.spec.minimized == true,
     }
   end
   local function matches(entry, window)
-    if filterDeleted or entry.spec.tracked == false then
+    if entry.spec.tracked == false then
       return false
     end
-    local allowed = entry.spec.eligible ~= false
-      and (
-        not filterPredicate
-        or filterPredicate(window or entry.window, entry.app, windowState(entry)) == true
-      )
+    local allowed = entry.spec.subrole ~= "AXFloatingWindow"
+      and filterPredicate(window or entry.window, entry.app, windowState(entry)) == true
     allowedById[entry.spec.id] = allowed
     return allowed
   end
@@ -172,9 +168,6 @@ local function fakeDesktop(windowSpecs)
         end,
         getWindows = function()
           desktop.counts.getWindows = desktop.counts.getWindows + 1
-          if filterDeleted then
-            return {}
-          end
           local matching = {}
           for _, entry in ipairs(desktop.windows) do
             if matches(entry) then
@@ -183,25 +176,7 @@ local function fakeDesktop(windowSpecs)
           end
           return matching
         end,
-        getWindow = function(_, id, pid)
-          if filterDeleted then
-            return nil
-          end
-          for _, entry in ipairs(desktop.windows) do
-            if
-              entry.spec.id == id
-              and (entry.spec.pid or id * 10) == pid
-              and entry.spec.tracked ~= false
-            then
-              if matches(entry) then
-                return entry.window
-              end
-              return nil
-            end
-          end
-        end,
         delete = function()
-          filterDeleted = true
           allowedById = {}
         end,
       }
@@ -369,7 +344,7 @@ local function fakeDesktop(windowSpecs)
   })
   function desktop:event(name, id)
     local callback = self.subscribers[name]
-    if not callback or filterDeleted then
+    if not callback then
       return
     end
     if name == "destroyed" then
@@ -866,7 +841,7 @@ test("sync memoizes per-PID app queries", function()
   desktop:add({ id = 4, app = "Ghostty", pid = 999 })
   desktop:event("created", 4)
   assertEqual(desktop.counts.appHidden, 1, "app:isHidden memoized per PID during sync")
-  assertEqual(desktop.counts.appName, 6, "app:name called once in manageable plus predicate calls")
+  assertEqual(desktop.counts.appName, 5, "app:name called only in predicate")
 end)
 
 test("spaceWatcher skips AX window scan unless a tiled window moved Spaces or displays", function()
@@ -1020,84 +995,148 @@ test(
   end
 )
 
-test(
-  "closing an opted-in window reclaims its Space and forgets the override, including while dragging",
-  function()
-    local desktop = fakeDesktop({
-      { id = 1, app = "Ghostty" },
-      { id = 2, app = "Finder" },
-      { id = 3, app = "Finder" },
-    })
-    desktop.focusedId = 2
-    desktop.tiling.float()
-    assertEqual(desktop:frame(2), "500,0 500x600")
-    desktop:remove(2)
-    assertEqual(desktop:frame(1), "0,0 1000x600", "closing an opted-in window frees its tile")
-    assertEqual(desktop.tiling.status()[2], nil, "override is forgotten on destroy")
+test("closing an overridden window forgets its override, including while dragging", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty" },
+    { id = 2, app = "Finder" },
+    { id = 3, app = "Finder" },
+    { id = 4, app = "Slack" },
+  })
+  assertEqual(desktop:frame(1), "0,0 500x600")
+  assertEqual(desktop:frame(4), "500,0 500x600")
 
-    desktop:add({ id = 2, app = "Finder" })
-    desktop:event("created", 2)
-    assertEqual(desktop:frame(2), "none", "reused window ID stays untiled after destroy")
+  desktop.focusedId = 4
+  desktop.tiling.float()
+  assertEqual(desktop:frame(1), "0,0 1000x600")
+  desktop:remove(4)
+  desktop:add({ id = 4, app = "Slack" })
+  desktop:event("created", 4)
+  assertEqual(desktop:frame(1), "0,0 500x600")
+  assertEqual(
+    desktop:frame(4),
+    "500,0 500x600",
+    "reused allowlisted ID tiles after floated destroy"
+  )
 
-    -- Toggling while held defers layout until release and keeps filter state synced.
-    desktop.mouseButtons = { true }
-    desktop.focusedId = 2
-    desktop.tiling.float()
-    assertEqual(desktop:frame(2), "none", "layout waits for mouse release")
-    desktop.releaseMouse()
-    desktop.mouseButtons = {}
-    assertEqual(desktop:frame(1), "0,0 500x600")
-    assertEqual(desktop:frame(2), "500,0 500x600", "mouse release tiles the opted-in window")
+  desktop.focusedId = 4
+  desktop.tiling.float()
+  assertEqual(desktop:frame(1), "0,0 1000x600")
+  desktop.mouseButtons = { true }
+  desktop:remove(4)
+  desktop:add({ id = 4, app = "Slack" })
+  desktop:event("created", 4)
+  desktop.releaseMouse()
+  desktop.mouseButtons = {}
+  assertEqual(
+    desktop:frame(4),
+    "500,0 500x600",
+    "reused allowlisted ID during mouse hold tiles on release"
+  )
+  desktop:remove(4)
+  assertEqual(desktop:frame(1), "0,0 1000x600")
 
-    desktop.mouseButtons = { true }
-    desktop.tiling.float()
-    desktop.tiling.float()
-    desktop.releaseMouse()
-    desktop.mouseButtons = {}
-    assertEqual(desktop:frame(2), "500,0 500x600", "double toggle while held keeps tiled state")
+  desktop.focusedId = 2
+  desktop.tiling.float()
+  assertEqual(desktop:frame(2), "500,0 500x600")
+  desktop:remove(2)
+  assertEqual(desktop:frame(1), "0,0 1000x600", "closing an opted-in window frees its tile")
+  assertEqual(desktop.tiling.status()[2], nil, "override is forgotten on destroy")
 
-    desktop.mouseButtons = { true }
-    desktop.tiling.float()
-    desktop.releaseMouse()
-    desktop.mouseButtons = {}
-    assertEqual(desktop:frame(1), "0,0 1000x600", "mouse release untiles after held toggle off")
-    assertEqual(desktop.tiling.status()[2], nil)
+  desktop:add({ id = 2, app = "Finder" })
+  desktop:event("created", 2)
+  assertEqual(desktop:frame(2), "none", "reused window ID stays untiled after destroy")
 
-    desktop.mouseButtons = { true }
-    desktop.focusedId = 3
-    desktop.tiling.float()
-    desktop:remove(3)
-    assertEqual(desktop.tiling.status()[3], nil, "destroy before mouse release forgets override")
-    desktop.releaseMouse()
-    desktop.mouseButtons = {}
-    assertEqual(desktop:frame(1), "0,0 1000x600")
-  end
-)
+  desktop.mouseButtons = { true }
+  desktop.focusedId = 2
+  desktop.tiling.float()
+  assertEqual(desktop:frame(2), "none", "layout waits for mouse release")
+  desktop.releaseMouse()
+  desktop.mouseButtons = {}
+  assertEqual(desktop:frame(1), "0,0 500x600")
+  assertEqual(desktop:frame(2), "500,0 500x600", "mouse release tiles the opted-in window")
+
+  desktop.mouseButtons = { true }
+  desktop.tiling.float()
+  desktop.tiling.float()
+  desktop.releaseMouse()
+  desktop.mouseButtons = {}
+  assertEqual(desktop:frame(2), "500,0 500x600", "double toggle while held keeps tiled state")
+
+  desktop.mouseButtons = { true }
+  desktop.tiling.float()
+  desktop.releaseMouse()
+  desktop.mouseButtons = {}
+  assertEqual(desktop:frame(1), "0,0 1000x600", "mouse release untiles after held toggle off")
+  assertEqual(desktop.tiling.status()[2], nil)
+
+  desktop.mouseButtons = { true }
+  desktop.focusedId = 3
+  desktop.tiling.float()
+  desktop:remove(3)
+  desktop.releaseMouse()
+  desktop.mouseButtons = {}
+  assertEqual(desktop:frame(1), "0,0 1000x600")
+  desktop:add({ id = 3, app = "Finder" })
+  desktop:event("created", 3)
+  assertEqual(desktop:frame(3), "none", "reused ID after held toggle and destroy stays untiled")
+  assertEqual(desktop.tiling.status()[3], nil, "release re-sync forgets override after destroy")
+end)
+
+test("sync drops stale overrides when the filter stops admitting a window", function()
+  local desktop = fakeDesktop({
+    { id = 1, app = "Ghostty" },
+    { id = 2, app = "Finder" },
+    { id = 3, app = "Slack" },
+  })
+  desktop.focusedId = 2
+  desktop.tiling.float()
+  assertEqual(desktop:frame(2), "500,300 500x300")
+
+  desktop:windowSpec(2).subrole = "AXFloatingWindow"
+  desktop:windowSpec(1).minimized = true
+  desktop:event("minimized", 1)
+  desktop:windowSpec(1).minimized = nil
+  desktop:event("unminimized", 1)
+  assertEqual(desktop:frame(3), "0,0 500x600")
+  assertEqual(desktop:frame(1), "500,0 500x600")
+  desktop:remove(2)
+  desktop:add({ id = 2, app = "Finder" })
+  desktop:event("created", 2)
+  assertEqual(desktop:frame(2), "none", "reused ID stays untiled after filter stops admitting it")
+
+  desktop.focusedId = 1
+  desktop.tiling.float()
+  assertEqual(desktop:frame(3), "0,0 1000x600")
+  desktop.tiling.manage({ "Slack" })
+  desktop:remove(1)
+  desktop:add({ id = 1, app = "Slack" })
+  desktop:event("created", 1)
+  assertEqual(desktop:frame(3), "0,0 500x600")
+  assertEqual(desktop:frame(1), "500,0 500x600", "reused ID tiles after app leaves allowlist")
+end)
 
 test("float fails fast and changes nothing when the focused window cannot be tiled", function()
   local desktop = fakeDesktop({
     { id = 1, app = "Ghostty" },
     { id = 2, app = "Raycast", tracked = false },
-    { id = 3, app = "Finder", eligible = false },
-    { id = 4, app = "Finder", standard = false },
-    { id = 5, app = "Finder", fullscreen = true },
-    { id = 6, app = "Ghostty", fullscreen = true },
-    { id = 7, app = "Helium", title = "Picture in Picture" },
-    { id = 8, app = "Safari", title = "Picture-in-Picture" },
-    { id = 9, app = "Finder", minimized = true },
+    { id = 3, app = "Finder", standard = false },
+    { id = 4, app = "Finder", fullscreen = true },
+    { id = 5, app = "Ghostty", fullscreen = true },
+    { id = 6, app = "Helium", title = "Picture in Picture" },
+    { id = 7, app = "Safari", title = "Picture-in-Picture" },
+    { id = 8, app = "Finder", minimized = true },
   })
   assertEqual(desktop:frame(1), "0,0 1000x600")
 
   for _, case in ipairs({
     { label = "no focused window", id = nil },
     { label = "untracked window", id = 2 },
-    { label = "ineligible window", id = 3 },
-    { label = "nonstandard window", id = 4 },
-    { label = "fullscreen non-allowlisted window", id = 5 },
-    { label = "fullscreen allowlisted window", id = 6 },
-    { label = "allowlisted PiP window", id = 7 },
-    { label = "non-allowlisted PiP window", id = 8 },
-    { label = "minimized window", id = 9 },
+    { label = "nonstandard window", id = 3 },
+    { label = "fullscreen non-allowlisted window", id = 4 },
+    { label = "fullscreen allowlisted window", id = 5 },
+    { label = "allowlisted PiP window", id = 6 },
+    { label = "non-allowlisted PiP window", id = 7 },
+    { label = "minimized window", id = 8 },
   }) do
     local logsBefore = #desktop.logs
     local framesBefore = desktop.counts.frame
@@ -1111,10 +1150,11 @@ test("float fails fast and changes nothing when the focused window cannot be til
     end
   end
 
-  -- Rejected float on a fullscreen allowlisted window must not float it after exit.
-  desktop:windowSpec(6).fullscreen = nil
-  desktop:event("unminimized", 6)
-  assertEqual(desktop:frame(6), "500,0 500x600", "allowlisted window still tiles once normal")
+  desktop:windowSpec(4).fullscreen = nil
+  desktop:windowSpec(5).fullscreen = nil
+  desktop:event("unminimized", 5)
+  assertEqual(desktop:frame(4), "none", "rejected non-allowlisted window stays untiled once normal")
+  assertEqual(desktop:frame(5), "500,0 500x600", "allowlisted window still tiles once normal")
 end)
 
 print("RESULT " .. passed .. " passed, 0 failed")
