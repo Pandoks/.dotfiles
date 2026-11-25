@@ -54,6 +54,7 @@ end
 
 ---@param profile ChromiumProfile
 ---@return string? directory
+---@return string? failure
 local function directory(profile)
   local path = os.getenv("HOME")
     .. "/Library/Application Support/"
@@ -64,26 +65,28 @@ local function directory(profile)
   if entry and entry.signature == stamp then
     return entry.profiles[profile.profile]
   end
-  local file = io.open(path, "r")
+  local file, _, code = io.open(path, "r")
   if not file then
     states[path] = nil
-    return nil
+    -- A browser that has never run has no Local State, so no profiles
+    return nil, code ~= 2 and "could not read Local State of " .. profile.bundleID or nil
   end
   local decoded, state = pcall(hs.json.decode, file:read("a"))
   file:close()
+  if not decoded or type(state) ~= "table" then
+    states[path] = nil
+    return nil, "could not decode Local State of " .. profile.bundleID
+  end
   local profiles = {}
-  local cache = decoded and type(state) == "table" and state.profile and state.profile.info_cache
-    or {}
+  local cache = state.profile and state.profile.info_cache or {}
   for name, info in pairs(cache) do
     if type(info) == "table" and type(info.name) == "string" then
       profiles[info.name] = name
     end
   end
-  if decoded and stamp then
+  if stamp then
     states[path] = { signature = stamp, profiles = profiles }
     watch(path)
-  elseif not decoded then
-    states[path] = nil
   end
   return profiles[profile.profile]
 end
@@ -98,9 +101,13 @@ function chromium.url(profile)
       return false
     end
 
-    -- Without the profile, the browser picks the window, as it does for an unrouted link
+    local name, failure = directory(profile)
+    if failure then
+      report("Chromium URL routing failed: " .. failure)
+      return false
+    end
+
     local arguments = { "-n", "-b", profile.bundleID, "--args", url }
-    local name = directory(profile)
     if name then
       table.insert(arguments, 5, "--profile-directory=" .. name)
     end

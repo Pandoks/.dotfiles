@@ -33,6 +33,9 @@ local function browser(options)
           end
           contents = "status"
         else
+          if settings.localStateCode then
+            return nil, "unavailable", settings.localStateCode
+          end
           state.reads = state.reads + 1
           contents = "browser"
         end
@@ -125,7 +128,7 @@ local function browser(options)
           elseif contents:match("^notion:") then
             local domain = contents:sub(8)
             return { spaceDomain = domain ~= "" and domain or nil }
-          elseif contents ~= "browser" then
+          elseif contents ~= "browser" or settings.corruptLocalState then
             error("invalid JSON")
           end
           return {
@@ -579,12 +582,20 @@ test("a missing browser fails without native fallback", function()
   assert(state.route("https://app.ramp.com/") == false and #state.logs == 1 and #state.tasks == 0)
 end)
 test("a missing profile opens the link in the browser without one", function()
-  local state = browser({ missingProfile = true })
-  assert(state.route("https://app.ramp.com/") == true and #state.logs == 0 and #state.tasks == 1)
-  assert(
-    table.concat(state.tasks[1].arguments, " ")
-      == "-n -b net.imput.helium --args https://app.ramp.com/"
-  )
+  for _, options in ipairs({ { missingProfile = true }, { localStateCode = 2 } }) do
+    local state = browser(options)
+    assert(state.route("https://app.ramp.com/") == true and #state.logs == 0 and #state.tasks == 1)
+    assert(
+      table.concat(state.tasks[1].arguments, " ")
+        == "-n -b net.imput.helium --args https://app.ramp.com/"
+    )
+  end
+end)
+test("an unreadable or corrupt profile list fails without opening the link", function()
+  for _, options in ipairs({ { localStateCode = 13 }, { corruptLocalState = true } }) do
+    local state = browser(options)
+    assert(state.route("https://app.ramp.com/") == false and #state.logs == 1 and #state.tasks == 0)
+  end
 end)
 test("direct Chromium actions retain their default failure reporter", function()
   local state = browser({ missingApp = true })

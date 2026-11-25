@@ -19,7 +19,8 @@ registered application order, excluding the helper and Hammerspoon. Missing
 Helium, process errors, and denied native launches fail explicitly with a log and
 popup. There is no second launch attempt after an actual dispatch failure. A rule
 naming a profile the browser doesn't have opens its link in the browser without
-one, so shared rules work on a Mac that lacks the profile.
+one, so shared rules work on a Mac that lacks the profile. A `Local State` that
+exists but can't be read or decoded still fails.
 
 The native hook uses private macOS APIs. Installation is guarded to the tested
 macOS 26.6.2 (25G83), 27.0.1 (26A434) and 27.2.1 (26B131), CSR mask `0x46`, and
