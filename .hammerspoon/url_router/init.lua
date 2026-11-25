@@ -13,6 +13,7 @@ return router.install({
   { host = "ramp.com", open = work },
   { pattern = "^https://github%.com/sieve%-data/", open = work },
   { pattern = "^https://github%.com/orgs/sieve%-data/", open = work },
+  { pattern = "^https://github%.com/[Pp]andoks/", open = personal },
   { host = "notion.so", open = notionLinks },
   { host = "notion.com", open = notionLinks },
 })
