@@ -33,6 +33,9 @@ local function browser(options)
           end
           contents = "status"
         else
+          if settings.localStateCode then
+            return nil, "unavailable", settings.localStateCode
+          end
           state.reads = state.reads + 1
           contents = "browser"
         end
@@ -125,7 +128,7 @@ local function browser(options)
           elseif contents:match("^notion:") then
             local domain = contents:sub(8)
             return { spaceDomain = domain ~= "" and domain or nil }
-          elseif contents ~= "browser" then
+          elseif contents ~= "browser" or settings.corruptLocalState then
             error("invalid JSON")
           end
           return {
@@ -309,7 +312,7 @@ test("lookalikes and embedded Ramp URLs remain native", function()
     assert(#state.tasks == 0 and state.reads == 0)
   end
 end)
-test("GitHub links launch Work for sieve-data and Personal for Pandoks", function()
+test("links launch Work for Sieve and Personal for Pandoks, and lookalikes stay native", function()
   for url, directory in pairs({
     ["https://github.com/sieve-data/tofu/pull/483"] = "Profile 1",
     ["https://github.com/sieve-data/"] = "Profile 1",
@@ -317,11 +320,40 @@ test("GitHub links launch Work for sieve-data and Personal for Pandoks", functio
     ["https://github.com/Pandoks/pandoks.com/pull/330"] = "Default",
     ["https://github.com/pandoks/.dotfiles"] = "Default",
     ["https://github.com/Pandoks/sieve-data/"] = "Default",
+    ["https://github.com/Pandoks/.dotfiles/commits?author=person@sievedata.com"] = "Default",
     ["https://github.com/Pandoks-fork/.dotfiles"] = "native",
     ["https://github.com/sieve-database/tofu"] = "native",
     ["https://github.com/orgs/Pandoks/projects/1"] = "native",
     ["https://example.test/?next=https://github.com/sieve-data/tofu"] = "native",
     ["https://example.test/?next=https://github.com/Pandoks/.dotfiles"] = "native",
+    ["https://sieve.ai/blog"] = "Profile 1",
+    ["https://sievedata.com/"] = "Profile 1",
+    ["https://sieve.ghost.io/ghost/"] = "Profile 1",
+    ["https://sieve.atlasgo.cloud/"] = "Profile 1",
+    ["https://sieve-data.notion.site/Page"] = "Profile 1",
+    ["https://sievehq.slack.com/archives/C1/p1"] = "Profile 1",
+    ["https://pandoks.slack.com/archives/C1/p1"] = "native",
+    ["https://meet.google.com/abc-defg-hij?authuser=person%40sievedata.com"] = "Profile 1",
+    ["https://meet.google.com/abc-defg-hij?authuser=person@sievedata.com"] = "Profile 1",
+    ["https://accounts.google.com/o/oauth2/auth?client_id=1&hd=sievedata.com"] = "Profile 1",
+    ["https://accounts.google.com/o/oauth2/auth?hd=notsievedata.com"] = "native",
+    ["https://www.google.com/search?q=sievedata.com"] = "native",
+    ["https://example.test/sievedata.com"] = "native",
+    ["https://meet.google.com/abc-defg-hij"] = "native",
+    ["https://linear.app/sieve/issue/SIE-1/title"] = "Profile 1",
+    ["https://linear.app/pandoks/issue/PAN-1/title"] = "native",
+    ["https://vercel.com/sieve/web"] = "Profile 1",
+    ["https://vercel.com/pandoks/sieve/"] = "native",
+    ["https://console.cloud.google.com/logs/query;tab=x?project=sieve-example"] = "Profile 1",
+    ["https://console.cloud.google.com/logs/query?pli=1&project=sieve-example"] = "Profile 1",
+    ["https://console.cloud.google.com/logs/query?project=personal-example"] = "native",
+    ["https://app.rippling.com/dashboard"] = "Profile 1",
+    ["https://ats.rippling.com/example/jobs"] = "native",
+    ["https://app.ashbyhq.com/interview-briefings/1"] = "Profile 1",
+    ["https://you.ashbyhq.com/meeting/1/"] = "Profile 1",
+    ["https://jobs.ashbyhq.com/example"] = "native",
+    ["https://console.runpod.io/pods"] = "Profile 1",
+    ["https://www.runpod.io/"] = "native",
   }) do
     local state = browser()
     if directory == "native" then
@@ -554,20 +586,34 @@ test("invalid HTTP URLs fail before any action", function()
   local state = browser()
   assert(state.route(nil) == false and #state.logs == 1)
 end)
-test("missing explicit browser or profile fails without native fallback", function()
-  for _, options in ipairs({ { missingApp = true }, { missingProfile = true } }) do
+test("a missing browser fails without native fallback", function()
+  local state = browser({ missingApp = true })
+  assert(state.route("https://app.ramp.com/") == false and #state.logs == 1 and #state.tasks == 0)
+end)
+test("a missing profile opens the link in the browser without one", function()
+  for _, options in ipairs({ { missingProfile = true }, { localStateCode = 2 } }) do
+    local state = browser(options)
+    assert(state.route("https://app.ramp.com/") == true and #state.logs == 0 and #state.tasks == 1)
+    assert(
+      table.concat(state.tasks[1].arguments, " ")
+        == "-n -b net.imput.helium --args https://app.ramp.com/"
+    )
+  end
+end)
+test("an unreadable or corrupt profile list fails without opening the link", function()
+  for _, options in ipairs({ { localStateCode = 13 }, { corruptLocalState = true } }) do
     local state = browser(options)
     assert(state.route("https://app.ramp.com/") == false and #state.logs == 1 and #state.tasks == 0)
   end
 end)
 test("direct Chromium actions retain their default failure reporter", function()
-  local state = browser({ missingProfile = true })
+  local state = browser({ missingApp = true })
   local open = state.environment.require("lib.window_adapters.chromium").url({
     bundleID = "net.imput.helium",
     profile = "Work",
   })
   assert(open("https://example.com/") == false and #state.logs == 1 and #state.tasks == 0)
-  assert(state.logs[1] == "Chromium URL routing failed: missing profile Work")
+  assert(state.logs[1] == "Could not resolve Chromium browser net.imput.helium")
 end)
 test("browser task creation and start failures are not retried", function()
   for _, options in ipairs({ { missingTask = true }, { startFailure = true } }) do
@@ -860,7 +906,7 @@ test("chromium.url caches Local State by stat signature and pathwatcher events",
   assert(state.pathwatchers and #state.pathwatchers == 1 and state.pathwatchers[1].started)
   state.pathwatchers[1].callback({ state.pathwatchers[1].dir .. "/Local State" })
   state.settings.missingProfile = true
-  assert(state.route("https://app.ramp.com/fourth") == false and state.reads == 3)
-  assert(#state.tasks == 4 and #state.logs == 1)
+  assert(state.route("https://app.ramp.com/fourth") == true and state.reads == 3)
+  assert(#state.tasks == 5 and #state.tasks[5].arguments == 5 and #state.logs == 0)
 end)
 print("RESULT " .. passed .. " passed, 0 failed")
