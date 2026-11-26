@@ -53,6 +53,8 @@ run = '''
 for cask in logi-options+ raycast; do
   brew list --cask "$cask" &>/dev/null || brew install --cask "$cask"
 done
+# browse updates itself to keep up with its Chrome Web Store extension
+test -x "$HOME/.local/bin/browse" || curl -fsSL https://opencode.ai/browse/install | bash -s -- --no-setup
 '''
 
 [bootstrap.hooks.final]
