@@ -193,7 +193,7 @@ sudo tailscale serve --service=svc:protonmail-bridge --tcp=1025 tcp://127.0.0.1:
 1. Set `management.secret-key` in `~/.cli-proxy-api/config.yaml` (never commit it) and restart `dev.mise.cli-proxy-api`.
 2. Add accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html` with **WebSockets** on for Codex.
 3. In Claude Code, run `/login` once and leave `ANTHROPIC_AUTH_TOKEN` unset.
-4. Put Console and AI Studio keys in the `keys` lists of `api-keys.claude` and `api-keys.gemini` in the same file (never commit them).
+4. Put Console and AI Studio keys in the `keys` lists of `api-keys.claude` and `api-keys.gemini` in the same file (never commit them). Give each Claude key `cloak: { mode: "never" }`, or Anthropic can reject a Claude Code request as out of credit, which benches the key for 30 minutes.
 
 Accounts and keys for a provider would otherwise share one pool. `prefix: "api"` on the key groups and `routing.force-model-prefix: true` split it by model name: `claude-opus-5-5` uses the accounts, `api/claude-opus-5-5` uses the keys.
 
