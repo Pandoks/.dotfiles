@@ -171,7 +171,6 @@ The `tag:hub` machine hosts five tailnet-only services via
 | Service              | Tailnet endpoint                           | Local target              |
 | -------------------- | ------------------------------------------ | ------------------------- |
 | [CLIProxyAPI]        | `https://cliproxyapi.<tailnet>.ts.net`     | `127.0.0.1:8317`          |
-| [CLIProxyAPI] (API)  | `https://cliproxyapi-api.<tailnet>.ts.net` | `127.0.0.1:8318`          |
 | [Beszel]             | `https://beszel.<tailnet>.ts.net`          | `127.0.0.1:8090`          |
 | [ARTEX]              | `https://artex.<tailnet>.ts.net`           | `127.0.0.1:8787`          |
 | [MCPHub]             | `https://mcphub.<tailnet>.ts.net`          | `127.0.0.1:3000`          |
@@ -181,7 +180,6 @@ The `tag:hub` machine hosts five tailnet-only services via
 sudo pacman -Syu  # Arch Linux only
 mise -E hub bootstrap --yes
 sudo tailscale serve --service=svc:cliproxyapi --https=443 http://127.0.0.1:8317
-sudo tailscale serve --service=svc:cliproxyapi-api --https=443 http://127.0.0.1:8318
 sudo tailscale serve --service=svc:beszel --https=443 http://127.0.0.1:8090
 sudo tailscale serve --service=svc:artex --https=443 http://127.0.0.1:8787
 sudo tailscale serve --service=svc:mcphub --https=443 http://127.0.0.1:3000
@@ -195,6 +193,9 @@ sudo tailscale serve --service=svc:protonmail-bridge --tcp=1025 tcp://127.0.0.1:
 1. Set `management.secret-key` in `~/.cli-proxy-api/config.yaml` (never commit it) and restart `dev.mise.cli-proxy-api`.
 2. Add accounts at `https://cliproxyapi.<tailnet>.ts.net/management.html` with **WebSockets** on for Codex.
 3. In Claude Code, run `/login` once and leave `ANTHROPIC_AUTH_TOKEN` unset.
+4. Put Console and AI Studio keys in the `keys` lists of `api-keys.claude` and `api-keys.gemini` in the same file (never commit them).
+
+Accounts and keys for a provider would otherwise share one pool. `prefix: "api"` on the key groups and `routing.force-model-prefix: true` split it by model name: `claude-opus-5-5` uses the accounts, `api/claude-opus-5-5` uses the keys.
 
 </details>
 
