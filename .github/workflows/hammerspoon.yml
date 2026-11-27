@@ -44,7 +44,8 @@ jobs:
           done
 
   dictation-server:
-    # server.py's tests stub the models; they need its locked MLX environment and a 26 MB tokenizer.
+    # Tests stub the models; server_test.py needs the locked MLX environment and a 26 MB tokenizer.
+    # transcribe_test.py needs ffmpeg, say, and afconvert, not the tokenizer.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -53,3 +54,5 @@ jobs:
       # models.py's other runtimes, which server_test.py doesn't import.
       - run: .hammerspoon/dictation/.venv/bin/python -c 'import mlx_audio.stt.utils, mlx_whisper'
       - run: .hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/server_test.py
+      - run: brew install ffmpeg
+      - run: .hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/transcribe_test.py

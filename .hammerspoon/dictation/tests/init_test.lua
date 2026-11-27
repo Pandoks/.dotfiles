@@ -5,10 +5,11 @@ local passed, alerts, notices, strokes, timers, changes, takeCount, serial =
   0, {}, {}, {}, {}, 0, 0, 0
 local toggle, escape, handlers, deliver, focus, frontmost, recorded, sent, ipcDead, began, vanished
 local settings, recording, loading
-local engines, unloads = {}, {}
-local tick, broken, unshowable, armed, shown, chained, unstartable
+local engines, unloads, services = {}, {}, {}
+local tick, broken, unshowable, armed, shown, chained, unstartable, serviceRefused
 local clipboard = { ["public.utf8-plain-text"] = "mine" }
 local transient = "org.nspasteboard.TransientType"
+local printed = {}
 local directory = scratch .. "/init-history"
 
 local function test(name, callback)
@@ -41,8 +42,10 @@ mine.apps =
   { ["com.x"] = { words = { "Zed", Neovim = "neo vim" } }, ["com.y"] = { style = "terse" } }
 mine.cleanup, mine.speech, mine.theme = false, { model = "mine" }, "flat"
 config.history.directory, config.minDuration, config.minLevel = directory, 0, 0
+local json = assert(package.loadlib(frameworks .. "/hs/libjson.dylib", "luaopen_hs_libjson"))()
 local hs = {
   fs = fs,
+  json = json,
   alert = {
     show = function(message)
       alerts[#alerts + 1] = message
@@ -144,6 +147,23 @@ local hs = {
   eventtap = {
     keyStroke = function(mods, key)
       strokes[#strokes + 1] = mods[1] .. "+" .. key
+    end,
+  },
+  task = {
+    new = function(path, exit, stream, args)
+      local service = { path = path, args = args, exit = exit, stream = stream }
+      function service:start()
+        self.started = not serviceRefused
+        return self.started
+      end
+      function service:isRunning()
+        return self.started and not self.terminated
+      end
+      function service:terminate()
+        self.terminated = true
+      end
+      services[#services + 1] = service
+      return service
     end,
   },
   shutdownCallback = function()
@@ -780,6 +800,10 @@ test("unloaded when idle, the backend reloads on a press; takes go whole at thei
   chained = false
   hs.shutdownCallback()
   assert(chained, "a shutdown with the backend unloaded raised")
+  assert(services[1].terminated, "the service was not terminated at shutdown")
+  alerts = {}
+  services[1].exit(15)
+  assert(#alerts == 0, "a service terminated at shutdown alerted: " .. tostring(alerts[1]))
   vanished, alerts = true, {}
   toggle()
   vanished = nil
@@ -839,7 +863,9 @@ local function reload(swapped)
   local main, cancel, shutdown = toggle, escape, hs.shutdownCallback
   import("init", {
     hs = hs,
-    print = function() end,
+    print = function(text)
+      printed[#printed + 1] = text
+    end,
     require = function(name)
       return swapped[name] or modules[name]
     end,
@@ -858,6 +884,7 @@ local function unprepared(problem)
 end
 
 test("an unsecured history folder, no ffmpeg, or no venv leaves a hotkey that says why", function()
+  local started = #services
   for _, case in ipairs({
     {
       "could not create /x owner-only",
@@ -877,6 +904,7 @@ test("an unsecured history folder, no ffmpeg, or no venv leaves a hotkey that sa
     hotkey()
     assert(alerts[1] == "Dictation: " .. problem, tostring(alerts[1]))
   end
+  assert(#services == started, "a service started while disabled")
 end)
 
 test(
@@ -953,6 +981,7 @@ end)
 
 test("a hotkey key hs.hotkey doesn't know stops the backend and says why", function()
   local stopped = false
+  local count = #services
   alerts = {}
   reload({
     ["dictation.defaults"] = import("defaults", {}),
@@ -969,6 +998,62 @@ test("a hotkey key hs.hotkey doesn't know stops the backend and says why", funct
     },
   })
   assert(stopped and tostring(alerts[1]):find("Invalid key: bogus", 1, true), tostring(alerts[1]))
+  assert(#services == count + 1 and services[#services].started, "no service without a hotkey")
+end)
+
+local function reloadWithoutBackend()
+  reload({
+    ["dictation.defaults"] = import("defaults", {}),
+    ["dictation.config"] = {},
+    ["dictation.history"] = { prepare = function() end },
+    ["dictation.engine"] = {
+      new = function()
+        return { stop = function() end }
+      end,
+    },
+  })
+  return services[#services]
+end
+
+test("a normal load starts the service with the venv, transcribe.py, config, and ffmpeg", function()
+  local service = services[1]
+  assert(service.path == root .. "/.venv/bin/python", tostring(service.path))
+  assert(#service.args == 3, tostring(#service.args))
+  assert(service.args[1] == root .. "/transcribe.py", tostring(service.args[1]))
+  local decoded = json.decode(service.args[2])
+  assert(decoded.cleanup == false and decoded.speech.model == "mine", tostring(service.args[2]))
+  assert(next(decoded.words.Slack) == nil, json.encode(decoded.words))
+  assert(decoded.words.Raycast[1] == "ray cast", json.encode(decoded.words))
+  assert(service.args[3] == "/usr/bin/ffmpeg", tostring(service.args[3]))
+  assert(service.started, "the service was not started")
+end)
+
+test("a service that exits nonzero is reported; a clean exit is not", function()
+  alerts = {}
+  local service = reloadWithoutBackend()
+  service.exit(0)
+  assert(#alerts == 0, "a clean exit alerted: " .. tostring(alerts[1]))
+  service.exit(3)
+  assert(alerts[1] == "Dictation: service exited (code 3)", tostring(alerts[1]))
+end)
+
+test("the service's output is printed with its prefix, from its stream and at exit", function()
+  local service = reloadWithoutBackend()
+  printed = {}
+  assert(service.stream(nil, "loaded\n", ""), "the output callback did not return true")
+  service.exit(0, "", "dictation service off: no ~/.config/dictation/token\n")
+  assert(printed[1] == "Dictation service: loaded", tostring(printed[1]))
+  assert(
+    printed[2] == "Dictation service: dictation service off: no ~/.config/dictation/token",
+    tostring(printed[2])
+  )
+end)
+
+test("a service that won't start says so", function()
+  alerts, serviceRefused = {}, true
+  reloadWithoutBackend()
+  serviceRefused = nil
+  assert(alerts[1] == "Dictation: could not start the service", tostring(alerts[1]))
 end)
 
 test("a backend that becomes ready arms the unload, none with unloadMinutes = false", function()

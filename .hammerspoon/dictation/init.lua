@@ -5,6 +5,7 @@ local logger = require("lib.logger")
 local recorder = require("dictation.recorder")
 local spaced = require("dictation.spacing")
 local toast = require("lib.toast")
+local directory = debug.getinfo(1, "S").source:match("^@(.*/)")
 
 ---@param message string
 local function fail(message)
@@ -461,6 +462,25 @@ if not dictation.hotkey then
 end
 dictation.cancel = hs.hotkey.new({}, "escape", finish)
 
+-- Loads nothing until a request, so it runs without a hotkey too.
+local service
+local function serviceOutput(_, stdout, stderr)
+  local text = (stdout or "") .. (stderr or "")
+  if text ~= "" then
+    pcall(print, "Dictation service: " .. text:gsub("\n$", ""))
+  end
+  return true
+end
+service = hs.task.new(directory .. ".venv/bin/python", function(code, stdout, stderr)
+  serviceOutput(nil, stdout, stderr)
+  if code ~= 0 and service then
+    fail(("service exited (code %d)"):format(code))
+  end
+end, serviceOutput, { directory .. "transcribe.py", hs.json.encode(config), recorder.ffmpeg })
+if not service:start() then
+  fail("could not start the service")
+end
+
 local shutdown = hs.shutdownCallback
 hs.shutdownCallback = function()
   if restore then
@@ -472,6 +492,10 @@ hs.shutdownCallback = function()
   if engine then
     engine:stop()
   end
+  if service and service:isRunning() then
+    service:terminate()
+  end
+  service = nil
   for id in pairs(wavs) do
     settle(id)
   end

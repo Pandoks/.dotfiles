@@ -73,6 +73,50 @@ own prompt, so `style` and per-app `style` apply only to a plain instruct model,
 `cleanup = { backend = "mlx-lm", model = "<repo>", revision = "<sha>" }` with no `adapter`; with an
 adapter they fail the load. A plain model types self-corrections as said.
 
+## File transcription service
+
+`transcribe.py` takes a Voice Memo (`.m4a` or `.qta`) and returns the transcript Option+Space
+would type for it, raw and cleaned, from the same models and config: the global `words` and
+`style` apply, per-app `apps` entries do not. Hammerspoon starts it with dictation. It listens
+on `127.0.0.1:8178` only; the tailnet reaches it at `https://dictation.<tailnet>.ts.net`, the
+Tailscale Service `svc:dictation` that both Macs host.
+
+Without a token it prints `dictation service off: no ~/.config/dictation/token` and exits. Create
+one, put the same file on the other Mac and give it to the client (never commit it), then reload
+Hammerspoon:
+
+```sh
+(umask 077 && mkdir -p ~/.config/dictation && openssl rand -hex 32 > ~/.config/dictation/token)
+```
+
+To enable it on the tailnet once, define `svc:dictation` with port `tcp:443` on the admin console's
+**Services** page and grant the client `svc:dictation` on port 443 in **Access controls**. Then on
+each Mac run the command below and approve the Mac under the Service's hosts:
+
+```sh
+sudo tailscale serve --service=svc:dictation --https=443 http://127.0.0.1:8178
+```
+
+```sh
+curl https://dictation.<tailnet>.ts.net/health
+# {"ok": true, "loaded": false}
+curl -H "Authorization: Bearer $(cat ~/.config/dictation/token)" -F file=@memo.m4a \
+  https://dictation.<tailnet>.ts.net/transcribe
+# {"text": "I opened Ghostty and Hammerspoon, then I pushed it to GitHub.", "raw": "I opened Ghostty and Hammerspoon, then um, I pushed it to GitHub.", "duration": 4.245125}
+```
+
+`loaded` says whether the models are loaded, and `duration` is the audio's length in seconds.
+Errors are `{"error": "<message>"}`: 401 for a missing or wrong token, 400 for a body without a
+`file` field, 411 for an upload without `Content-Length`, 415 for a name not ending in `.m4a` or
+`.qta`, a file without audio, or a spatial memo whose only audio is APAC (unsupported), 422 when
+ffprobe or ffmpeg can't read it, 503 when the models fail to load, and 500 when transcription fails
+before hearing anything. A cleanup that fails returns 200 with `text` and `raw` both what was heard,
+as a live take types it.
+
+It keeps its own copy of the models (about 4.2 GB), loaded by the first request and freed after
+`unloadMinutes` without one. It transcribes one file at a time, and a file transcribing during a
+live take shares the GPU with it.
+
 ## Limitations
 
 - Electron/Chromium and Gecko (Firefox) fields, terminals, Messages, and Mail get the text by ⌘V;
@@ -103,6 +147,7 @@ From the dotfiles checkout:
 
 ```sh
 .hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/server_test.py
+.hammerspoon/dictation/.venv/bin/python .hammerspoon/dictation/tests/transcribe_test.py  # needs ffmpeg, say, and afconvert on PATH
 sh .hammerspoon/dictation/tests/run.sh  # needs ffmpeg on PATH
 sh .hammerspoon/tests/stream_test.sh  # needs ffmpeg on PATH
 ```
