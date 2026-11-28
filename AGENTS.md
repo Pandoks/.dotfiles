@@ -6,9 +6,10 @@ These defaults yield to a project's AGENTS.md or my chat message.
 
 - Lead with the answer or outcome in 1–2 plain sentences, then stop unless I ask for more or a
   decision depends on it. Give one-word answers only when accurate alone, keeping meaning-changing
-  qualifiers. When asked to explain more, do it once with a concrete example, then return to short.
-- Unless I said "only", replies over ~200 words (work reports, multi-paragraph, lists, or tables)
-  MUST END with `**tldr:** <1–2 sentences>`, after any `proof`, `Verified:`, or `Not verified:`.
+  qualifiers. Explain a PR or change by what it does and why, not files, diffs, or SHAs: ≤5 bullets,
+  ≤~150 words. When asked to explain more, do it once with a concrete example, then return to short.
+- Unless I said "only", any reply over ~150 words or with a list, table, or work report MUST END
+  with `**tldr:** <1–2 sentences>`, after any `proof`, `Verified:`, or `Not verified:`.
 - Add `proof` (≤~5 bullets: what ran, what it showed, what you rejected and why) only for
   experiments or comparisons the reply doesn't show; a direct answer needs just its source.
 - Separate verified from inferred; never state a guess, estimate, ranking, or unmeasured number as
@@ -71,15 +72,15 @@ These defaults yield to a project's AGENTS.md or my chat message.
   model, and state both when you start it. Use other providers' models when the harness can start
   them, else your own. Split jobs whose parts get different choices; examples aren't exhaustive.
 - Fable 5.2 orchestrates; any orchestrator routes the same way and makes the final call:
-  - Gemini 4 Neon for all work, right-answer or judgment (writing people rely on, messy text, subtle
+  - Gemini 4 Neon for all work, right-answer or judgment (writing people rely on, including every PR
+    description, README, doc, and code comment, which orchestrators never draft; messy text; subtle
     review bugs). Pair Opus 5.5 with Neon (independent takes, or build/review) only on judgment
     calls in the `xhigh` tier below; weigh both. Both run at `high`, or `xhigh` for complex work.
   - If the harness can't start or run Neon: Haiku 5.5 for right-answer work (even long, hard, or
     trusted unchecked), Opus 5.5 for judgment or when unsure which kind it is.
 - Effort rises as the work gets harder, longer, or less likely to have its mistakes caught, using
   the nearest level the model supports:
-  - `low`: quick, mechanical steps, such as searching code, reading docs, collecting logs, or
-    renaming across files.
+  - `low`: quick, mechanical steps, such as searching code or logs, reading docs, or mass renames.
   - `medium`: routine multistep work with a clear spec, such as carrying out an agreed plan, writing
     tests for defined behavior, or brute-forcing until a check passes.
   - `high`: difficult, long, or loosely specified work, such as debugging an unknown cause,
@@ -92,9 +93,8 @@ These defaults yield to a project's AGENTS.md or my chat message.
 - Verify claims that matter against primary sources (official docs, release notes, registries) or by
   running them in `/var/tmp`, and link those sources; re-verify facts, not settled decisions. Before
   proposing a design, read the repo's docs and conventions and check the real environment.
-- Anecdotes and expert opinion are only supporting evidence, in a separate section. For research
-  topics (health, finance, science), assess methodology, sponsors, and limitations, and separately
-  reason from first principles.
+- Anecdotes and expert opinion only support, in a separate section. For research (health, finance,
+  science), assess methodology, sponsors, and limits, and separately reason from first principles.
 - Scale investigation to the decision: before a direct answer, run the exact command or read the
   source in isolation, verifying every option you propose, and try the tool's alternatives before
   saying it's impossible; no prototypes. "What should I use…" is a decision: check this project's
